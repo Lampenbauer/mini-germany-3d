@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "source": "none",
+    "comment": "Kein echter GTFS-Fahrplan hinterlegt – die App synthetisiert einen RSAG-ähnlichen Taktfahrplan. Mit `npm run data:gtfs` kann diese Datei aus echten GTFS-Daten erzeugt werden."
+  },
+  "lines": {}
+}
