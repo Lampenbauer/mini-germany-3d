@@ -20,6 +20,7 @@ declare global {
       setPaused: (paused: boolean) => void
       selectTram: (id: string | null) => void
       dataSource: string
+      lineIds: () => string[]
     }
   }
 }
@@ -61,18 +62,22 @@ test('lädt die App mit Karte und Control-Panel', async () => {
   await expect(page.getByText('Straßenbahnnetz der RSAG – Fahrplansimulation')).toBeVisible()
   await expect(page.locator('[data-testid=cesium-container] canvas')).toBeVisible()
   await expect(page.getByTestId('tileset-status')).toHaveText('Offline-Modus')
-  await expect(page.getByTestId('data-source')).toHaveText('Demo-Daten (approximiert)')
+  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  await expect(page.getByTestId('data-source')).toHaveText(
+    source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)',
+  )
 })
 
 test('zeigt die eingefrorene Simulationszeit 08:30', async () => {
   await expect(page.getByTestId('sim-clock')).toHaveText('08:30:00')
 })
 
-test('zeigt aktive Bahnen auf allen 5 Linien', async () => {
-  const lineIds = await page.evaluate(() => [
+test('zeigt aktive Bahnen auf allen Linien des Netzes', async () => {
+  const expected = await page.evaluate(() => window.__mrt!.lineIds())
+  const activeLineIds = await page.evaluate(() => [
     ...new Set(window.__mrt!.trams().map((t) => t.lineId)),
   ])
-  expect(lineIds.sort()).toEqual(['1', '2', '3', '5', '6'])
+  expect(activeLineIds.sort()).toEqual(expected.sort())
 
   await expect(page.getByTestId('tram-count')).toContainText(/\d+ Bahnen unterwegs/)
   const count = await page.evaluate(() => window.__mrt!.visibleTramCount())
@@ -105,7 +110,8 @@ test('Auswahl einer Bahn öffnet die Info-Karte', async () => {
 })
 
 test('nachts fahren keine Bahnen, morgens wieder', async () => {
-  await page.evaluate(() => window.__mrt!.setTime('03:00'))
+  // 02:30: sicher vor der ersten Abfahrt (real wie synthetisch)
+  await page.evaluate(() => window.__mrt!.setTime('02:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBe(0)
   await expect(page.getByTestId('tram-count')).toContainText('0 Bahnen unterwegs')
 

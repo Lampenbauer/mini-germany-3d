@@ -73,15 +73,20 @@ siehe `.github/workflows/ci.yml`.
 
 ### Was die App aktuell nutzt
 
-- **Routen & Haltestellen:** `src/data/network.json`. Der mitgelieferte Datensatz bildet
-  das reale RSAG-Liniennetz ab (Linie 1 Mecklenburger Allee ↔ Hafenallee, Linie 2
-  Reutershagen ↔ Kurt-Schumacher-Ring, Linie 3 Neuer Friedhof ↔ Kurt-Schumacher-Ring,
-  Linie 5 Mecklenburger Allee ↔ Südblick, Linie 6 Neuer Friedhof ↔ Campus Südstadt),
-  **die Geometrie ist jedoch handmodelliert/approximiert** – erkennbar am Badge
-  „Demo-Daten (approximiert)“ in der App.
-- **Fahrplan:** Ein synthetischer, RSAG-ähnlicher Takt (werktags ca. alle 10 Minuten,
-  Betrieb ~4:30–24:00 Uhr) aus `src/lib/timetable.ts`. Die Bahnen fahren also wie bei
-  mini-tokyo-3d **fahrplanbasiert**, nicht nach Echtzeitdaten.
+- **Routen & Haltestellen:** `src/data/network.json` enthält die **echten
+  OSM-Gleisgeometrien** aller sechs RSAG-Linien (1 Mecklenburger Allee ↔ Hafenallee,
+  2 Kurt-Schumacher-Ring ↔ Reutershagen, 3 Neuer Friedhof ↔ Dierkower Allee,
+  4 Campus Südstadt ↔ Dierkower Allee, 5 Mecklenburger Allee ↔ Südblick,
+  6 Campus Südstadt ↔ Neuer Friedhof) inklusive richtungsgetrennter Pfade und der
+  Linienfarben aus OSM – erkennbar am Badge „OSM-Geometrie“ in der App.
+  Ein approximierter Demo-Datensatz kann bei Bedarf mit
+  `node scripts/build-approx-network.mjs` wiederhergestellt werden.
+- **Fahrplan:** `src/data/schedule.json` enthält echte GTFS-Abfahrtszeiten je
+  Linie/Richtung (typischer Werktag). Für Linien/Richtungen ohne GTFS-Daten (z. B.
+  baustellenbedingt) greift automatisch ein synthetischer, RSAG-ähnlicher Takt aus
+  `src/lib/timetable.ts`. Die Fahrzeit zwischen den Halten wird aus der realen
+  Streckendistanz abgeleitet; die Bahnen fahren wie bei mini-tokyo-3d
+  **fahrplanbasiert**, nicht nach Echtzeitdaten.
 
 ### Echte Daten einspielen (empfohlen, benötigt freien Internetzugang)
 
