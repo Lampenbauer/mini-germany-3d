@@ -90,6 +90,12 @@ export class SimClock {
     this._paused = paused
   }
 
+  /** Zurück zur echten aktuellen Uhrzeit (Zeitraffer/Pause bleiben erhalten). */
+  resetToRealTime(): void {
+    this.anchorSim = Date.now()
+    this.anchorReal = Date.now()
+  }
+
   /** Springt zu einer Uhrzeit (Sekunden seit Mitternacht, Europe/Berlin) am selben Tag. */
   setSecondsOfDay(targetSec: number): void {
     const now = this.now()

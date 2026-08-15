@@ -47,6 +47,19 @@ VITE_CESIUM_ION_TOKEN=dein-token
 > einzuschränken. Für die Google-3D-Kacheln muss im ion-Konto der Zugriff auf
 > *Google Photorealistic 3D Tiles* (Asset 2275207) aktiviert sein.
 
+### Bedienung
+
+- **Simulationszeit:** Im Panel lässt sich die Uhrzeit direkt setzen (z. B. auf den
+  Berufsverkehr springen); „Jetzt“ stellt die echte Uhrzeit wieder her. Zeitraffer
+  1–120× und Pause wirken jederzeit.
+- **Bahn auswählen:** Klick auf einen Quader öffnet die Infokarte (Linie, Ziel,
+  nächster Halt). „Bahn folgen“ heftet die Kamera an die Bahn und fährt mit –
+  Orbit/Zoom mit der Maus bleiben dabei möglich; Klick auf leere Karte,
+  „Verfolgung beenden“ oder Kamera-Reset lösen die Verfolgung.
+- **Kamera-Sharing:** Die Kameraausrichtung wird alle 1,5 s im URL-Hash gespeichert
+  (`#lat=…&lon=…&height=…&heading=…&pitch=…`) und beim Laden wiederhergestellt –
+  Ansichten überleben einen Reload und lassen sich als Link teilen.
+
 ### Nützliche URL-Parameter
 
 | Parameter | Wirkung |
@@ -55,6 +68,7 @@ VITE_CESIUM_ION_TOKEN=dein-token
 | `?speed=60` | Zeitraffer-Startwert (1–600) |
 | `?time=08:30` | Simulationszeit setzen (Europe/Berlin) |
 | `?paused=1` | Simulation eingefroren starten |
+| `#lat=…&lon=…&height=…` | Gespeicherte Kameraausrichtung (wird automatisch gepflegt) |
 
 ## Tests
 

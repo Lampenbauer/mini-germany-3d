@@ -173,11 +173,13 @@ async function main() {
 
   // ---- stops.txt: Haltestellen im Rostocker Stadtgebiet --------------------
   const rostockStopCoords = new Map() // stop_id → [lon, lat]
+  const rostockStopNames = new Map() // stop_id → Name (für Diagnose)
   scanCsv(files['stops.txt'], (get) => {
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
     if (lon > BBOX.minLon && lon < BBOX.maxLon && lat > BBOX.minLat && lat < BBOX.maxLat) {
       rostockStopCoords.set(get('stop_id'), [lon, lat])
+      rostockStopNames.set(get('stop_id'), get('stop_name'))
     }
   })
   const stopsInRostock = rostockStopCoords
@@ -209,9 +211,9 @@ async function main() {
   })
   console.log(`${tripInfo.size} Kandidaten-Fahrten (${tripsWithDirectionId} mit direction_id)`)
 
-  // ---- stop_times.txt: erste Abfahrt, letzter Halt + Rostock-Bezug ---------
+  // ---- stop_times.txt: erste Abfahrt, erster/letzter Halt + Rostock-Bezug --
   console.log('Streame stop_times.txt … (größte Datei, bitte warten)')
-  const firstDeparture = new Map() // trip_id → {seq, dep}
+  const firstDeparture = new Map() // trip_id → {seq, dep, stopId}
   const lastStop = new Map() // trip_id → {seq, stopId}
   const tripTouchesRostock = new Set()
   let rows = 0
@@ -225,7 +227,7 @@ async function main() {
     const seq = Number(get('stop_sequence'))
     const cur = firstDeparture.get(tripId)
     if (!cur || seq < cur.seq) {
-      firstDeparture.set(tripId, { seq, dep: get('departure_time') })
+      firstDeparture.set(tripId, { seq, dep: get('departure_time'), stopId })
     }
     const last = lastStop.get(tripId)
     if (!last || seq > last.seq) {
@@ -327,35 +329,64 @@ async function main() {
 
   // ---- Richtungszuordnung: GTFS-Fahrt ↔ Netz-Richtung ----------------------
   // Ziel: jede Fahrt der Richtung 0 oder 1 aus network.json zuordnen.
-  // Primär über die Koordinate der Endhaltestelle (robust, auch bei
-  // Kurzfahrten), sekundär über trip_headsign. Falls der Feed eine
-  // direction_id führt, dient sie als globale Zuordnung mit Tausch-Heuristik.
+  //
+  // Primär über die FAHRTRICHTUNG entlang der Linien-Geometrie: Start- und
+  // Endhalt der Fahrt werden auf den Pfad der Richtung 0 projiziert – wächst
+  // die Distanz, fährt die Bahn in Richtung 0, sonst in Richtung 1. Das ist
+  // auch bei Kurzfahrten und Baustellen-Endpunkten korrekt (ein Vergleich mit
+  // dem nächstgelegenen Endterminus wäre es nicht: endet eine Fahrt
+  // baustellenbedingt in der Stadtmitte, liegt sie fast immer näher am
+  // "falschen" Terminus). Sekundär: trip_headsign.
   const dirTargets = {}
   try {
     const network = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
     for (const line of network.lines) {
       const d0 = line.directions[0]
       const d1 = line.directions[1]
-      const stopCoord = (dir) => {
-        const stopId = dir?.stops?.[dir.stops.length - 1]
-        return stopId ? network.stops[stopId]?.coord : undefined
+      const cum = [0]
+      for (let i = 1; i < d0.path.length; i++) {
+        const [lon1, lat1] = d0.path[i - 1]
+        const [lon2, lat2] = d0.path[i]
+        const cosLat = Math.cos((lat1 * Math.PI) / 180)
+        cum.push(
+          cum[i - 1] +
+            Math.hypot((lon2 - lon1) * cosLat * 111320, (lat2 - lat1) * 110540),
+        )
       }
       dirTargets[line.id] = {
         to0: normalizeName(d0.to),
         to1: normalizeName(d1?.to ?? d0.from),
-        term0: stopCoord(d0) ?? d0.path[d0.path.length - 1],
-        term1: stopCoord(d1) ?? d0.path[0],
+        path: d0.path,
+        cum,
       }
     }
   } catch {
     console.warn('⚠ network.json nicht lesbar – Richtungs-Heuristik eingeschränkt')
   }
 
-  const distMeters = ([lon1, lat1], [lon2, lat2]) => {
-    const cosLat = Math.cos((lat1 * Math.PI) / 180)
-    const dx = (lon2 - lon1) * cosLat * 111320
-    const dy = (lat2 - lat1) * 110540
-    return Math.hypot(dx, dy)
+  /** Distanz des nächstgelegenen Streckenpunkts entlang des Pfads (Meter). */
+  const projectOntoPath = (path, cum, [plon, plat]) => {
+    let best = Infinity
+    let bestAlong = 0
+    const cosLat = Math.cos((plat * Math.PI) / 180)
+    for (let i = 0; i < path.length - 1; i++) {
+      const [alon, alat] = path[i]
+      const [blon, blat] = path[i + 1]
+      const bx = (blon - alon) * cosLat
+      const by = blat - alat
+      const px = (plon - alon) * cosLat
+      const py = plat - alat
+      const lenSq = bx * bx + by * by
+      const t = lenSq > 0 ? Math.min(1, Math.max(0, (px * bx + py * by) / lenSq)) : 0
+      const dx = px - t * bx
+      const dy = py - t * by
+      const dSq = dx * dx + dy * dy
+      if (dSq < best) {
+        best = dSq
+        bestAlong = cum[i] + (cum[i + 1] - cum[i]) * t
+      }
+    }
+    return bestAlong
   }
 
   const nameMatches = (headsign, target) => {
@@ -363,26 +394,37 @@ async function main() {
     return headsign.includes(target) || target.includes(headsign)
   }
 
+  const classifyStats = {} // lineId → {path:0, headsign:0, skipped:0}
+
   /** Klassifiziert eine Fahrt als Richtung '0' | '1' | null (nicht eindeutig). */
   const classifyTrip = (tripId, info) => {
     const targets = dirTargets[info.lineId]
     if (!targets) return null
+    const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
 
-    // 1) Endhaltestellen-Koordinate vergleichen
-    const last = lastStop.get(tripId)
-    const lastCoord = last ? rostockStopCoords.get(last.stopId) : undefined
-    if (lastCoord && targets.term0 && targets.term1) {
-      const d0 = distMeters(lastCoord, targets.term0)
-      const d1 = distMeters(lastCoord, targets.term1)
-      if (Math.abs(d0 - d1) > 300) return d0 < d1 ? '0' : '1'
+    // 1) Fahrtrichtung entlang der Linien-Geometrie
+    const firstCoord = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
+    const lastCoord = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+    if (firstCoord && lastCoord && targets.path) {
+      const a = projectOntoPath(targets.path, targets.cum, firstCoord)
+      const b = projectOntoPath(targets.path, targets.cum, lastCoord)
+      // Mindestens ~400 m Strecke, damit die Richtung eindeutig ist
+      if (Math.abs(b - a) > 400) {
+        stats.path++
+        return b > a ? '0' : '1'
+      }
     }
 
     // 2) Headsign-Namen vergleichen
     const hs = normalizeName(info.headsign ?? '')
     const m0 = nameMatches(hs, targets.to0)
     const m1 = nameMatches(hs, targets.to1)
-    if (m0 !== m1) return m0 ? '0' : '1'
+    if (m0 !== m1) {
+      stats.headsign++
+      return m0 ? '0' : '1'
+    }
 
+    stats.skipped++
     return null
   }
 
@@ -437,6 +479,35 @@ async function main() {
   }
   if (unclassified > 0) {
     console.warn(`⚠ ${unclassified} Fahrten ohne eindeutige Richtung übersprungen`)
+  }
+
+  // Klassifikations-Übersicht (Detail-Diagnose mit GTFS_DEBUG=1)
+  for (const [lineId, stats] of Object.entries(classifyStats)) {
+    console.log(
+      `  Linie ${lineId}: ${stats.path}× per Fahrtrichtung, ${stats.headsign}× per Headsign, ${stats.skipped}× übersprungen`,
+    )
+  }
+  if (process.env.GTFS_DEBUG) {
+    const endpoints = {} // lineId → dir → Map<"von → nach", count>
+    for (const tripId of tripTouchesRostock) {
+      const info = tripInfo.get(tripId)
+      if (!activeServiceIds.has(info.serviceId)) continue
+      const direction = classifyTrip(tripId, info)
+      const from = rostockStopNames.get(firstDeparture.get(tripId)?.stopId) ?? '?'
+      const to = rostockStopNames.get(lastStop.get(tripId)?.stopId) ?? '?'
+      const key = `${from} → ${to}`
+      endpoints[info.lineId] ??= {}
+      const dirMap = (endpoints[info.lineId][direction ?? 'übersprungen'] ??= new Map())
+      dirMap.set(key, (dirMap.get(key) ?? 0) + 1)
+    }
+    for (const [lineId, dirs] of Object.entries(endpoints)) {
+      console.log(`  [DEBUG] Linie ${lineId}:`)
+      for (const [dir, dirMap] of Object.entries(dirs)) {
+        const top = [...dirMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+        console.log(`    Richtung ${dir}:`)
+        for (const [key, count] of top) console.log(`      ${count}× ${key}`)
+      }
+    }
   }
 
   const linesWithoutData = Object.keys(dirTargets).filter((id) => !lines[id])

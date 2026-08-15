@@ -10,6 +10,7 @@
 import {
   Cartesian2,
   Cartesian3,
+  Cartographic,
   ClassificationType,
   Color,
   ColorMaterialProperty,
@@ -18,11 +19,13 @@ import {
   DistanceDisplayCondition,
   Entity,
   GridImageryProvider,
+  HeadingPitchRange,
   HeadingPitchRoll,
   HeightReference,
   Ion,
   LabelStyle,
   Math as CesiumMath,
+  Matrix4,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Transforms,
@@ -60,6 +63,9 @@ export class CesiumMap {
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
+  private followId: string | null = null
+  private followOffset: HeadingPitchRange | null = null
+  private followGroundHeight = 0
 
   constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
     this.opts = opts
@@ -82,6 +88,9 @@ export class CesiumMap {
       selectionIndicator: false,
       msaaSamples: 4,
     })
+
+    // Debug-/Test-Zugriff auf den Viewer (z.B. für E2E-Tests)
+    ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
 
     const scene = this.viewer.scene
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
@@ -128,6 +137,11 @@ export class CesiumMap {
     try {
       const tileset = await createGooglePhotorealistic3DTileset()
       if (this.destroyed) return
+      // WICHTIG: Ohne enableCollision werden Entities mit HeightReference
+      // NICHT auf die 3D-Kacheln geklemmt – die Tram-Quader lägen dann ~40 m
+      // unter der photorealistischen Oberfläche (Geoid-Undulation) und wären
+      // unsichtbar; nur die tiefenunabhängigen Labels blieben sichtbar.
+      tileset.enableCollision = true
       this.viewer.scene.primitives.add(tileset)
       // Der Globus würde unter den photorealistischen Kacheln doppelt rendern
       this.viewer.scene.globe.show = false
@@ -289,14 +303,56 @@ export class CesiumMap {
       const hpr = new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0)
       record.orientation.setValue(Transforms.headingPitchRollQuaternion(position, hpr))
       record.entity.show = visibleLines.has(snap.lineId)
+
+      if (snap.id === this.followId) {
+        this.updateFollowCamera(snap.lon, snap.lat)
+      }
     }
 
     for (const [id, record] of this.trams) {
       if (!alive.has(id)) {
+        if (id === this.followId) this.setFollow(null)
         this.viewer.entities.remove(record.entity)
         this.trams.delete(id)
       }
     }
+  }
+
+  /** Aktuelle Kameraausrichtung (für die URL-Persistenz). */
+  getCameraView(): {
+    longitude: number
+    latitude: number
+    height: number
+    heading: number
+    pitch: number
+  } {
+    const camera = this.viewer.camera
+    const carto = camera.positionCartographic
+    return {
+      longitude: CesiumMath.toDegrees(carto.longitude),
+      latitude: CesiumMath.toDegrees(carto.latitude),
+      height: carto.height,
+      heading: CesiumMath.toDegrees(camera.heading),
+      pitch: CesiumMath.toDegrees(camera.pitch),
+    }
+  }
+
+  /** Kamera direkt auf eine Ansicht setzen (z.B. aus der URL wiederhergestellt). */
+  setView(view: {
+    longitude: number
+    latitude: number
+    height: number
+    heading: number
+    pitch: number
+  }): void {
+    this.viewer.camera.setView({
+      destination: Cartesian3.fromDegrees(view.longitude, view.latitude, view.height),
+      orientation: {
+        heading: CesiumMath.toRadians(view.heading),
+        pitch: CesiumMath.toRadians(view.pitch),
+        roll: 0,
+      },
+    })
   }
 
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
@@ -356,14 +412,68 @@ export class CesiumMap {
     }
   }
 
-  /** Kamera an eine Straßenbahn heften (null = lösen). */
+  /**
+   * Kamera an eine Straßenbahn heften (null = lösen).
+   *
+   * Bewusst NICHT über viewer.trackedEntity gelöst: Cesium bricht das
+   * Tracking ab, sobald die Bounding-Sphere eines Entities mit
+   * HeightReference nicht berechnet werden kann. Stattdessen führt
+   * updateFollowCamera() die Kamera pro Frame per camera.lookAt nach –
+   * Orbit und Zoom mit der Maus bleiben dabei möglich.
+   */
   setFollow(tramId: string | null): void {
+    this.followId = tramId
+    this.followOffset = null
     if (!tramId) {
-      this.viewer.trackedEntity = undefined
-      return
+      this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
     }
-    const record = this.trams.get(tramId)
-    this.viewer.trackedEntity = record?.entity
+  }
+
+  private updateFollowCamera(lon: number, lat: number): void {
+    const scene = this.viewer.scene
+    const camera = this.viewer.camera
+
+    // Bodenhöhe unter der Bahn ermitteln (klemmt die Kamera-Mitte auf die
+    // Google-3D-Kacheln); bei Fehlschlag letzten Wert behalten. Im
+    // Offline-Modus ist der Boden exakt das Ellipsoid (0 m) – Sampling würde
+    // dort nur Depth-Picking-Rauschen einbringen. Nur plausible Werte
+    // akzeptieren: Rostock liegt ellipsoidisch zwischen etwa 0 und 100 m.
+    if (!this.opts.offline && scene.sampleHeightSupported) {
+      try {
+        const record = this.followId ? this.trams.get(this.followId) : undefined
+        const height = scene.sampleHeight(
+          Cartographic.fromDegrees(lon, lat),
+          record ? [record.entity] : undefined,
+        )
+        if (height !== undefined && Number.isFinite(height) && height > -100 && height < 500) {
+          this.followGroundHeight = height
+        }
+      } catch {
+        // Höhe aktuell nicht ermittelbar – letzten bekannten Wert nutzen
+      }
+    }
+
+    const center = Cartesian3.fromDegrees(
+      lon,
+      lat,
+      this.followGroundHeight + config.tram.height + 2,
+    )
+
+    if (!this.followOffset) {
+      // Erster Frame: hinter/über der Bahn einschwenken
+      this.followOffset = new HeadingPitchRange(
+        camera.heading,
+        CesiumMath.toRadians(-32),
+        450,
+      )
+    } else {
+      // Nutzer-Orbit/-Zoom übernehmen: im lookAt-Referenzrahmen sind
+      // heading/pitch relativ und die Bahn liegt im Ursprung.
+      this.followOffset.heading = camera.heading
+      this.followOffset.pitch = camera.pitch
+      this.followOffset.range = Cartesian3.magnitude(camera.position)
+    }
+    camera.lookAt(center, this.followOffset)
   }
 
   hasTram(tramId: string): boolean {

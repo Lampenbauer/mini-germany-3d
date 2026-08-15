@@ -14,13 +14,27 @@ declare global {
       ready: boolean
       tramCount: () => number
       visibleTramCount: () => number
-      trams: () => { id: string; lineId: string; nextStopName: string }[]
+      trams: () => {
+        id: string
+        lineId: string
+        nextStopName: string
+        lat: number
+        lon: number
+      }[]
       setTime: (hhmm: string) => void
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
       selectTram: (id: string | null) => void
       dataSource: string
       lineIds: () => string[]
+      secondsOfDay: () => number
+      loopTicks: () => number
+      lastLoopError: () => string | null
+    }
+    __cesiumViewer?: {
+      camera: {
+        positionCartographic: { longitude: number; latitude: number; height: number }
+      }
     }
   }
 }
@@ -138,6 +152,111 @@ test('Zeitraffer bewegt die Bahnen', async () => {
       { timeout: 20_000 },
     )
     .toBe(true)
+})
+
+test('Uhrzeit lässt sich setzen und auf Echtzeit zurückstellen', async () => {
+  await page.getByLabel('Simulationszeit setzen').fill('08:00')
+  await expect(page.getByTestId('sim-clock')).toHaveText(/^08:00/)
+  await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Jetzt' }).click()
+  const diff = await page.evaluate(() => {
+    const fmt = new Intl.DateTimeFormat('de-DE', {
+      timeZone: 'Europe/Berlin',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    let h = 0
+    let m = 0
+    let s = 0
+    for (const part of fmt.formatToParts(Date.now())) {
+      if (part.type === 'hour') h = parseInt(part.value, 10) % 24
+      else if (part.type === 'minute') m = parseInt(part.value, 10)
+      else if (part.type === 'second') s = parseInt(part.value, 10)
+    }
+    const now = h * 3600 + m * 60 + s
+    const d = Math.abs(window.__mrt!.secondsOfDay() - now)
+    return Math.min(d, 86400 - d)
+  })
+  expect(diff).toBeLessThan(120)
+})
+
+test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
+  // Render-Loop muss laufen (Diagnose: lastLoopError zeigt ggf. die Ursache)
+  const ticksBefore = await page.evaluate(() => window.__mrt!.loopTicks())
+  await expect
+    .poll(
+      async () => {
+        const state = await page.evaluate(() => ({
+          ticks: window.__mrt!.loopTicks(),
+          error: window.__mrt!.lastLoopError(),
+        }))
+        expect(state.error, `Render-Loop-Fehler: ${state.error}`).toBeNull()
+        return state.ticks
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(ticksBefore)
+
+  const tram = await page.evaluate(() => window.__mrt!.trams()[0])
+  await page.evaluate((id) => window.__mrt!.selectTram(id), tram.id)
+  // force: Playwrights Actionability-Retry kann unter SwiftShader-Last auf dem
+  // Canvas landen und damit die Auswahl schließen (Klick auf leere Karte).
+  await page.getByRole('button', { name: 'Bahn folgen' }).click({ force: true })
+  await expect(page.getByRole('button', { name: 'Verfolgung beenden' })).toBeVisible()
+
+  // Kamera muss sich in die Nähe der (pausierten) Bahn bewegen.
+  // Großzügiges Timeout: Unter SwiftShader-Software-Rendering können einzelne
+  // Frames sekundenlang dauern, bis die Follow-Kamera greift.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const camera = window.__cesiumViewer!.camera.positionCartographic
+          const tramNow = window.__mrt!.trams()[0]
+          const camLat = (camera.latitude * 180) / Math.PI
+          const camLon = (camera.longitude * 180) / Math.PI
+          const dLat = (camLat - tramNow.lat) * 110540
+          const dLon =
+            (camLon - tramNow.lon) * 111320 * Math.cos((tramNow.lat * Math.PI) / 180)
+          return Math.hypot(dLat, dLon)
+        }),
+      { timeout: 45_000, intervals: [500, 1000] },
+    )
+    .toBeLessThan(1500)
+
+  await page.getByRole('button', { name: 'Verfolgung beenden' }).click({ force: true })
+  await page.getByRole('button', { name: 'Auswahl schließen' }).click({ force: true })
+  await expect(page.getByTestId('tram-card')).not.toBeVisible()
+})
+
+test('Kameraausrichtung wird im URL-Hash gespeichert und wiederhergestellt', async ({
+  browser,
+}) => {
+  // Hash wird spätestens alle 1500 ms aktualisiert
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
+    .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+$/)
+
+  // Ansicht aus einem Hash wiederherstellen (frische Seite)
+  const other = await browser.newPage()
+  await other.goto('/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=800&heading=90&pitch=-45')
+  await other.waitForFunction(() => window.__mrt?.ready === true)
+  const view = await other.evaluate(() => {
+    const camera = window.__cesiumViewer!.camera.positionCartographic
+    return {
+      lat: (camera.latitude * 180) / Math.PI,
+      lon: (camera.longitude * 180) / Math.PI,
+      height: camera.height,
+    }
+  })
+  expect(view.lat).toBeCloseTo(54.0901, 3)
+  expect(view.lon).toBeCloseTo(12.1405, 3)
+  expect(view.height).toBeGreaterThan(700)
+  expect(view.height).toBeLessThan(900)
+  await other.close()
 })
 
 test('Pause-Button und Kamera-Reset sind bedienbar', async () => {
