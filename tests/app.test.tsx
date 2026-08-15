@@ -10,6 +10,10 @@ vi.mock('@/map/CesiumMap', () => {
     addRoutes() {}
     addStops() {}
     setHomeView() {}
+    setView() {}
+    getCameraView() {
+      return { longitude: 12.13, latitude: 54.08, height: 3000, heading: 0, pitch: -38 }
+    }
     syncTrams() {}
     setRoutesVisible() {}
     setStopsVisible() {}
@@ -27,6 +31,7 @@ vi.mock('@/map/CesiumMap', () => {
 
 import App from '@/App'
 import { loadBundledNetwork } from '@/data/network'
+import { berlinSecondsOfDay } from '@/lib/clock'
 
 afterEach(() => {
   cleanup()
@@ -79,6 +84,19 @@ describe('App (UI-Shell)', () => {
     expect(window.__mrt).toBeDefined()
     expect(window.__mrt!.ready).toBe(true)
     expect(typeof window.__mrt!.tramCount()).toBe('number')
+  })
+
+  it('setzt die Simulationszeit über das Zeit-Eingabefeld und stellt Echtzeit wieder her', () => {
+    render(<App />)
+    const input = screen.getByLabelText('Simulationszeit setzen')
+    fireEvent.change(input, { target: { value: '08:00' } })
+    expect(window.__mrt!.secondsOfDay()).toBeGreaterThanOrEqual(8 * 3600)
+    expect(window.__mrt!.secondsOfDay()).toBeLessThan(8 * 3600 + 5)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Jetzt' }))
+    const realNow = berlinSecondsOfDay(Date.now())
+    const diff = Math.abs(window.__mrt!.secondsOfDay() - realNow)
+    expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
   })
 
   it('zeigt Ebenen-Schalter für Routen und Haltestellen', () => {

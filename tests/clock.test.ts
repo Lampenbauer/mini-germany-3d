@@ -76,4 +76,17 @@ describe('SimClock', () => {
     clock.setSpeed(120)
     expect(Math.abs(clock.now() - before)).toBeLessThan(2)
   })
+
+  it('resetToRealTime springt zurück zur echten Uhrzeit', () => {
+    const clock = new SimClock(Date.now(), 1)
+    clock.setSecondsOfDay(8 * 3600) // weit weg von der Realzeit
+    clock.resetToRealTime()
+    expect(clock.now()).toBe(Date.now())
+    // Zeitraffer bleibt erhalten
+    const fast = new SimClock(Date.now(), 60)
+    fast.setSecondsOfDay(8 * 3600)
+    fast.resetToRealTime()
+    vi.advanceTimersByTime(1000)
+    expect(fast.now() - Date.now()).toBeCloseTo(59_000, -3)
+  })
 })

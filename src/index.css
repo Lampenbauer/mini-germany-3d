@@ -98,6 +98,11 @@ body {
   opacity: 0.85;
 }
 
+/* Native Zeit-/Datums-Picker im Dark-Theme rendern */
+input[type='time'] {
+  color-scheme: dark;
+}
+
 /*
  * Offline-/Testmodus (?offline=1): Panels opak rendern.
  * Der halbtransparente backdrop-blur würde das kontinuierliche
