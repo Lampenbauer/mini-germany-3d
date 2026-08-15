@@ -96,3 +96,13 @@ body {
   font-size: 10px;
   opacity: 0.85;
 }
+
+/*
+ * Offline-/Testmodus (?offline=1): Panels opak rendern.
+ * Der halbtransparente backdrop-blur würde das kontinuierliche
+ * Cesium-Rendering in die Screenshot-Vergleiche der visuellen Tests tragen.
+ */
+.panels-opaque [data-slot='card'] {
+  background-color: var(--card);
+  backdrop-filter: none;
+}

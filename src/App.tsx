@@ -6,6 +6,7 @@ import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
 import { Simulation, type TramSnapshot } from '@/engine/simulation'
+import { computeHomeView } from '@/lib/camera'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
@@ -21,6 +22,7 @@ export interface MrtTestApi {
   setPaused: (paused: boolean) => void
   selectTram: (id: string | null) => void
   dataSource: string
+  lineIds: () => string[]
 }
 
 declare global {
@@ -122,6 +124,7 @@ export default function App() {
       onTilesetStatus: setTilesetStatus,
     })
     mapRef.current = map
+    map.setHomeView(computeHomeView(network))
     map.addRoutes(network)
     map.addStops(network)
 
@@ -167,6 +170,7 @@ export default function App() {
       setPaused: (p: boolean) => clock.setPaused(p),
       selectTram,
       dataSource: network.meta.source,
+      lineIds: () => network.lines.map((l) => l.id),
     }
     window.__mrt = api
 
@@ -249,8 +253,14 @@ export default function App() {
   const dataSource =
     network.meta.source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)'
 
+  const offlineMode =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('offline') === '1'
+
   return (
-    <div className="relative h-full w-full overflow-hidden bg-background">
+    <div
+      className={`relative h-full w-full overflow-hidden bg-background${offlineMode ? ' panels-opaque' : ''}`}
+    >
       <div ref={containerRef} className="absolute inset-0" data-testid="cesium-container" />
 
       <div className="pointer-events-none absolute left-4 top-4 z-10">
