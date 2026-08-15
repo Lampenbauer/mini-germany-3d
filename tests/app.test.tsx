@@ -25,6 +25,7 @@ vi.mock('@/map/CesiumMap', () => {
 })
 
 import App from '@/App'
+import { loadBundledNetwork } from '@/data/network'
 
 afterEach(() => {
   cleanup()
@@ -37,13 +38,17 @@ describe('App (UI-Shell)', () => {
     expect(screen.getByText('Mini Rostock 3D')).toBeInTheDocument()
     expect(screen.getByTestId('sim-clock')).toBeInTheDocument()
     expect(screen.getByTestId('tileset-status')).toHaveTextContent('Offline-Modus')
-    expect(screen.getByTestId('data-source')).toHaveTextContent('Demo-Daten (approximiert)')
+    const expectedSource =
+      loadBundledNetwork().meta.source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)'
+    expect(screen.getByTestId('data-source')).toHaveTextContent(expectedSource)
   })
 
-  it('zeigt alle 5 Linien mit eingeschaltetem Switch', () => {
+  it('zeigt alle Linien mit eingeschaltetem Switch', () => {
     render(<App />)
-    const switches = screen.getAllByRole('switch', { name: /Linie \d anzeigen/ })
-    expect(switches).toHaveLength(5)
+    const lineCount = loadBundledNetwork().lines.length
+    const switches = screen.getAllByRole('switch', { name: /anzeigen$/ })
+    // + 2 Ebenen-Switches (Routen, Haltestellen)
+    expect(switches).toHaveLength(lineCount + 2)
     for (const sw of switches) {
       expect(sw).toHaveAttribute('aria-checked', 'true')
     }
@@ -51,7 +56,8 @@ describe('App (UI-Shell)', () => {
 
   it('blendet eine Linie über den Switch aus', () => {
     render(<App />)
-    const sw = screen.getByRole('switch', { name: 'Linie 1 anzeigen' })
+    const firstLine = loadBundledNetwork().lines[0]
+    const sw = screen.getByRole('switch', { name: `${firstLine.name} anzeigen` })
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(sw)

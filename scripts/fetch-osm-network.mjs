@@ -6,8 +6,9 @@
  *   npm run data:update
  *
  * Umgebungsvariablen:
- *   OVERPASS_URL  – alternativer Overpass-Endpunkt
- *                   (Standard: https://overpass-api.de/api/interpreter)
+ *   OVERPASS_URL  – alternativer Overpass-Endpunkt (überspringt die Mirror-Liste)
+ *   OVERPASS_FILE – lokale JSON-Datei mit einer bereits gespeicherten
+ *                   Overpass-Antwort (kein Netzwerkzugriff nötig)
  *
  * Datenlizenz: © OpenStreetMap-Mitwirkende, ODbL 1.0 (https://osm.org/copyright)
  *
@@ -22,7 +23,24 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../src/data/network.json')
-const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter'
+
+// Öffentliche Overpass-Instanzen; werden der Reihe nach probiert.
+const OVERPASS_MIRRORS = process.env.OVERPASS_URL
+  ? [process.env.OVERPASS_URL]
+  : [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.osm.ch/api/interpreter',
+    ]
+
+// Overpass-Instanzen erwarten identifizierbare Clients; Requests ohne
+// User-Agent werden teils abgelehnt (z.B. mit HTTP 403/406).
+const REQUEST_HEADERS = {
+  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+  Accept: 'application/json',
+  'User-Agent':
+    'mini-rostock-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+}
 
 // Bounding-Box Rostock (Süd, West, Nord, Ost)
 const BBOX = '53.95,11.95,54.22,12.35'
@@ -142,17 +160,44 @@ function projectOntoPath(path, cum, p) {
   return bestAlong
 }
 
-async function main() {
-  console.log(`Overpass-Abfrage an ${OVERPASS_URL} …`)
-  const response = await fetch(OVERPASS_URL, {
-    method: 'POST',
-    body: 'data=' + encodeURIComponent(QUERY),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  })
-  if (!response.ok) {
-    throw new Error(`Overpass antwortete mit HTTP ${response.status}`)
+async function fetchOverpassData() {
+  if (process.env.OVERPASS_FILE) {
+    console.log(`Lese lokale Overpass-Antwort ${process.env.OVERPASS_FILE}`)
+    const { readFileSync } = await import('node:fs')
+    return JSON.parse(readFileSync(process.env.OVERPASS_FILE, 'utf8'))
   }
-  const data = await response.json()
+
+  const errors = []
+  for (const url of OVERPASS_MIRRORS) {
+    console.log(`Overpass-Abfrage an ${url} …`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(QUERY),
+        headers: REQUEST_HEADERS,
+      })
+      if (!response.ok) {
+        const body = (await response.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+        errors.push(`${url} → HTTP ${response.status}: ${body.slice(0, 200)}`)
+        console.warn(`  ⚠ HTTP ${response.status} – versuche nächsten Mirror`)
+        continue
+      }
+      return await response.json()
+    } catch (err) {
+      errors.push(`${url} → ${err.message}`)
+      console.warn(`  ⚠ ${err.message} – versuche nächsten Mirror`)
+    }
+  }
+  throw new Error(
+    'Alle Overpass-Endpunkte fehlgeschlagen:\n  ' +
+      errors.join('\n  ') +
+      '\nTipp: eigenen Endpunkt via OVERPASS_URL setzen oder eine gespeicherte ' +
+      'Antwort via OVERPASS_FILE verwenden.',
+  )
+}
+
+async function main() {
+  const data = await fetchOverpassData()
 
   const nodeById = new Map()
   const wayById = new Map()
