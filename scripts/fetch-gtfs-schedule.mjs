@@ -36,7 +36,15 @@ const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
 const TRAM_LINE_IDS = new Set(['1', '2', '3', '4', '5', '6', '7'])
 
 // Nur diese Dateien werden aus dem Zip entpackt (spart Gigabytes an RAM)
-const NEEDED_FILES = new Set(['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt'])
+const NEEDED_FILES = new Set([
+  'routes.txt',
+  'trips.txt',
+  'stops.txt',
+  'stop_times.txt',
+  'calendar.txt',
+  'calendar_dates.txt',
+])
+const OPTIONAL_FILES = new Set(['calendar.txt', 'calendar_dates.txt'])
 
 // ---------------------------------------------------------------------------
 // CSV-Streaming über Uint8Array (ohne die Datei als einen String zu halten)
@@ -158,7 +166,9 @@ async function main() {
     filter: (file) => NEEDED_FILES.has(file.name),
   })
   for (const name of NEEDED_FILES) {
-    if (!files[name]) throw new Error(`${name} fehlt im GTFS-Feed`)
+    if (!files[name] && !OPTIONAL_FILES.has(name)) {
+      throw new Error(`${name} fehlt im GTFS-Feed`)
+    }
   }
 
   // ---- stops.txt: Haltestellen im Rostocker Stadtgebiet --------------------
@@ -231,14 +241,89 @@ async function main() {
     )
   }
 
-  // ---- Verkehrsreichsten Service (typischer Werktag) wählen ----------------
-  const tripsPerService = new Map()
-  for (const tripId of tripTouchesRostock) {
-    const info = tripInfo.get(tripId)
-    tripsPerService.set(info.serviceId, (tripsPerService.get(info.serviceId) || 0) + 1)
+  // ---- Betriebstag wählen und ALLE dort aktiven Services einbeziehen -------
+  // Wichtig: Feeds verteilen die Fahrten einer Linie (sogar die beiden
+  // Richtungen!) oft auf mehrere service_ids. Eine einzelne service_id zu
+  // wählen verliert daher Fahrten – stattdessen wird ein konkreter
+  // Betriebstag gewählt und jede an diesem Datum aktive service_id zählt.
+  const calendarServices = new Map() // service_id → {days:[so..sa], start, end}
+  if (files['calendar.txt']) {
+    scanCsv(files['calendar.txt'], (get) => {
+      calendarServices.set(get('service_id'), {
+        days: [
+          get('sunday') === '1',
+          get('monday') === '1',
+          get('tuesday') === '1',
+          get('wednesday') === '1',
+          get('thursday') === '1',
+          get('friday') === '1',
+          get('saturday') === '1',
+        ],
+        start: get('start_date'),
+        end: get('end_date'),
+      })
+    })
   }
-  const [serviceId] = [...tripsPerService.entries()].sort((a, b) => b[1] - a[1])[0]
-  console.log(`Gewählter service_id: ${serviceId} (${tripsPerService.get(serviceId)} Fahrten)`)
+  const calendarExceptions = new Map() // `${service_id}|${date}` → '1' | '2'
+  if (files['calendar_dates.txt']) {
+    scanCsv(files['calendar_dates.txt'], (get) => {
+      calendarExceptions.set(`${get('service_id')}|${get('date')}`, get('exception_type'))
+    })
+  }
+
+  const isServiceActiveOn = (serviceId, dateStr, weekday) => {
+    const exception = calendarExceptions.get(`${serviceId}|${dateStr}`)
+    if (exception === '2') return false
+    if (exception === '1') return true
+    const cal = calendarServices.get(serviceId)
+    if (!cal) return false
+    return dateStr >= cal.start && dateStr <= cal.end && cal.days[weekday]
+  }
+
+  const rostockServiceIds = new Set(
+    [...tripTouchesRostock].map((tripId) => tripInfo.get(tripId).serviceId),
+  )
+
+  let activeServiceIds
+  let serviceDate = null
+  if (calendarServices.size > 0 || calendarExceptions.size > 0) {
+    // Die nächsten 21 Tage durchprobieren; Tag mit den meisten aktiven
+    // Rostocker Tram-Fahrten gewinnt (bei Gleichstand der frühere Tag).
+    let best = { count: -1, date: null, services: new Set() }
+    for (let offset = 0; offset < 21; offset++) {
+      const day = new Date(Date.now() + offset * 86400_000)
+      const dateStr =
+        String(day.getFullYear()) +
+        String(day.getMonth() + 1).padStart(2, '0') +
+        String(day.getDate()).padStart(2, '0')
+      const weekday = day.getDay()
+      const services = new Set(
+        [...rostockServiceIds].filter((id) => isServiceActiveOn(id, dateStr, weekday)),
+      )
+      let count = 0
+      for (const tripId of tripTouchesRostock) {
+        if (services.has(tripInfo.get(tripId).serviceId)) count++
+      }
+      if (count > best.count) best = { count, date: dateStr, services }
+    }
+    activeServiceIds = best.services
+    serviceDate = best.date
+    console.log(
+      `Gewählter Betriebstag: ${serviceDate} (${best.count} Fahrten, ${activeServiceIds.size} aktive Services)`,
+    )
+  } else {
+    // Fallback ohne Kalenderdaten: verkehrsreichste einzelne service_id
+    const tripsPerService = new Map()
+    for (const tripId of tripTouchesRostock) {
+      const info = tripInfo.get(tripId)
+      tripsPerService.set(info.serviceId, (tripsPerService.get(info.serviceId) || 0) + 1)
+    }
+    const [serviceId] = [...tripsPerService.entries()].sort((a, b) => b[1] - a[1])[0]
+    activeServiceIds = new Set([serviceId])
+    console.warn(
+      `⚠ Keine Kalenderdaten im Feed – nutze verkehrsreichste service_id ${serviceId}`,
+    )
+  }
 
   // ---- Richtungszuordnung: GTFS-Fahrt ↔ Netz-Richtung ----------------------
   // Ziel: jede Fahrt der Richtung 0 oder 1 aus network.json zuordnen.
@@ -311,7 +396,7 @@ async function main() {
     let swapped = 0
     for (const tripId of tripTouchesRostock) {
       const info = tripInfo.get(tripId)
-      if (info.serviceId !== serviceId) continue
+      if (!activeServiceIds.has(info.serviceId)) continue
       const cls = classifyTrip(tripId, info)
       if (cls === null || (info.rawDir !== '0' && info.rawDir !== '1')) continue
       if (cls === info.rawDir) identity++
@@ -325,7 +410,7 @@ async function main() {
   let unclassified = 0
   for (const tripId of tripTouchesRostock) {
     const info = tripInfo.get(tripId)
-    if (info.serviceId !== serviceId) continue
+    if (!activeServiceIds.has(info.serviceId)) continue
     const first = firstDeparture.get(tripId)
     if (!first?.dep) continue
 
@@ -371,7 +456,8 @@ async function main() {
     meta: {
       source: 'gtfs',
       generated: new Date().toISOString().slice(0, 10),
-      serviceId,
+      serviceDate,
+      serviceCount: activeServiceIds.size,
       attribution:
         'Fahrplandaten aus GTFS (gtfs.de / DELFI bzw. VVW). Nutzungsbedingungen der Quelle beachten.',
       note: noteParts.join(' '),
