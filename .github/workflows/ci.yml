@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Typecheck & Unit-Tests (Vitest)
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Produktions-Build
+        run: npm run build
+
+      - name: Playwright-Chromium installieren
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E- & visuelle Tests (Playwright, Offline-Modus)
+        run: npm run test:e2e
+
+      - name: Playwright-Report hochladen (bei Fehlern)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
