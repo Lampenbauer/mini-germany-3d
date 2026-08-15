@@ -96,9 +96,17 @@ npm test               # validiert die neuen Datensätze
 - `data:gtfs` lädt standardmäßig den freien Deutschland-Nahverkehrsfeed von
   [gtfs.de](https://gtfs.de) (DELFI-Basis). Mit `GTFS_URL`/`GTFS_FILE` kann stattdessen
   der offizielle VVW-Feed genutzt werden.
+- Die Unit-Tests passen sich der Datenquelle an: Die strikten RSAG-Prüfungen laufen nur
+  gegen den Demo-Datensatz, strukturelle Prüfungen (Monotonie, Stadtgebiet, Längen)
+  gegen jeden Datensatz.
 
-> Hinweis: In gekapselten Umgebungen (z. B. CI oder Cloud-Sandboxes mit Egress-Filter)
-> sind Overpass/gtfs.de nicht erreichbar – dann bleibt der mitgelieferte Datensatz aktiv.
+**Troubleshooting Datenpipeline**
+
+| Problem | Lösung |
+|---------|--------|
+| Overpass antwortet mit 403/406/429 | Das Skript sendet einen User-Agent und probiert automatisch mehrere Mirror (overpass-api.de → kumi.systems → osm.ch). Eigenen Endpunkt per `OVERPASS_URL=… npm run data:update` setzen oder eine gespeicherte Antwort per `OVERPASS_FILE=antwort.json` einspielen. |
+| GTFS-Download dauert lange | Der Feed (~260 MB) wird unter `scripts/.cache/gtfs.zip` gecacht; Datei löschen für einen frischen Download. Bereits vorhandene Zips via `GTFS_FILE=pfad.zip` nutzen. |
+| CI/Sandbox ohne freien Internetzugang | Overpass/gtfs.de sind dort nicht erreichbar – der mitgelieferte Datensatz bleibt aktiv. |
 
 ### Ist GTFS-Realtime für Rostock verfügbar? (Stand: August 2026)
 
