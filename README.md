@@ -65,9 +65,18 @@ npm run test:e2e:update  # Visuelle Baselines neu erzeugen (nach gewollten UI-Ä
 ```
 
 Die E2E-Tests starten die echte App im Offline-Modus mit eingefrorener Simulationszeit
-(08:30 Uhr) und rendern Cesium headless über SwiftShader – dadurch sind auch die
-Screenshot-Vergleiche deterministisch. In CI (GitHub Actions) läuft beides automatisch,
+(08:30 Uhr) und rendern Cesium headless über SwiftShader. Die visuellen Tests arbeiten
+zweistufig: Das **Karten-Rendering** wird per Pixel-Analyse geprüft (sind farbige
+Routen/Bahnen auf dem Canvas sichtbar? – bewusst ohne Baseline, da WebGL-Antialiasing
+zwischen GPU-/SwiftShader-Versionen variiert; der Screenshot hängt am Testreport).
+**UI-Elemente** (Control-Panel, Tram-Infokarte) werden pixelgenau gegen eingecheckte
+Baselines verglichen – dank opaker Panels im Offline-Modus und gebündelter
+Inter-Schrift umgebungsunabhängig. In CI (GitHub Actions) läuft alles automatisch,
 siehe `.github/workflows/ci.yml`.
+
+> **Nach Datenänderungen** (`data:update`/`data:gtfs`): Panel-Inhalte und
+> Haltestellennamen ändern sich → einmal `npm run test:e2e:update` ausführen und die
+> neuen Baselines mitcommitten.
 
 ## Datenlage – GTFS / GTFS-Realtime / OSM
 
