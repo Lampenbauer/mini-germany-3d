@@ -9,6 +9,7 @@ vi.mock('@/map/CesiumMap', () => {
     }
     addRoutes() {}
     addStops() {}
+    setHomeView() {}
     syncTrams() {}
     setRoutesVisible() {}
     setStopsVisible() {}

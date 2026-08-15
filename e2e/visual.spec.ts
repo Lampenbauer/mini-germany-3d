@@ -32,9 +32,16 @@ test('Gesamtansicht (Karte + Panel)', async () => {
   await expect(page).toHaveScreenshot('app-offline-0830.png')
 })
 
+// Für Element-Screenshots nutzen wir toMatchSnapshot (Einzelaufnahme mit
+// Toleranz) statt toHaveScreenshot: Letzteres wartet auf zwei identische
+// aufeinanderfolgende Frames – durch das kontinuierliche Cesium-Rendering
+// hinter den abgerundeten Panel-Ecken wird das nie ganz stabil.
 test('Control-Panel im Detail', async () => {
   const panel = page.locator('[data-slot=card]').first()
-  await expect(panel).toHaveScreenshot('control-panel.png')
+  expect(await panel.screenshot({ animations: 'disabled' })).toMatchSnapshot(
+    'control-panel.png',
+    { maxDiffPixelRatio: 0.02 },
+  )
 })
 
 test('Info-Karte einer ausgewählten Bahn', async () => {
@@ -44,6 +51,8 @@ test('Info-Karte einer ausgewählten Bahn', async () => {
   })
   const card = page.getByTestId('tram-card')
   await expect(card).toBeVisible()
-  await expect(card).toHaveScreenshot('tram-card.png')
+  expect(await card.screenshot({ animations: 'disabled' })).toMatchSnapshot('tram-card.png', {
+    maxDiffPixelRatio: 0.02,
+  })
   await page.evaluate(() => window.__mrt!.selectTram(null))
 })

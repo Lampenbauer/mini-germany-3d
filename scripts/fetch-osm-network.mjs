@@ -56,6 +56,8 @@ const FALLBACK_COLORS = {
   7: '#00A5B5',
 }
 
+// Wichtig: "out body qt" (nicht "out skel qt"), damit Knoten/Wege ihre Tags
+// behalten – sonst fehlen die Haltestellennamen.
 const QUERY = `
 [out:json][timeout:180][bbox:${BBOX}];
 (
@@ -63,7 +65,7 @@ const QUERY = `
 );
 out body;
 >;
-out skel qt;
+out body qt;
 `
 
 function haversineMeters([lon1, lat1], [lon2, lat2]) {
@@ -224,15 +226,35 @@ async function main() {
   const lines = []
 
   for (const [ref, rels] of [...byRef.entries()].sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }))) {
+    // Name eines Relations-Members (Knoten oder Weg) ermitteln
+    const memberName = (m) => {
+      if (!m) return undefined
+      const el =
+        m.type === 'node' ? nodeById.get(m.ref) : m.type === 'way' ? wayById.get(m.ref) : null
+      return el?.tags?.name
+    }
+
     // Pro Linie die (bis zu) zwei längsten Richtungs-Varianten nehmen
     const candidates = rels
       .map((rel) => {
         const wayMembers = rel.members.filter((m) => m.type === 'way' && !/platform/.test(m.role || ''))
         const path = stitchWays(wayMembers, wayById, nodeById, `Linie ${ref} (${rel.id})`)
-        const stopNodes = rel.members
-          .filter((m) => m.type === 'node' && /stop/.test(m.role || ''))
-          .map((m) => nodeById.get(m.ref))
-          .filter(Boolean)
+        const stopNodes = []
+        rel.members.forEach((m, i) => {
+          if (m.type !== 'node' || !/stop/.test(m.role || '')) return
+          const node = nodeById.get(m.ref)
+          if (!node) return
+          // Unbenannte stop_positions erben den Namen der benachbarten
+          // Platform (PTv2-Relationen listen stop + platform paarweise).
+          let name = node.tags?.name
+          if (!name && /platform/.test(rel.members[i + 1]?.role || '')) {
+            name = memberName(rel.members[i + 1])
+          }
+          if (!name && /platform/.test(rel.members[i - 1]?.role || '')) {
+            name = memberName(rel.members[i - 1])
+          }
+          stopNodes.push({ node, name })
+        })
         return { rel, path, stopNodes }
       })
       .filter((c) => c.path.length >= 2 && c.stopNodes.length >= 2)
@@ -256,7 +278,7 @@ async function main() {
       const dirStops = []
       let lastDist = -1
       let dropped = 0
-      for (const node of stopNodes) {
+      for (const { node, name } of stopNodes) {
         const id = `osm-${node.id}`
         const coord = [node.lon, node.lat]
         const dist = projectOntoPath(path, cum, coord)
@@ -265,7 +287,11 @@ async function main() {
           continue // Halt liegt nicht monoton auf der Strecke (z.B. Schleife)
         }
         lastDist = dist
-        stops[id] = { name: node.tags?.name || 'Haltestelle', coord }
+        // Bereits bekannte Namen (z.B. aus der Gegenrichtungs-Relation)
+        // nicht mit dem Platzhalter überschreiben
+        const resolvedName =
+          name || node.tags?.name || (stops[id]?.name !== 'Haltestelle' && stops[id]?.name) || 'Haltestelle'
+        stops[id] = { name: resolvedName, coord }
         dirStops.push(id)
       }
       if (dropped > 0) {
