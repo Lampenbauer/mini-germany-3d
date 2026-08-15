@@ -237,7 +237,7 @@ export class CesiumMap {
               },
               label: {
                 text: stop.name,
-                font: '13px "Inter", system-ui, sans-serif',
+                font: '13px "Inter Variable", system-ui, sans-serif',
                 fillColor: Color.fromCssColorString('#e2e8f0'),
                 outlineColor: Color.fromCssColorString('#0f172a'),
                 outlineWidth: 3,
@@ -324,7 +324,7 @@ export class CesiumMap {
       },
       label: {
         text: snap.lineId,
-        font: 'bold 14px "Inter", system-ui, sans-serif',
+        font: 'bold 14px "Inter Variable", system-ui, sans-serif',
         fillColor: Color.WHITE,
         outlineColor: Color.fromCssColorString(snap.color),
         outlineWidth: 4,
