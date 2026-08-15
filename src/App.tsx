@@ -7,6 +7,7 @@ import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
 import { Simulation, type TramSnapshot } from '@/engine/simulation'
 import { computeHomeView } from '@/lib/camera'
+import { formatCameraHash, parseCameraHash } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
@@ -23,6 +24,9 @@ export interface MrtTestApi {
   selectTram: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
+  secondsOfDay: () => number
+  loopTicks: () => number
+  lastLoopError: () => string | null
 }
 
 declare global {
@@ -125,30 +129,55 @@ export default function App() {
     })
     mapRef.current = map
     map.setHomeView(computeHomeView(network))
+    // Gespeicherte Kameraausrichtung aus dem URL-Hash wiederherstellen
+    const hashView = parseCameraHash(window.location.hash)
+    if (hashView) map.setView(hashView)
     map.addRoutes(network)
     map.addStops(network)
 
+    // Kameraausrichtung alle 1500 ms in den URL-Hash schreiben
+    const hashTimer = window.setInterval(() => {
+      const hash = formatCameraHash(map.getCameraView())
+      if (hash !== window.location.hash) {
+        window.history.replaceState(null, '', hash)
+      }
+    }, 1500)
+
     let rafId = 0
     let lastUiUpdate = 0
+    let loopTicks = 0
+    let lastLoopError: string | null = null
     const loop = (now: number) => {
-      const snapshots = sim.snapshots()
-      snapshotsRef.current = snapshots
-      map.syncTrams(snapshots, visibleLinesRef.current)
+      // Der Loop darf an einem transienten Fehler (z.B. Cesium-Interna beim
+      // Massen-Entfernen von Entities) nicht dauerhaft sterben – sonst friert
+      // die komplette Simulation ein.
+      try {
+        loopTicks++
+        const snapshots = sim.snapshots()
+        snapshotsRef.current = snapshots
+        map.syncTrams(snapshots, visibleLinesRef.current)
 
-      // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
-      if (now - lastUiUpdate > 250) {
-        lastUiUpdate = now
-        setClockText(clock.formatted())
-        setTramCount(snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length)
-        const selId = selectedIdRef.current
-        if (selId) {
-          const snap = snapshots.find((s) => s.id === selId) ?? null
-          if (!snap) {
-            // Fahrt beendet → Auswahl auflösen
-            selectTram(null)
-          } else {
-            setSelected(snap)
+        // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
+        if (now - lastUiUpdate > 250) {
+          lastUiUpdate = now
+          setClockText(clock.formatted())
+          setTramCount(snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length)
+          const selId = selectedIdRef.current
+          if (selId) {
+            const snap = snapshots.find((s) => s.id === selId) ?? null
+            if (!snap) {
+              // Fahrt beendet → Auswahl auflösen
+              selectTram(null)
+            } else {
+              setSelected(snap)
+            }
           }
+        }
+      } catch (error) {
+        const message = String(error)
+        if (message !== lastLoopError) {
+          lastLoopError = message
+          console.error('Render-Loop-Fehler:', error)
         }
       }
       rafId = requestAnimationFrame(loop)
@@ -171,11 +200,15 @@ export default function App() {
       selectTram,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
+      secondsOfDay: () => clock.secondsOfDay(),
+      loopTicks: () => loopTicks,
+      lastLoopError: () => lastLoopError,
     }
     window.__mrt = api
 
     return () => {
       cancelAnimationFrame(rafId)
+      window.clearInterval(hashTimer)
       window.__mrt = undefined
       map.destroy()
       mapRef.current = null
@@ -221,6 +254,15 @@ export default function App() {
       simRef.current?.clock.setPaused(!prev)
       return !prev
     })
+  }, [])
+
+  const handleSetTime = useCallback((hhmm: string) => {
+    const sec = parseTimeOfDay(hhmm)
+    if (sec !== null) simRef.current?.clock.setSecondsOfDay(sec)
+  }, [])
+
+  const handleResetTime = useCallback(() => {
+    simRef.current?.clock.resetToRealTime()
   }, [])
 
   const handleToggleFollow = useCallback(() => {
@@ -270,6 +312,8 @@ export default function App() {
           paused={paused}
           onSpeedChange={handleSpeedChange}
           onTogglePause={handleTogglePause}
+          onSetTime={handleSetTime}
+          onResetTime={handleResetTime}
           lines={lineInfos}
           onToggleLine={handleToggleLine}
           showRoutes={showRoutes}

@@ -7,6 +7,7 @@ import {
   Layers,
   Pause,
   Play,
+  TimerReset,
   TramFront,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import type { TilesetStatus } from '@/map/CesiumMap'
@@ -37,6 +39,10 @@ export interface ControlPanelProps {
   paused: boolean
   onSpeedChange: (speed: number) => void
   onTogglePause: () => void
+  /** Simulationszeit auf "HH:MM" setzen. */
+  onSetTime: (hhmm: string) => void
+  /** Simulationszeit zurück auf die echte Uhrzeit. */
+  onResetTime: () => void
   lines: LineToggleInfo[]
   onToggleLine: (lineId: string) => void
   showRoutes: boolean
@@ -96,6 +102,22 @@ export function ControlPanel(props: ControlPanelProps) {
               onClick={props.onTogglePause}
             >
               {props.paused ? <Play aria-hidden /> : <Pause aria-hidden />}
+            </Button>
+          </div>
+
+          {/* Simulationszeit setzen (z.B. auf den Berufsverkehr springen) */}
+          <div className="flex items-center gap-2">
+            <Input
+              type="time"
+              aria-label="Simulationszeit setzen"
+              className="h-8 flex-1"
+              onChange={(e) => {
+                if (e.target.value) props.onSetTime(e.target.value)
+              }}
+            />
+            <Button variant="outline" size="sm" onClick={props.onResetTime}>
+              <TimerReset aria-hidden />
+              Jetzt
             </Button>
           </div>
 
