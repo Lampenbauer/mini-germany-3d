@@ -81,6 +81,7 @@ body,
 
 body {
   @apply bg-background text-foreground antialiased;
+  font-family: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Cesium-Widget füllt seinen Container */
