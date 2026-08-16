@@ -77,6 +77,9 @@ async function elementShot(locator: ReturnType<Page['locator']>) {
 }
 
 test('Control-Panel im Detail', async () => {
+  // page.screenshot rendert die Seite samt Cesium-Canvas – mit ~350
+  // Fahrzeugen unter SwiftShader dauert das auf CI-Runnern zusätzlich lange.
+  test.setTimeout(240_000)
   const panel = page.locator('[data-slot=card]').first()
   expect(await elementShot(panel)).toMatchSnapshot('control-panel.png', {
     maxDiffPixelRatio: 0.03,
@@ -84,6 +87,7 @@ test('Control-Panel im Detail', async () => {
 })
 
 test('Info-Karte einer ausgewählten Bahn', async () => {
+  test.setTimeout(240_000)
   await page.evaluate(() => {
     const tram = window.__mrt!.trams().find((t) => t.lineId === '1')!
     window.__mrt!.selectTram(tram.id)

@@ -16,7 +16,9 @@ const preinstalledChromium = '/opt/pw-browsers/chromium'
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 90_000,
+  // Seit Bussen/Fähren simuliert die Suite ~350 Fahrzeuge – unter SwiftShader
+  // auf ausgelasteten CI-Runnern dauert ein einzelner Frame dadurch Sekunden.
+  timeout: 180_000,
   fullyParallel: false,
   // Jede Spec mit Cesium bleibt in einem eigenen, sequenziellen SwiftShader-
   // Kontext. Mehrere Worker würden die ressourcenintensiven WebGL-Seiten
@@ -25,7 +27,9 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   expect: {
-    timeout: 15_000,
+    // Sim-Uhr/Badges aktualisieren erst mit dem nächsten Loop-Tick – der kann
+    // unter CI-Last mehrere Sekunden brauchen.
+    timeout: 30_000,
     toHaveScreenshot: {
       // Software-Rendering + Font-Antialiasing variieren leicht zwischen
       // Umgebungen – kleine Abweichungen sind ok.
