@@ -12,6 +12,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     CESIUM_BASE_URL: JSON.stringify('/cesium'),
+    __BUILD_ID__: JSON.stringify(new Date().toISOString()),
   },
   resolve: {
     alias: {
