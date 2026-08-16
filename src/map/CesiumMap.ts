@@ -8,6 +8,7 @@
  */
 
 import {
+  BoundingSphere,
   Cartesian2,
   Cartesian3,
   Cartographic,
@@ -21,6 +22,7 @@ import {
   GridImageryProvider,
   HeadingPitchRange,
   HeadingPitchRoll,
+  Intersect,
   Ion,
   LabelStyle,
   Math as CesiumMath,
@@ -41,6 +43,8 @@ export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 export interface CesiumMapOptions {
   /** Offline-Modus: keine Ion/Google-Anfragen (für Tests/Entwicklung ohne Netz). */
   offline?: boolean
+  /** Feste Bodenhöhe in Metern (überspringt jedes Höhen-Sampling; Debug). */
+  fixedGroundHeight?: number
   onSelectTram?: (tramId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
 }
@@ -85,11 +89,13 @@ export class CesiumMap {
   /** Zuletzt gemessene plausible Bodenhöhe – Startwert für neue Bahnen. */
   private defaultGroundHeight: number
   private frameCounter = 0
+  private frustumSphere = new BoundingSphere()
 
   constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
     this.opts = opts
     // Offline (Ellipsoid): Boden liegt exakt bei 0 m
-    this.defaultGroundHeight = opts.offline ? 0 : FALLBACK_GROUND_HEIGHT
+    this.defaultGroundHeight =
+      opts.fixedGroundHeight ?? (opts.offline ? 0 : FALLBACK_GROUND_HEIGHT)
 
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
@@ -108,6 +114,11 @@ export class CesiumMap {
       infoBox: false,
       selectionIndicator: false,
       msaaSamples: 4,
+      // Nur rendern, wenn sich etwas geändert hat (Kamera, Kacheln, oder
+      // explizites requestRender() aus der Simulations-Schleife). Senkt die
+      // CPU-/GPU-Last massiv, wenn keine Bahn im Bild ist.
+      requestRenderMode: true,
+      maximumRenderTimeChange: Number.POSITIVE_INFINITY,
     })
 
     // Debug-/Test-Zugriff auf den Viewer (z.B. für E2E-Tests)
@@ -123,8 +134,6 @@ export class CesiumMap {
     )
 
     if (opts.offline) {
-      // Software-Rendering (Tests) nicht unnötig belasten
-      this.viewer.targetFrameRate = 20
       // Dezentes Gitter statt Satellitenbild – vollständig offline berechenbar
       scene.imageryLayers.addImageryProvider(
         new GridImageryProvider({
@@ -165,6 +174,7 @@ export class CesiumMap {
       // Der Globus würde unter den photorealistischen Kacheln doppelt rendern
       this.viewer.scene.globe.show = false
       this.opts.onTilesetStatus?.('google-3d-tiles')
+      window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
     } catch (error) {
       console.error('Google Photorealistic 3D Tiles konnten nicht geladen werden:', error)
       if (this.destroyed) return
@@ -324,6 +334,68 @@ export class CesiumMap {
   }
 
   /**
+   * Einmaliges Höhen-Bootstrapping: misst die Kachel-Höhen an allen
+   * Haltestellen asynchron (lädt dafür gezielt Detail-Kacheln) und setzt
+   * daraus die Basis-Bodenhöhe für Bahnen und Haltestellen. Loggt das
+   * Ergebnis zur Diagnose in die Konsole.
+   */
+  private async bootstrapGroundHeights(): Promise<void> {
+    if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
+    if (this.stopRecords.length === 0) {
+      window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
+      return
+    }
+    const scene = this.viewer.scene
+    if (!scene.sampleHeightSupported) {
+      console.warn('[MiniRostock3D] sampleHeight wird von dieser GPU/WebGL-Umgebung nicht unterstützt')
+      return
+    }
+
+    const sampledStops = this.stopRecords.filter((_, i) => i % 2 === 0)
+    const positions = sampledStops.map((s) => Cartographic.fromDegrees(s.lon, s.lat))
+    try {
+      const updated = await scene.sampleHeightMostDetailed(positions)
+      if (this.destroyed) return
+      const heights: number[] = []
+      updated.forEach((carto, i) => {
+        const h = carto?.height
+        if (h !== undefined && Number.isFinite(h) && h > -100 && h < 500) {
+          heights.push(h)
+          const stop = sampledStops[i]
+          stop.resolved = true
+          stop.entity.position = new ConstantPositionProperty(
+            Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5),
+          )
+        }
+      })
+      if (heights.length === 0) {
+        console.warn(
+          '[MiniRostock3D] Höhen-Bootstrap: keine gültigen Kachel-Höhen ermittelt – ' +
+            'Bahnen nutzen die Fallback-Höhe. Bitte diese Meldung samt ' +
+            'window.__mrt.groundHeights() melden.',
+        )
+        return
+      }
+      heights.sort((a, b) => a - b)
+      const median = heights[Math.floor(heights.length / 2)]
+      this.defaultGroundHeight = median
+      // Basis für alle bereits fahrenden Bahnen anheben (Feinschliff macht
+      // danach das laufende per-Bahn-Sampling)
+      for (const record of this.trams.values()) {
+        record.groundHeight = median
+      }
+      console.info(
+        `[MiniRostock3D] Kachel-Höhen ermittelt (ellipsoidisch): ` +
+          `min ${heights[0].toFixed(1)} m · median ${median.toFixed(1)} m · ` +
+          `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} Messpunkte)`,
+      )
+      this.requestRender()
+    } catch (error) {
+      console.warn('[MiniRostock3D] Höhen-Bootstrap fehlgeschlagen:', error)
+    }
+  }
+
+  /**
    * Ellipsoidische Bodenhöhe an einer Position, gemessen auf den geladenen
    * Google-3D-Kacheln. undefined, wenn dort (noch) keine Kachel geladen ist.
    */
@@ -354,10 +426,23 @@ export class CesiumMap {
    * Entity-Geometrien auf 3D-Kacheln ist in der Praxis unzuverlässig,
    * wodurch die Quader unter der photorealistischen Oberfläche lagen.
    */
-  syncTrams(snapshots: TramSnapshot[], visibleLines: ReadonlySet<string>): void {
+  syncTrams(
+    snapshots: TramSnapshot[],
+    visibleLines: ReadonlySet<string>,
+  ): { anyTramInView: boolean } {
     this.frameCounter++
     this.resolveStopHeights()
     const alive = new Set<string>()
+
+    // Sichtbarkeits-Test: liegt mindestens eine Bahn im Kamera-Frustum?
+    // (Steuert, ob überhaupt neu gerendert werden muss.)
+    const camera = this.viewer.camera
+    const cullingVolume = camera.frustum.computeCullingVolume(
+      camera.positionWC,
+      camera.directionWC,
+      camera.upWC,
+    )
+    let anyTramInView = false
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -368,13 +453,15 @@ export class CesiumMap {
       }
 
       // Bodenhöhe gestaffelt nachführen (nicht jede Bahn in jedem Frame)
-      if (this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL) {
+      if (
+        this.opts.fixedGroundHeight === undefined &&
+        this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL
+      ) {
         record.lastSampleFrame = this.frameCounter
         const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
         if (sampled !== undefined) {
           // Glätten, damit die Bahn Steigungen weich folgt
           record.groundHeight += (sampled - record.groundHeight) * 0.35
-          this.defaultGroundHeight = sampled
         }
       }
 
@@ -386,7 +473,16 @@ export class CesiumMap {
       record.position.setValue(position)
       const hpr = new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0)
       record.orientation.setValue(Transforms.headingPitchRollQuaternion(position, hpr))
-      record.entity.show = visibleLines.has(snap.lineId)
+      const show = visibleLines.has(snap.lineId)
+      record.entity.show = show
+
+      if (show && !anyTramInView) {
+        this.frustumSphere.center = position
+        this.frustumSphere.radius = 80
+        if (cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE) {
+          anyTramInView = true
+        }
+      }
 
       if (snap.id === this.followId) {
         this.updateFollowCamera(snap.lon, snap.lat)
@@ -400,6 +496,13 @@ export class CesiumMap {
         this.trams.delete(id)
       }
     }
+
+    return { anyTramInView }
+  }
+
+  /** Fordert im requestRenderMode einen neuen Frame an. */
+  requestRender(): void {
+    this.viewer.scene.requestRender()
   }
 
   /** Aktuelle Kameraausrichtung (für die URL-Persistenz). */
