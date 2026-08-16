@@ -275,6 +275,10 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
 })
 
 test('GTFS-Realtime-Endpunkt wird abgeholt und im Panel angezeigt', async ({ browser }) => {
+  // Der Boot einer zweiten Cesium-Instanz unter SwiftShader kostet auf
+  // ausgelasteten CI-Runnern 60–90 s – das Standard-Timeout von 90 s
+  // reicht dafür nicht.
+  test.setTimeout(240_000)
   // Den gefilterten JSON-Endpunkt mocken – verifiziert die Kette
   // fetch → Validierung → Status-Badge im Panel. Die Zweitseite ist eine
   // volle Cesium-Instanz; ohne finally bliebe sie bei einem Fehlschlag bis
@@ -306,6 +310,8 @@ test('GTFS-Realtime-Endpunkt wird abgeholt und im Panel angezeigt', async ({ bro
 test('Kameraausrichtung wird im URL-Hash gespeichert und wiederhergestellt', async ({
   browser,
 }) => {
+  // Zweite Cesium-Instanz → gleiches CI-Timeout-Polster wie im Realtime-Test
+  test.setTimeout(240_000)
   // Hash wird spätestens alle 1500 ms aktualisiert
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
