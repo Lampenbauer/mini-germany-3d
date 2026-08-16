@@ -86,6 +86,12 @@ const FALLBACK_GROUND_HEIGHT = 45
 /** Every how many frames the ground height is re-sampled per tram. */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
+// Scratch objects for the per-tick hot path in syncTrams: Cesium clones all
+// values it retains (ConstantProperty, modelMatrix), so reusing these avoids
+// ~2 allocations per tram per tick.
+const positionScratch = new Cartesian3()
+const hprScratch = new HeadingPitchRoll()
+
 export class CesiumMap {
   readonly viewer: Viewer
   private readonly opts: CesiumMapOptions
@@ -492,46 +498,69 @@ export class CesiumMap {
         this.trams.set(snap.id, record)
       }
 
-      // Update the ground height in a staggered fashion (not every tram in every frame)
+      const show = visibleLines.has(snap.lineId)
+      let position = Cartesian3.fromDegrees(
+        snap.lon,
+        snap.lat,
+        record.groundHeight + record.halfHeight + 0.3,
+        undefined,
+        positionScratch,
+      )
+
+      // Frustum test per shown tram (6 plane checks – cheap). The result
+      // drives both the render pacing (anyTramInView) and whether the much
+      // more expensive tile-height sampling below is worth doing at all.
+      let inView = false
+      if (show) {
+        Cartesian3.clone(position, this.frustumSphere.center)
+        this.frustumSphere.radius = 80
+        inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
+        if (inView) anyTramInView = true
+      }
+
+      // Update the ground height in a staggered fashion (not every tram in
+      // every frame) and only where it is visible: tileset.getHeight does a
+      // ray intersection against the loaded tiles and dominates the tick cost.
+      const followed = snap.id === this.followId
       if (
         this.opts.fixedGroundHeight === undefined &&
+        (inView || followed) &&
         this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL
       ) {
+        // A large gap means the tram was off-screen and unsampled: snap to
+        // the measured height right at the screen edge instead of visibly
+        // gliding to it in mid-view.
+        const snapToHeight =
+          this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL * 4
         record.lastSampleFrame = this.frameCounter
         const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
         if (sampled !== undefined) {
           // Smooth so the tram follows inclines gently
-          record.groundHeight += (sampled - record.groundHeight) * 0.35
+          record.groundHeight += (sampled - record.groundHeight) * (snapToHeight ? 1 : 0.35)
+          position = Cartesian3.fromDegrees(
+            snap.lon,
+            snap.lat,
+            record.groundHeight + record.halfHeight + 0.3,
+            undefined,
+            positionScratch,
+          )
         }
       }
 
-      const position = Cartesian3.fromDegrees(
-        snap.lon,
-        snap.lat,
-        record.groundHeight + record.halfHeight + 0.3,
-      )
       record.labelPosition.setValue(position)
       // Update modelMatrix in place – takes effect immediately on the next render
+      hprScratch.heading = CesiumMath.toRadians(snap.bearing - 90)
       Transforms.headingPitchRollToFixedFrame(
         position,
-        new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
+        hprScratch,
         undefined,
         undefined,
         record.matrix,
       )
-      const show = visibleLines.has(snap.lineId)
       record.primitive.show = show
       record.labelEntity.show = show
 
-      if (show && !anyTramInView) {
-        this.frustumSphere.center = position
-        this.frustumSphere.radius = 80
-        if (cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE) {
-          anyTramInView = true
-        }
-      }
-
-      if (snap.id === this.followId) {
+      if (followed) {
         this.updateFollowCamera(snap.lon, snap.lat)
       }
     }
