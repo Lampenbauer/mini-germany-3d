@@ -1,3 +1,4 @@
+import { config } from '@/config'
 import { cumulativeDistances, projectOntoPath } from '@/lib/geo'
 import type { LonLat } from '@/lib/geo'
 import type {
@@ -65,7 +66,15 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
       prepareDirection(json, line.id, 0, dir0Json),
       prepareDirection(json, line.id, 1, dir1Json),
     ]
-    return { id: line.id, name: line.name, color: line.color, directions }
+    const mode = line.mode ?? 'tram'
+    return {
+      id: line.id,
+      name: line.name,
+      color: line.color,
+      mode,
+      vehicle: line.vehicle ?? config.vehicles[mode],
+      directions,
+    }
   })
 
   return {

@@ -39,15 +39,27 @@ export const config = {
     initialSpeed: 1,
     /** Durchschnittliche Fahrgeschwindigkeit zwischen Haltestellen in m/s (~30 km/h). */
     cruiseSpeedMps: 8.3,
+    /** Modus-spezifische Reisegeschwindigkeiten (m/s); fehlend = cruiseSpeedMps. */
+    cruiseSpeedByMode: {
+      tram: 8.3,
+      bus: 6.9, // ~25 km/h Stadtverkehr
+      ferry: 3.0, // ~6 kn Hafenquerung
+    },
     /** Haltezeit an einer Haltestelle in Sekunden. */
     dwellSeconds: 25,
   },
 
-  /** Abmessungen der Straßenbahn-Quader in Metern (L × B × H, angelehnt an eine 6N2). */
-  tram: {
-    length: 32,
-    width: 2.65,
-    height: 3.6,
+  /**
+   * Standard-Fahrzeugmaße pro Verkehrsmittel in Metern (L × B × H).
+   * Fähren erhalten ihre echten Maße pro Linie aus network.json.
+   */
+  vehicles: {
+    /** Angelehnt an eine 6N2. */
+    tram: { length: 32, width: 2.65, height: 3.6 },
+    /** 12-m-Standard-Stadtbus. */
+    bus: { length: 12, width: 2.55, height: 3.1 },
+    /** Fallback, falls eine Fähre keine Maße mitbringt. */
+    ferry: { length: 20, width: 7, height: 4 },
   },
 } as const
 

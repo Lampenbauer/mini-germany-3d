@@ -8,7 +8,12 @@
  */
 
 import { sampleAtDistance } from '@/lib/geo'
-import type { PreparedDirection, PreparedLine, PreparedNetwork } from '@/data/network-types'
+import type {
+  PreparedDirection,
+  PreparedLine,
+  PreparedNetwork,
+  TransitMode,
+} from '@/data/network-types'
 
 export interface StopTime {
   /** Index in direction.stops */
@@ -41,10 +46,27 @@ export const DEFAULT_SERVICE: HeadwaySpan[] = [
   { startMin: 21 * 60, endMin: 24 * 60, headwayMin: 20 },
 ]
 
+/**
+ * Synthetische Takte pro Verkehrsmittel, falls schedule.json keine echten
+ * Abfahrten liefert. Busse fahren seltener als Trams, die Fähren pendeln
+ * tagsüber in dichter Folge (Kabutzenhof alle 15 min, Hohe Düne ähnlich).
+ */
+export const DEFAULT_SERVICE_BY_MODE: Record<TransitMode, HeadwaySpan[]> = {
+  tram: DEFAULT_SERVICE,
+  bus: [
+    { startMin: 5 * 60, endMin: 6 * 60, headwayMin: 30 },
+    { startMin: 6 * 60, endMin: 19 * 60, headwayMin: 20 },
+    { startMin: 19 * 60, endMin: 23 * 60, headwayMin: 30 },
+  ],
+  ferry: [{ startMin: 6 * 60, endMin: 21 * 60, headwayMin: 15 }],
+}
+
 export interface TimetableOptions {
   cruiseSpeedMps: number
   dwellSeconds: number
   service?: HeadwaySpan[]
+  /** Modus-spezifische Reisegeschwindigkeit (m/s); fehlend = cruiseSpeedMps. */
+  cruiseSpeedByMode?: Partial<Record<TransitMode, number>>
 }
 
 /** Abfahrtszeiten (Sekunden seit Mitternacht) aus einem Taktschema. */
@@ -96,7 +118,8 @@ export function buildTripsForDirection(
   opts: TimetableOptions,
 ): Trip[] {
   const dir = line.directions[direction]
-  const offsets = stopOffsets(dir, opts.cruiseSpeedMps, opts.dwellSeconds)
+  const speed = opts.cruiseSpeedByMode?.[line.mode] ?? opts.cruiseSpeedMps
+  const offsets = stopOffsets(dir, speed, opts.dwellSeconds)
   return departures.map((dep) => ({
     id: simTripId(line.id, direction, dep),
     lineId: line.id,
@@ -143,14 +166,23 @@ export function buildAllTrips(
   schedule?: ScheduleJson,
 ): Trip[] {
   const trips: Trip[] = []
-  const service = opts.service ?? DEFAULT_SERVICE
-  const defaultDepartures = departuresFromService(service)
+  const defaultDepartures = new Map<TransitMode, number[]>()
+  const fallbackDepartures = (mode: TransitMode): number[] => {
+    let deps = defaultDepartures.get(mode)
+    if (!deps) {
+      deps = departuresFromService(opts.service ?? DEFAULT_SERVICE_BY_MODE[mode])
+      defaultDepartures.set(mode, deps)
+    }
+    return deps
+  }
 
   for (const line of network.lines) {
     for (const direction of [0, 1] as const) {
       const real = schedule?.lines?.[line.id]?.[String(direction)]?.departures
       const departures =
-        real && real.length > 0 ? [...real].sort((a, b) => a - b) : defaultDepartures
+        real && real.length > 0
+          ? [...real].sort((a, b) => a - b)
+          : fallbackDepartures(line.mode)
       trips.push(...buildTripsForDirection(line, direction, departures, opts))
     }
   }
