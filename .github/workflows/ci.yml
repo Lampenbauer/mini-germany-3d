@@ -4,15 +4,19 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -39,10 +43,77 @@ jobs:
 
       - name: Playwright-Report hochladen (bei Fehlern)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
             playwright-report/
             test-results/
           retention-days: 7
+
+      - name: Deployment-Artefakt vorbereiten
+        if: >-
+          success() && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          mkdir -p dist/api
+          cp server/api/realtime.php dist/api/
+          cp src/data/schedule.json dist/api/schedule.json
+
+      - name: Deployment-Artefakt hochladen
+        if: >-
+          success() && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-dist
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Deploy (all-inkl)
+    needs: test
+    if: >-
+      needs.test.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-all-inkl
+      cancel-in-progress: false
+    env:
+      KAS_SSH_HOST: w00a4540.kasserver.com
+      KAS_SSH_USER: ssh-w00a4540
+      KAS_TARGET_DIR: /www/htdocs/w00a4540/apps/mini-rostock-3d/
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Deployment-Artefakt herunterladen
+        uses: actions/download-artifact@v8
+        with:
+          name: production-dist
+          path: dist
+
+      - name: Upload per rsync über SSH
+        env:
+          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+        run: |
+          git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
+          current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
+          if [ "$current_main_sha" != "$GITHUB_SHA" ]; then
+            echo "::notice::Deploy übersprungen: $GITHUB_SHA ist nicht mehr der aktuelle main-Commit ($current_main_sha)."
+            exit 0
+          fi
+          if [ -z "$SSHPASS" ]; then
+            echo "::error::Secret KAS_SSH_PASSWORD ist nicht gesetzt (Repo-Settings → Secrets → Actions)."
+            exit 1
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+          echo "✅ Deployt nach https://minirostock3d.lampenbauer.com"
