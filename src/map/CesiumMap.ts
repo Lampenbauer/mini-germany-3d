@@ -9,16 +9,18 @@
 
 import {
   BoundingSphere,
+  BoxGeometry,
   Cartesian2,
   Cartesian3,
   Cartographic,
   ClassificationType,
   Color,
+  ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
   ConstantPositionProperty,
-  ConstantProperty,
   DistanceDisplayCondition,
   Entity,
+  GeometryInstance,
   GridImageryProvider,
   HeadingPitchRange,
   HeadingPitchRoll,
@@ -27,6 +29,8 @@ import {
   LabelStyle,
   Math as CesiumMath,
   Matrix4,
+  PerInstanceColorAppearance,
+  Primitive,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Transforms,
@@ -50,10 +54,20 @@ export interface CesiumMapOptions {
 }
 
 interface TramEntityRecord {
-  entity: Entity
-  position: ConstantPositionProperty
-  orientation: ConstantProperty
-  color: Color
+  /**
+   * Der Wagenkasten als Primitive mit direkter modelMatrix: Positionsupdates
+   * wirken sofort. (Entity-Boxen bauen bei jeder Positionsänderung ihre
+   * Geometrie asynchron neu auf – bei kontinuierlicher Bewegung verhungert
+   * dieser Neuaufbau, sobald die Renderrate auf Tick-Niveau fällt, und die
+   * Quader frieren sichtbar ein.)
+   */
+  primitive: Primitive
+  /** Wiederverwendete modelMatrix des Primitives (in-place aktualisiert). */
+  matrix: Matrix4
+  /** Entity für Nummern-Label (Billboard-Pfad, updatet ohne Neuaufbau). */
+  labelEntity: Entity
+  labelPosition: ConstantPositionProperty
+  baseColor: Color
   /** Geglättete Bodenhöhe (ellipsoidisch) unter der Bahn in Metern. */
   groundHeight: number
   /** Frame-Zähler der letzten Höhenabfrage (Sampling wird gestaffelt). */
@@ -171,12 +185,16 @@ export class CesiumMap {
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
       const picked = scene.pick(movement.position) as { id?: unknown } | undefined
-      const entity = picked?.id
-      if (entity instanceof Entity && entity.id.startsWith('tram:')) {
-        this.opts.onSelectTram?.(entity.id.slice('tram:'.length))
-      } else {
-        this.opts.onSelectTram?.(null)
+      const pickedId = picked?.id
+      // Wagenkasten-Primitive liefern die Instanz-ID als String,
+      // das Nummern-Label ein Entity – beide tragen das "tram:"-Präfix.
+      let tramId: string | null = null
+      if (pickedId instanceof Entity && pickedId.id.startsWith('tram:')) {
+        tramId = pickedId.id.slice('tram:'.length)
+      } else if (typeof pickedId === 'string' && pickedId.startsWith('tram:')) {
+        tramId = pickedId.slice('tram:'.length)
       }
+      this.opts.onSelectTram?.(tramId)
     }, ScreenSpaceEventType.LEFT_CLICK)
   }
 
@@ -492,11 +510,18 @@ export class CesiumMap {
         snap.lat,
         record.groundHeight + TRAM_HALF_HEIGHT + 0.3,
       )
-      record.position.setValue(position)
-      const hpr = new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0)
-      record.orientation.setValue(Transforms.headingPitchRollQuaternion(position, hpr))
+      record.labelPosition.setValue(position)
+      // modelMatrix in-place aktualisieren – wirkt beim nächsten Render sofort
+      Transforms.headingPitchRollToFixedFrame(
+        position,
+        new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
+        undefined,
+        undefined,
+        record.matrix,
+      )
       const show = visibleLines.has(snap.lineId)
-      record.entity.show = show
+      record.primitive.show = show
+      record.labelEntity.show = show
 
       if (show && !anyTramInView) {
         this.frustumSphere.center = position
@@ -514,7 +539,8 @@ export class CesiumMap {
     for (const [id, record] of this.trams) {
       if (!alive.has(id)) {
         if (id === this.followId) this.setFollow(null)
-        this.viewer.entities.remove(record.entity)
+        this.viewer.entities.remove(record.labelEntity)
+        this.viewer.scene.primitives.remove(record.primitive)
         this.trams.delete(id)
       }
     }
@@ -587,24 +613,36 @@ export class CesiumMap {
       snap.lat,
       this.defaultGroundHeight + TRAM_HALF_HEIGHT + 0.3,
     )
-    const position = new ConstantPositionProperty(initialPosition)
-    const orientation = new ConstantProperty(
-      Transforms.headingPitchRollQuaternion(
-        initialPosition,
-        new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
-      ),
-    )
 
-    const entity = this.viewer.entities.add({
+    const matrix = Transforms.headingPitchRollToFixedFrame(
+      initialPosition,
+      new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
+    )
+    const primitive = new Primitive({
+      geometryInstances: new GeometryInstance({
+        geometry: BoxGeometry.fromDimensions({
+          vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
+          dimensions: new Cartesian3(
+            config.tram.length,
+            config.tram.width,
+            config.tram.height,
+          ),
+        }),
+        attributes: {
+          color: ColorGeometryInstanceAttribute.fromColor(color),
+        },
+        id: `tram:${snap.id}`,
+      }),
+      appearance: new PerInstanceColorAppearance({ closed: true, translucent: false }),
+      asynchronous: false,
+      modelMatrix: matrix,
+    })
+    this.viewer.scene.primitives.add(primitive)
+
+    const labelPosition = new ConstantPositionProperty(initialPosition)
+    const labelEntity = this.viewer.entities.add({
       id: `tram:${snap.id}`,
-      position,
-      orientation,
-      box: {
-        dimensions: new Cartesian3(config.tram.length, config.tram.width, config.tram.height),
-        material: color,
-        outline: true,
-        outlineColor: Color.fromCssColorString('#0f172a').withAlpha(0.9),
-      },
+      position: labelPosition,
       label: {
         text: snap.lineId,
         font: 'bold 14px "Inter Variable", system-ui, sans-serif',
@@ -619,30 +657,39 @@ export class CesiumMap {
     })
 
     return {
-      entity,
-      position,
-      orientation,
-      color,
+      primitive,
+      matrix,
+      labelEntity,
+      labelPosition,
+      baseColor: color,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sofort beim ersten Frame sampeln
     }
   }
 
+  /** Färbt den Wagenkasten der ausgewählten Bahn heller (bzw. zurück). */
+  private applyTramHighlight(tramId: string, highlighted: boolean): void {
+    const record = this.trams.get(tramId)
+    if (!record) return
+    try {
+      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      if (!attributes) return
+      const color = highlighted
+        ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
+        : record.baseColor
+      attributes.color = ColorGeometryInstanceAttribute.toValue(color, attributes.color)
+    } catch {
+      // Primitive noch nicht gerendert – Highlight dann einfach überspringen
+    }
+  }
+
   setSelected(tramId: string | null): void {
     if (this.selectedId) {
-      const prev = this.trams.get(this.selectedId)
-      if (prev?.entity.box) {
-        prev.entity.box.outlineColor = new ConstantProperty(
-          Color.fromCssColorString('#0f172a').withAlpha(0.9),
-        )
-      }
+      this.applyTramHighlight(this.selectedId, false)
     }
     this.selectedId = tramId
     if (tramId) {
-      const record = this.trams.get(tramId)
-      if (record?.entity.box) {
-        record.entity.box.outlineColor = new ConstantProperty(Color.WHITE)
-      }
+      this.applyTramHighlight(tramId, true)
     }
   }
 
