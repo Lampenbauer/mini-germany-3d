@@ -167,17 +167,21 @@ Die App bindet den **freien GTFS-Realtime-Feed von gtfs.de** an
 
 ## Deployment (all-inkl Webhosting)
 
-`.github/workflows/deploy.yml` baut die App und lädt sie per rsync/SSH auf das
-all-inkl-Webhosting (Apache + PHP) nach `https://minirostock3d.lampenbauer.com`:
+`.github/workflows/ci.yml` testet und baut die App und lädt sie anschließend per
+rsync/SSH auf das all-inkl-Webhosting (Apache + PHP) nach
+`https://minirostock3d.lampenbauer.com`:
 
 1. **Einmalig:** In den Repo-Einstellungen das Secret **`KAS_SSH_PASSWORD`** anlegen
    (Settings → Secrets and variables → Actions) – das SSH-Passwort des Users
    `***REMOVED***`. Host, User und Zielverzeichnis stehen direkt im Workflow.
-2. Deploy läuft automatisch, sobald ein Pull Request mit Zielbranch `main`
-   gemergt wurde: Unit-Tests → PHP-Paritätstest → Build → `dist/` +
-   `api/realtime.php` + `api/schedule.json` per rsync ins Stammverzeichnis
-   `***REMOVED***/`. Direkte Pushes und lediglich
-   geschlossene, nicht gemergte Pull Requests lösen kein Deployment aus.
+2. Nach einem Push auf `main` – insbesondere nach einem PR-Merge – wartet der
+   Deploy-Job auf den vollständigen erfolgreichen CI-Job: Typecheck, Unit-Tests,
+   PHP-Paritätstest, Build sowie E2E- und visuelle Tests. Erst danach werden
+   `dist/`, `api/realtime.php` und `api/schedule.json` per rsync ins
+   Stammverzeichnis `***REMOVED***/` geladen.
+   PR-Prüfungen, Feature-Branch-Pushes und fehlgeschlagene Tests deployen nicht.
+   Ein manueller Start des CI-Workflows auf `main` durchläuft ebenfalls zuerst
+   alle Tests und eignet sich damit als Recovery-Deploy.
 3. Die mitdeployte `.htaccess` mappt `/api/realtime` auf das PHP-Skript und setzt
    Cache-Header (gehashte Assets ein Jahr, `index.html` no-cache, Cesium-Statik
    einen Tag).
