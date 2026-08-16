@@ -1,5 +1,15 @@
 import type { LonLat } from '@/lib/geo'
 
+/** Verkehrsmittel einer Linie. Fehlt das Feld in network.json, gilt 'tram'. */
+export type TransitMode = 'tram' | 'bus' | 'ferry'
+
+/** Fahrzeugabmessungen in Metern (Länge × Breite × Höhe). */
+export interface VehicleDimensions {
+  length: number
+  width: number
+  height: number
+}
+
 /** Rohformat von src/data/network.json (wird von den Daten-Skripten erzeugt). */
 export interface NetworkJson {
   meta: NetworkMeta
@@ -23,6 +33,10 @@ export interface LineJson {
   id: string
   name: string
   color: string
+  /** Verkehrsmittel; fehlend = 'tram' (ältere network.json-Dateien). */
+  mode?: TransitMode
+  /** Individuelle Fahrzeugmaße (z.B. Fähren); fehlend = Modus-Standard. */
+  vehicle?: VehicleDimensions
   /**
    * Eine oder zwei Richtungen. Bei nur einer Richtung wird die Gegenrichtung
    * automatisch durch Spiegelung des Pfads erzeugt.
@@ -49,6 +63,9 @@ export interface PreparedLine {
   id: string
   name: string
   color: string
+  mode: TransitMode
+  /** Aufgelöste Fahrzeugmaße (Linien-spezifisch oder Modus-Standard). */
+  vehicle: VehicleDimensions
   directions: [PreparedDirection, PreparedDirection]
 }
 

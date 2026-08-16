@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Lädt die echten Rostocker Straßenbahn-Routen aus OpenStreetMap (Overpass API)
- * und erzeugt daraus src/data/network.json mit exakter Gleisgeometrie.
+ * Lädt die echten Rostocker ÖPNV-Routen aus OpenStreetMap (Overpass API)
+ * und erzeugt daraus src/data/network.json mit exakter Geometrie:
+ *   - alle Straßenbahn-Linien (route=tram)
+ *   - alle RSAG-Buslinien (route=bus, operator RSAG)
+ *   - die Fähren Kabutzenhof–Gehlsdorf (56291) und
+ *     Warnemünde–Hohe Düne (56296)
  *
  *   npm run data:update
  *
@@ -9,6 +13,7 @@
  *   OVERPASS_URL  – alternativer Overpass-Endpunkt (überspringt die Mirror-Liste)
  *   OVERPASS_FILE – lokale JSON-Datei mit einer bereits gespeicherten
  *                   Overpass-Antwort (kein Netzwerkzugriff nötig)
+ *   NETWORK_OUT   – alternativer Ausgabepfad (Standard: src/data/network.json)
  *
  * Datenlizenz: © OpenStreetMap-Mitwirkende, ODbL 1.0 (https://osm.org/copyright)
  *
@@ -22,7 +27,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const OUT = resolve(__dirname, '../src/data/network.json')
+const OUT = process.env.NETWORK_OUT
+  ? resolve(process.env.NETWORK_OUT)
+  : resolve(__dirname, '../src/data/network.json')
 
 // Öffentliche Overpass-Instanzen; werden der Reihe nach probiert.
 const OVERPASS_MIRRORS = process.env.OVERPASS_URL
@@ -56,12 +63,41 @@ const FALLBACK_COLORS = {
   7: '#00A5B5',
 }
 
+// Buslinien ohne colour-Tag bekommen reihum eine unterscheidbare Farbe.
+const BUS_PALETTE = [
+  '#1D4ED8', '#059669', '#B45309', '#7C3AED', '#BE185D',
+  '#0E7490', '#4D7C0F', '#B91C1C', '#6D28D9', '#0F766E',
+]
+
+/**
+ * Die beiden gewünschten Fähren, adressiert über ihre OSM-Relations-IDs.
+ * Maße lt. Betreiberangaben; die Höhe ist eine visuelle Näherung über
+ * Wasserlinie (Antriebe/Aufbauten).
+ */
+const FERRIES = {
+  56291: {
+    id: 'F1',
+    name: 'Fähre Kabutzenhof – Gehlsdorf',
+    color: '#0E7490',
+    vehicle: { length: 19.9, width: 6.6, height: 3.5 },
+  },
+  56296: {
+    id: 'F2',
+    name: 'Fähre Warnemünde – Hohe Düne',
+    color: '#155E75',
+    vehicle: { length: 39, width: 11, height: 6 },
+  },
+}
+
 // Wichtig: "out body qt" (nicht "out skel qt"), damit Knoten/Wege ihre Tags
 // behalten – sonst fehlen die Haltestellennamen.
+// Busse: nur RSAG (Regionalbusse anderer Betreiber wie rebus bleiben außen vor).
 const QUERY = `
-[out:json][timeout:180][bbox:${BBOX}];
+[out:json][timeout:240][bbox:${BBOX}];
 (
   relation["route"="tram"];
+  relation["route"="bus"]["operator"~"Rostocker Straßenbahn|RSAG",i];
+  relation(id:${Object.keys(FERRIES).join(',')});
 );
 out body;
 >;
@@ -210,22 +246,39 @@ async function main() {
     else if (el.type === 'relation') relations.push(el)
   }
   console.log(
-    `${relations.length} Tram-Relationen, ${wayById.size} Wege, ${nodeById.size} Knoten geladen`,
+    `${relations.length} Routen-Relationen, ${wayById.size} Wege, ${nodeById.size} Knoten geladen`,
   )
 
-  // Relationen nach Linien-Ref gruppieren
-  const byRef = new Map()
+  // Relationen nach Linie gruppieren: Trams/Busse über ihren ref-Tag,
+  // die Fähren über ihre feste Relations-ID (sie tragen teils keinen ref).
+  const byLine = new Map() // key → { mode, ref, fixed?, rels }
   for (const rel of relations) {
+    const ferry = FERRIES[rel.id]
+    if (ferry) {
+      const key = `ferry:${ferry.id}`
+      if (!byLine.has(key)) byLine.set(key, { mode: 'ferry', ref: ferry.id, fixed: ferry, rels: [] })
+      byLine.get(key).rels.push(rel)
+      continue
+    }
+    const mode = rel.tags?.route === 'bus' ? 'bus' : rel.tags?.route === 'tram' ? 'tram' : null
     const ref = rel.tags?.ref
-    if (!ref) continue
-    if (!byRef.has(ref)) byRef.set(ref, [])
-    byRef.get(ref).push(rel)
+    if (!mode || !ref) continue
+    const key = `${mode}:${ref}`
+    if (!byLine.has(key)) byLine.set(key, { mode, ref, rels: [] })
+    byLine.get(key).rels.push(rel)
   }
 
   const stops = {}
   const lines = []
+  const MODE_ORDER = { tram: 0, bus: 1, ferry: 2 }
+  let busColorIndex = 0
 
-  for (const [ref, rels] of [...byRef.entries()].sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }))) {
+  const groups = [...byLine.values()].sort(
+    (a, b) =>
+      MODE_ORDER[a.mode] - MODE_ORDER[b.mode] ||
+      a.ref.localeCompare(b.ref, 'de', { numeric: true }),
+  )
+  for (const { mode, ref, fixed, rels } of groups) {
     // Name eines Relations-Members (Knoten oder Weg) ermitteln
     const memberName = (m) => {
       if (!m) return undefined
@@ -257,11 +310,13 @@ async function main() {
         })
         return { rel, path, stopNodes }
       })
-      .filter((c) => c.path.length >= 2 && c.stopNodes.length >= 2)
+      // Fähr-Relationen führen ihre Anleger oft nicht als stop-Rollen –
+      // dafür gibt es unten einen Fallback über die Pfad-Enden.
+      .filter((c) => c.path.length >= 2 && (c.stopNodes.length >= 2 || mode === 'ferry'))
       .sort((a, b) => b.path.length - a.path.length)
 
     if (candidates.length === 0) {
-      console.warn(`⚠ Linie ${ref}: keine verwertbare Relation – übersprungen`)
+      console.warn(`⚠ ${mode === 'bus' ? 'Bus' : mode === 'ferry' ? 'Fähre' : 'Linie'} ${ref}: keine verwertbare Relation – übersprungen`)
       continue
     }
 
@@ -297,6 +352,22 @@ async function main() {
       if (dropped > 0) {
         console.warn(`  ⚠ Linie ${ref}: ${dropped} nicht-monotone Halte entfernt`)
       }
+      if (mode === 'ferry' && dirStops.length < 2) {
+        // Anleger aus den Pfad-Enden ableiten; Namen aus from/to der Relation.
+        const mkStop = (suffix, coord, name) => {
+          const id = `ferry-${rel.id}-${suffix}`
+          stops[id] = {
+            name,
+            coord: [Number(coord[0].toFixed(6)), Number(coord[1].toFixed(6))],
+          }
+          return id
+        }
+        dirStops.length = 0
+        dirStops.push(
+          mkStop('a', path[0], rel.tags?.from || 'Anleger'),
+          mkStop('b', path[path.length - 1], rel.tags?.to || 'Anleger'),
+        )
+      }
       if (dirStops.length < 2) continue
 
       directions.push({
@@ -312,15 +383,27 @@ async function main() {
       continue
     }
 
+    // Bus-Refs könnten theoretisch mit Tram-Refs kollidieren – dann Präfix.
+    const lineId =
+      fixed?.id ?? (mode === 'bus' && byLine.has(`tram:${ref}`) ? `B${ref}` : ref)
+    const name =
+      fixed?.name ?? (mode === 'bus' ? `Bus ${ref}` : `Linie ${ref}`)
     const colour = chosen[0].rel.tags?.colour
+    const fallbackColor =
+      fixed?.color ??
+      (mode === 'bus'
+        ? BUS_PALETTE[busColorIndex++ % BUS_PALETTE.length]
+        : FALLBACK_COLORS[ref] || '#64748b')
     lines.push({
-      id: ref,
-      name: `Linie ${ref}`,
-      color: /^#[0-9a-fA-F]{6}$/.test(colour || '') ? colour : FALLBACK_COLORS[ref] || '#64748b',
+      id: lineId,
+      name,
+      color: /^#[0-9a-fA-F]{6}$/.test(colour || '') ? colour : fallbackColor,
+      mode,
+      ...(fixed?.vehicle ? { vehicle: fixed.vehicle } : {}),
       directions,
     })
     console.log(
-      `✓ Linie ${ref}: ${directions.length} Richtung(en), ` +
+      `✓ ${name}: ${directions.length} Richtung(en), ` +
         `${directions.map((d) => `${d.stops.length} Halte/${(cumulative(d.path).at(-1) / 1000).toFixed(1)} km`).join(' + ')}`,
     )
   }

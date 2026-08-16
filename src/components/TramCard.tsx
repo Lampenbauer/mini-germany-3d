@@ -18,6 +18,19 @@ function formatDelay(delaySeconds: number): string {
   return `${minutes > 0 ? '+' : ''}${minutes} min`
 }
 
+/** Verkehrsmittel-gerechte Beschriftung des Folgen-Buttons. */
+const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
+  tram: 'Bahn folgen',
+  bus: 'Bus folgen',
+  ferry: 'Fähre folgen',
+}
+
+/** Status-Text; Fähren halten am Anleger, nicht an einer Haltestelle. */
+function statusText(tram: TramSnapshot): string {
+  if (tram.status === 'moving') return 'In Fahrt'
+  return tram.mode === 'ferry' ? 'Halt am Anleger' : 'Halt an Haltestelle'
+}
+
 export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardProps) {
   return (
     <Card
@@ -45,9 +58,7 @@ export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardP
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <span className="text-muted-foreground">Status</span>
-          <span data-testid="tram-status">
-            {tram.status === 'dwell' ? 'Halt an Haltestelle' : 'In Fahrt'}
-          </span>
+          <span data-testid="tram-status">{statusText(tram)}</span>
           <span className="text-muted-foreground">Nächster Halt</span>
           <span data-testid="tram-next-stop">{tram.nextStopName}</span>
           <span className="text-muted-foreground">Fahrt</span>
@@ -60,7 +71,7 @@ export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardP
             onClick={onToggleFollow}
           >
             <Crosshair aria-hidden />
-            {following ? 'Verfolgung beenden' : 'Bahn folgen'}
+            {following ? 'Verfolgung beenden' : FOLLOW_LABEL[tram.mode]}
           </Button>
           {tram.realtime ? (
             <Badge variant="secondary" data-testid="tram-delay">

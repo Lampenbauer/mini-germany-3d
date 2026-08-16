@@ -33,10 +33,21 @@ const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/nv_fr
 
 // Grobe Bounding-Box Rostock zum Filtern der Haltestellen
 const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
-const TRAM_LINE_IDS = new Set(['1', '2', '3', '4', '5', '6', '7'])
+
+// GTFS-route_types pro Verkehrsmittel (Basis- und erweiterte Typen)
+const ROUTE_TYPES = {
+  tram: new Set(['0', '900']),
+  bus: new Set(['3', '700', '704']),
+  ferry: new Set(['4', '1000', '1200']),
+}
+
+// Betreiber-Filter (agency.txt): reduziert die deutschlandweiten Kandidaten
+// (eine "Linie 22" gibt es in Dutzenden Städten) auf Rostocker Anbieter.
+const AGENCY_RE = /rostock|rsag|wei[ßs]e flotte/i
 
 // Nur diese Dateien werden aus dem Zip entpackt (spart Gigabytes an RAM)
 const NEEDED_FILES = new Set([
+  'agency.txt',
   'routes.txt',
   'trips.txt',
   'stops.txt',
@@ -44,7 +55,7 @@ const NEEDED_FILES = new Set([
   'calendar.txt',
   'calendar_dates.txt',
 ])
-const OPTIONAL_FILES = new Set(['calendar.txt', 'calendar_dates.txt'])
+const OPTIONAL_FILES = new Set(['agency.txt', 'calendar.txt', 'calendar_dates.txt'])
 
 // ---------------------------------------------------------------------------
 // CSV-Streaming über Uint8Array (ohne die Datei als einen String zu halten)
@@ -160,6 +171,27 @@ async function loadZip() {
 }
 
 async function main() {
+  // Die Linien (samt Verkehrsmittel) kommen aus network.json – das GTFS-Skript
+  // sucht für genau diese Linien die passenden Fahrpläne.
+  const networkJson = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
+  const networkLines = new Map() // lineId → mode
+  const ferryTargets = new Map() // lineId → normalisierte Anleger-Namen
+  for (const line of networkJson.lines) {
+    const mode = line.mode ?? 'tram'
+    networkLines.set(line.id, mode)
+    if (mode === 'ferry') {
+      const d = line.directions[0]
+      ferryTargets.set(line.id, [d.from, d.to].map(normalizeName).filter(Boolean))
+    }
+  }
+  console.log(
+    `network.json: ${networkLines.size} Linien (` +
+      ['tram', 'bus', 'ferry']
+        .map((m) => `${[...networkLines.values()].filter((v) => v === m).length}× ${m}`)
+        .join(', ') +
+      ')',
+  )
+
   const zipBuffer = await loadZip()
   console.log('Entpacke benötigte GTFS-Dateien …')
   const files = unzipSync(new Uint8Array(zipBuffer), {
@@ -185,14 +217,47 @@ async function main() {
   const stopsInRostock = rostockStopCoords
   console.log(`${stopsInRostock.size} Haltestellen im Rostocker Stadtgebiet`)
 
-  // ---- routes.txt: Tram-Routen (route_type 0) mit passender Liniennummer ---
-  const routeLine = new Map() // route_id → Liniennummer
+  // ---- agency.txt (optional): auf Rostocker Betreiber einschränken ---------
+  let rostockAgencyIds = null
+  if (files['agency.txt']) {
+    rostockAgencyIds = new Set()
+    scanCsv(files['agency.txt'], (get) => {
+      if (AGENCY_RE.test(get('agency_name'))) rostockAgencyIds.add(get('agency_id'))
+    })
+    console.log(`${rostockAgencyIds.size} Rostocker Betreiber in agency.txt`)
+    if (rostockAgencyIds.size === 0) rostockAgencyIds = null // dann nicht filtern
+  }
+
+  // ---- routes.txt: Routen zu den Netz-Linien (Tram, Bus, Fähre) ------------
+  // Trams/Busse werden über die Liniennummer (route_short_name) gematcht,
+  // Fähren über die Anleger-Namen im route_long_name (ihre Kurznamen sind
+  // feed-abhängig). Bus-IDs mit Kollisions-Präfix "B" matchen ihre Nummer.
+  const routeLine = new Map() // route_id → lineId
   scanCsv(files['routes.txt'], (get) => {
-    if (get('route_type') === '0' && TRAM_LINE_IDS.has(get('route_short_name'))) {
-      routeLine.set(get('route_id'), get('route_short_name'))
+    if (rostockAgencyIds && !rostockAgencyIds.has(get('agency_id'))) return
+    const type = get('route_type')
+    const short = get('route_short_name')
+    for (const [lineId, mode] of networkLines) {
+      if (!ROUTE_TYPES[mode].has(type)) continue
+      if (mode === 'ferry') {
+        const names = normalizeName(`${short} ${get('route_long_name')}`)
+        const targets = ferryTargets.get(lineId) ?? []
+        if (targets.length > 0 && targets.some((t) => t.length >= 5 && names.includes(t))) {
+          routeLine.set(get('route_id'), lineId)
+          break
+        }
+      } else if (
+        short === lineId ||
+        (mode === 'bus' && lineId.startsWith('B') && short === lineId.slice(1))
+      ) {
+        routeLine.set(get('route_id'), lineId)
+        break
+      }
     }
   })
-  console.log(`${routeLine.size} Tram-Routen-Kandidaten (route_type=0, deutschlandweit)`)
+  console.log(
+    `${routeLine.size} Routen-Kandidaten (${rostockAgencyIds ? 'Betreiber-gefiltert' : 'deutschlandweit'})`,
+  )
 
   // ---- trips.txt: nur Fahrten der Kandidaten-Routen ------------------------
   const tripInfo = new Map() // trip_id → {lineId, rawDir, serviceId, headsign}
@@ -238,7 +303,7 @@ async function main() {
 
   if (tripTouchesRostock.size === 0) {
     throw new Error(
-      'Keine Rostocker Tram-Fahrten im Feed gefunden. ' +
+      'Keine Rostocker Fahrten im Feed gefunden. ' +
         'Prüfe GTFS_URL – ggf. den offiziellen VVW-Feed verwenden.',
     )
   }
@@ -339,8 +404,7 @@ async function main() {
   // "falschen" Terminus). Sekundär: trip_headsign.
   const dirTargets = {}
   try {
-    const network = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
-    for (const line of network.lines) {
+    for (const line of networkJson.lines) {
       const d0 = line.directions[0]
       const d1 = line.directions[1]
       const cum = [0]

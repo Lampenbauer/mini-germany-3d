@@ -309,6 +309,23 @@ export default function App() {
     [],
   )
 
+  /** Mehrere Linien auf einmal ein-/ausblenden (Gruppen-Schalter im Panel). */
+  const handleSetLinesVisible = useCallback(
+    (lineIds: string[], visible: boolean) => {
+      setVisibleLines((prev) => {
+        const next = new Set(prev)
+        for (const id of lineIds) {
+          if (visible) next.add(id)
+          else next.delete(id)
+          mapRef.current?.setLineRouteVisible(id, showRoutesRef.current && visible)
+        }
+        visibleLinesRef.current = next
+        return next
+      })
+    },
+    [],
+  )
+
   const handleToggleRoutes = useCallback(
     (visible: boolean) => {
       showRoutesRef.current = visible
@@ -366,6 +383,7 @@ export default function App() {
     id: line.id,
     name: line.name,
     color: line.color,
+    mode: line.mode,
     from: line.directions[0].from,
     to: line.directions[0].to,
     visible: visibleLines.has(line.id),
@@ -395,6 +413,7 @@ export default function App() {
           onResetTime={handleResetTime}
           lines={lineInfos}
           onToggleLine={handleToggleLine}
+          onSetLinesVisible={handleSetLinesVisible}
           showRoutes={showRoutes}
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}

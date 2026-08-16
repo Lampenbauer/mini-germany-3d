@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Bus,
   ChevronDown,
   ChevronUp,
   Gauge,
@@ -8,6 +9,7 @@ import {
   Pause,
   Play,
   RadioTower,
+  Ship,
   TimerReset,
   TramFront,
 } from 'lucide-react'
@@ -23,6 +25,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import type { TransitMode } from '@/data/network-types'
 import type { RealtimeStatus } from '@/lib/realtime'
 import type { TilesetStatus } from '@/map/CesiumMap'
 
@@ -30,6 +33,7 @@ export interface LineToggleInfo {
   id: string
   name: string
   color: string
+  mode: TransitMode
   from: string
   to: string
   visible: boolean
@@ -47,6 +51,8 @@ export interface ControlPanelProps {
   onResetTime: () => void
   lines: LineToggleInfo[]
   onToggleLine: (lineId: string) => void
+  /** Alle Linien einer Gruppe auf einmal ein-/ausblenden. */
+  onSetLinesVisible: (lineIds: string[], visible: boolean) => void
   showRoutes: boolean
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
@@ -64,6 +70,79 @@ const TILESET_LABEL: Record<TilesetStatus, string> = {
   'google-3d-tiles': 'Google 3D Tiles',
   offline: 'Offline-Modus',
   failed: '3D-Kacheln nicht verfügbar',
+}
+
+/** Anzeige-Reihenfolge und Beschriftung der Verkehrsmittel-Gruppen. */
+const MODE_ORDER: TransitMode[] = ['tram', 'bus', 'ferry']
+const MODE_LABEL: Record<TransitMode, string> = {
+  tram: 'Straßenbahn',
+  bus: 'Bus',
+  ferry: 'Fähre',
+}
+const MODE_ICON: Record<TransitMode, typeof TramFront> = {
+  tram: TramFront,
+  bus: Bus,
+  ferry: Ship,
+}
+
+/** Eine Verkehrsmittel-Gruppe der Linienliste (Kopfzeile nur bei >1 Gruppe). */
+function LineGroup(props: {
+  mode: TransitMode
+  lines: LineToggleInfo[]
+  showHeader: boolean
+  onToggleLine: (lineId: string) => void
+  onSetLinesVisible: (lineIds: string[], visible: boolean) => void
+}) {
+  const Icon = MODE_ICON[props.mode]
+  const allVisible = props.lines.every((l) => l.visible)
+  return (
+    <div className="flex flex-col gap-1.5">
+      {props.showHeader && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <Icon className="size-3.5" aria-hidden />
+            {MODE_LABEL[props.mode]}
+          </span>
+          <Switch
+            aria-label={`Alle ${MODE_LABEL[props.mode]}-Linien anzeigen`}
+            checked={allVisible}
+            onCheckedChange={(checked) =>
+              props.onSetLinesVisible(
+                props.lines.map((l) => l.id),
+                checked,
+              )
+            }
+          />
+        </div>
+      )}
+      <ul className="flex flex-col gap-1.5">
+        {props.lines.map((line) => (
+          <li key={line.id} className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+                style={{ backgroundColor: line.color }}
+                aria-hidden
+              >
+                {line.id}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm leading-tight">{line.name}</div>
+                <div className="truncate text-xs leading-tight text-muted-foreground">
+                  {line.from} ↔ {line.to}
+                </div>
+              </div>
+            </div>
+            <Switch
+              aria-label={`${line.name} anzeigen`}
+              checked={line.visible}
+              onCheckedChange={() => props.onToggleLine(line.id)}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export function ControlPanel(props: ControlPanelProps) {
@@ -147,35 +226,25 @@ export function ControlPanel(props: ControlPanelProps) {
 
           <div className="h-px bg-border" role="separator" />
 
-          {/* Linien */}
+          {/* Linien, gruppiert nach Verkehrsmittel (Kopfzeilen nur bei >1 Gruppe) */}
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium">Linien</div>
-            <ul className="flex flex-col gap-1.5">
-              {props.lines.map((line) => (
-                <li key={line.id} className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-                      style={{ backgroundColor: line.color }}
-                      aria-hidden
-                    >
-                      {line.id}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm leading-tight">{line.name}</div>
-                      <div className="truncate text-xs leading-tight text-muted-foreground">
-                        {line.from} ↔ {line.to}
-                      </div>
-                    </div>
-                  </div>
-                  <Switch
-                    aria-label={`${line.name} anzeigen`}
-                    checked={line.visible}
-                    onCheckedChange={() => props.onToggleLine(line.id)}
-                  />
-                </li>
-              ))}
-            </ul>
+            {(() => {
+              const groups = MODE_ORDER.map((mode) => ({
+                mode,
+                lines: props.lines.filter((l) => l.mode === mode),
+              })).filter((g) => g.lines.length > 0)
+              return groups.map((g) => (
+                <LineGroup
+                  key={g.mode}
+                  mode={g.mode}
+                  lines={g.lines}
+                  showHeader={groups.length > 1}
+                  onToggleLine={props.onToggleLine}
+                  onSetLinesVisible={props.onSetLinesVisible}
+                />
+              ))
+            })()}
           </div>
 
           <div className="h-px bg-border" role="separator" />
@@ -209,7 +278,15 @@ export function ControlPanel(props: ControlPanelProps) {
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="secondary" data-testid="tram-count">
               <TramFront aria-hidden />
-              {props.tramCount} {props.tramCount === 1 ? 'Bahn' : 'Bahnen'} unterwegs
+              {props.tramCount}{' '}
+              {new Set(props.lines.map((l) => l.mode)).size > 1
+                ? props.tramCount === 1
+                  ? 'Fahrzeug'
+                  : 'Fahrzeuge'
+                : props.tramCount === 1
+                  ? 'Bahn'
+                  : 'Bahnen'}{' '}
+              unterwegs
             </Badge>
             <Badge variant="outline" data-testid="tileset-status">
               {TILESET_LABEL[props.tilesetStatus]}
