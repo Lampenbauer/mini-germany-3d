@@ -7,11 +7,14 @@ name: Deploy (all-inkl)
 #   KAS_SSH_PASSWORD – das SSH-Passwort des Users ssh-w00a4540
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
     branches:
       - main
-      - claude/mini-rostock-3d-webapp-14flnw
+    types:
+      - closed
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-all-inkl
@@ -24,10 +27,13 @@ env:
 
 jobs:
   deploy:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - uses: actions/setup-node@v4
         with:
