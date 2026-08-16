@@ -2,37 +2,37 @@ import { existsSync } from 'node:fs'
 import { defineConfig } from '@playwright/test'
 
 /**
- * E2E-/Visuelle Tests laufen komplett offline (?offline=1):
- * Cesium rendert dann einen Gitter-Globus statt Google 3D Tiles, sodass die
- * Tests deterministisch und ohne Netzwerkzugriff funktionieren.
+ * E2E/visual tests run fully offline (?offline=1):
+ * Cesium then renders a grid globe instead of Google 3D Tiles, so the tests
+ * work deterministically and without network access.
  *
- * WebGL im Headless-Chromium wird über SwiftShader (Software-Rendering)
- * bereitgestellt.
+ * WebGL in headless Chromium is provided via SwiftShader (software
+ * rendering).
  */
 
-// In manchen Umgebungen (z.B. Claude-Code-Container) liegt ein passendes
-// Chromium bereits unter /opt/pw-browsers – dann kein Download nötig.
+// In some environments (e.g. Claude Code containers) a suitable Chromium
+// already exists under /opt/pw-browsers – then no download is needed.
 const preinstalledChromium = '/opt/pw-browsers/chromium'
 
 export default defineConfig({
   testDir: './e2e',
-  // Seit Bussen/Fähren simuliert die Suite ~350 Fahrzeuge – unter SwiftShader
-  // auf ausgelasteten CI-Runnern dauert ein einzelner Frame dadurch Sekunden.
+  // Since buses/ferries were added, the suite simulates ~350 vehicles –
+  // under SwiftShader on busy CI runners a single frame therefore takes seconds.
   timeout: 180_000,
   fullyParallel: false,
-  // Jede Spec mit Cesium bleibt in einem eigenen, sequenziellen SwiftShader-
-  // Kontext. Mehrere Worker würden die ressourcenintensiven WebGL-Seiten
-  // wieder parallel ausführen.
+  // Each spec using Cesium stays in its own, sequential SwiftShader
+  // context. Multiple workers would run the resource-intensive WebGL pages
+  // in parallel again.
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   expect: {
-    // Sim-Uhr/Badges aktualisieren erst mit dem nächsten Loop-Tick – der kann
-    // unter CI-Last mehrere Sekunden brauchen.
+    // Sim clock/badges only update with the next loop tick – which can
+    // take several seconds under CI load.
     timeout: 30_000,
     toHaveScreenshot: {
-      // Software-Rendering + Font-Antialiasing variieren leicht zwischen
-      // Umgebungen – kleine Abweichungen sind ok.
+      // Software rendering + font antialiasing vary slightly between
+      // environments – small deviations are ok.
       maxDiffPixelRatio: 0.05,
     },
   },

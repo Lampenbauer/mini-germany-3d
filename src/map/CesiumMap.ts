@@ -1,10 +1,10 @@
 /**
- * Imperativer Wrapper um den Cesium-Viewer: Google Photorealistic 3D Tiles,
- * Linien-Routen, Haltestellen und die animierten Straßenbahn-Quader.
+ * Imperative wrapper around the Cesium viewer: Google Photorealistic 3D
+ * Tiles, line routes, stops, and the animated tram boxes.
  *
- * Bewusst ohne React-Abhängigkeit gehalten – React steuert diese Klasse über
- * eine schmale API (syncTrams, setLineVisibility, …), damit die Render-Schleife
- * nicht durch React-Re-Renders läuft.
+ * Deliberately kept free of any React dependency – React drives this class
+ * through a narrow API (syncTrams, setLineVisibility, …) so the render loop
+ * does not run through React re-renders.
  */
 
 import {
@@ -45,9 +45,9 @@ import type { TramSnapshot } from '@/engine/simulation'
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
 export interface CesiumMapOptions {
-  /** Offline-Modus: keine Ion/Google-Anfragen (für Tests/Entwicklung ohne Netz). */
+  /** Offline mode: no Ion/Google requests (for tests/development without network). */
   offline?: boolean
-  /** Feste Bodenhöhe in Metern (überspringt jedes Höhen-Sampling; Debug). */
+  /** Fixed ground height in meters (skips all height sampling; debug). */
   fixedGroundHeight?: number
   onSelectTram?: (tramId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
@@ -55,35 +55,35 @@ export interface CesiumMapOptions {
 
 interface TramEntityRecord {
   /**
-   * Der Wagenkasten als Primitive mit direkter modelMatrix: Positionsupdates
-   * wirken sofort. (Entity-Boxen bauen bei jeder Positionsänderung ihre
-   * Geometrie asynchron neu auf – bei kontinuierlicher Bewegung verhungert
-   * dieser Neuaufbau, sobald die Renderrate auf Tick-Niveau fällt, und die
-   * Quader frieren sichtbar ein.)
+   * The vehicle body as a Primitive with a direct modelMatrix: position
+   * updates take effect immediately. (Entity boxes rebuild their geometry
+   * asynchronously on every position change – under continuous movement this
+   * rebuild starves as soon as the render rate drops to tick level, and the
+   * boxes visibly freeze.)
    */
   primitive: Primitive
-  /** Wiederverwendete modelMatrix des Primitives (in-place aktualisiert). */
+  /** Reused modelMatrix of the primitive (updated in place). */
   matrix: Matrix4
-  /** Entity für Nummern-Label (Billboard-Pfad, updatet ohne Neuaufbau). */
+  /** Entity for the number label (billboard path, updates without rebuild). */
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
-  /** Halbe Fahrzeughöhe in Metern (Box-Mittelpunkt über Boden). */
+  /** Half the vehicle height in meters (box center above ground). */
   halfHeight: number
-  /** Geglättete Bodenhöhe (ellipsoidisch) unter der Bahn in Metern. */
+  /** Smoothed ground height (ellipsoidal) below the tram in meters. */
   groundHeight: number
-  /** Frame-Zähler der letzten Höhenabfrage (Sampling wird gestaffelt). */
+  /** Frame counter of the last height query (sampling is staggered). */
   lastSampleFrame: number
 }
 
 /**
- * Ellipsoidische Höhe der Rostocker Straßen, solange noch keine Kachel-Höhe
- * gemessen wurde (Geoid-Undulation ~40 m + Geländehöhe). Wird zur Laufzeit
- * durch echte Messwerte ersetzt.
+ * Ellipsoidal height of Rostock's streets while no tile height has been
+ * measured yet (geoid undulation ~40 m + terrain height). Replaced by real
+ * measurements at runtime.
  */
 const FALLBACK_GROUND_HEIGHT = 45
 
-/** Alle wie viele Frames die Bodenhöhe je Bahn neu gesampelt wird. */
+/** Every how many frames the ground height is re-sampled per tram. */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
 export class CesiumMap {
@@ -100,13 +100,13 @@ export class CesiumMap {
   private followId: string | null = null
   private followOffset: HeadingPitchRange | null = null
   private googleTileset: Cesium3DTileset | null = null
-  /** Zuletzt gemessene plausible Bodenhöhe – Startwert für neue Bahnen. */
+  /** Most recently measured plausible ground height – initial value for new trams. */
   private defaultGroundHeight: number
   private frameCounter = 0
   private frustumSphere = new BoundingSphere()
-  /** Zeitpunkt der letzten Nutzer-Interaktion (Maus/Touch/Wheel) in ms. */
+  /** Time of the last user interaction (mouse/touch/wheel) in ms. */
   private lastInteractionAt = 0
-  /** Bis zu diesem Zeitpunkt läuft eine Kamera-Animation (flyTo). */
+  /** A camera animation (flyTo) is running until this point in time. */
   private flyingUntil = 0
   private readonly noteInteraction = () => {
     this.lastInteractionAt = performance.now()
@@ -114,7 +114,7 @@ export class CesiumMap {
 
   constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
     this.opts = opts
-    // Offline (Ellipsoid): Boden liegt exakt bei 0 m
+    // Offline (ellipsoid): ground is exactly at 0 m
     this.defaultGroundHeight =
       opts.fixedGroundHeight ?? (opts.offline ? 0 : FALLBACK_GROUND_HEIGHT)
 
@@ -135,27 +135,27 @@ export class CesiumMap {
       infoBox: false,
       selectionIndicator: false,
       msaaSamples: 4,
-      // Der Render-Loop wird komplett von der App gesteuert (siehe
-      // App.tsx-Schleife + render()): Cesiums eigener 60-fps-Loop würde auch
-      // ohne Änderungen jeden Frame Uhr/Visualizer/Szene aktualisieren und
-      // dauerhaft CPU/GPU belasten.
+      // The render loop is driven entirely by the app (see the App.tsx loop
+      // + render()): Cesium's own 60 fps loop would update clock/visualizer/
+      // scene every frame even without changes and put a constant load on
+      // CPU/GPU.
       useDefaultRenderLoop: false,
     })
 
-    // Debug-/Test-Zugriff auf den Viewer (z.B. für E2E-Tests)
+    // Debug/test access to the viewer (e.g. for E2E tests)
     ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
 
     const scene = this.viewer.scene
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
-    // Doppelklick-Zoom des Viewers stört die eigene Auswahl-Logik
+    // The viewer's double-click zoom interferes with our own selection logic
     this.viewer.screenSpaceEventHandler.removeInputAction(
       ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
     )
 
     if (opts.offline) {
-      // Dezentes Gitter statt Satellitenbild – vollständig offline berechenbar
+      // Subtle grid instead of satellite imagery – computable fully offline
       scene.imageryLayers.addImageryProvider(
         new GridImageryProvider({
           color: Color.fromCssColorString('#22304a').withAlpha(0.6),
@@ -172,7 +172,7 @@ export class CesiumMap {
 
     this.setCameraHome(false)
 
-    // Interaktion wecken den Render-Loop (App rendert dann mit voller Rate)
+    // Interactions wake the render loop (the app then renders at full rate)
     const canvas = scene.canvas
     canvas.addEventListener('pointerdown', this.noteInteraction)
     canvas.addEventListener('wheel', this.noteInteraction, { passive: true })
@@ -186,8 +186,8 @@ export class CesiumMap {
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
       const picked = scene.pick(movement.position) as { id?: unknown } | undefined
       const pickedId = picked?.id
-      // Wagenkasten-Primitive liefern die Instanz-ID als String,
-      // das Nummern-Label ein Entity – beide tragen das "tram:"-Präfix.
+      // Vehicle-body primitives return the instance id as a string, the
+      // number label an Entity – both carry the "tram:" prefix.
       let tramId: string | null = null
       if (pickedId instanceof Entity && pickedId.id.startsWith('tram:')) {
         tramId = pickedId.id.slice('tram:'.length)
@@ -202,18 +202,18 @@ export class CesiumMap {
     try {
       const tileset = await createGooglePhotorealistic3DTileset()
       if (this.destroyed) return
-      // enableCollision: verhindert, dass die Kamera unter die Kacheln gerät
+      // enableCollision: prevents the camera from getting below the tiles
       tileset.enableCollision = true
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
-      // Der Globus würde unter den photorealistischen Kacheln doppelt rendern
+      // The globe would render twice underneath the photorealistic tiles
       this.viewer.scene.globe.show = false
       this.opts.onTilesetStatus?.('google-3d-tiles')
       window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
     } catch (error) {
-      console.error('Google Photorealistic 3D Tiles konnten nicht geladen werden:', error)
+      console.error('Failed to load Google Photorealistic 3D Tiles:', error)
       if (this.destroyed) return
-      // Fallback: dunkler Globus mit Gitter, damit die Simulation nutzbar bleibt
+      // Fallback: dark globe with grid so the simulation stays usable
       this.viewer.scene.imageryLayers.addImageryProvider(
         new GridImageryProvider({
           color: Color.fromCssColorString('#22304a').withAlpha(0.6),
@@ -234,7 +234,7 @@ export class CesiumMap {
     pitch: number
   } = config.home
 
-  /** Setzt die Home-Ansicht (z.B. aus der Netz-Bounding-Box) und springt dorthin. */
+  /** Sets the home view (e.g. from the network bounding box) and jumps to it. */
   setHomeView(view: typeof this.homeView): void {
     this.homeView = view
     this.setCameraHome(false)
@@ -249,7 +249,7 @@ export class CesiumMap {
       roll: 0,
     }
     if (animate) {
-      // Während des Kamera-Flugs mit voller Rate rendern
+      // Render at full rate during the camera flight
       this.flyingUntil = performance.now() + 2600
       this.viewer.camera.flyTo({ destination, orientation, duration: 2 })
     } else {
@@ -257,15 +257,15 @@ export class CesiumMap {
     }
   }
 
-  /** Zeichnet die Routen-Polylinien aller Linien (auf Boden/3D-Tiles drapiert). */
+  /** Draws the route polylines of all lines (draped onto ground/3D tiles). */
   addRoutes(network: PreparedNetwork): void {
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
 
       const dirs = [line.directions[0]]
-      // Zweite Richtung nur zeichnen, wenn sie eine eigene Geometrie hat
-      // (bei gespiegelten Richtungen ist der Pfad identisch)
+      // Only draw the second direction if it has its own geometry
+      // (with mirrored directions the path is identical)
       const d1 = line.directions[1]
       const d0 = line.directions[0]
       const mirrored =
@@ -295,9 +295,9 @@ export class CesiumMap {
   }
 
   /**
-   * Zeichnet alle Haltestellen (dedupliziert über die Linien hinweg).
-   * Höhen werden – wie bei den Bahnen – explizit gesetzt und nachgeführt,
-   * sobald die 3D-Kacheln an der jeweiligen Stelle geladen sind.
+   * Draws all stops (deduplicated across lines).
+   * Heights are – as with the trams – set explicitly and adjusted as soon
+   * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
     const seen = new Set<string>()
@@ -337,10 +337,10 @@ export class CesiumMap {
     }
   }
 
-  /** Löst die Haltestellen-Höhen nach und nach auf (wenige pro Durchlauf). */
+  /** Resolves the stop heights bit by bit (a few per pass). */
   private resolveStopHeights(): void {
     if (!this.googleTileset || this.stopRecords.length === 0) return
-    // Gedrosselt: nur jeder 15. Simulations-Tick fragt Höhen ab
+    // Throttled: only every 15th simulation tick queries heights
     if (this.frameCounter % 15 !== 0) return
     if (this.stopRecords.every((s) => s.resolved)) return
     let budget = 4
@@ -374,10 +374,10 @@ export class CesiumMap {
   }
 
   /**
-   * Einmaliges Höhen-Bootstrapping: misst die Kachel-Höhen an allen
-   * Haltestellen asynchron (lädt dafür gezielt Detail-Kacheln) und setzt
-   * daraus die Basis-Bodenhöhe für Bahnen und Haltestellen. Loggt das
-   * Ergebnis zur Diagnose in die Konsole.
+   * One-time height bootstrapping: measures the tile heights at all stops
+   * asynchronously (specifically loading detail tiles to do so) and derives
+   * the base ground height for trams and stops from them. Logs the result
+   * to the console for diagnostics.
    */
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
@@ -387,7 +387,7 @@ export class CesiumMap {
     }
     const scene = this.viewer.scene
     if (!scene.sampleHeightSupported) {
-      console.warn('[MiniRostock3D] sampleHeight wird von dieser GPU/WebGL-Umgebung nicht unterstützt')
+      console.warn('[MiniRostock3D] sampleHeight is not supported by this GPU/WebGL environment')
       return
     }
 
@@ -410,34 +410,34 @@ export class CesiumMap {
       })
       if (heights.length === 0) {
         console.warn(
-          '[MiniRostock3D] Höhen-Bootstrap: keine gültigen Kachel-Höhen ermittelt – ' +
-            'Bahnen nutzen die Fallback-Höhe. Bitte diese Meldung samt ' +
-            'window.__mrt.groundHeights() melden.',
+          '[MiniRostock3D] Height bootstrap: no valid tile heights determined – ' +
+            'trams will use the fallback height. Please report this message ' +
+            'along with window.__mrt.groundHeights().',
         )
         return
       }
       heights.sort((a, b) => a - b)
       const median = heights[Math.floor(heights.length / 2)]
       this.defaultGroundHeight = median
-      // Basis für alle bereits fahrenden Bahnen anheben (Feinschliff macht
-      // danach das laufende per-Bahn-Sampling)
+      // Raise the base for all trams already running (the ongoing per-tram
+      // sampling does the fine-tuning afterwards)
       for (const record of this.trams.values()) {
         record.groundHeight = median
       }
       console.info(
-        `[MiniRostock3D] Kachel-Höhen ermittelt (ellipsoidisch): ` +
+        `[MiniRostock3D] Tile heights determined (ellipsoidal): ` +
           `min ${heights[0].toFixed(1)} m · median ${median.toFixed(1)} m · ` +
-          `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} Messpunkte)`,
+          `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
       )
       this.render()
     } catch (error) {
-      console.warn('[MiniRostock3D] Höhen-Bootstrap fehlgeschlagen:', error)
+      console.warn('[MiniRostock3D] Height bootstrap failed:', error)
     }
   }
 
   /**
-   * Ellipsoidische Bodenhöhe an einer Position, gemessen auf den geladenen
-   * Google-3D-Kacheln. undefined, wenn dort (noch) keine Kachel geladen ist.
+   * Ellipsoidal ground height at a position, measured on the loaded Google
+   * 3D tiles. undefined if no tile is loaded there (yet).
    */
   private sampleGroundHeight(lon: number, lat: number): number | undefined {
     if (!this.googleTileset) return undefined
@@ -446,25 +446,25 @@ export class CesiumMap {
         Cartographic.fromDegrees(lon, lat),
         this.viewer.scene,
       )
-      // Plausibilitätsfenster für Rostock (ellipsoidisch ca. 30–120 m)
+      // Plausibility window for Rostock (ellipsoidal approx. 30–120 m)
       if (height !== undefined && Number.isFinite(height) && height > -100 && height < 500) {
         return height
       }
     } catch {
-      // Kachel-Inhalt nicht abfragbar – Fallback-Höhe weiterverwenden
+      // Tile content not queryable – keep using the fallback height
     }
     return undefined
   }
 
   /**
-   * Gleicht die Straßenbahn-Entities mit den aktuellen Snapshots ab.
-   * Wird jeden Frame aufgerufen: aktualisiert Positionen in-place,
-   * legt neue Entities an und entfernt beendete Fahrten.
+   * Reconciles the tram entities with the current snapshots.
+   * Called every frame: updates positions in place, creates new entities,
+   * and removes finished trips.
    *
-   * Die Höhe der Bahnen wird EXPLIZIT gesetzt (Kachel-Höhe + halbe
-   * Wagenhöhe) statt über HeightReference-Clamping – das Clamping von
-   * Entity-Geometrien auf 3D-Kacheln ist in der Praxis unzuverlässig,
-   * wodurch die Quader unter der photorealistischen Oberfläche lagen.
+   * The trams' height is set EXPLICITLY (tile height + half the vehicle
+   * height) instead of via HeightReference clamping – clamping entity
+   * geometries onto 3D tiles is unreliable in practice, which left the
+   * boxes sitting below the photorealistic surface.
    */
   syncTrams(
     snapshots: TramSnapshot[],
@@ -474,8 +474,8 @@ export class CesiumMap {
     this.resolveStopHeights()
     const alive = new Set<string>()
 
-    // Sichtbarkeits-Test: liegt mindestens eine Bahn im Kamera-Frustum?
-    // (Steuert, ob überhaupt neu gerendert werden muss.)
+    // Visibility test: is at least one tram inside the camera frustum?
+    // (Controls whether a re-render is needed at all.)
     const camera = this.viewer.camera
     const cullingVolume = camera.frustum.computeCullingVolume(
       camera.positionWC,
@@ -492,7 +492,7 @@ export class CesiumMap {
         this.trams.set(snap.id, record)
       }
 
-      // Bodenhöhe gestaffelt nachführen (nicht jede Bahn in jedem Frame)
+      // Update the ground height in a staggered fashion (not every tram in every frame)
       if (
         this.opts.fixedGroundHeight === undefined &&
         this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL
@@ -500,7 +500,7 @@ export class CesiumMap {
         record.lastSampleFrame = this.frameCounter
         const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
         if (sampled !== undefined) {
-          // Glätten, damit die Bahn Steigungen weich folgt
+          // Smooth so the tram follows inclines gently
           record.groundHeight += (sampled - record.groundHeight) * 0.35
         }
       }
@@ -511,7 +511,7 @@ export class CesiumMap {
         record.groundHeight + record.halfHeight + 0.3,
       )
       record.labelPosition.setValue(position)
-      // modelMatrix in-place aktualisieren – wirkt beim nächsten Render sofort
+      // Update modelMatrix in place – takes effect immediately on the next render
       Transforms.headingPitchRollToFixedFrame(
         position,
         new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
@@ -548,16 +548,16 @@ export class CesiumMap {
     return { anyTramInView }
   }
 
-  /** Rendert genau einen Frame (die App steuert die Frequenz). */
+  /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
     this.viewer.render()
   }
 
   /**
-   * Hinweise für die Render-Taktung der App:
-   * - interacting: Nutzer bewegt gerade die Kamera (oder Nachlauf/Flug)
-   * - tilesLoading: Kacheln werden noch nachgeladen
+   * Hints for the app's render pacing:
+   * - interacting: user is currently moving the camera (or inertia/flight)
+   * - tilesLoading: tiles are still being loaded
    */
   getRenderHints(): { interacting: boolean; tilesLoading: boolean } {
     const now = performance.now()
@@ -569,7 +569,7 @@ export class CesiumMap {
     return { interacting, tilesLoading }
   }
 
-  /** Aktuelle Kameraausrichtung (für die URL-Persistenz). */
+  /** Current camera orientation (for URL persistence). */
   getCameraView(): {
     longitude: number
     latitude: number
@@ -588,7 +588,7 @@ export class CesiumMap {
     }
   }
 
-  /** Kamera direkt auf eine Ansicht setzen (z.B. aus der URL wiederhergestellt). */
+  /** Set the camera directly to a view (e.g. restored from the URL). */
   setView(view: {
     longitude: number
     latitude: number
@@ -623,7 +623,7 @@ export class CesiumMap {
       geometryInstances: new GeometryInstance({
         geometry: BoxGeometry.fromDimensions({
           vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
-          // Fahrzeugmaße pro Linie: Tram/Bus/Fähre unterscheiden sich deutlich
+          // Vehicle dimensions per line: tram/bus/ferry differ noticeably
           dimensions: new Cartesian3(
             snap.vehicle.length,
             snap.vehicle.width,
@@ -640,9 +640,9 @@ export class CesiumMap {
       modelMatrix: matrix,
     })
     this.viewer.scene.primitives.add(primitive)
-    // WICHTIG: Primitive KLONT die übergebene modelMatrix – für die
-    // In-place-Updates in syncTrams muss die Instanz des Primitives selbst
-    // referenziert werden, sonst bewegen sich die Wagenkästen nie.
+    // IMPORTANT: Primitive CLONES the modelMatrix passed in – for the
+    // in-place updates in syncTrams, the primitive's own instance must be
+    // referenced, otherwise the vehicle bodies never move.
     const liveMatrix = primitive.modelMatrix
 
     const labelPosition = new ConstantPositionProperty(initialPosition)
@@ -670,11 +670,11 @@ export class CesiumMap {
       baseColor: color,
       halfHeight,
       groundHeight: this.defaultGroundHeight,
-      lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sofort beim ersten Frame sampeln
+      lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
     }
   }
 
-  /** Färbt den Wagenkasten der ausgewählten Bahn heller (bzw. zurück). */
+  /** Brightens the selected tram's vehicle body (or reverts it). */
   private applyTramHighlight(tramId: string, highlighted: boolean): void {
     const record = this.trams.get(tramId)
     if (!record) return
@@ -686,7 +686,7 @@ export class CesiumMap {
         : record.baseColor
       attributes.color = ColorGeometryInstanceAttribute.toValue(color, attributes.color)
     } catch {
-      // Primitive noch nicht gerendert – Highlight dann einfach überspringen
+      // Primitive not rendered yet – simply skip the highlight then
     }
   }
 
@@ -701,13 +701,13 @@ export class CesiumMap {
   }
 
   /**
-   * Kamera an eine Straßenbahn heften (null = lösen).
+   * Attach the camera to a tram (null = detach).
    *
-   * Bewusst NICHT über viewer.trackedEntity gelöst: Cesium bricht das
-   * Tracking ab, sobald die Bounding-Sphere eines Entities mit
-   * HeightReference nicht berechnet werden kann. Stattdessen führt
-   * updateFollowCamera() die Kamera pro Frame per camera.lookAt nach –
-   * Orbit und Zoom mit der Maus bleiben dabei möglich.
+   * Deliberately NOT implemented via viewer.trackedEntity: Cesium aborts
+   * tracking as soon as the bounding sphere of an entity with
+   * HeightReference cannot be computed. Instead, updateFollowCamera()
+   * repositions the camera each frame via camera.lookAt – mouse orbit and
+   * zoom remain possible.
    */
   setFollow(tramId: string | null): void {
     this.followId = tramId
@@ -720,8 +720,8 @@ export class CesiumMap {
   private updateFollowCamera(lon: number, lat: number): void {
     const camera = this.viewer.camera
 
-    // Kamera-Zentrum auf Höhe der verfolgten Bahn (deren Bodenhöhe wird in
-    // syncTrams bereits auf den 3D-Kacheln gesampelt und geglättet).
+    // Camera center at the height of the followed tram (its ground height
+    // is already sampled on the 3D tiles and smoothed in syncTrams).
     const record = this.followId ? this.trams.get(this.followId) : undefined
     const groundHeight = record?.groundHeight ?? this.defaultGroundHeight
     const vehicleHeight = (record?.halfHeight ?? config.vehicles.tram.height / 2) * 2
@@ -729,15 +729,15 @@ export class CesiumMap {
     const center = Cartesian3.fromDegrees(lon, lat, groundHeight + vehicleHeight + 2)
 
     if (!this.followOffset) {
-      // Erster Frame: hinter/über der Bahn einschwenken
+      // First frame: swing in behind/above the tram
       this.followOffset = new HeadingPitchRange(
         camera.heading,
         CesiumMath.toRadians(-32),
         450,
       )
     } else {
-      // Nutzer-Orbit/-Zoom übernehmen: im lookAt-Referenzrahmen sind
-      // heading/pitch relativ und die Bahn liegt im Ursprung.
+      // Adopt user orbit/zoom: in the lookAt reference frame heading/pitch
+      // are relative and the tram sits at the origin.
       this.followOffset.heading = camera.heading
       this.followOffset.pitch = camera.pitch
       this.followOffset.range = Cartesian3.magnitude(camera.position)
@@ -750,9 +750,9 @@ export class CesiumMap {
   }
 
   /**
-   * Debug/Tests: maximale Distanz zwischen Wagenkasten (Primitive-Matrix)
-   * und Nummern-Label über alle Bahnen in Metern. Muss ~0 sein – ein
-   * größerer Wert heißt: die Wagenkästen folgen der Simulation nicht mehr.
+   * Debug/tests: maximum distance between vehicle body (primitive matrix)
+   * and number label across all trams in meters. Must be ~0 – a larger
+   * value means the vehicle bodies no longer follow the simulation.
    */
   getTramBoxDriftMeters(): number {
     let maxDrift = 0
@@ -768,7 +768,7 @@ export class CesiumMap {
     return maxDrift
   }
 
-  /** Debug: aktuelle Bodenhöhen der Bahnen (zur Diagnose der Kachel-Höhen). */
+  /** Debug: current ground heights of the trams (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.trams.entries()].map(([id, record]) => ({
       id,

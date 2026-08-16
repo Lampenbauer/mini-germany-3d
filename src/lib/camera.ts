@@ -1,6 +1,7 @@
 /**
- * Berechnet die Start-Kameraposition aus der Bounding-Box des Liniennetzes,
- * damit unabhängig von der Datenquelle (Demo/OSM) das gesamte Netz im Bild ist.
+ * Computes the initial camera position from the bounding box of the line
+ * network, so the entire network is in view regardless of the data source
+ * (demo/OSM).
  */
 
 import { toRadians } from '@/lib/geo'
@@ -38,8 +39,8 @@ export function computeHomeView(network: PreparedNetwork): HomeView {
   const spanY = (maxLat - minLat) * METERS_PER_DEG_LAT
   const span = Math.max(spanX, spanY, 3000)
 
-  // Schräge Draufsicht von Süden: Bei Pitch ≈ -38° liegt der angeschaute
-  // Bodenpunkt etwa 1,3 × Höhe vor der Kamera.
+  // Oblique top-down view from the south: at pitch ≈ -38° the ground point
+  // being looked at lies about 1.3 × height in front of the camera.
   const pitch = -38
   const height = Math.min(Math.max(span * 0.62, 2500), 9000)
   const latOffset = (1.3 * height) / METERS_PER_DEG_LAT

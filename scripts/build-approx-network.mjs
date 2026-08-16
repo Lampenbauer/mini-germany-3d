@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Erzeugt src/data/network.json mit einem approximierten Modell des
- * Rostocker Straßenbahnnetzes (RSAG, Linien 1, 2, 3, 5, 6).
+ * Generates src/data/network.json with an approximated model of the
+ * Rostock tram network (RSAG, lines 1, 2, 3, 5, 6).
  *
- * WICHTIG: Die Geometrie ist eine Näherung (handmodelliert entlang der realen
- * Korridore), KEINE amtliche Karte. Für exakte Gleisgeometrien aus
- * OpenStreetMap:  npm run data:update  (benötigt Internetzugang zur
- * Overpass-API und überschreibt diese Datei).
+ * IMPORTANT: The geometry is an approximation (hand-modeled along the real
+ * corridors), NOT an official map. For exact track geometry from
+ * OpenStreetMap:  npm run data:update  (requires internet access to the
+ * Overpass API and overwrites this file).
  *
- * Die Haltestellennamen und Linienwege orientieren sich am realen RSAG-Netz:
- *   Linie 1: Mecklenburger Allee – Hafenallee
- *   Linie 2: Reutershagen – Kurt-Schumacher-Ring
- *   Linie 3: Neuer Friedhof – Kurt-Schumacher-Ring
- *   Linie 5: Mecklenburger Allee – Südblick
- *   Linie 6: Neuer Friedhof – Campus Südstadt
+ * The stop names and line routes follow the real RSAG network:
+ *   Line 1: Mecklenburger Allee – Hafenallee
+ *   Line 2: Reutershagen – Kurt-Schumacher-Ring
+ *   Line 3: Neuer Friedhof – Kurt-Schumacher-Ring
+ *   Line 5: Mecklenburger Allee – Südblick
+ *   Line 6: Neuer Friedhof – Campus Südstadt
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs'
@@ -24,7 +24,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../src/data/network.json')
 
 // ---------------------------------------------------------------------------
-// Haltestellen (id → Name + [lon, lat]); Koordinaten approximiert.
+// Stops (id → name + [lon, lat]); coordinates approximated.
 // ---------------------------------------------------------------------------
 const STOPS = {
   'mecklenburger-allee': { name: 'Mecklenburger Allee', coord: [12.068, 54.1105] },
@@ -58,11 +58,11 @@ const STOPS = {
 }
 
 // ---------------------------------------------------------------------------
-// Korridore: gemeinsam genutzte Streckenabschnitte (jeweils in eine Richtung).
-// Punkte [lon, lat]; Haltestellen-Koordinaten liegen exakt auf den Pfaden.
+// Corridors: shared route segments (each in one direction).
+// Points [lon, lat]; stop coordinates lie exactly on the paths.
 // ---------------------------------------------------------------------------
 const C = {
-  // Nordwest: Mecklenburger Allee → Doberaner Platz
+  // Northwest: Mecklenburger Allee → Doberaner Platz
   nw: [
     [12.068, 54.1105],
     [12.07, 54.1095],
@@ -82,7 +82,7 @@ const C = {
     [12.12, 54.0891],
     [12.1222, 54.0888], // Doberaner Platz
   ],
-  // Innenstadt Nord: Doberaner Platz → Neuer Markt (via Lange Straße)
+  // City center north: Doberaner Platz → Neuer Markt (via Lange Straße)
   cityNorth: [
     [12.1222, 54.0888],
     [12.124, 54.0889],
@@ -94,7 +94,7 @@ const C = {
     [12.139, 54.0888],
     [12.1406, 54.0881], // Neuer Markt
   ],
-  // Innenstadt Ost: Neuer Markt → Steintor
+  // City center east: Neuer Markt → Steintor
   steinstrasse: [
     [12.1406, 54.0881],
     [12.1402, 54.0868],
@@ -126,7 +126,7 @@ const C = {
     [12.1224, 54.087],
     [12.1222, 54.0888], // Doberaner Platz
   ],
-  // Neuer Markt → Dierkower Kreuz (über die Warnow / Petribrücke)
+  // Neuer Markt → Dierkower Kreuz (across the Warnow / Petribrücke)
   ne: [
     [12.1406, 54.0881],
     [12.1425, 54.0887],
@@ -180,7 +180,7 @@ const C = {
     [12.106, 54.0712],
     [12.103, 54.0722], // Campus Südstadt
   ],
-  // Goetheplatz → Neuer Friedhof (über Schillingallee)
+  // Goetheplatz → Neuer Friedhof (via Schillingallee)
   sw: [
     [12.1233, 54.0841],
     [12.121, 54.083],
@@ -192,7 +192,7 @@ const C = {
   ],
 }
 
-/** Korridore verketten; doppelte Stoßpunkte entfernen; `-name` = rückwärts. */
+/** Chain corridors; remove duplicate joint points; `-name` = reversed. */
 function chain(...parts) {
   const path = []
   for (const part of parts) {
@@ -208,16 +208,16 @@ function chain(...parts) {
   return path
 }
 
-// Teil-Korridor für Linie 2 (startet erst in Reutershagen)
+// Partial corridor for line 2 (only starts at Reutershagen)
 C.nwFromReutershagen = C.nw.slice(C.nw.findIndex((p) => p[0] === 12.094))
 
 // ---------------------------------------------------------------------------
-// Linien (eine Richtung; Gegenrichtung wird zur Laufzeit gespiegelt)
+// Lines (one direction; the opposite direction is mirrored at runtime)
 // ---------------------------------------------------------------------------
 const LINES = [
   {
     id: '1',
-    name: 'Linie 1',
+    name: 'Line 1',
     color: '#D71920',
     directions: [
       {
@@ -244,7 +244,7 @@ const LINES = [
   },
   {
     id: '2',
-    name: 'Linie 2',
+    name: 'Line 2',
     color: '#0072BC',
     directions: [
       {
@@ -272,7 +272,7 @@ const LINES = [
   },
   {
     id: '3',
-    name: 'Linie 3',
+    name: 'Line 3',
     color: '#F39200',
     directions: [
       {
@@ -297,7 +297,7 @@ const LINES = [
   },
   {
     id: '5',
-    name: 'Linie 5',
+    name: 'Line 5',
     color: '#009640',
     directions: [
       {
@@ -323,7 +323,7 @@ const LINES = [
   },
   {
     id: '6',
-    name: 'Linie 6',
+    name: 'Line 6',
     color: '#94368D',
     directions: [
       {
@@ -352,8 +352,8 @@ const network = {
     source: 'approximated',
     generated: new Date().toISOString().slice(0, 10),
     attribution:
-      'Demo-Datensatz: Liniengeometrie approximiert (handmodelliert). ' +
-      'Echte Gleisgeometrien: npm run data:update (OpenStreetMap/Overpass, © OpenStreetMap-Mitwirkende, ODbL).',
+      'Demo dataset: line geometry approximated (hand-modeled). ' +
+      'Real track geometry: npm run data:update (OpenStreetMap/Overpass, © OpenStreetMap contributors, ODbL).',
   },
   stops: STOPS,
   lines: LINES,
@@ -361,4 +361,4 @@ const network = {
 
 mkdirSync(dirname(OUT), { recursive: true })
 writeFileSync(OUT, JSON.stringify(network, null, 2) + '\n', 'utf8')
-console.log(`✅ ${OUT} geschrieben (${LINES.length} Linien, ${Object.keys(STOPS).length} Haltestellen)`)
+console.log(`✅ Wrote ${OUT} (${LINES.length} lines, ${Object.keys(STOPS).length} stops)`)

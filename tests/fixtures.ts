@@ -1,8 +1,8 @@
 import type { NetworkJson } from '@/data/network-types'
 
 /**
- * Synthetisches Mini-Netz für Unit-Tests:
- * Gerade Nord-Süd-Strecke mit 3 Haltestellen im Abstand von je ~1000 m.
+ * Synthetic mini network for unit tests:
+ * straight north–south route with 3 stops spaced ~1000 m apart.
  */
 export const testNetworkJson: NetworkJson = {
   meta: {
@@ -37,8 +37,8 @@ export const testNetworkJson: NetworkJson = {
 }
 
 /**
- * Multimodales Mini-Netz: eine Tram (ohne mode-Feld, wie alte network.json),
- * ein Bus und eine Fähre mit eigenen Fahrzeugmaßen.
+ * Multimodal mini network: a tram (without a mode field, like the old
+ * network.json), a bus, and a ferry with its own vehicle dimensions.
  */
 export const testMultiModalNetworkJson: NetworkJson = {
   meta: testNetworkJson.meta,

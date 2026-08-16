@@ -4,8 +4,8 @@
     "generated": "2026-08-16",
     "serviceDate": "20260817",
     "serviceCount": 16,
-    "attribution": "Fahrplandaten aus GTFS (gtfs.de / DELFI bzw. VVW). Nutzungsbedingungen der Quelle beachten.",
-    "note": "Feed ohne direction_id – Richtungen über Endhaltestellen-Koordinaten/Headsigns zugeordnet. Keine GTFS-Abfahrten für Linie(n) 2, F1, F2 – dort gilt der synthetische Takt."
+    "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
+    "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. No GTFS departures for line(s) 2, F1, F2 – the synthetic headway applies there."
   },
   "lines": {
     "1": {

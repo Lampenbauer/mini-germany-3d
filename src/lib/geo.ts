@@ -1,6 +1,6 @@
 /**
- * Geodätische Hilfsfunktionen für die Bewegung entlang von Polylinien.
- * Alle Koordinaten sind [Längengrad, Breitengrad] in Grad (WGS84).
+ * Geodesic helper functions for movement along polylines.
+ * All coordinates are [longitude, latitude] in degrees (WGS84).
  */
 
 export type LonLat = [number, number]
@@ -15,7 +15,7 @@ export function toDegrees(rad: number): number {
   return (rad * 180) / Math.PI
 }
 
-/** Großkreis-Distanz (Haversine) in Metern. */
+/** Great-circle distance (haversine) in meters. */
 export function haversineMeters(a: LonLat, b: LonLat): number {
   const [lon1, lat1] = a
   const [lon2, lat2] = b
@@ -28,7 +28,7 @@ export function haversineMeters(a: LonLat, b: LonLat): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
-/** Anfangs-Kurswinkel von a nach b in Grad (0° = Nord, im Uhrzeigersinn). */
+/** Initial bearing from a to b in degrees (0° = north, clockwise). */
 export function bearingDegrees(a: LonLat, b: LonLat): number {
   const φ1 = toRadians(a[1])
   const φ2 = toRadians(b[1])
@@ -38,7 +38,7 @@ export function bearingDegrees(a: LonLat, b: LonLat): number {
   return (toDegrees(Math.atan2(y, x)) + 360) % 360
 }
 
-/** Kumulative Distanzen entlang einer Polylinie; Länge = path.length. */
+/** Cumulative distances along a polyline; length = path.length. */
 export function cumulativeDistances(path: LonLat[]): number[] {
   const cum: number[] = new Array(path.length)
   cum[0] = 0
@@ -51,20 +51,20 @@ export function cumulativeDistances(path: LonLat[]): number[] {
 export interface PathSample {
   lon: number
   lat: number
-  /** Fahrtrichtung an dieser Stelle in Grad (0° = Nord). */
+  /** Direction of travel at this point in degrees (0° = north). */
   bearing: number
 }
 
 /**
- * Punkt (und Fahrtrichtung) bei Distanz `d` entlang der Polylinie.
- * `d` wird auf [0, Gesamtlänge] begrenzt. Lineare Interpolation ist auf
- * Stadt-Maßstab (Segmente < 1 km) völlig ausreichend.
+ * Point (and direction of travel) at distance `d` along the polyline.
+ * `d` is clamped to [0, total length]. Linear interpolation is entirely
+ * sufficient at city scale (segments < 1 km).
  */
 export function sampleAtDistance(path: LonLat[], cum: number[], d: number): PathSample {
   const total = cum[cum.length - 1]
   const dist = Math.min(Math.max(d, 0), total)
 
-  // Binäre Suche nach dem Segment mit cum[i] <= dist <= cum[i+1]
+  // Binary search for the segment with cum[i] <= dist <= cum[i+1]
   let lo = 0
   let hi = cum.length - 1
   while (hi - lo > 1) {
@@ -85,14 +85,14 @@ export function sampleAtDistance(path: LonLat[], cum: number[], d: number): Path
 }
 
 /**
- * Distanz entlang der Polylinie zum Fußpunkt der Projektion von `p`.
- * Verwendet eine lokale äquirektangulare Näherung pro Segment – für das
- * Zuordnen von Haltestellen auf die Strecke mehr als genau genug.
+ * Distance along the polyline to the foot of the projection of `p`.
+ * Uses a local equirectangular approximation per segment – more than
+ * accurate enough for matching stops onto the route.
  *
- * `fromDist` (Meter) beschränkt die Suche auf den Streckenteil ab dieser
- * Distanz: Bei Linien, die denselben Straßenzug mehrfach befahren
- * (Schleifen), ist die globale Projektion mehrdeutig – Haltestellen werden
- * deshalb sequenziell projiziert, jede erst hinter ihrer Vorgängerin.
+ * `fromDist` (meters) restricts the search to the part of the route from
+ * that distance onward: for lines that travel the same stretch of road
+ * multiple times (loops), the global projection is ambiguous – stops are
+ * therefore projected sequentially, each one only past its predecessor.
  */
 export function projectOntoPath(
   path: LonLat[],
@@ -105,10 +105,10 @@ export function projectOntoPath(
   const cosLat = Math.cos(toRadians(p[1]))
 
   for (let i = 0; i < path.length - 1; i++) {
-    if (cum[i + 1] <= fromDist) continue // Segment liegt komplett vor fromDist
+    if (cum[i + 1] <= fromDist) continue // segment lies entirely before fromDist
     const a = path[i]
     const b = path[i + 1]
-    // Lokale Metrik-Koordinaten (Meter) relativ zu a
+    // Local metric coordinates (meters) relative to a
     const ax = 0
     const ay = 0
     const bx = (b[0] - a[0]) * cosLat * 111320
@@ -127,9 +127,9 @@ export function projectOntoPath(
     const dSq = (px - cx) ** 2 + (py - cy) ** 2
     if (dSq < bestDist) {
       bestDist = dSq
-      // Anteilig auf die (per Haversine berechnete) Segmentlänge umrechnen,
-      // damit das Ergebnis konsistent zu `cum` ist. Nie vor fromDist landen
-      // (der Fußpunkt kann im teilweise abgeschnittenen Segment davor liegen).
+      // Scale proportionally to the (haversine-computed) segment length so
+      // the result is consistent with `cum`. Never land before fromDist
+      // (the projection foot can lie in the partially cut-off segment before it).
       bestAlong = Math.max(fromDist, cum[i] + (cum[i + 1] - cum[i]) * t)
     }
   }

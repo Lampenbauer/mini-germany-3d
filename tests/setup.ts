@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 
-// jsdom kennt keinen ResizeObserver (wird vom Radix-Slider benötigt)
+// jsdom has no ResizeObserver (required by the Radix slider)
 if (typeof globalThis.ResizeObserver === 'undefined') {
   class ResizeObserverPolyfill {
     observe() {}
