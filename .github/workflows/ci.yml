@@ -5,6 +5,10 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Nightly data refresh: OSM network + GTFS schedule, then the full
+    # test/build/deploy pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
+    - cron: '30 2 * * *'
 
 permissions:
   contents: read
@@ -13,6 +17,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      # The nightly run pushes the refreshed src/data files back to main
+      contents: write
+    outputs:
+      # Commit the deploy job must match against the live main branch –
+      # for nightly runs this is the freshly pushed data commit.
+      deploy_sha: ${{ steps.datacommit.outputs.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
 
@@ -23,6 +34,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Nightly only: fetch the current OSM geometry and GTFS departures.
+      # The scripts write their output files only after successful
+      # processing, so a failed fetch leaves the previous data intact –
+      # and every test below still validates the refreshed dataset before
+      # anything is committed or deployed.
+      - name: Refresh network & schedule data (nightly)
+        if: github.event_name == 'schedule'
+        run: |
+          npm run data:update
+          npm run data:simplify
+          npm run data:gtfs
 
       - name: Typecheck & unit tests (Vitest)
         run: |
@@ -51,10 +74,30 @@ jobs:
             test-results/
           retention-days: 7
 
+      # Nightly only, after all tests passed: persist the refreshed data on
+      # main. Pushes via GITHUB_TOKEN do not trigger a new CI run – deploy
+      # happens in this same workflow run below.
+      - name: Commit refreshed data (nightly)
+        id: datacommit
+        if: github.event_name == 'schedule'
+        run: |
+          git add src/data/network.json src/data/schedule.json
+          if git diff --cached --quiet; then
+            echo "Data unchanged – nothing to commit."
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Nightly data refresh (OSM network + GTFS schedule)"
+            git push origin HEAD:main
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Prepare deployment artifact
         if: >-
           success() && github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'schedule')
         run: |
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
@@ -63,7 +106,8 @@ jobs:
       - name: Upload deployment artifact
         if: >-
           success() && github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'schedule')
         uses: actions/upload-artifact@v7
         with:
           name: production-dist
@@ -78,7 +122,8 @@ jobs:
     if: >-
       needs.test.result == 'success' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -100,11 +145,15 @@ jobs:
       - name: Upload via rsync over SSH
         env:
           SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+          # For nightly runs this is the freshly pushed data commit, for
+          # pushes the triggering commit – deploy only if main still points
+          # at it (nothing newer was merged mid-run).
+          EXPECTED_SHA: ${{ needs.test.outputs.deploy_sha }}
         run: |
           git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
           current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
-          if [ "$current_main_sha" != "$GITHUB_SHA" ]; then
-            echo "::notice::Deploy skipped: $GITHUB_SHA is no longer the current main commit ($current_main_sha)."
+          if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
+            echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
             exit 0
           fi
           if [ -z "$SSHPASS" ]; then
