@@ -21,7 +21,6 @@ import {
   GridImageryProvider,
   HeadingPitchRange,
   HeadingPitchRoll,
-  HeightReference,
   Ion,
   LabelStyle,
   Math as CesiumMath,
@@ -31,6 +30,7 @@ import {
   Transforms,
   Viewer,
   createGooglePhotorealistic3DTileset,
+  type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
 import type { PreparedNetwork } from '@/data/network-types'
@@ -50,9 +50,23 @@ interface TramEntityRecord {
   position: ConstantPositionProperty
   orientation: ConstantProperty
   color: Color
+  /** Geglättete Bodenhöhe (ellipsoidisch) unter der Bahn in Metern. */
+  groundHeight: number
+  /** Frame-Zähler der letzten Höhenabfrage (Sampling wird gestaffelt). */
+  lastSampleFrame: number
 }
 
 const TRAM_HALF_HEIGHT = config.tram.height / 2
+
+/**
+ * Ellipsoidische Höhe der Rostocker Straßen, solange noch keine Kachel-Höhe
+ * gemessen wurde (Geoid-Undulation ~40 m + Geländehöhe). Wird zur Laufzeit
+ * durch echte Messwerte ersetzt.
+ */
+const FALLBACK_GROUND_HEIGHT = 45
+
+/** Alle wie viele Frames die Bodenhöhe je Bahn neu gesampelt wird. */
+const HEIGHT_SAMPLE_INTERVAL = 12
 
 export class CesiumMap {
   readonly viewer: Viewer
@@ -60,15 +74,22 @@ export class CesiumMap {
   private trams = new Map<string, TramEntityRecord>()
   private routeEntities = new Map<string, Entity[]>()
   private stopEntities: Entity[] = []
+  private stopRecords: { entity: Entity; lon: number; lat: number; resolved: boolean }[] = []
+  private stopScanIndex = 0
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
   private followId: string | null = null
   private followOffset: HeadingPitchRange | null = null
-  private followGroundHeight = 0
+  private googleTileset: Cesium3DTileset | null = null
+  /** Zuletzt gemessene plausible Bodenhöhe – Startwert für neue Bahnen. */
+  private defaultGroundHeight: number
+  private frameCounter = 0
 
   constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
     this.opts = opts
+    // Offline (Ellipsoid): Boden liegt exakt bei 0 m
+    this.defaultGroundHeight = opts.offline ? 0 : FALLBACK_GROUND_HEIGHT
 
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
@@ -137,11 +158,9 @@ export class CesiumMap {
     try {
       const tileset = await createGooglePhotorealistic3DTileset()
       if (this.destroyed) return
-      // WICHTIG: Ohne enableCollision werden Entities mit HeightReference
-      // NICHT auf die 3D-Kacheln geklemmt – die Tram-Quader lägen dann ~40 m
-      // unter der photorealistischen Oberfläche (Geoid-Undulation) und wären
-      // unsichtbar; nur die tiefenunabhängigen Labels blieben sichtbar.
+      // enableCollision: verhindert, dass die Kamera unter die Kacheln gerät
       tileset.enableCollision = true
+      this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // Der Globus würde unter den photorealistischen Kacheln doppelt rendern
       this.viewer.scene.globe.show = false
@@ -228,7 +247,11 @@ export class CesiumMap {
     })
   }
 
-  /** Zeichnet alle Haltestellen (dedupliziert über die Linien hinweg). */
+  /**
+   * Zeichnet alle Haltestellen (dedupliziert über die Linien hinweg).
+   * Höhen werden – wie bei den Bahnen – explizit gesetzt und nachgeführt,
+   * sobald die 3D-Kacheln an der jeweiligen Stelle geladen sind.
+   */
   addStops(network: PreparedNetwork): void {
     const seen = new Set<string>()
     for (const line of network.lines) {
@@ -236,34 +259,52 @@ export class CesiumMap {
         for (const stop of dir.stops) {
           if (seen.has(stop.id)) continue
           seen.add(stop.id)
-          this.stopEntities.push(
-            this.viewer.entities.add({
-              id: `stop:${stop.id}`,
-              position: Cartesian3.fromDegrees(stop.coord[0], stop.coord[1]),
-              point: {
-                pixelSize: 7,
-                color: Color.fromCssColorString('#f8fafc'),
-                outlineColor: Color.fromCssColorString('#334155'),
-                outlineWidth: 2,
-                heightReference: HeightReference.CLAMP_TO_GROUND,
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 9000),
-                disableDepthTestDistance: 3000,
-              },
-              label: {
-                text: stop.name,
-                font: '13px "Inter Variable", system-ui, sans-serif',
-                fillColor: Color.fromCssColorString('#e2e8f0'),
-                outlineColor: Color.fromCssColorString('#0f172a'),
-                outlineWidth: 3,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                pixelOffset: new Cartesian2(0, -16),
-                heightReference: HeightReference.CLAMP_TO_GROUND,
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 2600),
-                disableDepthTestDistance: 3000,
-              },
-            }),
-          )
+          const [lon, lat] = stop.coord
+          const entity = this.viewer.entities.add({
+            id: `stop:${stop.id}`,
+            position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight + 0.5),
+            point: {
+              pixelSize: 7,
+              color: Color.fromCssColorString('#f8fafc'),
+              outlineColor: Color.fromCssColorString('#334155'),
+              outlineWidth: 2,
+              distanceDisplayCondition: new DistanceDisplayCondition(0, 9000),
+              disableDepthTestDistance: 3000,
+            },
+            label: {
+              text: stop.name,
+              font: '13px "Inter Variable", system-ui, sans-serif',
+              fillColor: Color.fromCssColorString('#e2e8f0'),
+              outlineColor: Color.fromCssColorString('#0f172a'),
+              outlineWidth: 3,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cartesian2(0, -16),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, 2600),
+              disableDepthTestDistance: 3000,
+            },
+          })
+          this.stopEntities.push(entity)
+          this.stopRecords.push({ entity, lon, lat, resolved: false })
         }
+      }
+    }
+  }
+
+  /** Löst die Haltestellen-Höhen nach und nach auf (wenige pro Frame). */
+  private resolveStopHeights(): void {
+    if (!this.googleTileset || this.stopRecords.length === 0) return
+    let budget = 4
+    for (let i = 0; i < this.stopRecords.length && budget > 0; i++) {
+      this.stopScanIndex = (this.stopScanIndex + 1) % this.stopRecords.length
+      const stop = this.stopRecords[this.stopScanIndex]
+      if (stop.resolved) continue
+      budget--
+      const height = this.sampleGroundHeight(stop.lon, stop.lat)
+      if (height !== undefined) {
+        stop.resolved = true
+        stop.entity.position = new ConstantPositionProperty(
+          Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
+        )
       }
     }
   }
@@ -283,11 +324,39 @@ export class CesiumMap {
   }
 
   /**
+   * Ellipsoidische Bodenhöhe an einer Position, gemessen auf den geladenen
+   * Google-3D-Kacheln. undefined, wenn dort (noch) keine Kachel geladen ist.
+   */
+  private sampleGroundHeight(lon: number, lat: number): number | undefined {
+    if (!this.googleTileset) return undefined
+    try {
+      const height = this.googleTileset.getHeight(
+        Cartographic.fromDegrees(lon, lat),
+        this.viewer.scene,
+      )
+      // Plausibilitätsfenster für Rostock (ellipsoidisch ca. 30–120 m)
+      if (height !== undefined && Number.isFinite(height) && height > -100 && height < 500) {
+        return height
+      }
+    } catch {
+      // Kachel-Inhalt nicht abfragbar – Fallback-Höhe weiterverwenden
+    }
+    return undefined
+  }
+
+  /**
    * Gleicht die Straßenbahn-Entities mit den aktuellen Snapshots ab.
    * Wird jeden Frame aufgerufen: aktualisiert Positionen in-place,
    * legt neue Entities an und entfernt beendete Fahrten.
+   *
+   * Die Höhe der Bahnen wird EXPLIZIT gesetzt (Kachel-Höhe + halbe
+   * Wagenhöhe) statt über HeightReference-Clamping – das Clamping von
+   * Entity-Geometrien auf 3D-Kacheln ist in der Praxis unzuverlässig,
+   * wodurch die Quader unter der photorealistischen Oberfläche lagen.
    */
   syncTrams(snapshots: TramSnapshot[], visibleLines: ReadonlySet<string>): void {
+    this.frameCounter++
+    this.resolveStopHeights()
     const alive = new Set<string>()
 
     for (const snap of snapshots) {
@@ -298,7 +367,22 @@ export class CesiumMap {
         this.trams.set(snap.id, record)
       }
 
-      const position = Cartesian3.fromDegrees(snap.lon, snap.lat, TRAM_HALF_HEIGHT + 0.4)
+      // Bodenhöhe gestaffelt nachführen (nicht jede Bahn in jedem Frame)
+      if (this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL) {
+        record.lastSampleFrame = this.frameCounter
+        const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
+        if (sampled !== undefined) {
+          // Glätten, damit die Bahn Steigungen weich folgt
+          record.groundHeight += (sampled - record.groundHeight) * 0.35
+          this.defaultGroundHeight = sampled
+        }
+      }
+
+      const position = Cartesian3.fromDegrees(
+        snap.lon,
+        snap.lat,
+        record.groundHeight + TRAM_HALF_HEIGHT + 0.3,
+      )
       record.position.setValue(position)
       const hpr = new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0)
       record.orientation.setValue(Transforms.headingPitchRollQuaternion(position, hpr))
@@ -357,12 +441,15 @@ export class CesiumMap {
 
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
-    const position = new ConstantPositionProperty(
-      Cartesian3.fromDegrees(snap.lon, snap.lat, TRAM_HALF_HEIGHT + 0.4),
+    const initialPosition = Cartesian3.fromDegrees(
+      snap.lon,
+      snap.lat,
+      this.defaultGroundHeight + TRAM_HALF_HEIGHT + 0.3,
     )
+    const position = new ConstantPositionProperty(initialPosition)
     const orientation = new ConstantProperty(
       Transforms.headingPitchRollQuaternion(
-        Cartesian3.fromDegrees(snap.lon, snap.lat, TRAM_HALF_HEIGHT + 0.4),
+        initialPosition,
         new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
       ),
     )
@@ -376,7 +463,6 @@ export class CesiumMap {
         material: color,
         outline: true,
         outlineColor: Color.fromCssColorString('#0f172a').withAlpha(0.9),
-        heightReference: HeightReference.RELATIVE_TO_GROUND,
       },
       label: {
         text: snap.lineId,
@@ -391,7 +477,14 @@ export class CesiumMap {
       },
     })
 
-    return { entity, position, orientation, color }
+    return {
+      entity,
+      position,
+      orientation,
+      color,
+      groundHeight: this.defaultGroundHeight,
+      lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sofort beim ersten Frame sampeln
+    }
   }
 
   setSelected(tramId: string | null): void {
@@ -430,34 +523,14 @@ export class CesiumMap {
   }
 
   private updateFollowCamera(lon: number, lat: number): void {
-    const scene = this.viewer.scene
     const camera = this.viewer.camera
 
-    // Bodenhöhe unter der Bahn ermitteln (klemmt die Kamera-Mitte auf die
-    // Google-3D-Kacheln); bei Fehlschlag letzten Wert behalten. Im
-    // Offline-Modus ist der Boden exakt das Ellipsoid (0 m) – Sampling würde
-    // dort nur Depth-Picking-Rauschen einbringen. Nur plausible Werte
-    // akzeptieren: Rostock liegt ellipsoidisch zwischen etwa 0 und 100 m.
-    if (!this.opts.offline && scene.sampleHeightSupported) {
-      try {
-        const record = this.followId ? this.trams.get(this.followId) : undefined
-        const height = scene.sampleHeight(
-          Cartographic.fromDegrees(lon, lat),
-          record ? [record.entity] : undefined,
-        )
-        if (height !== undefined && Number.isFinite(height) && height > -100 && height < 500) {
-          this.followGroundHeight = height
-        }
-      } catch {
-        // Höhe aktuell nicht ermittelbar – letzten bekannten Wert nutzen
-      }
-    }
+    // Kamera-Zentrum auf Höhe der verfolgten Bahn (deren Bodenhöhe wird in
+    // syncTrams bereits auf den 3D-Kacheln gesampelt und geglättet).
+    const record = this.followId ? this.trams.get(this.followId) : undefined
+    const groundHeight = record?.groundHeight ?? this.defaultGroundHeight
 
-    const center = Cartesian3.fromDegrees(
-      lon,
-      lat,
-      this.followGroundHeight + config.tram.height + 2,
-    )
+    const center = Cartesian3.fromDegrees(lon, lat, groundHeight + config.tram.height + 2)
 
     if (!this.followOffset) {
       // Erster Frame: hinter/über der Bahn einschwenken
@@ -478,6 +551,14 @@ export class CesiumMap {
 
   hasTram(tramId: string): boolean {
     return this.trams.has(tramId)
+  }
+
+  /** Debug: aktuelle Bodenhöhen der Bahnen (zur Diagnose der Kachel-Höhen). */
+  getGroundHeights(): { id: string; groundHeight: number }[] {
+    return [...this.trams.entries()].map(([id, record]) => ({
+      id,
+      groundHeight: Math.round(record.groundHeight * 10) / 10,
+    }))
   }
 
   destroy(): void {
