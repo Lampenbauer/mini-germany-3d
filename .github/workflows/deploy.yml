@@ -1,0 +1,68 @@
+name: Deploy (all-inkl)
+
+# Deployt die Webapp nach https://minirostock3d.lampenbauer.com
+# Ziel: all-inkl Premium-Webhosting (Apache + PHP, kein Node zur Laufzeit).
+#
+# Benötigtes GitHub-Secret (Settings → Secrets and variables → Actions):
+#   KAS_SSH_PASSWORD – das SSH-Passwort des Users ***REMOVED***
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - claude/mini-rostock-3d-webapp-14flnw
+
+concurrency:
+  group: deploy-all-inkl
+  cancel-in-progress: true
+
+env:
+  KAS_SSH_HOST: ***REMOVED***
+  KAS_SSH_USER: ***REMOVED***
+  KAS_TARGET_DIR: ***REMOVED***/
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Unit-Tests (schnelle Absicherung vor dem Deploy)
+        run: npm test
+
+      - name: PHP-Parser-Paritätstest
+        run: node scripts/test-php-parser.mjs
+
+      - name: Produktions-Build
+        run: npm run build
+
+      - name: PHP-API beilegen
+        run: |
+          mkdir -p dist/api
+          cp server/api/realtime.php dist/api/
+          cp src/data/schedule.json dist/api/schedule.json
+
+      - name: Upload per rsync über SSH
+        env:
+          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+        run: |
+          if [ -z "$SSHPASS" ]; then
+            echo "::error::Secret KAS_SSH_PASSWORD ist nicht gesetzt (Repo-Settings → Secrets → Actions)."
+            exit 1
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+          echo "✅ Deployt nach https://minirostock3d.lampenbauer.com"
