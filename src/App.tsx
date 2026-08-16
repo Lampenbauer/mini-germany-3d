@@ -31,6 +31,8 @@ export interface MrtTestApi {
   anyTramInView: () => boolean
   /** Durchschnittliche Renderrate der letzten 5 Sekunden (Frames/s). */
   renderRate: () => number
+  /** Maximale Distanz Wagenkasten ↔ Label in Metern (muss ~0 sein). */
+  tramBoxDriftMeters: () => number
 }
 
 declare global {
@@ -254,6 +256,7 @@ export default function App() {
       groundHeights: () => map.getGroundHeights(),
       anyTramInView: () => lastAnyTramInView,
       renderRate: () => renderTimes.length / 5,
+      tramBoxDriftMeters: () => map.getTramBoxDriftMeters(),
     }
     window.__mrt = api
 
