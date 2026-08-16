@@ -67,13 +67,20 @@ test('Karte rendert Routen und Bahnen (Pixel-Analyse)', async ({}, testInfo) => 
 // Für Element-Screenshots nutzen wir toMatchSnapshot (Einzelaufnahme mit
 // Toleranz) statt toHaveScreenshot: Letzteres wartet auf zwei identische
 // aufeinanderfolgende Frames – durch das kontinuierliche Cesium-Rendering
-// hinter den abgerundeten Panel-Ecken wird das nie ganz stabil.
+// hinter den abgerundeten Panel-Ecken wird das nie ganz stabil. Aus dem
+// gleichen Grund fotografieren wir per page.screenshot({ clip }) statt
+// locator.screenshot(): Letzteres enthält eine eigene Stabilitäts-Warteschleife
+// (scrollIntoView), die auf ausgelasteten CI-Runnern in den Timeout läuft.
+async function elementShot(locator: ReturnType<Page['locator']>) {
+  const box = (await locator.boundingBox())!
+  return page.screenshot({ clip: box, animations: 'disabled' })
+}
+
 test('Control-Panel im Detail', async () => {
   const panel = page.locator('[data-slot=card]').first()
-  expect(await panel.screenshot({ animations: 'disabled' })).toMatchSnapshot(
-    'control-panel.png',
-    { maxDiffPixelRatio: 0.03 },
-  )
+  expect(await elementShot(panel)).toMatchSnapshot('control-panel.png', {
+    maxDiffPixelRatio: 0.03,
+  })
 })
 
 test('Info-Karte einer ausgewählten Bahn', async () => {
@@ -83,7 +90,7 @@ test('Info-Karte einer ausgewählten Bahn', async () => {
   })
   const card = page.getByTestId('tram-card')
   await expect(card).toBeVisible()
-  expect(await card.screenshot({ animations: 'disabled' })).toMatchSnapshot('tram-card.png', {
+  expect(await elementShot(card)).toMatchSnapshot('tram-card.png', {
     maxDiffPixelRatio: 0.03,
   })
   await page.evaluate(() => window.__mrt!.selectTram(null))
