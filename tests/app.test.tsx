@@ -17,6 +17,9 @@ vi.mock('@/map/CesiumMap', () => {
     getGroundHeights() {
       return []
     }
+    getTramBoxDriftMeters() {
+      return 0
+    }
     render() {}
     getRenderHints() {
       return { interacting: false, tilesLoading: false }
