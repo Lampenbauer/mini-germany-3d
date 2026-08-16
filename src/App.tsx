@@ -13,7 +13,7 @@ import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
-/** Debug-/Test-API, die die E2E-Tests unter window.__mrt verwenden. */
+/** Debug/test API that the E2E tests use under window.__mrt. */
 export interface MrtTestApi {
   ready: boolean
   tramCount: () => number
@@ -30,9 +30,9 @@ export interface MrtTestApi {
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
   anyTramInView: () => boolean
-  /** Durchschnittliche Renderrate der letzten 5 Sekunden (Frames/s). */
+  /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
-  /** Maximale Distanz Wagenkasten ↔ Label in Metern (muss ~0 sein). */
+  /** Maximum distance between vehicle box and label in meters (must be ~0). */
   tramBoxDriftMeters: () => number
 }
 
@@ -47,9 +47,9 @@ interface UrlOptions {
   speed: number
   paused: boolean
   timeSec: number | null
-  /** Feste Bodenhöhe in Metern (Debug, überspringt das Kachel-Sampling). */
+  /** Fixed ground height in meters (debug, skips tile sampling). */
   groundHeight: number | undefined
-  /** GTFS-Realtime erzwingen (?rt=1) bzw. abschalten (?rt=0); null = Auto. */
+  /** Force GTFS-Realtime (?rt=1) or disable it (?rt=0); null = auto. */
   realtime: boolean | null
 }
 
@@ -122,7 +122,7 @@ export default function App() {
     if (followingRef.current) map?.setFollow(id)
   }, [])
 
-  // Initialisierung: Karte, Simulation, Render-Schleife
+  // Initialization: map, simulation, render loop
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -137,8 +137,8 @@ export default function App() {
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
 
-    // GTFS-Realtime (Verspätungen aus dem freien gtfs.de-Feed):
-    // standardmäßig aktiv, außer im Offline-Modus; ?rt=1/?rt=0 übersteuert.
+    // GTFS-Realtime (delays from the free gtfs.de feed):
+    // active by default, except in offline mode; ?rt=1/?rt=0 overrides.
     const realtimeEnabled =
       config.gtfsRealtimeUrl !== '' &&
       import.meta.env.MODE !== 'test' &&
@@ -168,13 +168,13 @@ export default function App() {
     })
     mapRef.current = map
     map.setHomeView(computeHomeView(network))
-    // Gespeicherte Kameraausrichtung aus dem URL-Hash wiederherstellen
+    // Restore the saved camera orientation from the URL hash
     const hashView = parseCameraHash(window.location.hash)
     if (hashView) map.setView(hashView)
     map.addRoutes(network)
     map.addStops(network)
 
-    // Kameraausrichtung alle 1500 ms in den URL-Hash schreiben
+    // Write the camera orientation to the URL hash every 1500 ms
     const hashTimer = window.setInterval(() => {
       const hash = formatCameraHash(map.getCameraView())
       if (hash !== window.location.hash) {
@@ -191,14 +191,14 @@ export default function App() {
     let lastLoopError: string | null = null
     const renderTimes: number[] = []
     const loop = (now: number) => {
-      // Der Loop darf an einem transienten Fehler (z.B. Cesium-Interna beim
-      // Massen-Entfernen von Entities) nicht dauerhaft sterben – sonst friert
-      // die komplette Simulation ein.
+      // The loop must not die permanently on a transient error (e.g. Cesium
+      // internals while bulk-removing entities) – otherwise the entire
+      // simulation freezes.
       try {
         loopTicks++
         if (!document.hidden) {
-          // Simulation mit max. ~30 fps ticken; pausiert oder ohne sichtbare
-          // Bahn im Bild reichen 2 fps.
+          // Tick the simulation at ~30 fps max; when paused or with no
+          // vehicle in view, 2 fps is plenty.
           const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
@@ -207,7 +207,7 @@ export default function App() {
             const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
             lastAnyTramInView = viewInfo?.anyTramInView ?? false
 
-            // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
+            // Update UI state only ~4×/second, not every frame
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
@@ -218,7 +218,7 @@ export default function App() {
               if (selId) {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
                 if (!snap) {
-                  // Fahrt beendet → Auswahl auflösen
+                  // Trip ended → clear the selection
                   selectTram(null)
                 } else {
                   setSelected(snap)
@@ -227,10 +227,10 @@ export default function App() {
             }
           }
 
-          // Render-Taktung (die App besitzt den Cesium-Render-Loop):
-          //   Interaktion/Kameraflug → volle Bildrate
-          //   Bahnen sichtbar in Bewegung oder Kacheln laden → ~30 fps
-          //   sonst → ~1 fps (praktisch Leerlauf)
+          // Render pacing (the app owns the Cesium render loop):
+          //   interaction/camera flight → full frame rate
+          //   vehicles visibly moving or tiles loading → ~30 fps
+          //   otherwise → ~1 fps (effectively idle)
           const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
           const animating = lastAnyTramInView && !clock.paused
           const renderInterval = hints.interacting
@@ -251,14 +251,14 @@ export default function App() {
         const message = String(error)
         if (message !== lastLoopError) {
           lastLoopError = message
-          console.error('Render-Loop-Fehler:', error)
+          console.error('Render loop error:', error)
         }
       }
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
 
-    // Test-/Debug-API
+    // Test/debug API
     const api: MrtTestApi = {
       ready: true,
       tramCount: () => snapshotsRef.current.length,
@@ -303,6 +303,23 @@ export default function App() {
         else next.add(lineId)
         visibleLinesRef.current = next
         mapRef.current?.setLineRouteVisible(lineId, showRoutesRef.current && next.has(lineId))
+        return next
+      })
+    },
+    [],
+  )
+
+  /** Show/hide several lines at once (group switches in the panel). */
+  const handleSetLinesVisible = useCallback(
+    (lineIds: string[], visible: boolean) => {
+      setVisibleLines((prev) => {
+        const next = new Set(prev)
+        for (const id of lineIds) {
+          if (visible) next.add(id)
+          else next.delete(id)
+          mapRef.current?.setLineRouteVisible(id, showRoutesRef.current && visible)
+        }
+        visibleLinesRef.current = next
         return next
       })
     },
@@ -366,13 +383,14 @@ export default function App() {
     id: line.id,
     name: line.name,
     color: line.color,
+    mode: line.mode,
     from: line.directions[0].from,
     to: line.directions[0].to,
     visible: visibleLines.has(line.id),
   }))
 
   const dataSource =
-    network.meta.source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)'
+    network.meta.source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)'
 
   const offlineMode =
     typeof window !== 'undefined' &&
@@ -395,6 +413,7 @@ export default function App() {
           onResetTime={handleResetTime}
           lines={lineInfos}
           onToggleLine={handleToggleLine}
+          onSetLinesVisible={handleSetLinesVisible}
           showRoutes={showRoutes}
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}

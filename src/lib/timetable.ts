@@ -1,21 +1,26 @@
 /**
- * Fahrplan-Engine: erzeugt Fahrten (Trips) und berechnet daraus die Position
- * jeder Straßenbahn zu einem Zeitpunkt.
+ * Timetable engine: generates trips and, from them, computes the position
+ * of every tram at a point in time.
  *
- * Standardmäßig wird ein realistischer Taktfahrplan synthetisiert (RSAG fährt
- * tagsüber im 10-Minuten-Takt). Liegt eine aus echten GTFS-Daten erzeugte
- * schedule.json vor (npm run data:gtfs), werden deren Abfahrtszeiten genutzt.
+ * By default a realistic interval timetable is synthesized (RSAG runs every
+ * 10 minutes during the day). If a schedule.json generated from real GTFS
+ * data exists (npm run data:gtfs), its departure times are used instead.
  */
 
 import { sampleAtDistance } from '@/lib/geo'
-import type { PreparedDirection, PreparedLine, PreparedNetwork } from '@/data/network-types'
+import type {
+  PreparedDirection,
+  PreparedLine,
+  PreparedNetwork,
+  TransitMode,
+} from '@/data/network-types'
 
 export interface StopTime {
   /** Index in direction.stops */
   stopIndex: number
-  /** Ankunft in Sekunden seit Mitternacht (Europe/Berlin). */
+  /** Arrival in seconds since midnight (Europe/Berlin). */
   arrival: number
-  /** Abfahrt in Sekunden seit Mitternacht. */
+  /** Departure in seconds since midnight. */
   departure: number
 }
 
@@ -26,14 +31,14 @@ export interface Trip {
   stopTimes: StopTime[]
 }
 
-/** Taktzeitfenster in Minuten seit Mitternacht. */
+/** Headway time window in minutes since midnight. */
 export interface HeadwaySpan {
   startMin: number
   endMin: number
   headwayMin: number
 }
 
-/** Angelehnt an den RSAG-Werktagstakt. */
+/** Modeled after the RSAG weekday schedule. */
 export const DEFAULT_SERVICE: HeadwaySpan[] = [
   { startMin: 4 * 60 + 30, endMin: 6 * 60, headwayMin: 20 },
   { startMin: 6 * 60, endMin: 19 * 60, headwayMin: 10 },
@@ -41,13 +46,31 @@ export const DEFAULT_SERVICE: HeadwaySpan[] = [
   { startMin: 21 * 60, endMin: 24 * 60, headwayMin: 20 },
 ]
 
+/**
+ * Synthetic headways per transit mode in case schedule.json provides no real
+ * departures. Buses run less often than trams; the ferries shuttle back and
+ * forth frequently during the day (Kabutzenhof every 15 min, Hohe Düne
+ * similar).
+ */
+export const DEFAULT_SERVICE_BY_MODE: Record<TransitMode, HeadwaySpan[]> = {
+  tram: DEFAULT_SERVICE,
+  bus: [
+    { startMin: 5 * 60, endMin: 6 * 60, headwayMin: 30 },
+    { startMin: 6 * 60, endMin: 19 * 60, headwayMin: 20 },
+    { startMin: 19 * 60, endMin: 23 * 60, headwayMin: 30 },
+  ],
+  ferry: [{ startMin: 6 * 60, endMin: 21 * 60, headwayMin: 15 }],
+}
+
 export interface TimetableOptions {
   cruiseSpeedMps: number
   dwellSeconds: number
   service?: HeadwaySpan[]
+  /** Mode-specific travel speed (m/s); missing = cruiseSpeedMps. */
+  cruiseSpeedByMode?: Partial<Record<TransitMode, number>>
 }
 
-/** Abfahrtszeiten (Sekunden seit Mitternacht) aus einem Taktschema. */
+/** Departure times (seconds since midnight) from a headway scheme. */
 export function departuresFromService(service: HeadwaySpan[]): number[] {
   const deps: number[] = []
   for (const span of service) {
@@ -59,8 +82,8 @@ export function departuresFromService(service: HeadwaySpan[]): number[] {
 }
 
 /**
- * Fahrzeit-Offsets (Ankunft/Abfahrt relativ zur Startabfahrt) für eine
- * Richtung, abgeleitet aus den Haltestellen-Distanzen.
+ * Travel-time offsets (arrival/departure relative to the initial departure)
+ * for a direction, derived from the stop distances.
  */
 export function stopOffsets(
   dir: PreparedDirection,
@@ -84,7 +107,7 @@ export function stopOffsets(
   return offsets
 }
 
-/** Stabile Fahrt-ID der Simulation (auch fürs GTFS-Realtime-Matching). */
+/** Stable simulation trip id (also used for GTFS-Realtime matching). */
 export function simTripId(lineId: string, direction: 0 | 1, departureSec: number): string {
   return `${lineId}-${direction}-${Math.round(departureSec / 60)}`
 }
@@ -96,7 +119,8 @@ export function buildTripsForDirection(
   opts: TimetableOptions,
 ): Trip[] {
   const dir = line.directions[direction]
-  const offsets = stopOffsets(dir, opts.cruiseSpeedMps, opts.dwellSeconds)
+  const speed = opts.cruiseSpeedByMode?.[line.mode] ?? opts.cruiseSpeedMps
+  const offsets = stopOffsets(dir, speed, opts.dwellSeconds)
   return departures.map((dep) => ({
     id: simTripId(line.id, direction, dep),
     lineId: line.id,
@@ -110,17 +134,17 @@ export function buildTripsForDirection(
 }
 
 /**
- * Optionale echte Abfahrtszeiten aus schedule.json:
+ * Optional real departure times from schedule.json:
  * { lines: { [lineId]: { [direction]: { departures, tripIds? } } } }
- * tripIds (parallel zu departures) sind die GTFS-trip_ids des Feeds –
- * sie verbinden die Simulations-Fahrten mit GTFS-Realtime-TripUpdates.
+ * tripIds (parallel to departures) are the feed's GTFS trip_ids – they
+ * connect the simulation trips to GTFS-Realtime TripUpdates.
  */
 export interface ScheduleJson {
   meta?: { source?: string; serviceDate?: string }
   lines?: Record<string, Record<string, { departures: number[]; tripIds?: string[] }>>
 }
 
-/** Abbildung GTFS-trip_id → Simulations-Fahrt-ID aus schedule.json. */
+/** Mapping GTFS trip_id → simulation trip id from schedule.json. */
 export function buildRealtimeTripIdMap(schedule?: ScheduleJson): Map<string, string> {
   const map = new Map<string, string>()
   if (!schedule?.lines) return map
@@ -143,14 +167,23 @@ export function buildAllTrips(
   schedule?: ScheduleJson,
 ): Trip[] {
   const trips: Trip[] = []
-  const service = opts.service ?? DEFAULT_SERVICE
-  const defaultDepartures = departuresFromService(service)
+  const defaultDepartures = new Map<TransitMode, number[]>()
+  const fallbackDepartures = (mode: TransitMode): number[] => {
+    let deps = defaultDepartures.get(mode)
+    if (!deps) {
+      deps = departuresFromService(opts.service ?? DEFAULT_SERVICE_BY_MODE[mode])
+      defaultDepartures.set(mode, deps)
+    }
+    return deps
+  }
 
   for (const line of network.lines) {
     for (const direction of [0, 1] as const) {
       const real = schedule?.lines?.[line.id]?.[String(direction)]?.departures
       const departures =
-        real && real.length > 0 ? [...real].sort((a, b) => a - b) : defaultDepartures
+        real && real.length > 0
+          ? [...real].sort((a, b) => a - b)
+          : fallbackDepartures(line.mode)
       trips.push(...buildTripsForDirection(line, direction, departures, opts))
     }
   }
@@ -163,17 +196,17 @@ export interface TramState {
   tripId: string
   lineId: string
   direction: 0 | 1
-  /** Distanz entlang des Richtungs-Pfads in Metern. */
+  /** Distance along the direction path in meters. */
   distance: number
   lon: number
   lat: number
   bearing: number
   status: TramStatus
-  /** Index der nächsten Haltestelle (in Fahrtrichtung). */
+  /** Index of the next stop (in direction of travel). */
   nextStopIndex: number
 }
 
-/** Zustand einer Fahrt zum Zeitpunkt tSec, oder null wenn nicht unterwegs. */
+/** State of a trip at time tSec, or null if not underway. */
 export function tripStateAt(
   trip: Trip,
   dir: PreparedDirection,
@@ -184,11 +217,11 @@ export function tripStateAt(
   const last = st[st.length - 1]
   if (tSec < first.departure || tSec > last.arrival) return null
 
-  // Segment suchen, in dem tSec liegt
+  // Find the segment containing tSec
   for (let i = 0; i < st.length; i++) {
     const cur = st[i]
 
-    // An einer Haltestelle (Ankunft <= t <= Abfahrt)
+    // At a stop (arrival <= t <= departure)
     if (tSec >= cur.arrival && tSec <= cur.departure) {
       const dist = dir.stops[cur.stopIndex].dist
       const sample = sampleAtDistance(dir.path, dir.cum, dist)
@@ -205,7 +238,7 @@ export function tripStateAt(
       }
     }
 
-    // Zwischen dieser und der nächsten Haltestelle
+    // Between this stop and the next one
     const next = st[i + 1]
     if (next && tSec > cur.departure && tSec < next.arrival) {
       const t = (tSec - cur.departure) / (next.arrival - cur.departure)
@@ -229,7 +262,7 @@ export function tripStateAt(
   return null
 }
 
-/** Alle aktiven Straßenbahnen zum Zeitpunkt tSec. */
+/** All active trams at time tSec. */
 export function activeTramStates(
   trips: Trip[],
   network: PreparedNetwork,

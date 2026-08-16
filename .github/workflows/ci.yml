@@ -21,27 +21,27 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Abhängigkeiten installieren
+      - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck & Unit-Tests (Vitest)
+      - name: Typecheck & unit tests (Vitest)
         run: |
           npm run typecheck
           npm test
 
-      - name: PHP-Parser-Paritätstest (api/realtime.php)
+      - name: PHP parser parity test (api/realtime.php)
         run: node scripts/test-php-parser.mjs
 
-      - name: Produktions-Build
+      - name: Production build
         run: npm run build
 
-      - name: Playwright-Chromium installieren
+      - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: E2E- & visuelle Tests (Playwright, Offline-Modus)
+      - name: E2E tests (Playwright, offline mode)
         run: npm run test:e2e
 
-      - name: Playwright-Report hochladen (bei Fehlern)
+      - name: Upload Playwright report (on failure)
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -51,7 +51,7 @@ jobs:
             test-results/
           retention-days: 7
 
-      - name: Deployment-Artefakt vorbereiten
+      - name: Prepare deployment artifact
         if: >-
           success() && github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -60,7 +60,7 @@ jobs:
           cp server/api/realtime.php dist/api/
           cp src/data/schedule.json dist/api/schedule.json
 
-      - name: Deployment-Artefakt hochladen
+      - name: Upload deployment artifact
         if: >-
           success() && github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -91,24 +91,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Deployment-Artefakt herunterladen
+      - name: Download deployment artifact
         uses: actions/download-artifact@v8
         with:
           name: production-dist
           path: dist
 
-      - name: Upload per rsync über SSH
+      - name: Upload via rsync over SSH
         env:
           SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
         run: |
           git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
           current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
           if [ "$current_main_sha" != "$GITHUB_SHA" ]; then
-            echo "::notice::Deploy übersprungen: $GITHUB_SHA ist nicht mehr der aktuelle main-Commit ($current_main_sha)."
+            echo "::notice::Deploy skipped: $GITHUB_SHA is no longer the current main commit ($current_main_sha)."
             exit 0
           fi
           if [ -z "$SSHPASS" ]; then
-            echo "::error::Secret KAS_SSH_PASSWORD ist nicht gesetzt (Repo-Settings → Secrets → Actions)."
+            echo "::error::Secret KAS_SSH_PASSWORD is not set (repo Settings → Secrets → Actions)."
             exit 1
           fi
           sudo apt-get update -qq
@@ -116,4 +116,4 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
-          echo "✅ Deployt nach https://minirostock3d.lampenbauer.com"
+          echo "✅ Deployed to https://minirostock3d.lampenbauer.com"
