@@ -41,9 +41,11 @@ const ROUTE_TYPES = {
   ferry: new Set(['4', '1000', '1200']),
 }
 
-// Betreiber-Filter (agency.txt): reduziert die deutschlandweiten Kandidaten
-// (eine "Linie 22" gibt es in Dutzenden Städten) auf Rostocker Anbieter.
-const AGENCY_RE = /rostock|rsag|wei[ßs]e flotte/i
+// Hinweis: Ein Vorfilter über agency.txt wäre verlockend (eine "Linie 22"
+// gibt es in Dutzenden Städten), scheitert aber an den Betreiber-Namen des
+// Feeds (die RSAG firmiert dort nicht als "Rostock…"). Der zuverlässige
+// Rostock-Filter bleibt daher der Haltestellen-Abgleich über die BBOX;
+// agency.txt wird nur für Diagnose-Ausgaben gelesen.
 
 // Nur diese Dateien werden aus dem Zip entpackt (spart Gigabytes an RAM)
 const NEEDED_FILES = new Set([
@@ -217,24 +219,23 @@ async function main() {
   const stopsInRostock = rostockStopCoords
   console.log(`${stopsInRostock.size} Haltestellen im Rostocker Stadtgebiet`)
 
-  // ---- agency.txt (optional): auf Rostocker Betreiber einschränken ---------
-  let rostockAgencyIds = null
+  // ---- agency.txt (optional): nur für Diagnose-Ausgaben --------------------
+  const agencyNames = new Map() // agency_id → Name
   if (files['agency.txt']) {
-    rostockAgencyIds = new Set()
     scanCsv(files['agency.txt'], (get) => {
-      if (AGENCY_RE.test(get('agency_name'))) rostockAgencyIds.add(get('agency_id'))
+      agencyNames.set(get('agency_id'), get('agency_name'))
     })
-    console.log(`${rostockAgencyIds.size} Rostocker Betreiber in agency.txt`)
-    if (rostockAgencyIds.size === 0) rostockAgencyIds = null // dann nicht filtern
   }
 
   // ---- routes.txt: Routen zu den Netz-Linien (Tram, Bus, Fähre) ------------
   // Trams/Busse werden über die Liniennummer (route_short_name) gematcht,
   // Fähren über die Anleger-Namen im route_long_name (ihre Kurznamen sind
   // feed-abhängig). Bus-IDs mit Kollisions-Präfix "B" matchen ihre Nummer.
+  // Bewusst deutschlandweit: Der Rostock-Bezug wird später über die
+  // Haltestellen-Koordinaten hergestellt (BBOX-Filter der stop_times).
   const routeLine = new Map() // route_id → lineId
+  const routeAgency = new Map() // route_id → agency_id (Diagnose)
   scanCsv(files['routes.txt'], (get) => {
-    if (rostockAgencyIds && !rostockAgencyIds.has(get('agency_id'))) return
     const type = get('route_type')
     const short = get('route_short_name')
     for (const [lineId, mode] of networkLines) {
@@ -244,6 +245,7 @@ async function main() {
         const targets = ferryTargets.get(lineId) ?? []
         if (targets.length > 0 && targets.some((t) => t.length >= 5 && names.includes(t))) {
           routeLine.set(get('route_id'), lineId)
+          routeAgency.set(get('route_id'), get('agency_id'))
           break
         }
       } else if (
@@ -251,12 +253,13 @@ async function main() {
         (mode === 'bus' && lineId.startsWith('B') && short === lineId.slice(1))
       ) {
         routeLine.set(get('route_id'), lineId)
+        routeAgency.set(get('route_id'), get('agency_id'))
         break
       }
     }
   })
   console.log(
-    `${routeLine.size} Routen-Kandidaten (${rostockAgencyIds ? 'Betreiber-gefiltert' : 'deutschlandweit'})`,
+    `${routeLine.size} Routen-Kandidaten (deutschlandweit – Rostock-Filter folgt über die Haltestellen)`,
   )
 
   // ---- trips.txt: nur Fahrten der Kandidaten-Routen ------------------------
@@ -269,6 +272,7 @@ async function main() {
     if (rawDir === '0' || rawDir === '1') tripsWithDirectionId++
     tripInfo.set(get('trip_id'), {
       lineId,
+      routeId: get('route_id'),
       rawDir,
       serviceId: get('service_id'),
       headsign: get('trip_headsign'),
@@ -390,6 +394,28 @@ async function main() {
     console.warn(
       `⚠ Keine Kalenderdaten im Feed – nutze verkehrsreichste service_id ${serviceId}`,
     )
+  }
+
+  // ---- Diagnose: Welche Betreiber stecken hinter den Rostocker Fahrten? ----
+  // Mehr als ein Betreiber pro Linie deutet auf eine Nummern-Kollision hin
+  // (z.B. Stadtbus und Regionalbus mit derselben Nummer im Stadtgebiet).
+  {
+    const lineAgencies = new Map() // lineId → Map<agencyName, count>
+    for (const tripId of tripTouchesRostock) {
+      const info = tripInfo.get(tripId)
+      const name =
+        agencyNames.get(routeAgency.get(info.routeId) ?? '') ||
+        routeAgency.get(info.routeId) ||
+        'unbekannt'
+      const perLine = lineAgencies.get(info.lineId) ?? new Map()
+      perLine.set(name, (perLine.get(name) ?? 0) + 1)
+      lineAgencies.set(info.lineId, perLine)
+    }
+    for (const [lineId, perLine] of [...lineAgencies.entries()].sort()) {
+      const parts = [...perLine.entries()].map(([n, c]) => `${n} (${c})`)
+      const marker = perLine.size > 1 ? '⚠' : ' '
+      console.log(`  ${marker} Linie ${lineId}: ${parts.join(', ')}`)
+    }
   }
 
   // ---- Richtungszuordnung: GTFS-Fahrt ↔ Netz-Richtung ----------------------
