@@ -136,23 +136,29 @@ npm test               # validiert die neuen Datensätze
 | GTFS-Download dauert lange | Der Feed (~260 MB) wird unter `scripts/.cache/gtfs.zip` gecacht; Datei löschen für einen frischen Download. Bereits vorhandene Zips via `GTFS_FILE=pfad.zip` nutzen. |
 | CI/Sandbox ohne freien Internetzugang | Overpass/gtfs.de sind dort nicht erreichbar – der mitgelieferte Datensatz bleibt aktiv. |
 
-### Ist GTFS-Realtime für Rostock verfügbar? (Stand: August 2026)
+### GTFS-Realtime (implementiert)
 
-Kurzfassung: **Soll-Fahrplandaten ja, ein offener GTFS-Realtime-Feed nur mit Einschränkungen.**
+Die App bindet den **freien GTFS-Realtime-Feed von gtfs.de** an
+(`https://realtime.gtfs.de/realtime-free.pb`, DELFI-basiert):
 
-- **VVW/RSAG (offiziell):** Der Verkehrsverbund Warnow stellt die
-  [Soll-Fahrplandaten als GTFS](https://www.verkehrsverbund-warnow.de/service/open-data.html)
-  über das Open-Data-Portal der Connect Fahrplanauskunft GmbH bereit
-  (kostenlose Registrierung, Freigabe durch den VVW). Ein öffentlich dokumentierter
-  GTFS-**Realtime**-Feed des VVW ist dort bislang nicht verfügbar.
-- **Echtzeit existiert intern:** Die RSAG liefert minutengenaue Echtzeitdaten in die
-  HAFAS-Auskunft (VVW-App, fahrplaner.de) – nur eben nicht als offenen GTFS-RT-Feed.
-- **Deutschlandweite Alternativen:** [gtfs.de](https://gtfs.de/de/realtime/) bietet einen
-  GTFS-RT-Feed (DELFI-basiert, in der freien Variante eingeschränkt), der zum
-  gtfs.de-Soll-Feed passt und RSAG-Fahrten enthalten kann.
-- **Vorbereitung in der App:** `.env` kennt bereits `VITE_GTFS_RT_URL`. Die Anbindung
-  (Protobuf-Decoding, Trip-Matching, CORS-Proxy) ist Milestone 2 – die Simulation ist so
-  gebaut, dass Echtzeitpositionen die fahrplanbasierten Positionen überlagern können.
+- Der Feed liefert **TripUpdates (Verspätungen)** – keine Fahrzeugpositionen. Die App
+  überlagert damit die Fahrplansimulation: Eine Bahn mit +3 min fährt dort, wo sie
+  planmäßig vor 3 Minuten gewesen wäre. Panel-Badge „GTFS-RT · n live“ zeigt die Zahl
+  der aktuell zugeordneten Fahrten, die Infokarte einer Bahn die Verspätung.
+- **Matching:** Die GTFS-`trip_id`s des Feeds passen zum statischen gtfs.de-Feed.
+  `npm run data:gtfs` speichert sie seit dieser Version in `schedule.json`
+  (`tripIds` parallel zu `departures`) – **einmal neu ausführen**, sonst können
+  keine Updates zugeordnet werden („0 live“).
+- **Polling & Robustheit:** Abruf alle 30 s (Protobuf-Decoding via
+  `gtfs-realtime-bindings`); bei Fehlern läuft die reine Fahrplansimulation weiter.
+- **CORS:** Der Feed sendet keine CORS-Header. Im Dev-/Preview-Server übernimmt der
+  Vite-Proxy (`/gtfs-rt` → `realtime.gtfs.de`); ein Produktions-Deployment braucht
+  einen entsprechenden Reverse-Proxy. `VITE_GTFS_RT_URL` überschreibt die URL,
+  leerer String deaktiviert Realtime; URL-Parameter `?rt=1`/`?rt=0` übersteuern.
+- **Grenzen der freien Variante:** reduzierter Umfang, nur zum gtfs.de-Soll-Feed
+  passende trip_ids, Attribution erforderlich. Der offizielle VVW-Weg (Registrierung
+  über die [Connect-Plattform](https://www.verkehrsverbund-warnow.de/service/open-data.html))
+  bleibt die Option für vollständige Echtzeitdaten.
 
 ## Architektur
 
@@ -188,8 +194,7 @@ Google-3D-Kacheln bzw. das Ellipsoid.
 
 ## Roadmap (Milestone 2+)
 
-- GTFS-RT-Anbindung (`VITE_GTFS_RT_URL`): VehiclePositions/TripUpdates überlagern den Fahrplan
-- OSM-Geometrie als Standard-Datensatz (inkl. richtungsgetrennter Gleise/Wendeschleifen)
+- GTFS-RT mit VehiclePositions (voller gtfs.de- oder VVW-Feed) statt nur TripUpdates
 - Detailliertere Fahrzeuge (Low-Poly-6N2 statt Quader), Beschleunigungs-/Bremsprofile
 - Haltestellen-Popups mit Abfahrtsmonitor, Tag/Nacht-Beleuchtung, Performance-Tuning
 

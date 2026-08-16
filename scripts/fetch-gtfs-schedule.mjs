@@ -469,12 +469,20 @@ async function main() {
 
     const sec = timeToSeconds(first.dep)
     lines[info.lineId] ??= {}
-    lines[info.lineId][direction] ??= { departures: [] }
-    lines[info.lineId][direction].departures.push(sec)
+    lines[info.lineId][direction] ??= { pairs: [] }
+    lines[info.lineId][direction].pairs.push({ sec, tripId })
   }
+  // Sortieren, pro Abfahrtszeit deduplizieren und die GTFS-trip_ids parallel
+  // ablegen (werden zur Laufzeit für das GTFS-Realtime-Matching gebraucht).
   for (const line of Object.values(lines)) {
     for (const dir of Object.values(line)) {
-      dir.departures = [...new Set(dir.departures)].sort((a, b) => a - b)
+      const seen = new Set()
+      const unique = dir.pairs
+        .sort((a, b) => a.sec - b.sec)
+        .filter((p) => (seen.has(p.sec) ? false : (seen.add(p.sec), true)))
+      dir.departures = unique.map((p) => p.sec)
+      dir.tripIds = unique.map((p) => p.tripId)
+      delete dir.pairs
     }
   }
   if (unclassified > 0) {

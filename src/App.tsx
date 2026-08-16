@@ -9,6 +9,7 @@ import { Simulation, type TramSnapshot } from '@/engine/simulation'
 import { computeHomeView } from '@/lib/camera'
 import { formatCameraHash, parseCameraHash } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
@@ -48,6 +49,8 @@ interface UrlOptions {
   timeSec: number | null
   /** Feste Bodenhöhe in Metern (Debug, überspringt das Kachel-Sampling). */
   groundHeight: number | undefined
+  /** GTFS-Realtime erzwingen (?rt=1) bzw. abschalten (?rt=0); null = Auto. */
+  realtime: boolean | null
 }
 
 function readUrlOptions(): UrlOptions {
@@ -64,6 +67,7 @@ function readUrlOptions(): UrlOptions {
       Number.isFinite(groundHeight) && groundHeight > -100 && groundHeight < 500
         ? groundHeight
         : undefined,
+    realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
   }
 }
 
@@ -87,6 +91,7 @@ export default function App() {
   const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
   const [selected, setSelected] = useState<TramSnapshot | null>(null)
   const [following, setFollowing] = useState(false)
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
   const showRoutesRef = useRef(showRoutes)
@@ -131,6 +136,25 @@ export default function App() {
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
+
+    // GTFS-Realtime (Verspätungen aus dem freien gtfs.de-Feed):
+    // standardmäßig aktiv, außer im Offline-Modus; ?rt=1/?rt=0 übersteuert.
+    const realtimeEnabled =
+      config.gtfsRealtimeUrl !== '' &&
+      import.meta.env.MODE !== 'test' &&
+      (urlOpts.realtime ?? !urlOpts.offline)
+    let realtimeClient: RealtimeClient | null = null
+    if (realtimeEnabled) {
+      realtimeClient = new RealtimeClient(
+        config.gtfsRealtimeUrl,
+        sim.realtimeTripIdMap,
+        (status, delays) => {
+          sim.setRealtimeDelays(delays)
+          setRealtimeStatus(status)
+        },
+      )
+      realtimeClient.start(30_000)
+    }
 
     const allLines = new Set(network.lines.map((l) => l.id))
     visibleLinesRef.current = allLines
@@ -263,6 +287,7 @@ export default function App() {
     return () => {
       cancelAnimationFrame(rafId)
       window.clearInterval(hashTimer)
+      realtimeClient?.stop()
       window.__mrt = undefined
       map.destroy()
       mapRef.current = null
@@ -377,6 +402,7 @@ export default function App() {
           tramCount={tramCount}
           tilesetStatus={tilesetStatus}
           dataSource={dataSource}
+          realtimeStatus={realtimeStatus}
           onResetCamera={handleResetCamera}
         />
       </div>

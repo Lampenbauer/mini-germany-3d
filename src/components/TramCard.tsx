@@ -11,6 +11,13 @@ export interface TramCardProps {
   onClose: () => void
 }
 
+/** "+3 min" / "-1 min" / "pünktlich" */
+function formatDelay(delaySeconds: number): string {
+  if (Math.abs(delaySeconds) < 60) return 'pünktlich'
+  const minutes = Math.round(delaySeconds / 60)
+  return `${minutes > 0 ? '+' : ''}${minutes} min`
+}
+
 export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardProps) {
   return (
     <Card
@@ -55,7 +62,13 @@ export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardP
             <Crosshair aria-hidden />
             {following ? 'Verfolgung beenden' : 'Bahn folgen'}
           </Button>
-          <Badge variant="secondary">Fahrplansimulation</Badge>
+          {tram.realtime ? (
+            <Badge variant="secondary" data-testid="tram-delay">
+              GTFS-RT · {formatDelay(tram.delaySeconds)}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Fahrplansimulation</Badge>
+          )}
         </div>
       </CardContent>
     </Card>
