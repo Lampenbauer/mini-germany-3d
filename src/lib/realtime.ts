@@ -1,28 +1,28 @@
 /**
- * GTFS-Realtime-Client: pollt den GEFILTERTEN Endpunkt /api/realtime
- * (wenige KB JSON) statt des rohen gtfs.de-Feeds (>10 MB Protobuf).
+ * GTFS-Realtime client: polls the FILTERED endpoint /api/realtime
+ * (a few KB of JSON) instead of the raw gtfs.de feed (>10 MB protobuf).
  *
- * Die Filterung passiert serverseitig – im Dev-/Preview-Server durch eine
- * Vite-Middleware (vite.config.ts), in Produktion durch api/realtime.php
- * (all-inkl-Webhosting: Apache + PHP). Beide laden den Deutschland-Feed
- * höchstens einmal pro Minute, filtern ihn auf die Rostocker trip_ids aus
- * schedule.json und cachen das Ergebnis – alle offenen Browser-Tabs teilen
- * sich so einen einzigen Upstream-Abruf.
+ * The filtering happens server-side – in the dev/preview server via a Vite
+ * middleware (vite.config.ts), in production via api/realtime.php
+ * (all-inkl web hosting: Apache + PHP). Both fetch the Germany feed at most
+ * once per minute, filter it down to the Rostock trip_ids from
+ * schedule.json, and cache the result – so all open browser tabs share a
+ * single upstream fetch.
  */
 
 import type { RealtimeApiResponse } from '@/lib/rt-extract'
 
 export interface RealtimeStatus {
   state: 'connecting' | 'live' | 'error'
-  /** Anzahl der TripUpdates, die einer Simulations-Fahrt zugeordnet wurden. */
+  /** Number of TripUpdates that were matched to a simulation trip. */
   matchedCount: number
-  /** Gesamtzahl der Entities im Original-Feed. */
+  /** Total number of entities in the original feed. */
   totalEntities: number
   lastSuccessAt: number | null
   lastError: string | null
 }
 
-/** Ordnet die gefilterten GTFS-Verspätungen den Simulations-Fahrten zu. */
+/** Maps the filtered GTFS delays to the simulation trips. */
 export function mapDelaysToSimTrips(
   response: RealtimeApiResponse,
   tripIdMap: ReadonlyMap<string, string>,
@@ -84,7 +84,7 @@ export class RealtimeClient {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = (await response.json()) as RealtimeApiResponse
       if (typeof data !== 'object' || data === null || typeof data.delays !== 'object') {
-        throw new Error('Unerwartetes Antwortformat des Realtime-Endpunkts')
+        throw new Error('Unexpected response format from the realtime endpoint')
       }
       const delays = mapDelaysToSimTrips(data, this.tripIdMap)
       this.status = {
@@ -101,7 +101,7 @@ export class RealtimeClient {
         state: 'error',
         lastError: String(error),
       }
-      // Bei Fehlern keine veralteten Verspätungen weiterverwenden
+      // On errors, do not keep using stale delays
       this.onUpdate(this.status, new Map())
     }
   }

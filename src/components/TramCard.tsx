@@ -11,11 +11,24 @@ export interface TramCardProps {
   onClose: () => void
 }
 
-/** "+3 min" / "-1 min" / "pünktlich" */
+/** "+3 min" / "-1 min" / "on time" */
 function formatDelay(delaySeconds: number): string {
-  if (Math.abs(delaySeconds) < 60) return 'pünktlich'
+  if (Math.abs(delaySeconds) < 60) return 'on time'
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
+}
+
+/** Mode-appropriate label for the follow button. */
+const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
+  tram: 'Follow tram',
+  bus: 'Follow bus',
+  ferry: 'Follow ferry',
+}
+
+/** Status text; ferries dock at a pier, not at a stop. */
+function statusText(tram: TramSnapshot): string {
+  if (tram.status === 'moving') return 'Moving'
+  return tram.mode === 'ferry' ? 'At pier' : 'At stop'
 }
 
 export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardProps) {
@@ -38,19 +51,17 @@ export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardP
             {tram.destination}
           </span>
         </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label="Auswahl schließen" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label="Close selection" onClick={onClose}>
           <X aria-hidden />
         </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <span className="text-muted-foreground">Status</span>
-          <span data-testid="tram-status">
-            {tram.status === 'dwell' ? 'Halt an Haltestelle' : 'In Fahrt'}
-          </span>
-          <span className="text-muted-foreground">Nächster Halt</span>
+          <span data-testid="tram-status">{statusText(tram)}</span>
+          <span className="text-muted-foreground">Next stop</span>
           <span data-testid="tram-next-stop">{tram.nextStopName}</span>
-          <span className="text-muted-foreground">Fahrt</span>
+          <span className="text-muted-foreground">Trip</span>
           <span className="font-mono text-xs">{tram.id}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -60,14 +71,14 @@ export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardP
             onClick={onToggleFollow}
           >
             <Crosshair aria-hidden />
-            {following ? 'Verfolgung beenden' : 'Bahn folgen'}
+            {following ? 'Stop following' : FOLLOW_LABEL[tram.mode]}
           </Button>
           {tram.realtime ? (
             <Badge variant="secondary" data-testid="tram-delay">
               GTFS-RT · {formatDelay(tram.delaySeconds)}
             </Badge>
           ) : (
-            <Badge variant="secondary">Fahrplansimulation</Badge>
+            <Badge variant="secondary">Schedule simulation</Badge>
           )}
         </div>
       </CardContent>

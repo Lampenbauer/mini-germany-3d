@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /**
- * Erzeugt src/data/schedule.json mit echten Abfahrtszeiten aus einem
- * GTFS-Feed (Standard: der freie Deutschland-Nahverkehrsfeed von gtfs.de).
+ * Generates src/data/schedule.json with real departure times from a GTFS
+ * feed (default: the free Germany-wide local transit feed from gtfs.de).
  *
  *   npm run data:gtfs
  *
- * Umgebungsvariablen:
- *   GTFS_URL   – GTFS-Zip-URL (Standard: https://download.gtfs.de/germany/nv_free/latest.zip)
- *                Alternativ kann hier der offizielle VVW-Feed genutzt werden
- *                (Registrierung: https://www.verkehrsverbund-warnow.de/service/open-data.html)
- *   GTFS_FILE  – lokaler Pfad zu einer bereits heruntergeladenen GTFS-Zip
+ * Environment variables:
+ *   GTFS_URL   – GTFS zip URL (default: https://download.gtfs.de/germany/nv_free/latest.zip)
+ *                Alternatively the official VVW feed can be used here
+ *                (registration: https://www.verkehrsverbund-warnow.de/service/open-data.html)
+ *   GTFS_FILE  – local path to an already downloaded GTFS zip
  *
- * Die App nutzt aus schedule.json die Abfahrtszeiten am Startpunkt jeder
- * Linie/Richtung; die Fahrzeit zwischen den Halten wird weiterhin aus der
- * Routengeometrie abgeleitet. Attribution beachten (gtfs.de / DELFI).
+ * From schedule.json the app uses the departure times at the starting point
+ * of each line/direction; travel time between stops is still derived from
+ * the route geometry. Mind the attribution (gtfs.de / DELFI).
  *
- * Implementierungshinweis: stop_times.txt des Deutschland-Feeds ist
- * dekomprimiert mehrere Gigabyte groß – die Datei wird daher zeilenweise
- * über dem Byte-Puffer gestreamt statt als ein String dekodiert.
+ * Implementation note: stop_times.txt of the Germany feed is several
+ * gigabytes uncompressed – the file is therefore streamed line by line over
+ * the byte buffer instead of being decoded as a single string.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -31,12 +31,25 @@ const NETWORK_JSON = resolve(__dirname, '../src/data/network.json')
 const CACHE_DIR = resolve(__dirname, '.cache')
 const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/nv_free/latest.zip'
 
-// Grobe Bounding-Box Rostock zum Filtern der Haltestellen
+// Rough bounding box for Rostock to filter the stops
 const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
-const TRAM_LINE_IDS = new Set(['1', '2', '3', '4', '5', '6', '7'])
 
-// Nur diese Dateien werden aus dem Zip entpackt (spart Gigabytes an RAM)
+// GTFS route_types per mode of transport (basic and extended types)
+const ROUTE_TYPES = {
+  tram: new Set(['0', '900']),
+  bus: new Set(['3', '700', '704']),
+  ferry: new Set(['4', '1000', '1200']),
+}
+
+// Note: a pre-filter via agency.txt would be tempting (a "line 22" exists in
+// dozens of cities) but fails on the feed's operator names (the RSAG is not
+// listed there as "Rostock…"). The reliable Rostock filter therefore remains
+// matching the stops against the BBOX; agency.txt is only read for
+// diagnostic output.
+
+// Only these files are extracted from the zip (saves gigabytes of RAM)
 const NEEDED_FILES = new Set([
+  'agency.txt',
   'routes.txt',
   'trips.txt',
   'stops.txt',
@@ -44,13 +57,13 @@ const NEEDED_FILES = new Set([
   'calendar.txt',
   'calendar_dates.txt',
 ])
-const OPTIONAL_FILES = new Set(['calendar.txt', 'calendar_dates.txt'])
+const OPTIONAL_FILES = new Set(['agency.txt', 'calendar.txt', 'calendar_dates.txt'])
 
 // ---------------------------------------------------------------------------
-// CSV-Streaming über Uint8Array (ohne die Datei als einen String zu halten)
+// CSV streaming over Uint8Array (without holding the file as a single string)
 // ---------------------------------------------------------------------------
 
-/** Liefert die Zeilen einer UTF-8-Datei, chunkweise dekodiert. */
+/** Yields the lines of a UTF-8 file, decoded chunk by chunk. */
 function* iterateLines(u8, chunkSize = 8 << 20) {
   const decoder = new TextDecoder('utf-8')
   let carry = ''
@@ -68,7 +81,7 @@ function* iterateLines(u8, chunkSize = 8 << 20) {
   if (last) yield last.endsWith('\r') ? last.slice(0, -1) : last
 }
 
-/** Zerlegt eine CSV-Zeile; nutzt den schnellen Pfad, wenn keine Quotes vorkommen. */
+/** Splits a CSV line; uses the fast path when no quotes are present. */
 function splitCsvLine(line) {
   if (!line.includes('"')) return line.split(',')
   const fields = []
@@ -105,8 +118,8 @@ function stripBom(text) {
 }
 
 /**
- * Iteriert eine GTFS-CSV-Datei und ruft für jede Zeile `onRow(get)` auf,
- * wobei `get('spalte')` den Feldwert liefert. Rückgabewert false bricht ab.
+ * Iterates a GTFS CSV file and calls `onRow(get)` for each row, where
+ * `get('column')` returns the field value. Returning false aborts.
  */
 function scanCsv(u8, onRow) {
   let header = null
@@ -141,39 +154,60 @@ const normalizeName = (s) =>
 
 async function loadZip() {
   if (process.env.GTFS_FILE) {
-    console.log(`Lese lokale GTFS-Datei ${process.env.GTFS_FILE}`)
+    console.log(`Reading local GTFS file ${process.env.GTFS_FILE}`)
     return readFileSync(process.env.GTFS_FILE)
   }
   mkdirSync(CACHE_DIR, { recursive: true })
   const cachePath = resolve(CACHE_DIR, 'gtfs.zip')
   if (existsSync(cachePath)) {
-    console.log(`Nutze Cache ${cachePath} (löschen für frischen Download)`)
+    console.log(`Using cache ${cachePath} (delete it for a fresh download)`)
     return readFileSync(cachePath)
   }
-  console.log(`Lade ${GTFS_URL} … (das kann einige Minuten dauern)`)
+  console.log(`Downloading ${GTFS_URL} … (this can take a few minutes)`)
   const response = await fetch(GTFS_URL, { redirect: 'follow' })
-  if (!response.ok) throw new Error(`Download fehlgeschlagen: HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`)
   const buffer = Buffer.from(await response.arrayBuffer())
   writeFileSync(cachePath, buffer)
-  console.log(`${(buffer.length / 1e6).toFixed(1)} MB heruntergeladen`)
+  console.log(`Downloaded ${(buffer.length / 1e6).toFixed(1)} MB`)
   return buffer
 }
 
 async function main() {
+  // The lines (including their mode of transport) come from network.json –
+  // this GTFS script looks up the matching schedules for exactly these lines.
+  const networkJson = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
+  const networkLines = new Map() // lineId → mode
+  const ferryTargets = new Map() // lineId → normalized pier names
+  for (const line of networkJson.lines) {
+    const mode = line.mode ?? 'tram'
+    networkLines.set(line.id, mode)
+    if (mode === 'ferry') {
+      const d = line.directions[0]
+      ferryTargets.set(line.id, [d.from, d.to].map(normalizeName).filter(Boolean))
+    }
+  }
+  console.log(
+    `network.json: ${networkLines.size} lines (` +
+      ['tram', 'bus', 'ferry']
+        .map((m) => `${[...networkLines.values()].filter((v) => v === m).length}× ${m}`)
+        .join(', ') +
+      ')',
+  )
+
   const zipBuffer = await loadZip()
-  console.log('Entpacke benötigte GTFS-Dateien …')
+  console.log('Extracting required GTFS files …')
   const files = unzipSync(new Uint8Array(zipBuffer), {
     filter: (file) => NEEDED_FILES.has(file.name),
   })
   for (const name of NEEDED_FILES) {
     if (!files[name] && !OPTIONAL_FILES.has(name)) {
-      throw new Error(`${name} fehlt im GTFS-Feed`)
+      throw new Error(`${name} is missing from the GTFS feed`)
     }
   }
 
-  // ---- stops.txt: Haltestellen im Rostocker Stadtgebiet --------------------
+  // ---- stops.txt: stops within the Rostock city area -----------------------
   const rostockStopCoords = new Map() // stop_id → [lon, lat]
-  const rostockStopNames = new Map() // stop_id → Name (für Diagnose)
+  const rostockStopNames = new Map() // stop_id → name (for diagnostics)
   scanCsv(files['stops.txt'], (get) => {
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
@@ -183,18 +217,52 @@ async function main() {
     }
   })
   const stopsInRostock = rostockStopCoords
-  console.log(`${stopsInRostock.size} Haltestellen im Rostocker Stadtgebiet`)
+  console.log(`${stopsInRostock.size} stops within the Rostock city area`)
 
-  // ---- routes.txt: Tram-Routen (route_type 0) mit passender Liniennummer ---
-  const routeLine = new Map() // route_id → Liniennummer
+  // ---- agency.txt (optional): diagnostic output only -----------------------
+  const agencyNames = new Map() // agency_id → name
+  if (files['agency.txt']) {
+    scanCsv(files['agency.txt'], (get) => {
+      agencyNames.set(get('agency_id'), get('agency_name'))
+    })
+  }
+
+  // ---- routes.txt: routes for the network lines (tram, bus, ferry) ---------
+  // Trams/buses are matched via the line number (route_short_name), ferries
+  // via the pier names in route_long_name (their short names are
+  // feed-dependent). Bus IDs with the collision prefix "B" match their number.
+  // Deliberately Germany-wide: the Rostock relevance is established later via
+  // the stop coordinates (BBOX filter of the stop_times).
+  const routeLine = new Map() // route_id → lineId
+  const routeAgency = new Map() // route_id → agency_id (diagnostics)
   scanCsv(files['routes.txt'], (get) => {
-    if (get('route_type') === '0' && TRAM_LINE_IDS.has(get('route_short_name'))) {
-      routeLine.set(get('route_id'), get('route_short_name'))
+    const type = get('route_type')
+    const short = get('route_short_name')
+    for (const [lineId, mode] of networkLines) {
+      if (!ROUTE_TYPES[mode].has(type)) continue
+      if (mode === 'ferry') {
+        const names = normalizeName(`${short} ${get('route_long_name')}`)
+        const targets = ferryTargets.get(lineId) ?? []
+        if (targets.length > 0 && targets.some((t) => t.length >= 5 && names.includes(t))) {
+          routeLine.set(get('route_id'), lineId)
+          routeAgency.set(get('route_id'), get('agency_id'))
+          break
+        }
+      } else if (
+        short === lineId ||
+        (mode === 'bus' && lineId.startsWith('B') && short === lineId.slice(1))
+      ) {
+        routeLine.set(get('route_id'), lineId)
+        routeAgency.set(get('route_id'), get('agency_id'))
+        break
+      }
     }
   })
-  console.log(`${routeLine.size} Tram-Routen-Kandidaten (route_type=0, deutschlandweit)`)
+  console.log(
+    `${routeLine.size} candidate routes (Germany-wide – the Rostock filter follows via the stops)`,
+  )
 
-  // ---- trips.txt: nur Fahrten der Kandidaten-Routen ------------------------
+  // ---- trips.txt: only trips of the candidate routes ------------------------
   const tripInfo = new Map() // trip_id → {lineId, rawDir, serviceId, headsign}
   let tripsWithDirectionId = 0
   scanCsv(files['trips.txt'], (get) => {
@@ -204,22 +272,23 @@ async function main() {
     if (rawDir === '0' || rawDir === '1') tripsWithDirectionId++
     tripInfo.set(get('trip_id'), {
       lineId,
+      routeId: get('route_id'),
       rawDir,
       serviceId: get('service_id'),
       headsign: get('trip_headsign'),
     })
   })
-  console.log(`${tripInfo.size} Kandidaten-Fahrten (${tripsWithDirectionId} mit direction_id)`)
+  console.log(`${tripInfo.size} candidate trips (${tripsWithDirectionId} with direction_id)`)
 
-  // ---- stop_times.txt: erste Abfahrt, erster/letzter Halt + Rostock-Bezug --
-  console.log('Streame stop_times.txt … (größte Datei, bitte warten)')
+  // ---- stop_times.txt: first departure, first/last stop + Rostock relevance
+  console.log('Streaming stop_times.txt … (largest file, please wait)')
   const firstDeparture = new Map() // trip_id → {seq, dep, stopId}
   const lastStop = new Map() // trip_id → {seq, stopId}
   const tripTouchesRostock = new Set()
   let rows = 0
   scanCsv(files['stop_times.txt'], (get) => {
     rows++
-    if (rows % 10_000_000 === 0) console.log(`  … ${rows / 1e6} Mio. Zeilen`)
+    if (rows % 10_000_000 === 0) console.log(`  … ${rows / 1e6} million rows`)
     const tripId = get('trip_id')
     if (!tripInfo.has(tripId)) return
     const stopId = get('stop_id')
@@ -234,21 +303,21 @@ async function main() {
       lastStop.set(tripId, { seq, stopId })
     }
   })
-  console.log(`${rows} stop_times-Zeilen verarbeitet, ${tripTouchesRostock.size} Rostocker Fahrten`)
+  console.log(`Processed ${rows} stop_times rows, ${tripTouchesRostock.size} Rostock trips`)
 
   if (tripTouchesRostock.size === 0) {
     throw new Error(
-      'Keine Rostocker Tram-Fahrten im Feed gefunden. ' +
-        'Prüfe GTFS_URL – ggf. den offiziellen VVW-Feed verwenden.',
+      'No Rostock trips found in the feed. ' +
+        'Check GTFS_URL – consider using the official VVW feed.',
     )
   }
 
-  // ---- Betriebstag wählen und ALLE dort aktiven Services einbeziehen -------
-  // Wichtig: Feeds verteilen die Fahrten einer Linie (sogar die beiden
-  // Richtungen!) oft auf mehrere service_ids. Eine einzelne service_id zu
-  // wählen verliert daher Fahrten – stattdessen wird ein konkreter
-  // Betriebstag gewählt und jede an diesem Datum aktive service_id zählt.
-  const calendarServices = new Map() // service_id → {days:[so..sa], start, end}
+  // ---- Pick a service day and include ALL services active on it ------------
+  // Important: feeds often spread a line's trips (even the two directions!)
+  // across multiple service_ids. Picking a single service_id therefore loses
+  // trips – instead a concrete service day is chosen and every service_id
+  // active on that date counts.
+  const calendarServices = new Map() // service_id → {days:[sun..sat], start, end}
   if (files['calendar.txt']) {
     scanCsv(files['calendar.txt'], (get) => {
       calendarServices.set(get('service_id'), {
@@ -289,8 +358,8 @@ async function main() {
   let activeServiceIds
   let serviceDate = null
   if (calendarServices.size > 0 || calendarExceptions.size > 0) {
-    // Die nächsten 21 Tage durchprobieren; Tag mit den meisten aktiven
-    // Rostocker Tram-Fahrten gewinnt (bei Gleichstand der frühere Tag).
+    // Try the next 21 days; the day with the most active Rostock trips wins
+    // (ties go to the earlier day).
     let best = { count: -1, date: null, services: new Set() }
     for (let offset = 0; offset < 21; offset++) {
       const day = new Date(Date.now() + offset * 86400_000)
@@ -311,10 +380,10 @@ async function main() {
     activeServiceIds = best.services
     serviceDate = best.date
     console.log(
-      `Gewählter Betriebstag: ${serviceDate} (${best.count} Fahrten, ${activeServiceIds.size} aktive Services)`,
+      `Chosen service day: ${serviceDate} (${best.count} trips, ${activeServiceIds.size} active services)`,
     )
   } else {
-    // Fallback ohne Kalenderdaten: verkehrsreichste einzelne service_id
+    // Fallback without calendar data: the single busiest service_id
     const tripsPerService = new Map()
     for (const tripId of tripTouchesRostock) {
       const info = tripInfo.get(tripId)
@@ -323,24 +392,45 @@ async function main() {
     const [serviceId] = [...tripsPerService.entries()].sort((a, b) => b[1] - a[1])[0]
     activeServiceIds = new Set([serviceId])
     console.warn(
-      `⚠ Keine Kalenderdaten im Feed – nutze verkehrsreichste service_id ${serviceId}`,
+      `⚠ No calendar data in the feed – using the busiest service_id ${serviceId}`,
     )
   }
 
-  // ---- Richtungszuordnung: GTFS-Fahrt ↔ Netz-Richtung ----------------------
-  // Ziel: jede Fahrt der Richtung 0 oder 1 aus network.json zuordnen.
+  // ---- Diagnostics: which operators are behind the Rostock trips? ----------
+  // More than one operator per line suggests a number collision
+  // (e.g. a city bus and a regional bus with the same number in the city area).
+  {
+    const lineAgencies = new Map() // lineId → Map<agencyName, count>
+    for (const tripId of tripTouchesRostock) {
+      const info = tripInfo.get(tripId)
+      const name =
+        agencyNames.get(routeAgency.get(info.routeId) ?? '') ||
+        routeAgency.get(info.routeId) ||
+        'unknown'
+      const perLine = lineAgencies.get(info.lineId) ?? new Map()
+      perLine.set(name, (perLine.get(name) ?? 0) + 1)
+      lineAgencies.set(info.lineId, perLine)
+    }
+    for (const [lineId, perLine] of [...lineAgencies.entries()].sort()) {
+      const parts = [...perLine.entries()].map(([n, c]) => `${n} (${c})`)
+      const marker = perLine.size > 1 ? '⚠' : ' '
+      console.log(`  ${marker} Line ${lineId}: ${parts.join(', ')}`)
+    }
+  }
+
+  // ---- Direction assignment: GTFS trip ↔ network direction -----------------
+  // Goal: assign each trip to direction 0 or 1 from network.json.
   //
-  // Primär über die FAHRTRICHTUNG entlang der Linien-Geometrie: Start- und
-  // Endhalt der Fahrt werden auf den Pfad der Richtung 0 projiziert – wächst
-  // die Distanz, fährt die Bahn in Richtung 0, sonst in Richtung 1. Das ist
-  // auch bei Kurzfahrten und Baustellen-Endpunkten korrekt (ein Vergleich mit
-  // dem nächstgelegenen Endterminus wäre es nicht: endet eine Fahrt
-  // baustellenbedingt in der Stadtmitte, liegt sie fast immer näher am
-  // "falschen" Terminus). Sekundär: trip_headsign.
+  // Primarily via the TRAVEL DIRECTION along the line geometry: the trip's
+  // first and last stop are projected onto the path of direction 0 – if the
+  // distance grows, the vehicle travels in direction 0, otherwise in
+  // direction 1. This is correct even for short workings and
+  // construction-site termini (comparing against the nearest terminus would
+  // not be: if a trip ends in the city center due to construction, it is
+  // almost always closer to the "wrong" terminus). Secondary: trip_headsign.
   const dirTargets = {}
   try {
-    const network = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
-    for (const line of network.lines) {
+    for (const line of networkJson.lines) {
       const d0 = line.directions[0]
       const d1 = line.directions[1]
       const cum = [0]
@@ -361,10 +451,10 @@ async function main() {
       }
     }
   } catch {
-    console.warn('⚠ network.json nicht lesbar – Richtungs-Heuristik eingeschränkt')
+    console.warn('⚠ network.json not readable – direction heuristic limited')
   }
 
-  /** Distanz des nächstgelegenen Streckenpunkts entlang des Pfads (Meter). */
+  /** Along-path distance of the nearest point on the path (meters). */
   const projectOntoPath = (path, cum, [plon, plat]) => {
     let best = Infinity
     let bestAlong = 0
@@ -396,26 +486,26 @@ async function main() {
 
   const classifyStats = {} // lineId → {path:0, headsign:0, skipped:0}
 
-  /** Klassifiziert eine Fahrt als Richtung '0' | '1' | null (nicht eindeutig). */
+  /** Classifies a trip as direction '0' | '1' | null (ambiguous). */
   const classifyTrip = (tripId, info) => {
     const targets = dirTargets[info.lineId]
     if (!targets) return null
     const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
 
-    // 1) Fahrtrichtung entlang der Linien-Geometrie
+    // 1) Travel direction along the line geometry
     const firstCoord = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
     const lastCoord = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
     if (firstCoord && lastCoord && targets.path) {
       const a = projectOntoPath(targets.path, targets.cum, firstCoord)
       const b = projectOntoPath(targets.path, targets.cum, lastCoord)
-      // Mindestens ~400 m Strecke, damit die Richtung eindeutig ist
+      // At least ~400 m of route so the direction is unambiguous
       if (Math.abs(b - a) > 400) {
         stats.path++
         return b > a ? '0' : '1'
       }
     }
 
-    // 2) Headsign-Namen vergleichen
+    // 2) Compare headsign names
     const hs = normalizeName(info.headsign ?? '')
     const m0 = nameMatches(hs, targets.to0)
     const m1 = nameMatches(hs, targets.to1)
@@ -430,8 +520,8 @@ async function main() {
 
   const useDirectionId = tripsWithDirectionId > 0
 
-  // Bei vorhandener direction_id: prüfen, ob sie zur Netz-Orientierung passt
-  // (Stimmen über die koordinatenbasierte Klassifikation sammeln).
+  // If direction_id is present: check whether it matches the network's
+  // orientation (collect votes via the coordinate-based classification).
   let directionIdSwapped = false
   if (useDirectionId) {
     let identity = 0
@@ -447,7 +537,7 @@ async function main() {
     directionIdSwapped = swapped > identity
   }
 
-  // ---- schedule.json schreiben ---------------------------------------------
+  // ---- Write schedule.json --------------------------------------------------
   const lines = {}
   let unclassified = 0
   for (const tripId of tripTouchesRostock) {
@@ -472,8 +562,8 @@ async function main() {
     lines[info.lineId][direction] ??= { pairs: [] }
     lines[info.lineId][direction].pairs.push({ sec, tripId })
   }
-  // Sortieren, pro Abfahrtszeit deduplizieren und die GTFS-trip_ids parallel
-  // ablegen (werden zur Laufzeit für das GTFS-Realtime-Matching gebraucht).
+  // Sort, deduplicate per departure time, and store the GTFS trip_ids in
+  // parallel (needed at runtime for GTFS-Realtime matching).
   for (const line of Object.values(lines)) {
     for (const dir of Object.values(line)) {
       const seen = new Set()
@@ -486,17 +576,17 @@ async function main() {
     }
   }
   if (unclassified > 0) {
-    console.warn(`⚠ ${unclassified} Fahrten ohne eindeutige Richtung übersprungen`)
+    console.warn(`⚠ Skipped ${unclassified} trips without a clear direction`)
   }
 
-  // Klassifikations-Übersicht (Detail-Diagnose mit GTFS_DEBUG=1)
+  // Classification overview (detailed diagnostics with GTFS_DEBUG=1)
   for (const [lineId, stats] of Object.entries(classifyStats)) {
     console.log(
-      `  Linie ${lineId}: ${stats.path}× per Fahrtrichtung, ${stats.headsign}× per Headsign, ${stats.skipped}× übersprungen`,
+      `  Line ${lineId}: ${stats.path}× by travel direction, ${stats.headsign}× by headsign, ${stats.skipped}× skipped`,
     )
   }
   if (process.env.GTFS_DEBUG) {
-    const endpoints = {} // lineId → dir → Map<"von → nach", count>
+    const endpoints = {} // lineId → dir → Map<"from → to", count>
     for (const tripId of tripTouchesRostock) {
       const info = tripInfo.get(tripId)
       if (!activeServiceIds.has(info.serviceId)) continue
@@ -505,14 +595,14 @@ async function main() {
       const to = rostockStopNames.get(lastStop.get(tripId)?.stopId) ?? '?'
       const key = `${from} → ${to}`
       endpoints[info.lineId] ??= {}
-      const dirMap = (endpoints[info.lineId][direction ?? 'übersprungen'] ??= new Map())
+      const dirMap = (endpoints[info.lineId][direction ?? 'skipped'] ??= new Map())
       dirMap.set(key, (dirMap.get(key) ?? 0) + 1)
     }
     for (const [lineId, dirs] of Object.entries(endpoints)) {
-      console.log(`  [DEBUG] Linie ${lineId}:`)
+      console.log(`  [DEBUG] Line ${lineId}:`)
       for (const [dir, dirMap] of Object.entries(dirs)) {
         const top = [...dirMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
-        console.log(`    Richtung ${dir}:`)
+        console.log(`    Direction ${dir}:`)
         for (const [key, count] of top) console.log(`      ${count}× ${key}`)
       }
     }
@@ -521,13 +611,13 @@ async function main() {
   const linesWithoutData = Object.keys(dirTargets).filter((id) => !lines[id])
   const noteParts = [
     useDirectionId
-      ? `Richtungen aus direction_id übernommen${directionIdSwapped ? ' (global getauscht)' : ''}.`
-      : 'Feed ohne direction_id – Richtungen über Endhaltestellen-Koordinaten/Headsigns zugeordnet.',
+      ? `Directions taken from direction_id${directionIdSwapped ? ' (globally swapped)' : ''}.`
+      : 'Feed without direction_id – directions assigned via terminal stop coordinates/headsigns.',
   ]
-  if (unclassified > 0) noteParts.push(`${unclassified} Fahrten ohne eindeutige Richtung übersprungen.`)
+  if (unclassified > 0) noteParts.push(`Skipped ${unclassified} trips without a clear direction.`)
   if (linesWithoutData.length > 0) {
     noteParts.push(
-      `Keine GTFS-Abfahrten für Linie(n) ${linesWithoutData.join(', ')} – dort gilt der synthetische Takt.`,
+      `No GTFS departures for line(s) ${linesWithoutData.join(', ')} – the synthetic headway applies there.`,
     )
   }
 
@@ -538,7 +628,7 @@ async function main() {
       serviceDate,
       serviceCount: activeServiceIds.size,
       attribution:
-        'Fahrplandaten aus GTFS (gtfs.de / DELFI bzw. VVW). Nutzungsbedingungen der Quelle beachten.',
+        'Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.',
       note: noteParts.join(' '),
     },
     lines,
@@ -548,13 +638,13 @@ async function main() {
   const summary = Object.entries(lines)
     .map(
       ([id, dirs]) =>
-        `${id}: ${Object.values(dirs).reduce((n, d) => n + d.departures.length, 0)} Abfahrten`,
+        `${id}: ${Object.values(dirs).reduce((n, d) => n + d.departures.length, 0)} departures`,
     )
     .join(', ')
-  console.log(`\n✅ ${OUT} geschrieben – ${summary}`)
+  console.log(`\n✅ Wrote ${OUT} – ${summary}`)
 }
 
 main().catch((err) => {
-  console.error('❌ Fehler:', err.message)
+  console.error('❌ Error:', err.message)
   process.exit(1)
 })

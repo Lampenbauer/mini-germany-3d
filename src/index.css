@@ -84,7 +84,7 @@ body {
   font-family: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Cesium-Widget füllt seinen Container */
+/* The Cesium widget fills its container */
 .cesium-viewer,
 .cesium-viewer .cesium-widget,
 .cesium-viewer canvas {
@@ -98,15 +98,14 @@ body {
   opacity: 0.85;
 }
 
-/* Native Zeit-/Datums-Picker im Dark-Theme rendern */
+/* Render native time/date pickers in the dark theme */
 input[type='time'] {
   color-scheme: dark;
 }
 
 /*
- * Offline-/Testmodus (?offline=1): Panels opak rendern.
- * Der halbtransparente backdrop-blur würde das kontinuierliche
- * Cesium-Rendering in die Screenshot-Vergleiche der visuellen Tests tragen.
+ * Offline/test mode (?offline=1): render the panels opaque so the
+ * continuously changing Cesium canvas does not shine through them.
  */
 .panels-opaque [data-slot='card'] {
   background-color: var(--card);
