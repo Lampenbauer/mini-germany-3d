@@ -90,6 +90,13 @@ export class CesiumMap {
   private defaultGroundHeight: number
   private frameCounter = 0
   private frustumSphere = new BoundingSphere()
+  /** Zeitpunkt der letzten Nutzer-Interaktion (Maus/Touch/Wheel) in ms. */
+  private lastInteractionAt = 0
+  /** Bis zu diesem Zeitpunkt läuft eine Kamera-Animation (flyTo). */
+  private flyingUntil = 0
+  private readonly noteInteraction = () => {
+    this.lastInteractionAt = performance.now()
+  }
 
   constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
     this.opts = opts
@@ -114,11 +121,11 @@ export class CesiumMap {
       infoBox: false,
       selectionIndicator: false,
       msaaSamples: 4,
-      // Nur rendern, wenn sich etwas geändert hat (Kamera, Kacheln, oder
-      // explizites requestRender() aus der Simulations-Schleife). Senkt die
-      // CPU-/GPU-Last massiv, wenn keine Bahn im Bild ist.
-      requestRenderMode: true,
-      maximumRenderTimeChange: Number.POSITIVE_INFINITY,
+      // Der Render-Loop wird komplett von der App gesteuert (siehe
+      // App.tsx-Schleife + render()): Cesiums eigener 60-fps-Loop würde auch
+      // ohne Änderungen jeden Frame Uhr/Visualizer/Szene aktualisieren und
+      // dauerhaft CPU/GPU belasten.
+      useDefaultRenderLoop: false,
     })
 
     // Debug-/Test-Zugriff auf den Viewer (z.B. für E2E-Tests)
@@ -150,6 +157,16 @@ export class CesiumMap {
     }
 
     this.setCameraHome(false)
+
+    // Interaktion wecken den Render-Loop (App rendert dann mit voller Rate)
+    const canvas = scene.canvas
+    canvas.addEventListener('pointerdown', this.noteInteraction)
+    canvas.addEventListener('wheel', this.noteInteraction, { passive: true })
+    canvas.addEventListener('touchstart', this.noteInteraction, { passive: true })
+    canvas.addEventListener('touchmove', this.noteInteraction, { passive: true })
+    canvas.addEventListener('pointermove', (e: PointerEvent) => {
+      if (e.buttons !== 0) this.noteInteraction()
+    })
 
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
@@ -214,6 +231,8 @@ export class CesiumMap {
       roll: 0,
     }
     if (animate) {
+      // Während des Kamera-Flugs mit voller Rate rendern
+      this.flyingUntil = performance.now() + 2600
       this.viewer.camera.flyTo({ destination, orientation, duration: 2 })
     } else {
       this.viewer.camera.setView({ destination, orientation })
@@ -300,9 +319,12 @@ export class CesiumMap {
     }
   }
 
-  /** Löst die Haltestellen-Höhen nach und nach auf (wenige pro Frame). */
+  /** Löst die Haltestellen-Höhen nach und nach auf (wenige pro Durchlauf). */
   private resolveStopHeights(): void {
     if (!this.googleTileset || this.stopRecords.length === 0) return
+    // Gedrosselt: nur jeder 15. Simulations-Tick fragt Höhen ab
+    if (this.frameCounter % 15 !== 0) return
+    if (this.stopRecords.every((s) => s.resolved)) return
     let budget = 4
     for (let i = 0; i < this.stopRecords.length && budget > 0; i++) {
       this.stopScanIndex = (this.stopScanIndex + 1) % this.stopRecords.length
@@ -389,7 +411,7 @@ export class CesiumMap {
           `min ${heights[0].toFixed(1)} m · median ${median.toFixed(1)} m · ` +
           `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} Messpunkte)`,
       )
-      this.requestRender()
+      this.render()
     } catch (error) {
       console.warn('[MiniRostock3D] Höhen-Bootstrap fehlgeschlagen:', error)
     }
@@ -500,9 +522,25 @@ export class CesiumMap {
     return { anyTramInView }
   }
 
-  /** Fordert im requestRenderMode einen neuen Frame an. */
-  requestRender(): void {
-    this.viewer.scene.requestRender()
+  /** Rendert genau einen Frame (die App steuert die Frequenz). */
+  render(): void {
+    if (this.destroyed) return
+    this.viewer.render()
+  }
+
+  /**
+   * Hinweise für die Render-Taktung der App:
+   * - interacting: Nutzer bewegt gerade die Kamera (oder Nachlauf/Flug)
+   * - tilesLoading: Kacheln werden noch nachgeladen
+   */
+  getRenderHints(): { interacting: boolean; tilesLoading: boolean } {
+    const now = performance.now()
+    const interacting = now - this.lastInteractionAt < 2500 || now < this.flyingUntil
+    const scene = this.viewer.scene
+    const tilesLoading =
+      (this.googleTileset !== null && !this.googleTileset.tilesLoaded) ||
+      (scene.globe.show && !scene.globe.tilesLoaded)
+    return { interacting, tilesLoading }
   }
 
   /** Aktuelle Kameraausrichtung (für die URL-Persistenz). */
