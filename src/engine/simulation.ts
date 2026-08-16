@@ -6,7 +6,7 @@
 import { SimClock } from '@/lib/clock'
 import { buildAllTrips, buildRealtimeTripIdMap, tripStateAt } from '@/lib/timetable'
 import type { ScheduleJson, TimetableOptions, Trip } from '@/lib/timetable'
-import type { PreparedNetwork } from '@/data/network-types'
+import type { PreparedNetwork, TransitMode, VehicleDimensions } from '@/data/network-types'
 import { config } from '@/config'
 
 export interface TramSnapshot {
@@ -14,6 +14,10 @@ export interface TramSnapshot {
   lineId: string
   lineName: string
   color: string
+  /** Verkehrsmittel der Linie (Straßenbahn, Bus oder Fähre). */
+  mode: TransitMode
+  /** Fahrzeugmaße für die 3D-Box in Metern. */
+  vehicle: VehicleDimensions
   direction: 0 | 1
   lon: number
   lat: number
@@ -48,6 +52,11 @@ export class Simulation {
       cruiseSpeedMps: options?.cruiseSpeedMps ?? config.simulation.cruiseSpeedMps,
       dwellSeconds: options?.dwellSeconds ?? config.simulation.dwellSeconds,
       service: options?.service,
+      // Eine explizit gesetzte Geschwindigkeit gilt für alle Modi (Tests);
+      // sonst fahren Busse/Fähren mit ihren realistischeren Standardwerten.
+      cruiseSpeedByMode:
+        options?.cruiseSpeedByMode ??
+        (options?.cruiseSpeedMps != null ? undefined : config.simulation.cruiseSpeedByMode),
     }
     this.trips = buildAllTrips(network, opts, schedule)
     this.realtimeTripIdMap = buildRealtimeTripIdMap(schedule)
@@ -89,6 +98,8 @@ export class Simulation {
         lineId: trip.lineId,
         lineName: line.name,
         color: line.color,
+        mode: line.mode,
+        vehicle: line.vehicle,
         direction: trip.direction,
         lon: state.lon,
         lat: state.lat,

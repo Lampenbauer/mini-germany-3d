@@ -104,6 +104,14 @@ siehe `.github/workflows/ci.yml`.
   Linienfarben aus OSM – erkennbar am Badge „OSM-Geometrie“ in der App.
   Ein approximierter Demo-Datensatz kann bei Bedarf mit
   `node scripts/build-approx-network.mjs` wiederhergestellt werden.
+- **Busse & Fähren:** `npm run data:update` lädt zusätzlich alle
+  **RSAG-Buslinien** (route=bus mit Operator RSAG) sowie die beiden Fähren
+  **Kabutzenhof – Gehlsdorf** (OSM-Relation 56291, 19,9 × 6,6 m) und
+  **Warnemünde – Hohe Düne** (Relation 56296, 39 × 11 m). Jede Linie trägt in
+  `network.json` ihr Verkehrsmittel (`mode`: `tram`/`bus`/`ferry`) und Fähren
+  ihre echten Fahrzeugmaße; die 3D-Boxen, Reisegeschwindigkeiten und
+  synthetischen Takte richten sich danach. Das Linien-Panel gruppiert nach
+  Verkehrsmittel (mit Gruppen-Schalter), sobald mehr als eines vorhanden ist.
 - **Fahrplan:** `src/data/schedule.json` enthält echte GTFS-Abfahrtszeiten je
   Linie/Richtung (typischer Werktag). Für Linien/Richtungen ohne GTFS-Daten (z. B.
   baustellenbedingt) greift automatisch ein synthetischer, RSAG-ähnlicher Takt aus
@@ -119,11 +127,16 @@ npm run data:gtfs      # Echte Abfahrtszeiten aus einem GTFS-Feed → src/data/s
 npm test               # validiert die neuen Datensätze
 ```
 
-- `data:update` überschreibt `network.json` mit den echten OSM-Tram-Relationen
+- `data:update` überschreibt `network.json` mit den echten OSM-Relationen für
+  Tram, RSAG-Bus und die beiden Fähren
   (© OpenStreetMap-Mitwirkende, [ODbL](https://www.openstreetmap.org/copyright)).
 - `data:gtfs` lädt standardmäßig den freien Deutschland-Nahverkehrsfeed von
   [gtfs.de](https://gtfs.de) (DELFI-Basis). Mit `GTFS_URL`/`GTFS_FILE` kann stattdessen
-  der offizielle VVW-Feed genutzt werden.
+  der offizielle VVW-Feed genutzt werden. Das Skript sucht Fahrpläne für alle
+  Linien aus `network.json` (Tram `route_type` 0, Bus 3, Fähre 4; Fähren werden
+  über die Anleger-Namen im `route_long_name` erkannt). Linien ohne GTFS-Treffer
+  fahren im synthetischen Modus-Takt. **Wichtig:** `data:gtfs` nach jedem
+  `data:update` erneut ausführen, damit die neuen Bus-Linien Fahrpläne bekommen.
 - Die Unit-Tests passen sich der Datenquelle an: Die strikten RSAG-Prüfungen laufen nur
   gegen den Demo-Datensatz, strukturelle Prüfungen (Monotonie, Stadtgebiet, Längen)
   gegen jeden Datensatz.

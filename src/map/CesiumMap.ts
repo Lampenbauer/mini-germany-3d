@@ -68,13 +68,13 @@ interface TramEntityRecord {
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
+  /** Halbe Fahrzeughöhe in Metern (Box-Mittelpunkt über Boden). */
+  halfHeight: number
   /** Geglättete Bodenhöhe (ellipsoidisch) unter der Bahn in Metern. */
   groundHeight: number
   /** Frame-Zähler der letzten Höhenabfrage (Sampling wird gestaffelt). */
   lastSampleFrame: number
 }
-
-const TRAM_HALF_HEIGHT = config.tram.height / 2
 
 /**
  * Ellipsoidische Höhe der Rostocker Straßen, solange noch keine Kachel-Höhe
@@ -508,7 +508,7 @@ export class CesiumMap {
       const position = Cartesian3.fromDegrees(
         snap.lon,
         snap.lat,
-        record.groundHeight + TRAM_HALF_HEIGHT + 0.3,
+        record.groundHeight + record.halfHeight + 0.3,
       )
       record.labelPosition.setValue(position)
       // modelMatrix in-place aktualisieren – wirkt beim nächsten Render sofort
@@ -608,10 +608,11 @@ export class CesiumMap {
 
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
+    const halfHeight = snap.vehicle.height / 2
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
-      this.defaultGroundHeight + TRAM_HALF_HEIGHT + 0.3,
+      this.defaultGroundHeight + halfHeight + 0.3,
     )
 
     const matrix = Transforms.headingPitchRollToFixedFrame(
@@ -622,10 +623,11 @@ export class CesiumMap {
       geometryInstances: new GeometryInstance({
         geometry: BoxGeometry.fromDimensions({
           vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
+          // Fahrzeugmaße pro Linie: Tram/Bus/Fähre unterscheiden sich deutlich
           dimensions: new Cartesian3(
-            config.tram.length,
-            config.tram.width,
-            config.tram.height,
+            snap.vehicle.length,
+            snap.vehicle.width,
+            snap.vehicle.height,
           ),
         }),
         attributes: {
@@ -666,6 +668,7 @@ export class CesiumMap {
       labelEntity,
       labelPosition,
       baseColor: color,
+      halfHeight,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sofort beim ersten Frame sampeln
     }
@@ -721,8 +724,9 @@ export class CesiumMap {
     // syncTrams bereits auf den 3D-Kacheln gesampelt und geglättet).
     const record = this.followId ? this.trams.get(this.followId) : undefined
     const groundHeight = record?.groundHeight ?? this.defaultGroundHeight
+    const vehicleHeight = (record?.halfHeight ?? config.vehicles.tram.height / 2) * 2
 
-    const center = Cartesian3.fromDegrees(lon, lat, groundHeight + config.tram.height + 2)
+    const center = Cartesian3.fromDegrees(lon, lat, groundHeight + vehicleHeight + 2)
 
     if (!this.followOffset) {
       // Erster Frame: hinter/über der Bahn einschwenken
