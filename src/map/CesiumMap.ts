@@ -638,6 +638,10 @@ export class CesiumMap {
       modelMatrix: matrix,
     })
     this.viewer.scene.primitives.add(primitive)
+    // WICHTIG: Primitive KLONT die übergebene modelMatrix – für die
+    // In-place-Updates in syncTrams muss die Instanz des Primitives selbst
+    // referenziert werden, sonst bewegen sich die Wagenkästen nie.
+    const liveMatrix = primitive.modelMatrix
 
     const labelPosition = new ConstantPositionProperty(initialPosition)
     const labelEntity = this.viewer.entities.add({
@@ -658,7 +662,7 @@ export class CesiumMap {
 
     return {
       primitive,
-      matrix,
+      matrix: liveMatrix,
       labelEntity,
       labelPosition,
       baseColor: color,
@@ -739,6 +743,25 @@ export class CesiumMap {
 
   hasTram(tramId: string): boolean {
     return this.trams.has(tramId)
+  }
+
+  /**
+   * Debug/Tests: maximale Distanz zwischen Wagenkasten (Primitive-Matrix)
+   * und Nummern-Label über alle Bahnen in Metern. Muss ~0 sein – ein
+   * größerer Wert heißt: die Wagenkästen folgen der Simulation nicht mehr.
+   */
+  getTramBoxDriftMeters(): number {
+    let maxDrift = 0
+    for (const record of this.trams.values()) {
+      const labelPos = record.labelPosition.getValue(this.viewer.clock.currentTime)
+      if (!labelPos) continue
+      const dx = record.primitive.modelMatrix[12] - labelPos.x
+      const dy = record.primitive.modelMatrix[13] - labelPos.y
+      const dz = record.primitive.modelMatrix[14] - labelPos.z
+      const drift = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      if (drift > maxDrift) maxDrift = drift
+    }
+    return maxDrift
   }
 
   /** Debug: aktuelle Bodenhöhen der Bahnen (zur Diagnose der Kachel-Höhen). */

@@ -30,6 +30,7 @@ declare global {
       secondsOfDay: () => number
       loopTicks: () => number
       lastLoopError: () => string | null
+      tramBoxDriftMeters: () => number
     }
     __cesiumViewer?: {
       camera: {
@@ -131,6 +132,27 @@ test('nachts fahren keine Bahnen, morgens wieder', async () => {
 
   await page.evaluate(() => window.__mrt!.setTime('08:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
+})
+
+test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', async () => {
+  // Regressionstest: Die Box-Primitives müssen den Label-Positionen exakt
+  // folgen. (Ein Klon-Fehler der modelMatrix bzw. verhungernde
+  // Geometrie-Neubauten ließen die Boxen früher an der Spawn-Position stehen.)
+  await page.evaluate(() => {
+    window.__mrt!.setPaused(false)
+    window.__mrt!.setSpeed(120)
+  })
+  await page.waitForTimeout(2000)
+  const drift = await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())
+  expect(drift).toBeLessThan(5)
+
+  // Und die Boxen bewegen sich tatsächlich (Matrix-Translation ändert sich)
+  const posA = await page.evaluate(() => window.__mrt!.trams()[0])
+  await page.waitForTimeout(1500)
+  const driftAfter = await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())
+  const posB = await page.evaluate(() => window.__mrt!.trams()[0])
+  expect(driftAfter).toBeLessThan(5)
+  expect(posA.lat !== posB.lat || posA.lon !== posB.lon).toBe(true)
 })
 
 test('Zeitraffer bewegt die Bahnen', async () => {
