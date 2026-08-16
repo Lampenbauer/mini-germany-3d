@@ -2,10 +2,10 @@
   "meta": {
     "source": "gtfs",
     "generated": "2026-08-16",
-    "serviceDate": "20260817",
-    "serviceCount": 16,
+    "serviceDate": "20260821",
+    "serviceCount": 18,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
-    "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. No GTFS departures for line(s) 2, F1, F2 – the synthetic headway applies there."
+    "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. No GTFS departures for line(s) 2, FG, FW – the synthetic headway applies there."
   },
   "lines": {
     "1": {
@@ -6058,23 +6058,23 @@
           "584292",
           "1274952",
           "907407",
-          "1671450"
+          "1419489"
         ]
       }
     },
     "F4": {
       "0": {
         "departures": [
-          88800,
-          92400,
-          96000,
-          99600
+          88320,
+          91920,
+          95520,
+          99120
         ],
         "tripIds": [
-          "271019",
-          "1582209",
-          "527382",
-          "94086"
+          "220833",
+          "684250",
+          "471048",
+          "1074182"
         ]
       },
       "1": {
@@ -6084,9 +6084,41 @@
           97320
         ],
         "tripIds": [
-          "252485",
-          "343231",
-          "479748"
+          "1331165",
+          "1199054",
+          "1346471"
+        ]
+      }
+    },
+    "F1": {
+      "0": {
+        "departures": [
+          86160,
+          89760,
+          93360,
+          96960
+        ],
+        "tripIds": [
+          "254604",
+          "718540",
+          "95115",
+          "1755820"
+        ]
+      },
+      "1": {
+        "departures": [
+          87630,
+          89230,
+          90360,
+          93960,
+          97560
+        ],
+        "tripIds": [
+          "773084",
+          "790167",
+          "1158175",
+          "891539",
+          "57938"
         ]
       }
     },
@@ -6215,6 +6247,56 @@
           "1347409",
           "1657224",
           "1597538"
+        ]
+      }
+    },
+    "F2": {
+      "0": {
+        "departures": [
+          14520,
+          86520,
+          87500,
+          88320,
+          90120,
+          91920,
+          93720,
+          95520,
+          97320
+        ],
+        "tripIds": [
+          "901439",
+          "1100801",
+          "1288115",
+          "771667",
+          "631510",
+          "1056678",
+          "1567426",
+          "159368",
+          "1466126"
+        ]
+      },
+      "1": {
+        "departures": [
+          86850,
+          87360,
+          89160,
+          90960,
+          92760,
+          94560,
+          96360,
+          98160,
+          99960
+        ],
+        "tripIds": [
+          "1576640",
+          "1190068",
+          "1678163",
+          "809626",
+          "15124",
+          "1761318",
+          "611843",
+          "1261158",
+          "941579"
         ]
       }
     }
