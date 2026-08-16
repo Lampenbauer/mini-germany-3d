@@ -173,10 +173,11 @@ all-inkl-Webhosting (Apache + PHP) nach `https://minirostock3d.lampenbauer.com`:
 1. **Einmalig:** In den Repo-Einstellungen das Secret **`KAS_SSH_PASSWORD`** anlegen
    (Settings → Secrets and variables → Actions) – das SSH-Passwort des Users
    `***REMOVED***`. Host, User und Zielverzeichnis stehen direkt im Workflow.
-2. Deploy läuft automatisch bei jedem Push (bzw. manuell über „Run workflow“):
-   Unit-Tests → PHP-Paritätstest → Build → `dist/` + `api/realtime.php` +
-   `api/schedule.json` per rsync ins Stammverzeichnis
-   `***REMOVED***/`.
+2. Deploy läuft automatisch, sobald ein Pull Request mit Zielbranch `main`
+   gemergt wurde: Unit-Tests → PHP-Paritätstest → Build → `dist/` +
+   `api/realtime.php` + `api/schedule.json` per rsync ins Stammverzeichnis
+   `***REMOVED***/`. Direkte Pushes und lediglich
+   geschlossene, nicht gemergte Pull Requests lösen kein Deployment aus.
 3. Die mitdeployte `.htaccess` mappt `/api/realtime` auf das PHP-Skript und setzt
    Cache-Header (gehashte Assets ein Jahr, `index.html` no-cache, Cesium-Statik
    einen Tag).
