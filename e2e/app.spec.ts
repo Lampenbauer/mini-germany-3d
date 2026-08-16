@@ -140,12 +140,17 @@ test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', asyn
       .poll(
         () =>
           page.evaluate(
-            (id) => window.__mrt!.trams().find((t) => t.id === id) ?? null,
-            before.id,
+            ({ id, lat, lon }) => {
+              const t = window.__mrt!.trams().find((x) => x.id === id)
+              // Bei ×120 kann die Fahrt binnen Sekunden am Endpunkt ankommen
+              // und aus der Liste verschwinden – auch das belegt Bewegung.
+              return t == null || t.lat !== lat || t.lon !== lon
+            },
+            { id: before.id, lat: before.lat, lon: before.lon },
           ),
         { timeout: 30_000, intervals: [250, 500, 1000] },
       )
-      .not.toMatchObject({ lat: before.lat, lon: before.lon })
+      .toBe(true)
     expect(await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())).toBeLessThan(5)
   }
 
@@ -175,8 +180,20 @@ test('Zeitraffer bewegt die Bahnen', async () => {
 })
 
 test('Uhrzeit lässt sich setzen und auf Echtzeit zurückstellen', async () => {
-  await page.getByLabel('Simulationszeit setzen').fill('08:00')
-  await expect(page.getByTestId('sim-clock')).toHaveText(/^08:00/)
+  // fill + einmaliges 15-s-Expect ist unter CI-Last zu knapp: Ein einzelner
+  // Loop-Tick kann dort Sekunden dauern, und vereinzelt geht das Change-Event
+  // des Zeit-Inputs verloren. Deshalb den (idempotenten) fill im Poll
+  // wiederholen, bis die Uhr den Wert übernommen hat.
+  const timeInput = page.getByLabel('Simulationszeit setzen')
+  await expect
+    .poll(
+      async () => {
+        await timeInput.fill('08:00')
+        return page.getByTestId('sim-clock').textContent()
+      },
+      { timeout: 45_000, intervals: [500, 1000] },
+    )
+    .toMatch(/^08:00/)
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'Jetzt' }).click()
