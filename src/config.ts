@@ -15,7 +15,14 @@ export const config = {
   cesiumIonToken:
     (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) || DEFAULT_ION_TOKEN,
 
-  gtfsRealtimeUrl: (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) || '',
+  /**
+   * GTFS-Realtime-Feed (Protobuf). Standard: der freie gtfs.de-Feed über den
+   * Vite-Proxy (/gtfs-rt → https://realtime.gtfs.de, siehe vite.config.ts).
+   * Mit VITE_GTFS_RT_URL überschreibbar; leerer String deaktiviert Realtime.
+   */
+  gtfsRealtimeUrl:
+    (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ??
+    '/gtfs-rt/realtime-free.pb',
 
   /** Startposition der Kamera: Blick von Süden über das gesamte Netz. */
   home: {

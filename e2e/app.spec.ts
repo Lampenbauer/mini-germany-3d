@@ -262,6 +262,33 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
   await expect(page.getByTestId('tram-card')).not.toBeVisible()
 })
 
+test('GTFS-Realtime-Feed wird abgeholt und im Panel angezeigt', async ({ browser }) => {
+  // Feed in Node encodieren und die Netzwerkanfrage der App abfangen –
+  // verifiziert die komplette Kette fetch → Protobuf-Decode → Status-Badge.
+  const { default: GtfsRealtimeBindings } = await import('gtfs-realtime-bindings')
+  const { FeedMessage } = GtfsRealtimeBindings.transit_realtime
+  const feed = FeedMessage.encode(
+    FeedMessage.fromObject({
+      header: { gtfsRealtimeVersion: '2.0', timestamp: 1700000000 },
+      entity: [
+        { id: '1', tripUpdate: { trip: { tripId: 'irgendein-trip' }, delay: 120 } },
+      ],
+    }),
+  ).finish()
+
+  const rtPage = await browser.newPage()
+  await rtPage.route('**/gtfs-rt/realtime-free.pb', (route) =>
+    route.fulfill({ body: Buffer.from(feed), contentType: 'application/octet-stream' }),
+  )
+  await rtPage.goto('/?offline=1&rt=1&time=08:30&paused=1')
+  await rtPage.waitForFunction(() => window.__mrt?.ready === true)
+
+  const badge = rtPage.getByTestId('rt-status')
+  await expect(badge).toBeVisible()
+  await expect(badge).toContainText('GTFS-RT')
+  await rtPage.close()
+})
+
 test('Kameraausrichtung wird im URL-Hash gespeichert und wiederhergestellt', async ({
   browser,
 }) => {
