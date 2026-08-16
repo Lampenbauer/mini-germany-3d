@@ -138,21 +138,33 @@ test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', asyn
   // Regressionstest: Die Box-Primitives müssen den Label-Positionen exakt
   // folgen. (Ein Klon-Fehler der modelMatrix bzw. verhungernde
   // Geometrie-Neubauten ließen die Boxen früher an der Spawn-Position stehen.)
+  // Keine festen Wartezeiten: Headless-Runner drosseln rAF teils unter 1 Hz,
+  // eine 1,5-s-Schlafpause garantiert dort keinen einzigen Simulations-Tick.
+  // Stattdessen auf beobachtete Bewegung pollen und danach den Box-Drift
+  // messen – bei eingefrorenen Boxen wächst er bei Tempo 120 binnen
+  // Sekunden auf hunderte Meter.
   await page.evaluate(() => {
     window.__mrt!.setPaused(false)
     window.__mrt!.setSpeed(120)
   })
-  await page.waitForTimeout(2000)
-  const drift = await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())
-  expect(drift).toBeLessThan(5)
 
-  // Und die Boxen bewegen sich tatsächlich (Matrix-Translation ändert sich)
-  const posA = await page.evaluate(() => window.__mrt!.trams()[0])
-  await page.waitForTimeout(1500)
-  const driftAfter = await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())
-  const posB = await page.evaluate(() => window.__mrt!.trams()[0])
-  expect(driftAfter).toBeLessThan(5)
-  expect(posA.lat !== posB.lat || posA.lon !== posB.lon).toBe(true)
+  const movedOnceWithBoxesAttached = async () => {
+    const before = await page.evaluate(() => window.__mrt!.trams()[0])
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (id) => window.__mrt!.trams().find((t) => t.id === id) ?? null,
+            before.id,
+          ),
+        { timeout: 30_000, intervals: [250, 500, 1000] },
+      )
+      .not.toMatchObject({ lat: before.lat, lon: before.lon })
+    expect(await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())).toBeLessThan(5)
+  }
+
+  await movedOnceWithBoxesAttached()
+  await movedOnceWithBoxesAttached()
 })
 
 test('Zeitraffer bewegt die Bahnen', async () => {
