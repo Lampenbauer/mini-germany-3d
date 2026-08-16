@@ -29,6 +29,8 @@ export interface MrtTestApi {
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
   anyTramInView: () => boolean
+  /** Durchschnittliche Renderrate der letzten 5 Sekunden (Frames/s). */
+  renderRate: () => number
 }
 
 declare global {
@@ -157,52 +159,65 @@ export default function App() {
     let rafId = 0
     let lastUiUpdate = 0
     let lastSimTick = 0
-    let lastIdleRender = 0
+    let lastRender = 0
     let lastAnyTramInView = true
     let loopTicks = 0
     let lastLoopError: string | null = null
+    const renderTimes: number[] = []
     const loop = (now: number) => {
       // Der Loop darf an einem transienten Fehler (z.B. Cesium-Interna beim
       // Massen-Entfernen von Entities) nicht dauerhaft sterben – sonst friert
       // die komplette Simulation ein.
       try {
         loopTicks++
-        // Energie sparen: Simulation mit max. ~30 fps ticken; pausiert oder
-        // ohne sichtbare Bahn im Bild nur 2 fps; im Hintergrund-Tab gar nicht
-        // (der Browser drosselt rAF ohnehin).
-        const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
-        if (!document.hidden && now - lastSimTick >= tickInterval) {
-          lastSimTick = now
-          const snapshots = sim.snapshots()
-          snapshotsRef.current = snapshots
-          const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
-          lastAnyTramInView = viewInfo?.anyTramInView ?? false
+        if (!document.hidden) {
+          // Simulation mit max. ~30 fps ticken; pausiert oder ohne sichtbare
+          // Bahn im Bild reichen 2 fps.
+          const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
+          if (now - lastSimTick >= tickInterval) {
+            lastSimTick = now
+            const snapshots = sim.snapshots()
+            snapshotsRef.current = snapshots
+            const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
+            lastAnyTramInView = viewInfo?.anyTramInView ?? false
 
-          // Nur neu rendern, wenn eine Bahn sichtbar in Bewegung ist – sonst
-          // reicht ~1 Frame/Sekunde (Kamera-/Kachel-Änderungen rendert Cesium
-          // im requestRenderMode von selbst).
-          const animating = lastAnyTramInView && !clock.paused
-          if (animating || now - lastIdleRender >= 1000) {
-            lastIdleRender = now
-            map.requestRender()
+            // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
+            if (now - lastUiUpdate > 250) {
+              lastUiUpdate = now
+              setClockText(clock.formatted())
+              setTramCount(
+                snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
+              )
+              const selId = selectedIdRef.current
+              if (selId) {
+                const snap = snapshots.find((s) => s.id === selId) ?? null
+                if (!snap) {
+                  // Fahrt beendet → Auswahl auflösen
+                  selectTram(null)
+                } else {
+                  setSelected(snap)
+                }
+              }
+            }
           }
 
-          // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
-          if (now - lastUiUpdate > 250) {
-            lastUiUpdate = now
-            setClockText(clock.formatted())
-            setTramCount(
-              snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
-            )
-            const selId = selectedIdRef.current
-            if (selId) {
-              const snap = snapshots.find((s) => s.id === selId) ?? null
-              if (!snap) {
-                // Fahrt beendet → Auswahl auflösen
-                selectTram(null)
-              } else {
-                setSelected(snap)
-              }
+          // Render-Taktung (die App besitzt den Cesium-Render-Loop):
+          //   Interaktion/Kameraflug → volle Bildrate
+          //   Bahnen sichtbar in Bewegung oder Kacheln laden → ~30 fps
+          //   sonst → ~1 fps (praktisch Leerlauf)
+          const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+          const animating = lastAnyTramInView && !clock.paused
+          const renderInterval = hints.interacting
+            ? 0
+            : animating || hints.tilesLoading
+              ? 33
+              : 1000
+          if (now - lastRender >= renderInterval) {
+            lastRender = now
+            map.render()
+            renderTimes.push(now)
+            while (renderTimes.length > 0 && renderTimes[0] < now - 5000) {
+              renderTimes.shift()
             }
           }
         }
@@ -238,6 +253,7 @@ export default function App() {
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
       anyTramInView: () => lastAnyTramInView,
+      renderRate: () => renderTimes.length / 5,
     }
     window.__mrt = api
 
