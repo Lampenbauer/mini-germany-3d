@@ -2,7 +2,7 @@
   "meta": {
     "source": "osm",
     "generated": "2026-08-16",
-    "attribution": "Routen- und Haltestellendaten © OpenStreetMap-Mitwirkende (ODbL 1.0), via Overpass API."
+    "attribution": "Route and stop data © OpenStreetMap contributors (ODbL 1.0), via Overpass API."
   },
   "stops": {
     "osm-283292032": {
@@ -4048,7 +4048,7 @@
   "lines": [
     {
       "id": "1",
-      "name": "Linie 1",
+      "name": "Line 1",
       "color": "#5D106A",
       "mode": "tram",
       "directions": [
@@ -10518,7 +10518,7 @@
     },
     {
       "id": "2",
-      "name": "Linie 2",
+      "name": "Line 2",
       "color": "#ff7d24",
       "mode": "tram",
       "directions": [
@@ -14174,7 +14174,7 @@
     },
     {
       "id": "3",
-      "name": "Linie 3",
+      "name": "Line 3",
       "color": "#8d110a",
       "mode": "tram",
       "directions": [
@@ -18412,7 +18412,7 @@
     },
     {
       "id": "4",
-      "name": "Linie 4",
+      "name": "Line 4",
       "color": "#d758ab",
       "mode": "tram",
       "directions": [
@@ -22118,7 +22118,7 @@
     },
     {
       "id": "5",
-      "name": "Linie 5",
+      "name": "Line 5",
       "color": "#ff2e17",
       "mode": "tram",
       "directions": [
@@ -28337,7 +28337,7 @@
     },
     {
       "id": "6",
-      "name": "Linie 6",
+      "name": "Line 6",
       "color": "#ffb530",
       "mode": "tram",
       "directions": [
@@ -133356,7 +133356,7 @@
     },
     {
       "id": "FG",
-      "name": "Fähre Kabutzenhof – Gehlsdorf",
+      "name": "Ferry Kabutzenhof – Gehlsdorf",
       "color": "#0E7490",
       "mode": "ferry",
       "vehicle": {
@@ -133391,7 +133391,7 @@
     },
     {
       "id": "FW",
-      "name": "Fähre Warnemünde – Hohe Düne",
+      "name": "Ferry Warnemünde – Hohe Düne",
       "color": "#155E75",
       "mode": "ferry",
       "vehicle": {

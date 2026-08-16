@@ -12,7 +12,7 @@ const UPSTREAM_RT_URL = 'https://realtime.gtfs.de/realtime-free.pb'
 const RT_CACHE_TTL_MS = 60_000
 const scheduleJsonPath = fileURLToPath(new URL('./src/data/schedule.json', import.meta.url))
 
-/** Alle Rostocker GTFS-trip_ids aus schedule.json. */
+/** All Rostock GTFS trip_ids from schedule.json. */
 function loadTripIds(): Set<string> {
   const schedule = JSON.parse(readFileSync(scheduleJsonPath, 'utf8')) as {
     lines?: Record<string, Record<string, { tripIds?: string[] }>>
@@ -27,10 +27,10 @@ function loadTripIds(): Set<string> {
 }
 
 /**
- * Dev-/Preview-Middleware für /api/realtime: lädt den >10-MB-Deutschland-Feed
- * höchstens einmal pro Minute, filtert ihn serverseitig auf die Rostocker
- * trip_ids und liefert dem Browser nur ein kleines JSON. In Produktion
- * übernimmt api/realtime.php exakt dieselbe Aufgabe (siehe server/api/).
+ * Dev/preview middleware for /api/realtime: fetches the >10 MB Germany feed
+ * at most once per minute, filters it server-side down to the Rostock
+ * trip_ids, and delivers only a small JSON to the browser. In production,
+ * api/realtime.php performs exactly the same job (see server/api/).
  */
 function gtfsRealtimeFilterPlugin(): Plugin {
   let cache: { at: number; body: string } | null = null
@@ -65,7 +65,7 @@ function gtfsRealtimeFilterPlugin(): Plugin {
     }
     try {
       if (!cache || Date.now() - cache.at > RT_CACHE_TTL_MS) {
-        // Parallel eintreffende Anfragen teilen sich einen Upstream-Abruf
+        // Requests arriving in parallel share a single upstream fetch
         refreshing ??= refresh().finally(() => {
           refreshing = null
         })
@@ -75,7 +75,7 @@ function gtfsRealtimeFilterPlugin(): Plugin {
       res.setHeader('Cache-Control', 'no-store')
       res.end(cache!.body)
     } catch (error) {
-      // Alte Daten sind besser als keine
+      // Stale data is better than none
       if (cache) {
         res.setHeader('Content-Type', 'application/json')
         res.end(cache.body)

@@ -18,36 +18,37 @@ function prepareDirection(
 ): PreparedDirection {
   const path = dir.path as LonLat[]
   if (path.length < 2) {
-    throw new Error(`Linie ${lineId}: Richtungs-Pfad braucht mindestens 2 Punkte`)
+    throw new Error(`Line ${lineId}: direction path needs at least 2 points`)
   }
   const cum = cumulativeDistances(path)
   const totalLength = cum[cum.length - 1]
 
-  // Haltestellen SEQUENZIELL projizieren: Jede erst hinter ihrer Vorgängerin.
-  // Bei Linien, die denselben Straßenzug mehrfach befahren (Bus-Schleifen),
-  // ist die globale Projektion mehrdeutig und kann rückwärts springen.
+  // Project stops SEQUENTIALLY: each one only past its predecessor.
+  // For lines that travel the same stretch of road multiple times (bus
+  // loops), the global projection is ambiguous and can jump backwards.
   const stops: PreparedDirection['stops'] = []
   let prevDist = 0
   for (const stopId of dir.stops) {
     const stop = json.stops[stopId]
-    if (!stop) throw new Error(`Linie ${lineId}: unbekannte Haltestelle "${stopId}"`)
+    if (!stop) throw new Error(`Line ${lineId}: unknown stop "${stopId}"`)
     const dist = projectOntoPath(path, cum, stop.coord as LonLat, prevDist)
-    // Halt kommt auf der Reststrecke nicht voran (Datenfehler, z.B. doppelt
-    // gelisteter Halt) → auslassen statt Fahrzeiten mit 0-m-Segmenten zu bauen.
+    // Stop makes no progress along the remaining route (data error, e.g. a
+    // stop listed twice) → skip it instead of building travel times with
+    // 0 m segments.
     if (stops.length > 0 && dist <= prevDist + 1) continue
     stops.push({ id: stopId, name: stop.name, coord: stop.coord as LonLat, dist })
     prevDist = dist
   }
   if (stops.length < 2) {
     throw new Error(
-      `Linie ${lineId} Richtung ${direction}: weniger als 2 projizierbare Haltestellen`,
+      `Line ${lineId} direction ${direction}: fewer than 2 projectable stops`,
     )
   }
 
   return { lineId, direction, from: dir.from, to: dir.to, path, cum, totalLength, stops }
 }
 
-/** Erzeugt die Gegenrichtung durch Spiegelung einer Richtung. */
+/** Creates the opposite direction by mirroring a direction. */
 function mirrorDirection(dir: DirectionJson): DirectionJson {
   return {
     from: dir.to,
@@ -76,12 +77,12 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
     }
   })
 
-  // Doppelte Linien-IDs würden lineById still korrumpieren (Fahrten der einen
-  // Linie liefen auf dem Pfad der anderen) – lieber laut scheitern.
+  // Duplicate line ids would silently corrupt lineById (trips of one line
+  // would run on the path of another) – better to fail loudly.
   const seen = new Set<string>()
   for (const line of lines) {
     if (seen.has(line.id)) {
-      throw new Error(`Doppelte Linien-ID "${line.id}" in network.json`)
+      throw new Error(`Duplicate line id "${line.id}" in network.json`)
     }
     seen.add(line.id)
   }
@@ -93,7 +94,7 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
   }
 }
 
-/** Das gebündelte Rostocker Straßenbahnnetz. */
+/** The bundled Rostock tram network. */
 export function loadBundledNetwork(): PreparedNetwork {
   return prepareNetwork(rawNetwork as unknown as NetworkJson)
 }

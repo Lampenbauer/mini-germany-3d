@@ -1,8 +1,8 @@
 /**
- * Server-/Node-seitige Extraktion aus einem dekodierten GTFS-RT-Feed:
- * filtert die deutschlandweiten TripUpdates auf die Rostocker trip_ids und
- * liefert deren Verspätungen. Wird von der Vite-Middleware (Dev) und den
- * Unit-Tests genutzt; in Produktion macht api/realtime.php das Gleiche in PHP.
+ * Server-/Node-side extraction from a decoded GTFS-RT feed: filters the
+ * Germany-wide TripUpdates down to the Rostock trip_ids and returns their
+ * delays. Used by the Vite middleware (dev) and the unit tests; in
+ * production api/realtime.php does the same thing in PHP.
  */
 
 import type GtfsRealtimeBindings from 'gtfs-realtime-bindings'
@@ -10,9 +10,9 @@ import type GtfsRealtimeBindings from 'gtfs-realtime-bindings'
 type IFeedMessage = GtfsRealtimeBindings.transit_realtime.IFeedMessage
 
 /**
- * Liest ein optionales delay-Feld. Wichtig: Bei dekodierten
- * Protobuf-Nachrichten liefern NICHT gesetzte Skalare den Default 0 über
- * den Prototyp – nur eigene Properties gelten als "im Feed vorhanden".
+ * Reads an optional delay field. Important: in decoded protobuf messages,
+ * scalars that are NOT set return the default 0 via the prototype – only
+ * own properties count as "present in the feed".
  */
 function readDelay(holder: { delay?: number | null } | null | undefined): number | null {
   if (!holder) return null
@@ -22,8 +22,8 @@ function readDelay(holder: { delay?: number | null } | null | undefined): number
 }
 
 /**
- * Verspätungen je GTFS-trip_id für alle Fahrten aus `tripIds`.
- * Bevorzugt trip_update.delay; sonst die erste Stop-Time-Verspätung.
+ * Delays per GTFS trip_id for all trips in `tripIds`.
+ * Prefers trip_update.delay; otherwise the first stop-time delay.
  */
 export function extractGtfsDelays(
   feed: IFeedMessage,
@@ -48,12 +48,12 @@ export function extractGtfsDelays(
   return delays
 }
 
-/** Antwortformat des gefilterten Realtime-Endpunkts (/api/realtime). */
+/** Response format of the filtered realtime endpoint (/api/realtime). */
 export interface RealtimeApiResponse {
-  /** Feed-Header-Timestamp (Unix-Sekunden), 0 wenn unbekannt. */
+  /** Feed header timestamp (Unix seconds), 0 if unknown. */
   timestamp: number
-  /** Gesamtzahl der Entities im Original-Feed. */
+  /** Total number of entities in the original feed. */
   total: number
-  /** GTFS-trip_id → Verspätung in Sekunden (nur Rostocker Fahrten). */
+  /** GTFS trip_id → delay in seconds (Rostock trips only). */
   delays: Record<string, number>
 }

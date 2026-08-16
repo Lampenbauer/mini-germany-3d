@@ -1,6 +1,6 @@
 /**
- * Bindeglied zwischen Uhr, Fahrplan und Karte: liefert pro Frame den
- * Zustand aller aktiven Straßenbahnen als anzeigefertige Snapshots.
+ * Link between clock, timetable, and map: delivers the state of all active
+ * trams per frame as display-ready snapshots.
  */
 
 import { SimClock } from '@/lib/clock'
@@ -14,9 +14,9 @@ export interface TramSnapshot {
   lineId: string
   lineName: string
   color: string
-  /** Verkehrsmittel der Linie (Straßenbahn, Bus oder Fähre). */
+  /** Transit mode of the line (tram, bus, or ferry). */
   mode: TransitMode
-  /** Fahrzeugmaße für die 3D-Box in Metern. */
+  /** Vehicle dimensions for the 3D box in meters. */
   vehicle: VehicleDimensions
   direction: 0 | 1
   lon: number
@@ -26,16 +26,16 @@ export interface TramSnapshot {
   nextStopName: string
   destination: string
   origin: string
-  /** Aktuelle Verspätung in Sekunden (aus GTFS-Realtime; 0 = planmäßig). */
+  /** Current delay in seconds (from GTFS-Realtime; 0 = on schedule). */
   delaySeconds: number
-  /** true, wenn diese Fahrt gerade von GTFS-Realtime-Daten überlagert wird. */
+  /** true if this trip is currently overlaid by GTFS-Realtime data. */
   realtime: boolean
 }
 
 export class Simulation {
   readonly network: PreparedNetwork
   readonly clock: SimClock
-  /** GTFS-trip_id → Simulations-Fahrt-ID (für GTFS-Realtime-Matching). */
+  /** GTFS trip_id → simulation trip id (for GTFS-Realtime matching). */
   readonly realtimeTripIdMap: ReadonlyMap<string, string>
   private trips: Trip[]
   private realtimeDelays = new Map<string, number>()
@@ -52,8 +52,8 @@ export class Simulation {
       cruiseSpeedMps: options?.cruiseSpeedMps ?? config.simulation.cruiseSpeedMps,
       dwellSeconds: options?.dwellSeconds ?? config.simulation.dwellSeconds,
       service: options?.service,
-      // Eine explizit gesetzte Geschwindigkeit gilt für alle Modi (Tests);
-      // sonst fahren Busse/Fähren mit ihren realistischeren Standardwerten.
+      // An explicitly set speed applies to all modes (tests); otherwise
+      // buses/ferries travel at their more realistic default speeds.
       cruiseSpeedByMode:
         options?.cruiseSpeedByMode ??
         (options?.cruiseSpeedMps != null ? undefined : config.simulation.cruiseSpeedByMode),
@@ -66,7 +66,7 @@ export class Simulation {
     return this.trips.length
   }
 
-  /** Aktive Verspätungen (Simulations-Fahrt-ID → Sekunden) setzen. */
+  /** Set active delays (simulation trip id → seconds). */
   setRealtimeDelays(delays: Map<string, number>): void {
     this.realtimeDelays = delays
   }
@@ -75,7 +75,7 @@ export class Simulation {
     return this.realtimeDelays.size
   }
 
-  /** Snapshots aller aktiven Bahnen zur aktuellen Simulationszeit. */
+  /** Snapshots of all active trams at the current simulation time. */
   snapshots(): TramSnapshot[] {
     return this.snapshotsAt(this.clock.secondsOfDay())
   }
@@ -87,8 +87,8 @@ export class Simulation {
       if (!line) continue
       const dir = line.directions[trip.direction]
 
-      // Verspätete Fahrten laufen um die Verspätung zeitversetzt: Die Bahn
-      // ist dort, wo sie planmäßig vor `delay` Sekunden gewesen wäre.
+      // Delayed trips run time-shifted by the delay: the tram is where it
+      // would have been on schedule `delay` seconds ago.
       const delay = this.realtimeDelays.get(trip.id) ?? 0
       const state = tripStateAt(trip, dir, tSec - delay)
       if (!state) continue

@@ -1,7 +1,7 @@
 /**
- * Persistiert die Kameraausrichtung im URL-Hash, z.B.
+ * Persists the camera orientation in the URL hash, e.g.
  *   #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
- * damit die Ansicht einen Browser-Reload überlebt und teilbar ist.
+ * so the view survives a browser reload and is shareable.
  */
 
 import type { HomeView } from '@/lib/camera'

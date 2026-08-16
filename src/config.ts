@@ -1,11 +1,11 @@
 /**
- * Zentrale Konfiguration von Mini Rostock 3D.
+ * Central configuration of Mini Rostock 3D.
  *
- * Hinweis zum Cesium-Ion-Token: Ion-Tokens sind clientseitige, veröffentlichbare
- * Tokens (sie landen in jedem Fall im Browser-Bundle). Trotzdem empfiehlt es
- * sich, den Token im Cesium-Ion-Dashboard auf die eigenen Domains
- * einzuschränken. Über die Umgebungsvariable VITE_CESIUM_ION_TOKEN kann der
- * Standard-Token ohne Codeänderung überschrieben werden (.env-Datei).
+ * Note on the Cesium Ion token: Ion tokens are client-side, publishable
+ * tokens (they end up in the browser bundle either way). Still, it is
+ * advisable to restrict the token to your own domains in the Cesium Ion
+ * dashboard. The default token can be overridden without a code change via
+ * the VITE_CESIUM_ION_TOKEN environment variable (.env file).
  */
 
 const DEFAULT_ION_TOKEN =
@@ -16,15 +16,15 @@ export const config = {
     (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) || DEFAULT_ION_TOKEN,
 
   /**
-   * Gefilterter GTFS-Realtime-Endpunkt (JSON, wenige KB). Im Dev-Server von
-   * der Vite-Middleware bedient, in Produktion von api/realtime.php – beide
-   * laden und filtern den >10-MB-Deutschland-Feed serverseitig (60-s-Cache).
-   * Mit VITE_GTFS_RT_URL überschreibbar; leerer String deaktiviert Realtime.
+   * Filtered GTFS-Realtime endpoint (JSON, a few KB). Served by the Vite
+   * middleware in the dev server, by api/realtime.php in production – both
+   * fetch and filter the >10 MB Germany feed server-side (60 s cache).
+   * Overridable via VITE_GTFS_RT_URL; an empty string disables realtime.
    */
   gtfsRealtimeUrl:
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
-  /** Startposition der Kamera: Blick von Süden über das gesamte Netz. */
+  /** Initial camera position: view from the south across the entire network. */
   home: {
     longitude: 12.124,
     latitude: 54.042,
@@ -33,32 +33,32 @@ export const config = {
     pitch: -38,
   },
 
-  /** Simulations-Standardwerte */
+  /** Simulation defaults */
   simulation: {
-    /** Zeitraffer-Faktor beim Start (1 = Echtzeit). */
+    /** Time-lapse factor at startup (1 = real time). */
     initialSpeed: 1,
-    /** Durchschnittliche Fahrgeschwindigkeit zwischen Haltestellen in m/s (~30 km/h). */
+    /** Average travel speed between stops in m/s (~30 km/h). */
     cruiseSpeedMps: 8.3,
-    /** Modus-spezifische Reisegeschwindigkeiten (m/s); fehlend = cruiseSpeedMps. */
+    /** Mode-specific travel speeds (m/s); missing = cruiseSpeedMps. */
     cruiseSpeedByMode: {
       tram: 8.3,
-      bus: 6.9, // ~25 km/h Stadtverkehr
-      ferry: 3.0, // ~6 kn Hafenquerung
+      bus: 6.9, // ~25 km/h city traffic
+      ferry: 3.0, // ~6 kn harbor crossing
     },
-    /** Haltezeit an einer Haltestelle in Sekunden. */
+    /** Dwell time at a stop in seconds. */
     dwellSeconds: 25,
   },
 
   /**
-   * Standard-Fahrzeugmaße pro Verkehrsmittel in Metern (L × B × H).
-   * Fähren erhalten ihre echten Maße pro Linie aus network.json.
+   * Default vehicle dimensions per transit mode in meters (L × W × H).
+   * Ferries get their real dimensions per line from network.json.
    */
   vehicles: {
-    /** Angelehnt an eine 6N2. */
+    /** Modeled after a 6N2. */
     tram: { length: 32, width: 2.65, height: 3.6 },
-    /** 12-m-Standard-Stadtbus. */
+    /** Standard 12 m city bus. */
     bus: { length: 12, width: 2.55, height: 3.1 },
-    /** Fallback, falls eine Fähre keine Maße mitbringt. */
+    /** Fallback in case a ferry comes without dimensions. */
     ferry: { length: 20, width: 7, height: 4 },
   },
 } as const

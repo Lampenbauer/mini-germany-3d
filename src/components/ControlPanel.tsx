@@ -45,9 +45,9 @@ export interface ControlPanelProps {
   paused: boolean
   onSpeedChange: (speed: number) => void
   onTogglePause: () => void
-  /** Simulationszeit auf "HH:MM" setzen. */
+  /** Set the simulation time to "HH:MM". */
   onSetTime: (hhmm: string) => void
-  /** Simulationszeit zurück auf die echte Uhrzeit. */
+  /** Reset the simulation time to the real clock. */
   onResetTime: () => void
   lines: LineToggleInfo[]
   onToggleLine: (lineId: string) => void
@@ -66,18 +66,18 @@ export interface ControlPanelProps {
 }
 
 const TILESET_LABEL: Record<TilesetStatus, string> = {
-  loading: 'Lade 3D-Kacheln …',
+  loading: 'Loading 3D tiles…',
   'google-3d-tiles': 'Google 3D Tiles',
-  offline: 'Offline-Modus',
-  failed: '3D-Kacheln nicht verfügbar',
+  offline: 'Offline mode',
+  failed: '3D tiles unavailable',
 }
 
-/** Anzeige-Reihenfolge und Beschriftung der Verkehrsmittel-Gruppen. */
+/** Display order and labels of the transit-mode groups. */
 const MODE_ORDER: TransitMode[] = ['tram', 'bus', 'ferry']
 const MODE_LABEL: Record<TransitMode, string> = {
-  tram: 'Straßenbahn',
+  tram: 'Tram',
   bus: 'Bus',
-  ferry: 'Fähre',
+  ferry: 'Ferry',
 }
 const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   tram: TramFront,
@@ -85,7 +85,7 @@ const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   ferry: Ship,
 }
 
-/** Eine Verkehrsmittel-Gruppe der Linienliste (Kopfzeile nur bei >1 Gruppe). */
+/** One transit-mode group of the line list (header only when >1 group). */
 function LineGroup(props: {
   mode: TransitMode
   lines: LineToggleInfo[]
@@ -104,7 +104,7 @@ function LineGroup(props: {
             {MODE_LABEL[props.mode]}
           </span>
           <Switch
-            aria-label={`Alle ${MODE_LABEL[props.mode]}-Linien anzeigen`}
+            aria-label={`Show all ${MODE_LABEL[props.mode].toLowerCase()} lines`}
             checked={allVisible}
             onCheckedChange={(checked) =>
               props.onSetLinesVisible(
@@ -134,7 +134,7 @@ function LineGroup(props: {
               </div>
             </div>
             <Switch
-              aria-label={`${line.name} anzeigen`}
+              aria-label={`Show ${line.name}`}
               checked={line.visible}
               onCheckedChange={() => props.onToggleLine(line.id)}
             />
@@ -156,12 +156,12 @@ export function ControlPanel(props: ControlPanelProps) {
             <TramFront className="size-5 text-primary" aria-hidden />
             Mini Rostock 3D
           </CardTitle>
-          <CardDescription>Straßenbahnnetz der RSAG – Fahrplansimulation</CardDescription>
+          <CardDescription>RSAG network & Rostock ferries – schedule simulation</CardDescription>
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={collapsed ? 'Panel ausklappen' : 'Panel einklappen'}
+          aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
           onClick={() => setCollapsed((c) => !c)}
         >
           {collapsed ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
@@ -170,7 +170,7 @@ export function ControlPanel(props: ControlPanelProps) {
 
       {!collapsed && (
         <CardContent className="flex flex-col gap-4">
-          {/* Uhr + Zeitraffer */}
+          {/* Clock + time-lapse */}
           <div className="flex items-center justify-between gap-2">
             <div
               className="font-mono text-2xl font-semibold tabular-nums"
@@ -181,18 +181,18 @@ export function ControlPanel(props: ControlPanelProps) {
             <Button
               variant="secondary"
               size="icon-sm"
-              aria-label={props.paused ? 'Simulation fortsetzen' : 'Simulation pausieren'}
+              aria-label={props.paused ? 'Resume simulation' : 'Pause simulation'}
               onClick={props.onTogglePause}
             >
               {props.paused ? <Play aria-hidden /> : <Pause aria-hidden />}
             </Button>
           </div>
 
-          {/* Simulationszeit setzen (z.B. auf den Berufsverkehr springen) */}
+          {/* Set the simulation time (e.g. jump to rush hour) */}
           <div className="flex items-center gap-2">
             <Input
               type="time"
-              aria-label="Simulationszeit setzen"
+              aria-label="Set simulation time"
               className="h-8 flex-1"
               onChange={(e) => {
                 if (e.target.value) props.onSetTime(e.target.value)
@@ -200,7 +200,7 @@ export function ControlPanel(props: ControlPanelProps) {
             />
             <Button variant="outline" size="sm" onClick={props.onResetTime}>
               <TimerReset aria-hidden />
-              Jetzt
+              Now
             </Button>
           </div>
 
@@ -208,14 +208,14 @@ export function ControlPanel(props: ControlPanelProps) {
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Gauge className="size-4" aria-hidden />
-                Zeitraffer
+                Time-lapse
               </span>
               <span className="font-mono tabular-nums" data-testid="speed-value">
                 ×{props.speed}
               </span>
             </div>
             <Slider
-              aria-label="Zeitraffer"
+              aria-label="Time-lapse"
               min={1}
               max={120}
               step={1}
@@ -226,9 +226,9 @@ export function ControlPanel(props: ControlPanelProps) {
 
           <div className="h-px bg-border" role="separator" />
 
-          {/* Linien, gruppiert nach Verkehrsmittel (Kopfzeilen nur bei >1 Gruppe) */}
+          {/* Lines, grouped by transit mode (headers only when >1 group) */}
           <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium">Linien</div>
+            <div className="text-sm font-medium">Lines</div>
             {(() => {
               const groups = MODE_ORDER.map((mode) => ({
                 mode,
@@ -249,24 +249,24 @@ export function ControlPanel(props: ControlPanelProps) {
 
           <div className="h-px bg-border" role="separator" />
 
-          {/* Ebenen */}
+          {/* Layers */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-sm font-medium">
               <Layers className="size-4" aria-hidden />
-              Ebenen
+              Layers
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm">Routen</span>
+              <span className="text-sm">Routes</span>
               <Switch
-                aria-label="Routen anzeigen"
+                aria-label="Show routes"
                 checked={props.showRoutes}
                 onCheckedChange={props.onToggleRoutes}
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm">Haltestellen</span>
+              <span className="text-sm">Stops</span>
               <Switch
-                aria-label="Haltestellen anzeigen"
+                aria-label="Show stops"
                 checked={props.showStops}
                 onCheckedChange={props.onToggleStops}
               />
@@ -281,12 +281,12 @@ export function ControlPanel(props: ControlPanelProps) {
               {props.tramCount}{' '}
               {new Set(props.lines.map((l) => l.mode)).size > 1
                 ? props.tramCount === 1
-                  ? 'Fahrzeug'
-                  : 'Fahrzeuge'
+                  ? 'vehicle'
+                  : 'vehicles'
                 : props.tramCount === 1
-                  ? 'Bahn'
-                  : 'Bahnen'}{' '}
-              unterwegs
+                  ? 'tram'
+                  : 'trams'}{' '}
+              in service
             </Badge>
             <Badge variant="outline" data-testid="tileset-status">
               {TILESET_LABEL[props.tilesetStatus]}
@@ -304,7 +304,7 @@ export function ControlPanel(props: ControlPanelProps) {
 
           <Button variant="outline" size="sm" onClick={props.onResetCamera}>
             <Home aria-hidden />
-            Kamera zurücksetzen
+            Reset camera
           </Button>
         </CardContent>
       )}

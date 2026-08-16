@@ -1,11 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * Funktionale E2E-Tests gegen die echte App (Cesium via SwiftShader).
- * Die Simulation startet eingefroren um 08:30 → deterministische Zustände.
+ * Functional E2E tests against the real app (Cesium via SwiftShader).
+ * The simulation starts frozen at 08:30 → deterministic state.
  *
- * Alle Tests teilen sich eine Page (Cesium-Start unter Software-Rendering ist
- * teuer); der Zustand wird vor jedem Test über die Test-API zurückgesetzt.
+ * All tests share one page (booting Cesium under software rendering is
+ * expensive); the state is reset via the test API before each test.
  */
 
 test.describe.configure({ mode: 'serial' })
@@ -42,7 +42,7 @@ test.afterAll(async () => {
 })
 
 test.beforeEach(async () => {
-  // Simulationszustand normalisieren
+  // Normalize the simulation state
   await page.evaluate(() => {
     window.__mrt!.selectTram(null)
     window.__mrt!.setPaused(true)
@@ -50,101 +50,102 @@ test.beforeEach(async () => {
     window.__mrt!.setTime('08:30')
   })
 
-  const timeInput = page.getByLabel('Simulationszeit setzen')
+  const timeInput = page.getByLabel('Set simulation time')
   await timeInput.fill('')
   await expect(timeInput).toHaveValue('')
-  // Die Snapshots ziehen erst mit dem nächsten Loop-Tick nach – mit ~350
-  // Fahrzeugen unter SwiftShader kann das auf CI-Runnern lange dauern.
+  // Snapshots only catch up with the next loop tick – with ~350 vehicles
+  // under SwiftShader that can take a long time on CI runners.
   await expect
     .poll(tramSnapshotSignature, { timeout: 60_000, intervals: [500, 1000, 2000] })
     .toBe(snapshotsAt0830)
   await expect(page.getByTestId('sim-clock')).toHaveText('08:30:00')
 })
 
-test('lädt die App mit Karte und Control-Panel', async () => {
+test('loads the app with map and control panel', async () => {
   await expect(page).toHaveTitle('Mini Rostock 3D')
   await expect(page.getByText('Mini Rostock 3D')).toBeVisible()
-  await expect(page.getByText('Straßenbahnnetz der RSAG – Fahrplansimulation')).toBeVisible()
+  await expect(
+    page.getByText('RSAG network & Rostock ferries – schedule simulation'),
+  ).toBeVisible()
   await expect(page.locator('[data-testid=cesium-container] canvas')).toBeVisible()
-  await expect(page.getByTestId('tileset-status')).toHaveText('Offline-Modus')
+  await expect(page.getByTestId('tileset-status')).toHaveText('Offline mode')
   const source = await page.evaluate(() => window.__mrt!.dataSource)
   await expect(page.getByTestId('data-source')).toHaveText(
-    source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)',
+    source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)',
   )
 })
 
-test('zeigt die eingefrorene Simulationszeit 08:30', async () => {
+test('shows the frozen simulation time 08:30', async () => {
   await expect(page.getByTestId('sim-clock')).toHaveText('08:30:00')
 })
 
-test('zeigt aktive Bahnen auf allen Linien des Netzes', async () => {
+test('shows active vehicles on the network lines', async () => {
   const expected = await page.evaluate(() => window.__mrt!.lineIds())
   const activeLineIds = await page.evaluate(() => [
     ...new Set(window.__mrt!.trams().map((t) => t.lineId)),
   ])
-  // Aktive Linien sind bekannte Linien; einzelne Buslinien dürfen zur
-  // Prüfzeit echte GTFS-Taktlücken haben, der Großteil muss unterwegs sein.
+  // Active lines must be known lines; individual bus lines may have genuine
+  // GTFS service gaps at the probe time, but most of the network must be out.
   for (const id of activeLineIds) expect(expected).toContain(id)
   expect(activeLineIds.length).toBeGreaterThanOrEqual(
     Math.floor(expected.length * 0.75),
   )
 
-  // "Bahnen" bei reinem Tram-Netz, "Fahrzeuge" sobald Busse/Fähren dabei sind
+  // "trams" for a tram-only network, "vehicles" once buses/ferries join
   await expect(page.getByTestId('tram-count')).toContainText(
-    /\d+ (Bahnen|Fahrzeuge) unterwegs/,
+    /\d+ (trams|vehicles) in service/,
   )
   const count = await page.evaluate(() => window.__mrt!.visibleTramCount())
   await expect(page.getByTestId('tram-count')).toContainText(
-    new RegExp(`${count} (Bahnen|Fahrzeuge) unterwegs`),
+    new RegExp(`${count} (trams|vehicles) in service`),
   )
 })
 
-test('Linien-Switch blendet Bahnen der Linie aus', async () => {
+test('line switch hides the vehicles of that line', async () => {
   const before = await page.evaluate(() => window.__mrt!.visibleTramCount())
-  await page.getByRole('switch', { name: 'Linie 1 anzeigen' }).click()
+  await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.visibleTramCount()))
     .toBeLessThan(before)
-  await page.getByRole('switch', { name: 'Linie 1 anzeigen' }).click()
+  await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.visibleTramCount()))
     .toBe(before)
 })
 
-test('Auswahl einer Bahn öffnet die Info-Karte', async () => {
+test('selecting a vehicle opens the info card', async () => {
   const tram = await page.evaluate(() => window.__mrt!.trams()[0])
   await page.evaluate((id) => window.__mrt!.selectTram(id), tram.id)
 
   const card = page.getByTestId('tram-card')
   await expect(card).toBeVisible()
   await expect(card.getByTestId('tram-next-stop')).toHaveText(tram.nextStopName)
-  await expect(card.getByRole('button', { name: 'Bahn folgen' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
 
-  await card.getByRole('button', { name: 'Auswahl schließen' }).click()
+  await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
 })
 
-test('nachts fahren keine Bahnen, morgens wieder', async () => {
-  // 02:30: sicher vor der ersten Abfahrt (real wie synthetisch)
+test('no vehicles run at night, service resumes in the morning', async () => {
+  // 02:30: safely before the first departure (real and synthetic alike)
   await page.evaluate(() => window.__mrt!.setTime('02:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBe(0)
   await expect(page.getByTestId('tram-count')).toContainText(
-    /0 (Bahnen|Fahrzeuge) unterwegs/,
+    /0 (trams|vehicles) in service/,
   )
 
   await page.evaluate(() => window.__mrt!.setTime('08:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
 })
 
-test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', async () => {
-  // Regressionstest: Die Box-Primitives müssen den Label-Positionen exakt
-  // folgen. (Ein Klon-Fehler der modelMatrix bzw. verhungernde
-  // Geometrie-Neubauten ließen die Boxen früher an der Spawn-Position stehen.)
-  // Keine festen Wartezeiten: Headless-Runner drosseln rAF teils unter 1 Hz,
-  // eine 1,5-s-Schlafpause garantiert dort keinen einzigen Simulations-Tick.
-  // Stattdessen auf beobachtete Bewegung pollen und danach den Box-Drift
-  // messen – bei eingefrorenen Boxen wächst er bei Tempo 120 binnen
-  // Sekunden auf hunderte Meter.
+test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
+  // Regression test: the box primitives must follow the label positions
+  // exactly. (A modelMatrix clone bug and starved geometry rebuilds used to
+  // leave the boxes stuck at their spawn position.)
+  // No fixed sleeps: headless runners throttle rAF below 1 Hz at times, so a
+  // 1.5 s sleep does not guarantee a single simulation tick there. Instead,
+  // poll for observed movement and then measure the box drift – with frozen
+  // boxes it grows to hundreds of meters within seconds at speed 120.
   await page.evaluate(() => {
     window.__mrt!.setPaused(false)
     window.__mrt!.setSpeed(120)
@@ -158,8 +159,8 @@ test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', asyn
           page.evaluate(
             ({ id, lat, lon }) => {
               const t = window.__mrt!.trams().find((x) => x.id === id)
-              // Bei ×120 kann die Fahrt binnen Sekunden am Endpunkt ankommen
-              // und aus der Liste verschwinden – auch das belegt Bewegung.
+              // At ×120 a trip can reach its terminus within seconds and
+              // vanish from the list – that also proves movement.
               return t == null || t.lat !== lat || t.lon !== lon
             },
             { id: before.id, lat: before.lat, lon: before.lon },
@@ -174,7 +175,7 @@ test('Wagenkästen folgen der Simulation (kein Einfrieren/Zurückbleiben)', asyn
   await movedOnceWithBoxesAttached()
 })
 
-test('Zeitraffer bewegt die Bahnen', async () => {
+test('time-lapse moves the vehicles', async () => {
   const before = await page.evaluate(() =>
     JSON.stringify(window.__mrt!.trams().map((x) => x.id)),
   )
@@ -182,7 +183,7 @@ test('Zeitraffer bewegt die Bahnen', async () => {
     window.__mrt!.setPaused(false)
     window.__mrt!.setSpeed(300)
   })
-  // Nach ein paar Sekunden ×300 müssen sich die aktiven Fahrten geändert haben
+  // After a few seconds at ×300 the set of active trips must have changed
   await expect
     .poll(
       () =>
@@ -195,12 +196,12 @@ test('Zeitraffer bewegt die Bahnen', async () => {
     .toBe(true)
 })
 
-test('Uhrzeit lässt sich setzen und auf Echtzeit zurückstellen', async () => {
-  // fill + einmaliges 15-s-Expect ist unter CI-Last zu knapp: Ein einzelner
-  // Loop-Tick kann dort Sekunden dauern, und vereinzelt geht das Change-Event
-  // des Zeit-Inputs verloren. Deshalb den (idempotenten) fill im Poll
-  // wiederholen, bis die Uhr den Wert übernommen hat.
-  const timeInput = page.getByLabel('Simulationszeit setzen')
+test('the clock can be set and restored to real time', async () => {
+  // fill + a single 15 s expect is too tight under CI load: a single loop
+  // tick can take seconds there, and occasionally the time input's change
+  // event gets lost. Hence repeat the (idempotent) fill in a poll until the
+  // clock has picked up the value.
+  const timeInput = page.getByLabel('Set simulation time')
   await expect
     .poll(
       async () => {
@@ -212,7 +213,7 @@ test('Uhrzeit lässt sich setzen und auf Echtzeit zurückstellen', async () => {
     .toMatch(/^08:00/)
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
 
-  await page.getByRole('button', { name: 'Jetzt' }).click()
+  await page.getByRole('button', { name: 'Now' }).click()
   const diff = await page.evaluate(() => {
     const fmt = new Intl.DateTimeFormat('de-DE', {
       timeZone: 'Europe/Berlin',
@@ -236,11 +237,11 @@ test('Uhrzeit lässt sich setzen und auf Echtzeit zurückstellen', async () => {
   expect(diff).toBeLessThan(120)
 })
 
-test('Pause-Button und Kamera-Reset sind bedienbar', async () => {
-  // Ausgangszustand: App wurde mit paused=1 geladen → Button zeigt "fortsetzen"
-  await page.getByRole('button', { name: 'Simulation fortsetzen' }).click()
-  await expect(page.getByRole('button', { name: 'Simulation pausieren' })).toBeVisible()
-  await page.getByRole('button', { name: 'Simulation pausieren' }).click()
-  await expect(page.getByRole('button', { name: 'Simulation fortsetzen' })).toBeVisible()
-  await page.getByRole('button', { name: 'Kamera zurücksetzen' }).click()
+test('pause button and camera reset are usable', async () => {
+  // Initial state: the app was loaded with paused=1 → the button shows "Resume"
+  await page.getByRole('button', { name: 'Resume simulation' }).click()
+  await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
+  await page.getByRole('button', { name: 'Pause simulation' }).click()
+  await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
+  await page.getByRole('button', { name: 'Reset camera' }).click()
 })
