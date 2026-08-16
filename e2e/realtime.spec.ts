@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * Eigene Spec, damit während dieses Tests keine zweite Cesium-/SwiftShader-
- * Instanz aus den langlebigen app.spec.ts-Fixtures geöffnet bleibt.
+ * Separate spec so that no second Cesium/SwiftShader instance from the
+ * long-lived app.spec.ts fixtures stays open during this test.
  */
-test('GTFS-Realtime-Endpunkt wird abgeholt und im Panel angezeigt', async ({ page }) => {
-  // Ein einzelner Cesium-Boot kann auf ausgelasteten CI-Runnern weiterhin
-  // deutlich länger als lokal dauern.
+test('GTFS-Realtime endpoint is fetched and shown in the panel', async ({ page }) => {
+  // A single Cesium boot can still take much longer on busy CI runners
+  // than it does locally.
   test.setTimeout(240_000)
 
-  // Den gefilterten JSON-Endpunkt mocken – verifiziert die Kette
-  // fetch → Validierung → Status-Badge im Panel.
+  // Mock the filtered JSON endpoint – verifies the chain
+  // fetch → validation → status badge in the panel.
   await page.route('**/api/realtime', (route) =>
     route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         timestamp: 1700000000,
         total: 42,
-        delays: { 'irgendein-trip': 120 },
+        delays: { 'some-trip': 120 },
       }),
     }),
   )

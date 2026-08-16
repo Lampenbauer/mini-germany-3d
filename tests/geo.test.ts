@@ -9,7 +9,7 @@ import {
 } from '@/lib/geo'
 
 describe('haversineMeters', () => {
-  it('berechnet die Distanz Hauptbahnhof → Neuer Markt (~1,2–1,35 km)', () => {
+  it('computes the distance Hauptbahnhof → Neuer Markt (~1.2–1.35 km)', () => {
     const hbf: LonLat = [12.131, 54.0783]
     const neuerMarkt: LonLat = [12.1406, 54.0881]
     const d = haversineMeters(hbf, neuerMarkt)
@@ -17,7 +17,7 @@ describe('haversineMeters', () => {
     expect(d).toBeLessThan(1400)
   })
 
-  it('ist symmetrisch und null bei identischen Punkten', () => {
+  it('is symmetric and zero for identical points', () => {
     const a: LonLat = [12.1, 54.1]
     const b: LonLat = [12.2, 54.05]
     expect(haversineMeters(a, b)).toBeCloseTo(haversineMeters(b, a), 6)
@@ -26,7 +26,7 @@ describe('haversineMeters', () => {
 })
 
 describe('bearingDegrees', () => {
-  it('Norden ≈ 0°, Osten ≈ 90°, Süden ≈ 180°, Westen ≈ 270°', () => {
+  it('north ≈ 0°, east ≈ 90°, south ≈ 180°, west ≈ 270°', () => {
     const origin: LonLat = [12.1, 54.0]
     expect(bearingDegrees(origin, [12.1, 54.01])).toBeCloseTo(0, 0)
     expect(bearingDegrees(origin, [12.11, 54.0])).toBeCloseTo(90, 0)
@@ -36,7 +36,7 @@ describe('bearingDegrees', () => {
 })
 
 describe('cumulativeDistances', () => {
-  it('beginnt bei 0 und wächst monoton', () => {
+  it('starts at 0 and increases monotonically', () => {
     const path: LonLat[] = [
       [12.1, 54.0],
       [12.11, 54.0],
@@ -53,11 +53,11 @@ describe('cumulativeDistances', () => {
 describe('sampleAtDistance', () => {
   const path: LonLat[] = [
     [12.1, 54.0],
-    [12.1, 54.009], // ~1000 m nach Norden
+    [12.1, 54.009], // ~1000 m north
   ]
   const cum = cumulativeDistances(path)
 
-  it('interpoliert die Mitte des Segments', () => {
+  it('interpolates the middle of the segment', () => {
     const total = cum[1]
     const mid = sampleAtDistance(path, cum, total / 2)
     expect(mid.lon).toBeCloseTo(12.1, 6)
@@ -65,7 +65,7 @@ describe('sampleAtDistance', () => {
     expect(mid.bearing).toBeCloseTo(0, 0)
   })
 
-  it('begrenzt auf Anfang und Ende', () => {
+  it('clamps to the start and end', () => {
     const before = sampleAtDistance(path, cum, -50)
     expect(before.lat).toBeCloseTo(54.0, 6)
     const after = sampleAtDistance(path, cum, cum[1] + 500)
@@ -74,18 +74,18 @@ describe('sampleAtDistance', () => {
 })
 
 describe('projectOntoPath', () => {
-  it('findet die Distanz des nächstgelegenen Streckenpunkts', () => {
+  it('finds the distance of the nearest point on the path', () => {
     const path: LonLat[] = [
       [12.1, 54.0],
       [12.1, 54.009],
       [12.109, 54.009],
     ]
     const cum = cumulativeDistances(path)
-    // Punkt knapp neben der Streckenmitte des ersten Segments
+    // Point just off the middle of the first segment
     const d = projectOntoPath(path, cum, [12.1005, 54.0045])
     expect(d).toBeGreaterThan(cum[1] * 0.4)
     expect(d).toBeLessThan(cum[1] * 0.6)
-    // Eckpunkt exakt auf der Strecke
+    // Corner point exactly on the path
     const corner = projectOntoPath(path, cum, [12.1, 54.009])
     expect(corner).toBeCloseTo(cum[1], 0)
   })

@@ -1,9 +1,9 @@
 /**
- * Simulationsuhr mit Zeitraffer und Pause.
+ * Simulation clock with time-lapse and pause.
  *
- * Die Uhr läuft auf Epoch-Millisekunden und kann Sekunden-des-Tages in der
- * Zeitzone Europe/Berlin liefern – der Fahrplan wird in lokaler Zeit gerechnet,
- * unabhängig davon, in welcher Zeitzone der Browser läuft.
+ * The clock runs on epoch milliseconds and can provide seconds-of-day in the
+ * Europe/Berlin time zone – the timetable is computed in local time,
+ * regardless of which time zone the browser runs in.
  */
 
 const BERLIN_FORMATTER = new Intl.DateTimeFormat('de-DE', {
@@ -14,7 +14,7 @@ const BERLIN_FORMATTER = new Intl.DateTimeFormat('de-DE', {
   hour12: false,
 })
 
-/** Sekunden seit Mitternacht (Europe/Berlin) für einen Epoch-ms-Zeitpunkt. */
+/** Seconds since midnight (Europe/Berlin) for an epoch-ms instant. */
 export function berlinSecondsOfDay(epochMs: number): number {
   const parts = BERLIN_FORMATTER.formatToParts(epochMs)
   let h = 0
@@ -25,7 +25,7 @@ export function berlinSecondsOfDay(epochMs: number): number {
     else if (part.type === 'minute') m = parseInt(part.value, 10)
     else if (part.type === 'second') s = parseInt(part.value, 10)
   }
-  // Mitternacht kann als "24" formatiert werden
+  // Midnight can be formatted as "24"
   if (h === 24) h = 0
   return h * 3600 + m * 60 + s
 }
@@ -38,7 +38,7 @@ export function formatSecondsOfDay(sec: number): string {
   return `${hh}:${mm}:${ss}`
 }
 
-/** "HH:MM" → Sekunden seit Mitternacht, oder null bei ungültigem Format. */
+/** "HH:MM" → seconds since midnight, or null for an invalid format. */
 export function parseTimeOfDay(text: string): number | null {
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(text.trim())
   if (!m) return null
@@ -61,7 +61,7 @@ export class SimClock {
     this._speed = speed
   }
 
-  /** Aktuelle Simulationszeit in Epoch-Millisekunden. */
+  /** Current simulation time in epoch milliseconds. */
   now(): number {
     if (this._paused) return this.anchorSim
     return this.anchorSim + (Date.now() - this.anchorReal) * this._speed
@@ -90,17 +90,17 @@ export class SimClock {
     this._paused = paused
   }
 
-  /** Zurück zur echten aktuellen Uhrzeit (Zeitraffer/Pause bleiben erhalten). */
+  /** Back to the real current time (time-lapse/pause are preserved). */
   resetToRealTime(): void {
     this.anchorSim = Date.now()
     this.anchorReal = Date.now()
   }
 
-  /** Springt zu einer Uhrzeit (Sekunden seit Mitternacht, Europe/Berlin) am selben Tag. */
+  /** Jumps to a time of day (seconds since midnight, Europe/Berlin) on the same day. */
   setSecondsOfDay(targetSec: number): void {
     const now = this.now()
-    // Inklusive ms-Anteil, damit die Zielzeit exakt (auf die Millisekunde)
-    // getroffen wird – wichtig für deterministische visuelle Tests.
+    // Including the ms fraction so the target time is hit exactly (to the
+    // millisecond) – important for deterministic visual tests.
     const currentSec = berlinSecondsOfDay(now) + (((now % 1000) + 1000) % 1000) / 1000
     this.anchorSim = now + (targetSec - currentSec) * 1000
     this.anchorReal = Date.now()
@@ -108,8 +108,8 @@ export class SimClock {
 
   secondsOfDay(): number {
     const now = this.now()
-    // berlinSecondsOfDay liefert ganze Sekunden; für flüssige Bewegung
-    // ergänzen wir den Millisekunden-Anteil.
+    // berlinSecondsOfDay returns whole seconds; for smooth movement we
+    // add the millisecond fraction.
     return berlinSecondsOfDay(now) + (((now % 1000) + 1000) % 1000) / 1000
   }
 

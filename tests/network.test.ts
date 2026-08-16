@@ -2,17 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { loadBundledNetwork } from '@/data/network'
 
 /**
- * Validiert den gebündelten Netzdatensatz: Wenn diese Tests grün sind,
- * kann die Simulation auf jeder Linie fehlerfrei fahren.
+ * Validates the bundled network dataset: if these tests are green,
+ * the simulation can run on every line without errors.
  *
- * Strukturelle Prüfungen gelten für jede Datenquelle (auch nach
- * `npm run data:update` mit echten OSM-Daten); die strikten RSAG-Prüfungen
- * laufen nur für den mitgelieferten approximierten Demo-Datensatz.
+ * The structural checks apply to any data source (including after
+ * `npm run data:update` with real OSM data); the strict RSAG checks
+ * only run for the bundled approximated demo dataset.
  */
-describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
+describe('Network dataset (structural, source-independent)', () => {
   const network = loadBundledNetwork()
 
-  it('enthält mindestens eine Linie mit gültiger Farbe', () => {
+  it('contains at least one line with a valid color', () => {
     expect(network.lines.length).toBeGreaterThan(0)
     for (const line of network.lines) {
       expect(line.color).toMatch(/^#[0-9a-fA-F]{6}$/)
@@ -20,9 +20,9 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
     }
   })
 
-  it('jede Richtung hat mindestens 2 Haltestellen und plausible Streckenlänge', () => {
+  it('every direction has at least 2 stops and a plausible route length', () => {
     for (const line of network.lines) {
-      // Die Gehlsdorf-Fähre quert die Warnow auf nur ~500 m
+      // The Gehlsdorf ferry crosses the Warnow in only ~500 m
       const minLength = line.mode === 'ferry' ? 200 : 1000
       for (const dir of line.directions) {
         expect(dir.stops.length).toBeGreaterThanOrEqual(2)
@@ -32,7 +32,7 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
     }
   })
 
-  it('Haltestellen liegen monoton entlang der Strecke (beide Richtungen)', () => {
+  it('stops are ordered monotonically along the route (both directions)', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (let i = 1; i < dir.stops.length; i++) {
@@ -45,7 +45,7 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
     }
   })
 
-  it('alle Koordinaten liegen im Rostocker Stadtgebiet', () => {
+  it('all coordinates lie within the Rostock city area', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const [lon, lat] of dir.path) {
@@ -58,7 +58,7 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
     }
   })
 
-  it('Haltestellen-Namen sind nicht leer', () => {
+  it('stop names are not empty', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const stop of dir.stops) {
@@ -70,20 +70,20 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
 })
 
 describe.runIf(loadBundledNetwork().meta.source === 'approximated')(
-  'Demo-Datensatz (strikte RSAG-Prüfungen)',
+  'Demo dataset (strict RSAG checks)',
   () => {
     const network = loadBundledNetwork()
 
-    it('enthält die RSAG-Linien 1, 2, 3, 5, 6', () => {
+    it('contains the RSAG lines 1, 2, 3, 5, 6', () => {
       expect(network.lines.map((l) => l.id).sort()).toEqual(['1', '2', '3', '5', '6'])
     })
 
-    it('hat eindeutige Linienfarben', () => {
+    it('has unique line colors', () => {
       const colors = network.lines.map((l) => l.color)
       expect(new Set(colors).size).toBe(colors.length)
     })
 
-    it('erste/letzte Haltestelle liegen an Streckenanfang/-ende', () => {
+    it('first/last stop lie at the start/end of the route', () => {
       for (const line of network.lines) {
         for (const dir of line.directions) {
           expect(dir.stops[0].dist).toBeLessThan(50)
@@ -92,7 +92,7 @@ describe.runIf(loadBundledNetwork().meta.source === 'approximated')(
       }
     })
 
-    it('Endhaltestellen entsprechen dem realen RSAG-Netz', () => {
+    it('terminal stops match the real RSAG network', () => {
       const byId = Object.fromEntries(
         network.lines.map((l) => [l.id, [l.directions[0].from, l.directions[0].to]]),
       )

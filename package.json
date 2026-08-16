@@ -12,7 +12,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots",
     "data:update": "node scripts/fetch-osm-network.mjs",
     "data:gtfs": "node scripts/fetch-gtfs-schedule.mjs",
     "postinstall": "node scripts/copy-cesium-assets.mjs"

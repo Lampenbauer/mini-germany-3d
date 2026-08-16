@@ -7,19 +7,19 @@ import {
 } from '@/lib/clock'
 
 describe('berlinSecondsOfDay', () => {
-  it('rechnet UTC korrekt nach Europe/Berlin um (Sommerzeit)', () => {
-    // 2026-08-15T10:00:00Z = 12:00:00 MESZ
+  it('converts UTC to Europe/Berlin correctly (daylight saving time)', () => {
+    // 2026-08-15T10:00:00Z = 12:00:00 CEST
     expect(berlinSecondsOfDay(Date.UTC(2026, 7, 15, 10, 0, 0))).toBe(12 * 3600)
   })
 
-  it('rechnet UTC korrekt nach Europe/Berlin um (Winterzeit)', () => {
-    // 2026-01-15T10:00:00Z = 11:00:00 MEZ
+  it('converts UTC to Europe/Berlin correctly (standard time)', () => {
+    // 2026-01-15T10:00:00Z = 11:00:00 CET
     expect(berlinSecondsOfDay(Date.UTC(2026, 0, 15, 10, 0, 0))).toBe(11 * 3600)
   })
 })
 
 describe('formatSecondsOfDay / parseTimeOfDay', () => {
-  it('formatiert und parst Uhrzeiten', () => {
+  it('formats and parses times of day', () => {
     expect(formatSecondsOfDay(0)).toBe('00:00:00')
     expect(formatSecondsOfDay(12 * 3600 + 34 * 60 + 56)).toBe('12:34:56')
     expect(parseTimeOfDay('08:30')).toBe(8 * 3600 + 30 * 60)
@@ -38,21 +38,21 @@ describe('SimClock', () => {
     vi.useRealTimers()
   })
 
-  it('läuft in Echtzeit mit Faktor 1', () => {
+  it('runs in real time at factor 1', () => {
     const clock = new SimClock(Date.now(), 1)
     const t0 = clock.now()
     vi.advanceTimersByTime(5000)
     expect(clock.now() - t0).toBe(5000)
   })
 
-  it('beschleunigt mit dem Zeitraffer-Faktor', () => {
+  it('speeds up with the time-lapse factor', () => {
     const clock = new SimClock(Date.now(), 60)
     const t0 = clock.now()
     vi.advanceTimersByTime(1000)
     expect(clock.now() - t0).toBe(60_000)
   })
 
-  it('friert die Zeit bei Pause ein und läuft danach weiter', () => {
+  it('freezes time while paused and keeps running afterwards', () => {
     const clock = new SimClock(Date.now(), 1)
     clock.setPaused(true)
     const frozen = clock.now()
@@ -63,13 +63,13 @@ describe('SimClock', () => {
     expect(clock.now()).toBe(frozen + 2000)
   })
 
-  it('springt mit setSecondsOfDay zur gewünschten Uhrzeit', () => {
+  it('jumps to the requested time of day with setSecondsOfDay', () => {
     const clock = new SimClock(Date.now(), 1)
     clock.setSecondsOfDay(8 * 3600 + 30 * 60)
     expect(Math.floor(clock.secondsOfDay())).toBe(8 * 3600 + 30 * 60)
   })
 
-  it('Geschwindigkeitswechsel verursacht keinen Zeitsprung', () => {
+  it('changing the speed causes no time jump', () => {
     const clock = new SimClock(Date.now(), 1)
     vi.advanceTimersByTime(1000)
     const before = clock.now()
@@ -77,12 +77,12 @@ describe('SimClock', () => {
     expect(Math.abs(clock.now() - before)).toBeLessThan(2)
   })
 
-  it('resetToRealTime springt zurück zur echten Uhrzeit', () => {
+  it('resetToRealTime jumps back to the real time', () => {
     const clock = new SimClock(Date.now(), 1)
-    clock.setSecondsOfDay(8 * 3600) // weit weg von der Realzeit
+    clock.setSecondsOfDay(8 * 3600) // far away from real time
     clock.resetToRealTime()
     expect(clock.now()).toBe(Date.now())
-    // Zeitraffer bleibt erhalten
+    // The time-lapse factor is preserved
     const fast = new SimClock(Date.now(), 60)
     fast.setSecondsOfDay(8 * 3600)
     fast.resetToRealTime()

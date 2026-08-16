@@ -1,20 +1,20 @@
 <?php
 /**
- * Gefilterter GTFS-Realtime-Endpunkt für Shared Hosting (all-inkl):
- * lädt den deutschlandweiten Feed https://realtime.gtfs.de/realtime-free.pb
- * (>10 MB Protobuf) höchstens einmal pro Minute, filtert ihn auf die
- * Rostocker trip_ids aus schedule.json (liegt neben diesem Skript) und
- * liefert dem Browser nur ein kleines JSON:
+ * Filtered GTFS-Realtime endpoint for shared hosting (all-inkl):
+ * fetches the Germany-wide feed https://realtime.gtfs.de/realtime-free.pb
+ * (>10 MB protobuf) at most once per minute, filters it down to the
+ * Rostock trip_ids from schedule.json (located next to this script), and
+ * returns only a small JSON payload to the browser:
  *
- *   { "timestamp": <Feed-Unix-Sekunden>, "total": <Entities gesamt>,
- *     "delays": { "<gtfs_trip_id>": <Verspätung in Sekunden>, ... } }
+ *   { "timestamp": <feed Unix seconds>, "total": <total entities>,
+ *     "delays": { "<gtfs_trip_id>": <delay in seconds>, ... } }
  *
- * Der Protobuf-Parser liest nur die benötigten GTFS-RT-Felder
+ * The protobuf parser reads only the required GTFS-RT fields
  * (FeedMessage → entity → trip_update → trip.trip_id / delay /
- * stop_time_update.departure|arrival.delay) direkt aus dem Wire-Format –
- * ohne Composer-Abhängigkeiten.
+ * stop_time_update.departure|arrival.delay) directly from the wire format —
+ * no Composer dependencies.
  *
- * Selbsttest (CLI, ohne Netzwerk):
+ * Self-test (CLI, no network):
  *   php realtime.php --selftest feed.pb schedule.json
  */
 
@@ -25,13 +25,13 @@ const MRT_CACHE_TTL_SECONDS = 60;
 const MRT_UPSTREAM_TIMEOUT = 30;
 
 // ---------------------------------------------------------------------------
-// Mini-Protobuf-Reader (Wire-Format)
+// Mini protobuf reader (wire format)
 // ---------------------------------------------------------------------------
 
 /**
- * Liest einen Varint ab $pos. 64-Bit-Zweierkomplement über PHP-Ints:
- * negative int32 (10-Byte-Varints) ergeben automatisch den korrekten
- * negativen Wert. Shifts > 63 verwirft PHP als 0.
+ * Reads a varint starting at $pos. 64-bit two's complement via PHP ints:
+ * negative int32 values (10-byte varints) automatically yield the correct
+ * negative result. PHP discards shifts > 63 as 0.
  */
 function mrt_pb_varint(string $data, int &$pos): int
 {
@@ -48,13 +48,13 @@ function mrt_pb_varint(string $data, int &$pos): int
         }
         $shift += 7;
         if ($shift > 70) {
-            throw new RuntimeException('Varint zu lang');
+            throw new RuntimeException('Varint too long');
         }
     }
-    throw new RuntimeException('Unerwartetes Datenende im Varint');
+    throw new RuntimeException('Unexpected end of data in varint');
 }
 
-/** Überspringt ein Feld des angegebenen Wire-Types. */
+/** Skips a field of the given wire type. */
 function mrt_pb_skip(string $data, int &$pos, int $wire): void
 {
     switch ($wire) {
@@ -72,11 +72,11 @@ function mrt_pb_skip(string $data, int &$pos, int $wire): void
             $pos += 4;
             break;
         default:
-            throw new RuntimeException("Unbekannter Wire-Type $wire");
+            throw new RuntimeException("Unknown wire type $wire");
     }
 }
 
-/** Liest ein length-delimited Feld und liefert den Teilstring. */
+/** Reads a length-delimited field and returns the substring. */
 function mrt_pb_bytes(string $data, int &$pos): string
 {
     $len = mrt_pb_varint($data, $pos);
@@ -86,10 +86,10 @@ function mrt_pb_bytes(string $data, int &$pos): string
 }
 
 // ---------------------------------------------------------------------------
-// GTFS-RT-spezifische Extraktion
+// GTFS-RT-specific extraction
 // ---------------------------------------------------------------------------
 
-/** StopTimeEvent: { delay = Feld 1 (int32) } – null, wenn nicht gesetzt. */
+/** StopTimeEvent: { delay = field 1 (int32) } — null if not set. */
 function mrt_stop_time_event_delay(string $data): ?int
 {
     $pos = 0;
@@ -105,8 +105,8 @@ function mrt_stop_time_event_delay(string $data): ?int
 }
 
 /**
- * TripUpdate: trip = Feld 1, stop_time_update = Feld 2 (repeated),
- * delay = Feld 5 (int32). Liefert [trip_id, delay|null].
+ * TripUpdate: trip = field 1, stop_time_update = field 2 (repeated),
+ * delay = field 5 (int32). Returns [trip_id, delay|null].
  */
 function mrt_trip_update_extract(string $data): array
 {
@@ -136,7 +136,7 @@ function mrt_trip_update_extract(string $data): array
         } elseif ($field === 5 && $wire === 0) { // trip_update.delay
             $tripUpdateDelay = mrt_pb_varint($data, $pos);
         } elseif ($field === 2 && $wire === 2 && $firstStopDelay === null) {
-            // StopTimeUpdate: departure = Feld 3, arrival = Feld 2
+            // StopTimeUpdate: departure = field 3, arrival = field 2
             $stu = mrt_pb_bytes($data, $pos);
             $sPos = 0;
             $sLen = strlen($stu);
@@ -163,8 +163,8 @@ function mrt_trip_update_extract(string $data): array
 }
 
 /**
- * FeedMessage: header = Feld 1, entity = Feld 2 (repeated).
- * Liefert [timestamp, totalEntities, delays(trip_id → Sekunden)].
+ * FeedMessage: header = field 1, entity = field 2 (repeated).
+ * Returns [timestamp, totalEntities, delays(trip_id → seconds)].
  */
 function mrt_extract_delays(string $data, array $tripIdSet): array
 {
@@ -179,7 +179,7 @@ function mrt_extract_delays(string $data, array $tripIdSet): array
         $field = $tag >> 3;
         $wire = $tag & 7;
 
-        if ($field === 1 && $wire === 2) { // FeedHeader: timestamp = Feld 3
+        if ($field === 1 && $wire === 2) { // FeedHeader: timestamp = field 3
             $header = mrt_pb_bytes($data, $pos);
             $hPos = 0;
             $hLen = strlen($header);
@@ -215,7 +215,7 @@ function mrt_extract_delays(string $data, array $tripIdSet): array
     return [$timestamp, $total, $delays];
 }
 
-/** Rostocker trip_ids aus schedule.json als Set (Keys). */
+/** Rostock trip_ids from schedule.json as a set (keys). */
 function mrt_load_trip_ids(string $schedulePath): array
 {
     $schedule = json_decode((string) file_get_contents($schedulePath), true);
@@ -241,7 +241,7 @@ function mrt_build_response(string $feedData, array $tripIdSet): string
 }
 
 // ---------------------------------------------------------------------------
-// CLI-Selbsttest:  php realtime.php --selftest feed.pb schedule.json
+// CLI self-test:  php realtime.php --selftest feed.pb schedule.json
 // ---------------------------------------------------------------------------
 
 if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
@@ -252,7 +252,7 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP-Endpunkt mit Datei-Cache (60 s, stale-while-error)
+// HTTP endpoint with file cache (60 s, stale-while-error)
 // ---------------------------------------------------------------------------
 
 header('Content-Type: application/json');
@@ -271,13 +271,13 @@ $lock = fopen($lockFile, 'c');
 $haveLock = $lock !== false && flock($lock, LOCK_EX | LOCK_NB);
 
 if (!$haveLock) {
-    // Ein anderer Request aktualisiert gerade → alte Daten liefern (oder warten)
+    // Another request is currently refreshing → serve stale data (or wait)
     if (is_file($cacheFile)) {
         readfile($cacheFile);
         exit;
     }
     if ($lock !== false) {
-        flock($lock, LOCK_EX); // blockierend warten, bis der Cache existiert
+        flock($lock, LOCK_EX); // block until the cache exists
         flock($lock, LOCK_UN);
     }
     if (is_file($cacheFile)) {
@@ -285,7 +285,7 @@ if (!$haveLock) {
         exit;
     }
     http_response_code(502);
-    echo json_encode(['error' => 'Realtime-Cache nicht verfügbar']);
+    echo json_encode(['error' => 'Realtime cache unavailable']);
     exit;
 }
 
@@ -296,7 +296,7 @@ try {
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT => MRT_UPSTREAM_TIMEOUT,
         CURLOPT_USERAGENT => 'mini-rostock-3d/1.0 (+https://github.com/Lampenbauer/mini-rostock-3d)',
-        CURLOPT_ENCODING => '', // gzip erlauben
+        CURLOPT_ENCODING => '', // allow gzip
     ]);
     $feedData = curl_exec($ch);
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -308,7 +308,7 @@ try {
     $tripIds = mrt_load_trip_ids(__DIR__ . '/schedule.json');
     $json = mrt_build_response($feedData, $tripIds);
 
-    // Atomar schreiben, damit parallele Leser nie halbe Dateien sehen
+    // Write atomically so concurrent readers never see partial files
     $tmp = $cacheFile . '.' . getmypid() . '.tmp';
     file_put_contents($tmp, $json);
     rename($tmp, $cacheFile);
@@ -316,7 +316,7 @@ try {
     echo $json;
 } catch (Throwable $error) {
     if (is_file($cacheFile)) {
-        // Veraltete Daten sind besser als keine
+        // Stale data is better than none
         readfile($cacheFile);
     } else {
         http_response_code(502);

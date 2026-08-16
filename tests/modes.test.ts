@@ -10,45 +10,45 @@ import {
 } from '@/lib/timetable'
 import { testMultiModalNetworkJson, testNetworkJson } from './fixtures'
 
-describe('prepareNetwork mit Verkehrsmitteln', () => {
+describe('prepareNetwork with transport modes', () => {
   const network = prepareNetwork(testMultiModalNetworkJson)
 
-  it('fehlender mode wird als tram interpretiert (alte network.json)', () => {
+  it('missing mode is interpreted as tram (old network.json)', () => {
     const tram = network.lineById.get('T')!
     expect(tram.mode).toBe('tram')
     expect(tram.vehicle).toEqual(config.vehicles.tram)
   })
 
-  it('Bus erhält die Standard-Busmaße', () => {
+  it('bus gets the default bus dimensions', () => {
     const bus = network.lineById.get('22')!
     expect(bus.mode).toBe('bus')
     expect(bus.vehicle).toEqual(config.vehicles.bus)
   })
 
-  it('Fähre behält ihre individuellen Maße', () => {
+  it('ferry keeps its custom dimensions', () => {
     const ferry = network.lineById.get('F1')!
     expect(ferry.mode).toBe('ferry')
     expect(ferry.vehicle).toEqual({ length: 19.9, width: 6.6, height: 3.5 })
   })
 })
 
-describe('Takte und Geschwindigkeiten pro Verkehrsmittel', () => {
+describe('Headways and speeds per transport mode', () => {
   const network = prepareNetwork(testMultiModalNetworkJson)
 
-  it('ohne schedule.json gilt der Modus-Standardtakt', () => {
+  it('without schedule.json the mode default headway applies', () => {
     const trips = buildAllTrips(network, {
       cruiseSpeedMps: 8.3,
       dwellSeconds: 25,
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
     const perLine = (id: string) => trips.filter((t) => t.lineId === id).length
-    // 2 Richtungen × Abfahrten des jeweiligen Modus-Takts
+    // 2 directions × departures of the respective mode's headway
     expect(perLine('T')).toBe(2 * departuresFromService(DEFAULT_SERVICE_BY_MODE.tram).length)
     expect(perLine('22')).toBe(2 * departuresFromService(DEFAULT_SERVICE_BY_MODE.bus).length)
     expect(perLine('F1')).toBe(2 * departuresFromService(DEFAULT_SERVICE_BY_MODE.ferry).length)
   })
 
-  it('Fähre ist mit Modus-Geschwindigkeit langsamer unterwegs als die Tram', () => {
+  it('with mode-specific speed the ferry travels slower than the tram', () => {
     const trips = buildAllTrips(network, {
       cruiseSpeedMps: 8.3,
       dwellSeconds: 25,
@@ -58,14 +58,14 @@ describe('Takte und Geschwindigkeiten pro Verkehrsmittel', () => {
     const ferryTrip = trips.find((t) => t.lineId === 'F1' && t.direction === 0)!
     const travel = (trip: typeof tramTrip) =>
       trip.stopTimes[trip.stopTimes.length - 1].arrival - trip.stopTimes[0].departure
-    // Tram: ~2000 m bei 8,3 m/s (+Haltezeit) · Fähre: ~590 m bei 3,0 m/s
+    // Tram: ~2000 m at 8.3 m/s (+ dwell time) · Ferry: ~590 m at 3.0 m/s
     expect(travel(tramTrip)).toBeGreaterThan(200)
-    // Fähre braucht für ~590 m rund 196 s – deutlich mehr als mit Tram-Tempo (~71 s)
+    // The ferry needs about 196 s for ~590 m – far more than at tram speed (~71 s)
     expect(travel(ferryTrip)).toBeGreaterThan(150)
     expect(travel(ferryTrip)).toBeLessThan(300)
   })
 
-  it('explizite cruiseSpeedMps gilt weiterhin für alle Modi (Test-Übersteuerung)', () => {
+  it('an explicit cruiseSpeedMps still applies to all modes (test override)', () => {
     const sim = new Simulation(prepareNetwork(testNetworkJson), new SimClock(), undefined, {
       cruiseSpeedMps: 10,
     })
@@ -73,14 +73,14 @@ describe('Takte und Geschwindigkeiten pro Verkehrsmittel', () => {
   })
 })
 
-describe('Simulation liefert Modus und Fahrzeugmaße im Snapshot', () => {
-  it('Snapshots kennzeichnen Busse und Fähren', () => {
+describe('Simulation provides mode and vehicle dimensions in the snapshot', () => {
+  it('snapshots identify buses and ferries', () => {
     const network = prepareNetwork(testMultiModalNetworkJson)
     const sim = new Simulation(network, new SimClock())
 
-    // Die Fixture-Strecken sind kurz – zum exakten Abfahrtszeitpunkt steht
-    // das Fahrzeug sicher am Starthalt (dwell). Tram-Takt 10 min, Fähre 15 min
-    // → beide um 08:30 aktiv; Bus-Takt 20 min → Abfrage um 08:40.
+    // The fixture routes are short – at the exact departure time the vehicle
+    // is guaranteed to be at its first stop (dwell). Tram headway 10 min,
+    // ferry 15 min → both active at 08:30; bus headway 20 min → query at 08:40.
     const at0830 = sim.snapshotsAt(8 * 3600 + 30 * 60)
     const at0840 = sim.snapshotsAt(8 * 3600 + 40 * 60)
 

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// Cesium benötigt WebGL – im jsdom wird die Karte durch einen Mock ersetzt.
+// Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
   class CesiumMap {
     constructor(_container: HTMLElement, opts?: { onTilesetStatus?: (s: string) => void }) {
@@ -50,76 +50,76 @@ afterEach(() => {
   window.__mrt = undefined
 })
 
-describe('App (UI-Shell)', () => {
-  it('rendert Titel, Uhr und Status-Badges', () => {
+describe('App (UI shell)', () => {
+  it('renders title, clock, and status badges', () => {
     render(<App />)
     expect(screen.getByText('Mini Rostock 3D')).toBeInTheDocument()
     expect(screen.getByTestId('sim-clock')).toBeInTheDocument()
-    expect(screen.getByTestId('tileset-status')).toHaveTextContent('Offline-Modus')
+    expect(screen.getByTestId('tileset-status')).toHaveTextContent('Offline mode')
     const expectedSource =
-      loadBundledNetwork().meta.source === 'osm' ? 'OSM-Geometrie' : 'Demo-Daten (approximiert)'
+      loadBundledNetwork().meta.source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)'
     expect(screen.getByTestId('data-source')).toHaveTextContent(expectedSource)
   })
 
-  it('zeigt alle Linien mit eingeschaltetem Switch', () => {
+  it('shows all lines with their switch enabled', () => {
     render(<App />)
     const network = loadBundledNetwork()
     const lineCount = network.lines.length
     const modeCount = new Set(network.lines.map((l) => l.mode)).size
-    const switches = screen.getAllByRole('switch', { name: /anzeigen$/ })
-    // + 2 Ebenen-Switches (Routen, Haltestellen) + Gruppen-Schalter der
-    // Verkehrsmittel (nur sichtbar, wenn es mehr als eines gibt)
+    const switches = screen.getAllByRole('switch', { name: /^Show / })
+    // + 2 layer switches (routes, stops) + transit-mode group switches
+    // (only visible when there is more than one mode)
     expect(switches).toHaveLength(lineCount + 2 + (modeCount > 1 ? modeCount : 0))
     for (const sw of switches) {
       expect(sw).toHaveAttribute('aria-checked', 'true')
     }
   })
 
-  it('blendet eine Linie über den Switch aus', () => {
+  it('hides a line via its switch', () => {
     render(<App />)
     const firstLine = loadBundledNetwork().lines[0]
-    const sw = screen.getByRole('switch', { name: `${firstLine.name} anzeigen` })
+    const sw = screen.getByRole('switch', { name: `Show ${firstLine.name}` })
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('Pause-Button wechselt zwischen Pause und Fortsetzen', () => {
+  it('pause button toggles between pause and resume', () => {
     render(<App />)
-    const pauseBtn = screen.getByRole('button', { name: 'Simulation pausieren' })
+    const pauseBtn = screen.getByRole('button', { name: 'Pause simulation' })
     fireEvent.click(pauseBtn)
     expect(
-      screen.getByRole('button', { name: 'Simulation fortsetzen' }),
+      screen.getByRole('button', { name: 'Resume simulation' }),
     ).toBeInTheDocument()
   })
 
-  it('registriert die Test-API window.__mrt', () => {
+  it('registers the test API window.__mrt', () => {
     render(<App />)
     expect(window.__mrt).toBeDefined()
     expect(window.__mrt!.ready).toBe(true)
     expect(typeof window.__mrt!.tramCount()).toBe('number')
   })
 
-  it('setzt die Simulationszeit über das Zeit-Eingabefeld und stellt Echtzeit wieder her', () => {
+  it('sets the simulation time via the time input and restores real time', () => {
     render(<App />)
-    const input = screen.getByLabelText('Simulationszeit setzen')
+    const input = screen.getByLabelText('Set simulation time')
     fireEvent.change(input, { target: { value: '08:00' } })
     expect(window.__mrt!.secondsOfDay()).toBeGreaterThanOrEqual(8 * 3600)
     expect(window.__mrt!.secondsOfDay()).toBeLessThan(8 * 3600 + 5)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Jetzt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     const realNow = berlinSecondsOfDay(Date.now())
     const diff = Math.abs(window.__mrt!.secondsOfDay() - realNow)
     expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
   })
 
-  it('zeigt Ebenen-Schalter für Routen und Haltestellen', () => {
+  it('shows layer switches for routes and stops', () => {
     render(<App />)
-    const panel = screen.getByText('Ebenen').closest('div')!.parentElement!
-    expect(within(panel).getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
+    const panel = screen.getByText('Layers').closest('div')!.parentElement!
+    expect(within(panel).getByRole('switch', { name: 'Show routes' })).toBeInTheDocument()
     expect(
-      within(panel).getByRole('switch', { name: 'Haltestellen anzeigen' }),
+      within(panel).getByRole('switch', { name: 'Show stops' }),
     ).toBeInTheDocument()
   })
 })

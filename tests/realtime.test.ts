@@ -10,18 +10,18 @@ import { testNetworkJson } from './fixtures'
 
 const { FeedMessage } = GtfsRealtimeBindings.transit_realtime
 
-/** Baut einen echten (encodierten + decodierten) GTFS-RT-Feed. */
+/** Builds a real (encoded + decoded) GTFS-RT feed. */
 function makeFeed(entities: object[]) {
   const message = FeedMessage.fromObject({
     header: { gtfsRealtimeVersion: '2.0', timestamp: 1700000000 },
     entity: entities,
   })
-  // Roundtrip über die Protobuf-Encodierung – wie auf dem Server
+  // Round trip through the protobuf encoding – just like on the server
   return FeedMessage.decode(FeedMessage.encode(message).finish())
 }
 
 describe('buildRealtimeTripIdMap', () => {
-  it('bildet GTFS-trip_ids auf Simulations-Fahrt-IDs ab', () => {
+  it('maps GTFS trip_ids to simulation trip IDs', () => {
     const map = buildRealtimeTripIdMap({
       lines: {
         T: {
@@ -35,23 +35,23 @@ describe('buildRealtimeTripIdMap', () => {
     expect(map.get('gtfs-c')).toBe(simTripId('T', 1, 29700))
   })
 
-  it('ist leer ohne tripIds (altes schedule.json-Format)', () => {
+  it('is empty without tripIds (old schedule.json format)', () => {
     expect(buildRealtimeTripIdMap({ lines: { T: { '0': { departures: [100] } } } }).size).toBe(0)
     expect(buildRealtimeTripIdMap(undefined).size).toBe(0)
   })
 })
 
-describe('extractGtfsDelays (serverseitige Filterung)', () => {
+describe('extractGtfsDelays (server-side filtering)', () => {
   const tripIds = new Set(['gtfs-a', 'gtfs-b'])
 
-  it('nutzt trip_update.delay, wenn vorhanden', () => {
+  it('uses trip_update.delay when present', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'gtfs-a' }, delay: 180 } },
     ])
     expect(extractGtfsDelays(feed, tripIds)).toEqual({ 'gtfs-a': 180 })
   })
 
-  it('fällt auf die erste Stop-Time-Verspätung zurück (departure vor arrival)', () => {
+  it('falls back to the first stop-time delay (departure before arrival)', () => {
     const feed = makeFeed([
       {
         id: '1',
@@ -66,16 +66,16 @@ describe('extractGtfsDelays (serverseitige Filterung)', () => {
     expect(extractGtfsDelays(feed, tripIds)).toEqual({ 'gtfs-b': 120 })
   })
 
-  it('ignoriert fremde Fahrten, Entities ohne TripUpdate und ohne Delay-Info', () => {
+  it('ignores unknown trips, entities without a TripUpdate, and entities without delay info', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'unbekannt' }, delay: 300 } },
       { id: '2', vehicle: { position: { latitude: 54, longitude: 12 } } },
-      { id: '3', tripUpdate: { trip: { tripId: 'gtfs-a' } } }, // keine Delay-Info
+      { id: '3', tripUpdate: { trip: { tripId: 'gtfs-a' } } }, // no delay info
     ])
     expect(extractGtfsDelays(feed, tripIds)).toEqual({})
   })
 
-  it('verarbeitet auch Verfrühungen (negative Delays)', () => {
+  it('also handles early running (negative delays)', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'gtfs-a' }, delay: -90 } },
     ])
@@ -83,8 +83,8 @@ describe('extractGtfsDelays (serverseitige Filterung)', () => {
   })
 })
 
-describe('mapDelaysToSimTrips (Client)', () => {
-  it('ordnet gefilterte GTFS-Delays den Simulations-Fahrten zu', () => {
+describe('mapDelaysToSimTrips (client)', () => {
+  it('assigns filtered GTFS delays to the simulation trips', () => {
     const tripIdMap = new Map([
       ['gtfs-a', 'T-0-480'],
       ['gtfs-b', 'T-0-510'],
@@ -98,7 +98,7 @@ describe('mapDelaysToSimTrips (Client)', () => {
     expect(delays.size).toBe(2)
   })
 
-  it('verwirft ungültige Werte', () => {
+  it('discards invalid values', () => {
     const tripIdMap = new Map([['gtfs-a', 'T-0-480']])
     const delays = mapDelaysToSimTrips(
       {
@@ -112,13 +112,13 @@ describe('mapDelaysToSimTrips (Client)', () => {
   })
 })
 
-describe('Simulation mit Realtime-Verspätungen', () => {
+describe('Simulation with realtime delays', () => {
   const network = prepareNetwork(testNetworkJson)
   const schedule = {
     lines: { T: { '0': { departures: [28800], tripIds: ['gtfs-a'] } } },
   }
 
-  it('verschiebt die Position einer verspäteten Fahrt', () => {
+  it('shifts the position of a delayed trip', () => {
     const sim = new Simulation(network, new SimClock(), schedule)
     const tripId = sim.realtimeTripIdMap.get('gtfs-a')!
     expect(tripId).toBe(simTripId('T', 0, 28800))
@@ -129,10 +129,10 @@ describe('Simulation mit Realtime-Verspätungen', () => {
 
     sim.setRealtimeDelays(new Map([[tripId, 300]]))
 
-    // Mit 300 s Verspätung ist die Bahn um 08:01:40 noch nicht abgefahren …
+    // With a 300 s delay the train has not yet departed at 08:01:40 …
     expect(sim.snapshotsAt(28900).find((s) => s.id === tripId)).toBeUndefined()
 
-    // … und um 08:06:40 dort, wo sie planmäßig um 08:01:40 gewesen wäre.
+    // … and at 08:06:40 it is where it would have been on schedule at 08:01:40.
     const delayed = sim.snapshotsAt(29200).find((s) => s.id === tripId)!
     expect(delayed.realtime).toBe(true)
     expect(delayed.delaySeconds).toBe(300)
@@ -140,7 +140,7 @@ describe('Simulation mit Realtime-Verspätungen', () => {
     expect(delayed.lat).toBeCloseTo(undelayed.lat, 8)
   })
 
-  it('leere Delay-Map stellt den Planbetrieb wieder her', () => {
+  it('an empty delay map restores scheduled operation', () => {
     const sim = new Simulation(network, new SimClock(), schedule)
     const tripId = sim.realtimeTripIdMap.get('gtfs-a')!
     sim.setRealtimeDelays(new Map([[tripId, 300]]))
