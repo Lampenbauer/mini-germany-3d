@@ -63,10 +63,13 @@ describe('App (UI-Shell)', () => {
 
   it('zeigt alle Linien mit eingeschaltetem Switch', () => {
     render(<App />)
-    const lineCount = loadBundledNetwork().lines.length
+    const network = loadBundledNetwork()
+    const lineCount = network.lines.length
+    const modeCount = new Set(network.lines.map((l) => l.mode)).size
     const switches = screen.getAllByRole('switch', { name: /anzeigen$/ })
-    // + 2 Ebenen-Switches (Routen, Haltestellen)
-    expect(switches).toHaveLength(lineCount + 2)
+    // + 2 Ebenen-Switches (Routen, Haltestellen) + Gruppen-Schalter der
+    // Verkehrsmittel (nur sichtbar, wenn es mehr als eines gibt)
+    expect(switches).toHaveLength(lineCount + 2 + (modeCount > 1 ? modeCount : 0))
     for (const sw of switches) {
       expect(sw).toHaveAttribute('aria-checked', 'true')
     }

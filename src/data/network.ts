@@ -23,26 +23,25 @@ function prepareDirection(
   const cum = cumulativeDistances(path)
   const totalLength = cum[cum.length - 1]
 
-  const stops = dir.stops.map((stopId) => {
+  // Haltestellen SEQUENZIELL projizieren: Jede erst hinter ihrer Vorgängerin.
+  // Bei Linien, die denselben Straßenzug mehrfach befahren (Bus-Schleifen),
+  // ist die globale Projektion mehrdeutig und kann rückwärts springen.
+  const stops: PreparedDirection['stops'] = []
+  let prevDist = 0
+  for (const stopId of dir.stops) {
     const stop = json.stops[stopId]
     if (!stop) throw new Error(`Linie ${lineId}: unbekannte Haltestelle "${stopId}"`)
-    return {
-      id: stopId,
-      name: stop.name,
-      coord: stop.coord as LonLat,
-      dist: projectOntoPath(path, cum, stop.coord as LonLat),
-    }
-  })
-
-  // Haltestellen müssen in Fahrtreihenfolge auf der Strecke liegen.
-  for (let i = 1; i < stops.length; i++) {
-    if (stops[i].dist <= stops[i - 1].dist) {
-      throw new Error(
-        `Linie ${lineId} Richtung ${direction}: Haltestellen nicht monoton entlang der Strecke ` +
-          `("${stops[i - 1].id}" bei ${stops[i - 1].dist.toFixed(0)} m, ` +
-          `"${stops[i].id}" bei ${stops[i].dist.toFixed(0)} m)`,
-      )
-    }
+    const dist = projectOntoPath(path, cum, stop.coord as LonLat, prevDist)
+    // Halt kommt auf der Reststrecke nicht voran (Datenfehler, z.B. doppelt
+    // gelisteter Halt) → auslassen statt Fahrzeiten mit 0-m-Segmenten zu bauen.
+    if (stops.length > 0 && dist <= prevDist + 1) continue
+    stops.push({ id: stopId, name: stop.name, coord: stop.coord as LonLat, dist })
+    prevDist = dist
+  }
+  if (stops.length < 2) {
+    throw new Error(
+      `Linie ${lineId} Richtung ${direction}: weniger als 2 projizierbare Haltestellen`,
+    )
   }
 
   return { lineId, direction, from: dir.from, to: dir.to, path, cum, totalLength, stops }
@@ -76,6 +75,16 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
       directions,
     }
   })
+
+  // Doppelte Linien-IDs würden lineById still korrumpieren (Fahrten der einen
+  // Linie liefen auf dem Pfad der anderen) – lieber laut scheitern.
+  const seen = new Set<string>()
+  for (const line of lines) {
+    if (seen.has(line.id)) {
+      throw new Error(`Doppelte Linien-ID "${line.id}" in network.json`)
+    }
+    seen.add(line.id)
+  }
 
   return {
     meta: json.meta,
