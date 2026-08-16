@@ -84,6 +84,11 @@ export function stopOffsets(
   return offsets
 }
 
+/** Stabile Fahrt-ID der Simulation (auch fürs GTFS-Realtime-Matching). */
+export function simTripId(lineId: string, direction: 0 | 1, departureSec: number): string {
+  return `${lineId}-${direction}-${Math.round(departureSec / 60)}`
+}
+
 export function buildTripsForDirection(
   line: PreparedLine,
   direction: 0 | 1,
@@ -93,7 +98,7 @@ export function buildTripsForDirection(
   const dir = line.directions[direction]
   const offsets = stopOffsets(dir, opts.cruiseSpeedMps, opts.dwellSeconds)
   return departures.map((dep) => ({
-    id: `${line.id}-${direction}-${Math.round(dep / 60)}`,
+    id: simTripId(line.id, direction, dep),
     lineId: line.id,
     direction,
     stopTimes: offsets.map((o, stopIndex) => ({
@@ -106,11 +111,30 @@ export function buildTripsForDirection(
 
 /**
  * Optionale echte Abfahrtszeiten aus schedule.json:
- * { lines: { [lineId]: { [direction]: { departures: number[] } } } }
+ * { lines: { [lineId]: { [direction]: { departures, tripIds? } } } }
+ * tripIds (parallel zu departures) sind die GTFS-trip_ids des Feeds –
+ * sie verbinden die Simulations-Fahrten mit GTFS-Realtime-TripUpdates.
  */
 export interface ScheduleJson {
   meta?: { source?: string; serviceDate?: string }
-  lines?: Record<string, Record<string, { departures: number[] }>>
+  lines?: Record<string, Record<string, { departures: number[]; tripIds?: string[] }>>
+}
+
+/** Abbildung GTFS-trip_id → Simulations-Fahrt-ID aus schedule.json. */
+export function buildRealtimeTripIdMap(schedule?: ScheduleJson): Map<string, string> {
+  const map = new Map<string, string>()
+  if (!schedule?.lines) return map
+  for (const [lineId, dirs] of Object.entries(schedule.lines)) {
+    for (const [dirKey, data] of Object.entries(dirs)) {
+      if (!data.tripIds) continue
+      const direction = dirKey === '1' ? 1 : 0
+      data.departures.forEach((dep, i) => {
+        const gtfsTripId = data.tripIds![i]
+        if (gtfsTripId) map.set(gtfsTripId, simTripId(lineId, direction, dep))
+      })
+    }
+  }
+  return map
 }
 
 export function buildAllTrips(

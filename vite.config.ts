@@ -22,6 +22,26 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 6000,
   },
+  // CORS-Proxy für den GTFS-Realtime-Feed von gtfs.de (der Feed selbst
+  // sendet keine CORS-Header). In Produktion übernimmt das ein Reverse-Proxy.
+  server: {
+    proxy: {
+      '/gtfs-rt': {
+        target: 'https://realtime.gtfs.de',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/gtfs-rt/, ''),
+      },
+    },
+  },
+  preview: {
+    proxy: {
+      '/gtfs-rt': {
+        target: 'https://realtime.gtfs.de',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/gtfs-rt/, ''),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

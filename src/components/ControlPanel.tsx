@@ -7,6 +7,7 @@ import {
   Layers,
   Pause,
   Play,
+  RadioTower,
   TimerReset,
   TramFront,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import type { RealtimeStatus } from '@/lib/realtime'
 import type { TilesetStatus } from '@/map/CesiumMap'
 
 export interface LineToggleInfo {
@@ -52,6 +54,8 @@ export interface ControlPanelProps {
   tramCount: number
   tilesetStatus: TilesetStatus
   dataSource: string
+  /** Status des GTFS-Realtime-Feeds (null = deaktiviert). */
+  realtimeStatus: RealtimeStatus | null
   onResetCamera: () => void
 }
 
@@ -213,6 +217,12 @@ export function ControlPanel(props: ControlPanelProps) {
             <Badge variant="outline" data-testid="data-source">
               {props.dataSource}
             </Badge>
+            {props.realtimeStatus?.state === 'live' && (
+              <Badge variant="secondary" data-testid="rt-status">
+                <RadioTower aria-hidden />
+                GTFS-RT · {props.realtimeStatus.matchedCount} live
+              </Badge>
+            )}
           </div>
 
           <Button variant="outline" size="sm" onClick={props.onResetCamera}>
