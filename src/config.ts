@@ -16,13 +16,13 @@ export const config = {
     (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) || DEFAULT_ION_TOKEN,
 
   /**
-   * GTFS-Realtime-Feed (Protobuf). Standard: der freie gtfs.de-Feed über den
-   * Vite-Proxy (/gtfs-rt → https://realtime.gtfs.de, siehe vite.config.ts).
+   * Gefilterter GTFS-Realtime-Endpunkt (JSON, wenige KB). Im Dev-Server von
+   * der Vite-Middleware bedient, in Produktion von api/realtime.php – beide
+   * laden und filtern den >10-MB-Deutschland-Feed serverseitig (60-s-Cache).
    * Mit VITE_GTFS_RT_URL überschreibbar; leerer String deaktiviert Realtime.
    */
   gtfsRealtimeUrl:
-    (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ??
-    '/gtfs-rt/realtime-free.pb',
+    (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
   /** Startposition der Kamera: Blick von Süden über das gesamte Netz. */
   home: {

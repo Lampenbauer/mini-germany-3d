@@ -25,6 +25,9 @@ jobs:
           npm run typecheck
           npm test
 
+      - name: PHP-Parser-Paritätstest (api/realtime.php)
+        run: node scripts/test-php-parser.mjs
+
       - name: Produktions-Build
         run: npm run build
 
