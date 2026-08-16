@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * Eigene Spec für den renderintensiven Follow-Test: Er startet mit einer
- * frischen Kamera und sein Retry wiederholt nicht die schnellen App-Tests.
+ * Separate spec for the render-heavy follow test: it starts with a fresh
+ * camera, and its retry does not re-run the fast app tests.
  */
-test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
-  // Ein langsamer SwiftShader-Boot plus die beiden Render-Loop-Polls brauchen
-  // auf ausgelasteten CI-Runnern mehr Spielraum als das globale 90-s-Limit.
+test('"Follow" moves the camera to the vehicle', async ({ page }) => {
+  // A slow SwiftShader boot plus the two render-loop polls need more
+  // headroom on busy CI runners than the global limit provides.
   test.setTimeout(240_000)
 
   await page.goto('/?offline=1&time=08:30&paused=1')
@@ -16,7 +16,7 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
     { timeout: 120_000 },
   )
 
-  // Render-Loop muss laufen (Diagnose: lastLoopError zeigt ggf. die Ursache).
+  // The render loop must be running (diagnosis: lastLoopError names the cause).
   const ticksBefore = await page.evaluate(() => window.__mrt!.loopTicks())
   await expect
     .poll(
@@ -25,7 +25,7 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
           ticks: window.__mrt!.loopTicks(),
           error: window.__mrt!.lastLoopError(),
         }))
-        expect(state.error, `Render-Loop-Fehler: ${state.error}`).toBeNull()
+        expect(state.error, `Render loop error: ${state.error}`).toBeNull()
         return state.ticks
       },
       { timeout: 15_000 },
@@ -34,14 +34,14 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
 
   const tram = await page.evaluate(() => window.__mrt!.trams()[0])
   await page.evaluate((id) => window.__mrt!.selectTram(id), tram.id)
-  // force: Playwrights Actionability-Retry kann unter SwiftShader-Last auf dem
-  // Canvas landen und damit die Auswahl schließen (Klick auf leere Karte).
-  await page.getByRole('button', { name: 'Bahn folgen' }).click({ force: true })
-  await expect(page.getByRole('button', { name: 'Verfolgung beenden' })).toBeVisible()
+  // force: Playwright's actionability retry can land on the canvas under
+  // SwiftShader load and thereby close the selection (click on empty map).
+  await page.getByRole('button', { name: 'Follow tram' }).click({ force: true })
+  await expect(page.getByRole('button', { name: 'Stop following' })).toBeVisible()
 
-  // Kamera muss sich in die Nähe der (pausierten) Bahn bewegen.
-  // Großzügiges Timeout: Unter SwiftShader-Software-Rendering können einzelne
-  // Frames sekundenlang dauern, bis die Follow-Kamera greift.
+  // The camera must move close to the (paused) vehicle.
+  // Generous timeout: under SwiftShader software rendering individual frames
+  // can take seconds until the follow camera takes hold.
   await expect
     .poll(
       async () => {
@@ -51,7 +51,7 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
           if (!tramNow) {
             return {
               dist: Number.POSITIVE_INFINITY,
-              loopError: `Ausgewählte Bahn ${tramId} ist nicht mehr aktiv`,
+              loopError: `Selected vehicle ${tramId} is no longer active`,
             }
           }
           const camLat = (camera.latitude * 180) / Math.PI
@@ -64,16 +64,16 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async ({ page }) => {
             loopError: window.__mrt!.lastLoopError(),
           }
         }, tram.id)
-        // Ein Loop-Fehler nach dem Klick würde das Folgen still verhindern –
-        // dann soll der Test die Ursache nennen statt nur die Distanz.
-        expect(state.loopError, `Render-Loop-Fehler: ${state.loopError}`).toBeNull()
+        // A loop error after the click would silently prevent following –
+        // then the test should name the cause instead of just the distance.
+        expect(state.loopError, `Render loop error: ${state.loopError}`).toBeNull()
         return state.dist
       },
       { timeout: 45_000, intervals: [500, 1000] },
     )
     .toBeLessThan(1500)
 
-  await page.getByRole('button', { name: 'Verfolgung beenden' }).click({ force: true })
-  await page.getByRole('button', { name: 'Auswahl schließen' }).click({ force: true })
+  await page.getByRole('button', { name: 'Stop following' }).click({ force: true })
+  await page.getByRole('button', { name: 'Close selection' }).click({ force: true })
   await expect(page.getByTestId('tram-card')).not.toBeVisible()
 })

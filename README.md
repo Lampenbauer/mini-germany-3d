@@ -1,237 +1,241 @@
 # 🚋 Mini Rostock 3D
 
-**Der Rostocker Straßenbahnverkehr live auf einer photorealistischen 3D-Karte** – inspiriert von
-[mini-tokyo-3d](https://github.com/nagix/mini-tokyo-3d), gebaut mit
-[CesiumJS](https://cesium.com/platform/cesiumjs/) und
+**Rostock's tram network, live on a photorealistic 3D map** – inspired by
+[mini-tokyo-3d](https://github.com/nagix/mini-tokyo-3d), built with
+[CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
 
-Die Straßenbahnen der RSAG (Linien 1, 2, 3, 5, 6) fahren fahrplanbasiert über ihre realen
-Routen durch die Stadt – mit Zeitraffer, Linienfiltern, Haltestellen-Layer und einer
-an [shadcn/ui](https://ui.shadcn.com/) angelehnten Oberfläche.
+The RSAG trams (lines 1, 2, 3, 5, 6) run schedule-based along their real routes
+through the city – with time-lapse, line filters, a stops layer, and a UI styled
+after [shadcn/ui](https://ui.shadcn.com/).
 
-![Screenshot (Offline-Modus mit Gitter-Globus)](docs/screenshots/offline-overview.png)
+![Screenshot (offline mode with wireframe globe)](docs/screenshots/offline-overview.png)
 
-> Der Screenshot stammt aus dem netzwerklosen **Offline-Modus** der Testumgebung
-> (`?offline=1`, Gitter statt Fototextur). Mit Internetzugang rendert die App die
-> photorealistischen Google-3D-Kacheln von Rostock.
+> The screenshot comes from the network-free **offline mode** used by the test
+> environment (`?offline=1`, wireframe instead of photo textures). With internet
+> access the app renders the photorealistic Google 3D Tiles of Rostock.
 
 ---
 
 ## Milestone 1 – Status
 
-| # | Anforderung | Status |
+| # | Requirement | Status |
 |---|-------------|--------|
-| 1 | Cesium-Karte mit Google 3D Tiles | ✅ `createGooglePhotorealistic3DTileset` via Cesium ion, Fallback auf Gitter-Globus wenn nicht erreichbar |
-| 2 | Straßenbahnen als einfache Quader auf realen Routen | ✅ 3D-Boxen (32 m × 2,65 m × 3,6 m) mit Linien-Label, fahrplanbasierte Simulation (siehe [Datenlage](#datenlage--gtfs--gtfs-realtime--osm)) |
-| 3 | Routen/Linien auf der Karte | ✅ Auf Boden/3D-Kacheln drapierte Polylinien in Linienfarben + Haltestellen-Layer |
-| 4 | Interface mit shadcn(-angelehnt) | ✅ Tailwind v4 + Radix-Primitives, shadcn-Komponentenstil (Card, Button, Badge, Switch, Slider) |
-| 5 | Visuelle und funktionale Tests | ✅ 44 Unit-Tests (Vitest), 8 funktionale + 3 visuelle E2E-Tests (Playwright) |
+| 1 | Cesium map with Google 3D Tiles | ✅ `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable |
+| 2 | Trams as simple boxes on real routes | ✅ 3D boxes (32 m × 2.65 m × 3.6 m) with line labels, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| 3 | Routes/lines on the map | ✅ Polylines draped onto the ground/3D tiles in line colors + stops layer |
+| 4 | shadcn(-style) interface | ✅ Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
+| 5 | Automated tests | ✅ Unit tests (Vitest) and functional E2E tests (Playwright) |
 
-## Schnellstart
+## Quick start
 
 ```bash
-npm install        # kopiert auch die Cesium-Assets nach public/cesium (postinstall)
+npm install        # also copies the Cesium assets to public/cesium (postinstall)
 npm run dev        # → http://localhost:5173
 ```
 
-**Cesium-Ion-Token:** Ein Standard-Token ist in `src/config.ts` hinterlegt und kann ohne
-Codeänderung per `.env` überschrieben werden (siehe `.env.example`):
+**Cesium ion token:** A default token ships in `src/config.ts` and can be overridden
+via `.env` without touching the code (see `.env.example`):
 
 ```bash
-VITE_CESIUM_ION_TOKEN=dein-token
+VITE_CESIUM_ION_TOKEN=your-token
 ```
 
-> Ion-Tokens sind clientseitige, veröffentlichbare Tokens – sie landen zwangsläufig im
-> Browser-Bundle. Trotzdem empfiehlt es sich, den Token im
-> [Cesium-ion-Dashboard](https://ion.cesium.com/tokens) auf die eigenen Domains
-> einzuschränken. Für die Google-3D-Kacheln muss im ion-Konto der Zugriff auf
-> *Google Photorealistic 3D Tiles* (Asset 2275207) aktiviert sein.
+> Ion tokens are client-side, publishable tokens – they inevitably end up in the
+> browser bundle. It is still a good idea to restrict the token to your own domains
+> in the [Cesium ion dashboard](https://ion.cesium.com/tokens). For the Google 3D
+> Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must be enabled
+> in the ion account.
 
-### Bedienung
+### Usage
 
-- **Simulationszeit:** Im Panel lässt sich die Uhrzeit direkt setzen (z. B. auf den
-  Berufsverkehr springen); „Jetzt“ stellt die echte Uhrzeit wieder her. Zeitraffer
-  1–120× und Pause wirken jederzeit.
-- **Bahn auswählen:** Klick auf einen Quader öffnet die Infokarte (Linie, Ziel,
-  nächster Halt). „Bahn folgen“ heftet die Kamera an die Bahn und fährt mit –
-  Orbit/Zoom mit der Maus bleiben dabei möglich; Klick auf leere Karte,
-  „Verfolgung beenden“ oder Kamera-Reset lösen die Verfolgung.
-- **Kamera-Sharing:** Die Kameraausrichtung wird alle 1,5 s im URL-Hash gespeichert
-  (`#lat=…&lon=…&height=…&heading=…&pitch=…`) und beim Laden wiederhergestellt –
-  Ansichten überleben einen Reload und lassen sich als Link teilen.
+- **Simulation time:** The panel lets you set the clock directly (e.g. jump to rush
+  hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any time.
+- **Selecting a tram:** Clicking a box opens the info card (line, destination, next
+  stop). "Follow" pins the camera to the vehicle and rides along – orbiting/zooming
+  with the mouse remains possible; clicking empty map, "Stop following", or a camera
+  reset ends the follow mode.
+- **Camera sharing:** The camera pose is saved to the URL hash every 1.5 s
+  (`#lat=…&lon=…&height=…&heading=…&pitch=…`) and restored on load – views survive
+  a reload and can be shared as a link.
 
-### Nützliche URL-Parameter
+### Useful URL parameters
 
-| Parameter | Wirkung |
-|-----------|---------|
-| `?offline=1` | Kein Ion/Google-Zugriff, Gitter-Globus (Basis der Tests) |
-| `?speed=60` | Zeitraffer-Startwert (1–600) |
-| `?time=08:30` | Simulationszeit setzen (Europe/Berlin) |
-| `?paused=1` | Simulation eingefroren starten |
-| `#lat=…&lon=…&height=…` | Gespeicherte Kameraausrichtung (wird automatisch gepflegt) |
+| Parameter | Effect |
+|-----------|--------|
+| `?offline=1` | No ion/Google access, wireframe globe (basis of the tests) |
+| `?speed=60` | Initial time-lapse factor (1–600) |
+| `?time=08:30` | Set the simulation time (Europe/Berlin) |
+| `?paused=1` | Start with the simulation frozen |
+| `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 
 ## Tests
 
 ```bash
-npm test               # Unit-Tests (Vitest): Geodäsie, Fahrplan-Engine, Uhr, Netz-Validierung, UI
-npm run test:e2e       # E2E + visuelle Regression (Playwright, komplett offline & deterministisch)
-npm run test:e2e:update  # Visuelle Baselines neu erzeugen (nach gewollten UI-Änderungen)
+npm test               # Unit tests (Vitest): geodesy, timetable engine, clock, network validation, UI
+npm run test:e2e       # Functional E2E tests (Playwright, fully offline & deterministic)
 ```
 
-Die E2E-Tests starten die echte App im Offline-Modus mit eingefrorener Simulationszeit
-(08:30 Uhr) und rendern Cesium headless über SwiftShader. Die visuellen Tests arbeiten
-zweistufig: Das **Karten-Rendering** wird per Pixel-Analyse geprüft (sind farbige
-Routen/Bahnen auf dem Canvas sichtbar? – bewusst ohne Baseline, da WebGL-Antialiasing
-zwischen GPU-/SwiftShader-Versionen variiert; der Screenshot hängt am Testreport).
-**UI-Elemente** (Control-Panel, Tram-Infokarte) werden pixelgenau gegen eingecheckte
-Baselines verglichen – dank opaker Panels im Offline-Modus und gebündelter
-Inter-Schrift umgebungsunabhängig. In CI (GitHub Actions) läuft alles automatisch,
-siehe `.github/workflows/ci.yml`.
+The E2E tests start the real app in offline mode with a frozen simulation time
+(08:30) and render Cesium headless via SwiftShader. Everything runs automatically
+in CI (GitHub Actions), see `.github/workflows/ci.yml`.
 
-> **Nach Datenänderungen** (`data:update`/`data:gtfs`): Panel-Inhalte und
-> Haltestellennamen ändern sich → einmal `npm run test:e2e:update` ausführen und die
-> neuen Baselines mitcommitten.
+## Data – GTFS / GTFS-Realtime / OSM
 
-## Datenlage – GTFS / GTFS-Realtime / OSM
+### What the app currently uses
 
-### Was die App aktuell nutzt
-
-- **Routen & Haltestellen:** `src/data/network.json` enthält die **echten
-  OSM-Gleisgeometrien** aller sechs RSAG-Linien (1 Mecklenburger Allee ↔ Hafenallee,
+- **Routes & stops:** `src/data/network.json` contains the **real OSM track
+  geometries** of all six RSAG tram lines (1 Mecklenburger Allee ↔ Hafenallee,
   2 Kurt-Schumacher-Ring ↔ Reutershagen, 3 Neuer Friedhof ↔ Dierkower Allee,
   4 Campus Südstadt ↔ Dierkower Allee, 5 Mecklenburger Allee ↔ Südblick,
-  6 Campus Südstadt ↔ Neuer Friedhof) inklusive richtungsgetrennter Pfade und der
-  Linienfarben aus OSM – erkennbar am Badge „OSM-Geometrie“ in der App.
-  Ein approximierter Demo-Datensatz kann bei Bedarf mit
-  `node scripts/build-approx-network.mjs` wiederhergestellt werden.
-- **Fahrplan:** `src/data/schedule.json` enthält echte GTFS-Abfahrtszeiten je
-  Linie/Richtung (typischer Werktag). Für Linien/Richtungen ohne GTFS-Daten (z. B.
-  baustellenbedingt) greift automatisch ein synthetischer, RSAG-ähnlicher Takt aus
-  `src/lib/timetable.ts`. Die Fahrzeit zwischen den Halten wird aus der realen
-  Streckendistanz abgeleitet; die Bahnen fahren wie bei mini-tokyo-3d
-  **fahrplanbasiert**, nicht nach Echtzeitdaten.
+  6 Campus Südstadt ↔ Neuer Friedhof) including direction-specific paths and the
+  line colors from OSM – recognizable by the "OSM geometry" badge in the app.
+  An approximated demo dataset can be restored at any time with
+  `node scripts/build-approx-network.mjs`.
+- **Buses & ferries:** `npm run data:update` additionally fetches all
+  **RSAG bus lines** (route=bus with operator RSAG) as well as the two ferries
+  **Kabutzenhof – Gehlsdorf** (OSM relation 56291, 19.9 × 6.6 m) and
+  **Warnemünde – Hohe Düne** (relation 56296, 39 × 11 m). Each line in
+  `network.json` carries its mode of transport (`mode`: `tram`/`bus`/`ferry`),
+  and ferries their real vessel dimensions; the 3D boxes, travel speeds, and
+  synthetic headways adapt accordingly. The line panel groups by mode of
+  transport (with per-group toggles) as soon as more than one is present.
+- **Timetable:** `src/data/schedule.json` contains real GTFS departure times per
+  line/direction (typical weekday). For lines/directions without GTFS data (e.g.
+  due to construction work), a synthetic, RSAG-like headway from
+  `src/lib/timetable.ts` kicks in automatically. Travel time between stops is
+  derived from the real track distance; like mini-tokyo-3d, the vehicles run
+  **schedule-based**, not on real-time positions.
 
-### Echte Daten einspielen (empfohlen, benötigt freien Internetzugang)
+### Importing real data (recommended, requires unrestricted internet access)
 
 ```bash
-npm run data:update    # Echte Gleisgeometrien + Haltestellen aus OpenStreetMap (Overpass API)
-npm run data:gtfs      # Echte Abfahrtszeiten aus einem GTFS-Feed → src/data/schedule.json
-npm test               # validiert die neuen Datensätze
+npm run data:update    # Real track geometries + stops from OpenStreetMap (Overpass API)
+npm run data:gtfs      # Real departure times from a GTFS feed → src/data/schedule.json
+npm test               # validates the new datasets
 ```
 
-- `data:update` überschreibt `network.json` mit den echten OSM-Tram-Relationen
-  (© OpenStreetMap-Mitwirkende, [ODbL](https://www.openstreetmap.org/copyright)).
-- `data:gtfs` lädt standardmäßig den freien Deutschland-Nahverkehrsfeed von
-  [gtfs.de](https://gtfs.de) (DELFI-Basis). Mit `GTFS_URL`/`GTFS_FILE` kann stattdessen
-  der offizielle VVW-Feed genutzt werden.
-- Die Unit-Tests passen sich der Datenquelle an: Die strikten RSAG-Prüfungen laufen nur
-  gegen den Demo-Datensatz, strukturelle Prüfungen (Monotonie, Stadtgebiet, Längen)
-  gegen jeden Datensatz.
+- `data:update` overwrites `network.json` with the real OSM relations for
+  tram, RSAG bus, and the two ferries
+  (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)).
+- `data:gtfs` downloads the free Germany-wide public transport feed from
+  [gtfs.de](https://gtfs.de) (DELFI-based) by default. With `GTFS_URL`/`GTFS_FILE`
+  the official VVW feed can be used instead. The script looks up timetables for
+  all lines in `network.json` (tram `route_type` 0, bus 3, ferry 4; ferries are
+  matched via the pier names in `route_long_name`). Rostock relevance is
+  established via the stop coordinates; a per-line agency overview in the log
+  reveals route-number collisions. Lines without a GTFS match run on the
+  synthetic per-mode headway. **Important:** re-run `data:gtfs` after every
+  `data:update` so the new bus lines get timetables.
+- The unit tests adapt to the data source: the strict RSAG checks only run
+  against the demo dataset, while structural checks (monotonicity, city bounds,
+  lengths) run against every dataset.
 
-**Troubleshooting Datenpipeline**
+**Data pipeline troubleshooting**
 
-| Problem | Lösung |
-|---------|--------|
-| Overpass antwortet mit 403/406/429 | Das Skript sendet einen User-Agent und probiert automatisch mehrere Mirror (overpass-api.de → kumi.systems → osm.ch). Eigenen Endpunkt per `OVERPASS_URL=… npm run data:update` setzen oder eine gespeicherte Antwort per `OVERPASS_FILE=antwort.json` einspielen. |
-| GTFS-Download dauert lange | Der Feed (~260 MB) wird unter `scripts/.cache/gtfs.zip` gecacht; Datei löschen für einen frischen Download. Bereits vorhandene Zips via `GTFS_FILE=pfad.zip` nutzen. |
-| CI/Sandbox ohne freien Internetzugang | Overpass/gtfs.de sind dort nicht erreichbar – der mitgelieferte Datensatz bleibt aktiv. |
+| Problem | Solution |
+|---------|----------|
+| Overpass responds with 403/406/429 | The script sends a User-Agent and automatically tries several mirrors (overpass-api.de → kumi.systems → osm.ch). Set your own endpoint via `OVERPASS_URL=… npm run data:update` or feed in a saved response via `OVERPASS_FILE=response.json`. |
+| GTFS download takes long | The feed (~260 MB) is cached at `scripts/.cache/gtfs.zip`; delete the file for a fresh download. Reuse an existing zip via `GTFS_FILE=path.zip`. |
+| CI/sandbox without unrestricted internet access | Overpass/gtfs.de are unreachable there – the bundled dataset stays active. |
 
-### GTFS-Realtime (implementiert, serverseitig gefiltert)
+### GTFS-Realtime (implemented, filtered server-side)
 
-Die App bindet den **freien GTFS-Realtime-Feed von gtfs.de** an
-(`https://realtime.gtfs.de/realtime-free.pb`, DELFI-basiert):
+The app connects to the **free GTFS-Realtime feed from gtfs.de**
+(`https://realtime.gtfs.de/realtime-free.pb`, DELFI-based):
 
-- Der Feed liefert **TripUpdates (Verspätungen)** – keine Fahrzeugpositionen. Die App
-  überlagert damit die Fahrplansimulation: Eine Bahn mit +3 min fährt dort, wo sie
-  planmäßig vor 3 Minuten gewesen wäre. Panel-Badge „GTFS-RT · n live“ zeigt die Zahl
-  der aktuell zugeordneten Fahrten, die Infokarte einer Bahn die Verspätung.
-- **Serverseitige Filterung:** Der Deutschland-Feed ist >10 MB groß. Der Browser lädt
-  ihn deshalb NICHT selbst, sondern pollt den Endpunkt **`/api/realtime`** (wenige KB
-  JSON, alle 60 s). Dahinter steckt im Dev-/Preview-Server eine Vite-Middleware
-  (Node, `vite.config.ts`) und in Produktion **`api/realtime.php`** (Shared-Hosting-
-  tauglich, eigener Mini-Protobuf-Parser ohne Abhängigkeiten). Beide laden den Feed
-  höchstens einmal pro Minute, filtern auf die Rostocker `trip_ids` aus
-  `schedule.json` und cachen das Ergebnis – alle Besucher teilen sich einen
-  Upstream-Abruf. Ein Paritätstest (`node scripts/test-php-parser.mjs`, läuft auch
-  in CI) stellt sicher, dass PHP- und Node-Implementierung identisch extrahieren.
-- **Matching:** Die GTFS-`trip_id`s des Feeds passen zum statischen gtfs.de-Feed.
-  `npm run data:gtfs` speichert sie in `schedule.json` (`tripIds` parallel zu
-  `departures`) – ohne sie bleibt es bei „0 live“.
-- **Konfiguration:** `VITE_GTFS_RT_URL` überschreibt die Endpunkt-URL, leerer String
-  deaktiviert Realtime; URL-Parameter `?rt=1`/`?rt=0` übersteuern (Standard: an,
-  außer im Offline-Modus).
-- **Grenzen der freien Variante:** reduzierter Umfang, nur zum gtfs.de-Soll-Feed
-  passende trip_ids, Attribution erforderlich. Der offizielle VVW-Weg (Registrierung
-  über die [Connect-Plattform](https://www.verkehrsverbund-warnow.de/service/open-data.html))
-  bleibt die Option für vollständige Echtzeitdaten.
+- The feed provides **TripUpdates (delays)** – not vehicle positions. The app
+  overlays them on the schedule simulation: a tram running +3 min is drawn where it
+  would have been on schedule 3 minutes ago. The panel badge "GTFS-RT · n live"
+  shows the number of currently matched trips, and a vehicle's info card shows
+  its delay.
+- **Server-side filtering:** The Germany-wide feed is >10 MB. The browser therefore
+  does NOT download it itself but polls the **`/api/realtime`** endpoint (a few KB
+  of JSON, every 60 s). Behind it sits a Vite middleware in the dev/preview server
+  (Node, `vite.config.ts`) and, in production, **`api/realtime.php`**
+  (shared-hosting friendly, with its own minimal protobuf parser and no
+  dependencies). Both fetch the feed at most once per minute, filter it down to
+  the Rostock `trip_ids` from `schedule.json`, and cache the result – all visitors
+  share a single upstream fetch. A parity test (`node scripts/test-php-parser.mjs`,
+  also run in CI) ensures the PHP and Node implementations extract identical data.
+- **Matching:** The feed's GTFS `trip_id`s match the static gtfs.de feed.
+  `npm run data:gtfs` stores them in `schedule.json` (`tripIds` alongside
+  `departures`) – without them the badge stays at "0 live".
+- **Configuration:** `VITE_GTFS_RT_URL` overrides the endpoint URL, an empty string
+  disables realtime; the URL parameters `?rt=1`/`?rt=0` take precedence (default:
+  on, except in offline mode).
+- **Limits of the free variant:** reduced coverage, only trip_ids matching the
+  gtfs.de static feed, attribution required. The official VVW route (registration
+  via the [Connect platform](https://www.verkehrsverbund-warnow.de/service/open-data.html))
+  remains the option for complete real-time data.
 
-## Deployment (all-inkl Webhosting)
+## Deployment (all-inkl webhosting)
 
-`.github/workflows/ci.yml` testet und baut die App und lädt sie anschließend per
-rsync/SSH auf das all-inkl-Webhosting (Apache + PHP) nach
+`.github/workflows/ci.yml` tests and builds the app and then uploads it via
+rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 `https://minirostock3d.lampenbauer.com`:
 
-1. **Einmalig:** In den Repo-Einstellungen das Secret **`KAS_SSH_PASSWORD`** anlegen
-   (Settings → Secrets and variables → Actions) – das SSH-Passwort des Users
-   `***REMOVED***`. Host, User und Zielverzeichnis stehen direkt im Workflow.
-2. Nach einem Push auf `main` – insbesondere nach einem PR-Merge – wartet der
-   Deploy-Job auf den vollständigen erfolgreichen CI-Job: Typecheck, Unit-Tests,
-   PHP-Paritätstest, Build sowie E2E- und visuelle Tests. Erst danach werden
-   `dist/`, `api/realtime.php` und `api/schedule.json` per rsync ins
-   Stammverzeichnis `***REMOVED***/` geladen.
-   PR-Prüfungen, Feature-Branch-Pushes und fehlgeschlagene Tests deployen nicht.
-   Ein manueller Start des CI-Workflows auf `main` durchläuft ebenfalls zuerst
-   alle Tests und eignet sich damit als Recovery-Deploy.
-3. Die mitdeployte `.htaccess` mappt `/api/realtime` auf das PHP-Skript und setzt
-   Cache-Header (gehashte Assets ein Jahr, `index.html` no-cache, Cesium-Statik
-   einen Tag).
+1. **One-time setup:** Create the secret **`KAS_SSH_PASSWORD`** in the repository
+   settings (Settings → Secrets and variables → Actions) – the SSH password of the
+   user `***REMOVED***`. Host, user, and target directory are defined directly in
+   the workflow.
+2. After a push to `main` – in particular after a PR merge – the deploy job waits
+   for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
+   build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and
+   `api/schedule.json` rsynced to the document root
+   `***REMOVED***/`. PR checks, feature-branch pushes,
+   and failed tests do not deploy. A manual run of the CI workflow on `main` also
+   goes through all tests first, which makes it suitable as a recovery deploy.
+3. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
+   headers (hashed assets one year, `index.html` no-cache, Cesium static files
+   one day).
 
-> Hinweis: Nach einem Datenupdate (`npm run data:gtfs`) die neue `schedule.json`
-> committen – sie wird beim Deploy als `api/schedule.json` mit ausgerollt, damit
-> Browser-Matching und Server-Filter dieselben trip_ids verwenden.
+> Note: After a data update (`npm run data:gtfs`), commit the new `schedule.json` –
+> it is rolled out as `api/schedule.json` during deploy so that browser matching
+> and the server filter use the same trip_ids.
 
-## Architektur
+## Architecture
 
 ```
 src/
-├── config.ts               # Token, Kamera-Startposition, Simulations-Parameter
+├── config.ts               # Token, initial camera position, simulation parameters
 ├── data/
-│   ├── network.json        # Liniennetz (generiert; Skripte s. u.)
-│   ├── schedule.json       # optionale echte Abfahrtszeiten (GTFS)
-│   └── network.ts          # Laden + Aufbereitung (Distanzen, Richtungs-Spiegelung)
+│   ├── network.json        # Line network (generated; see scripts below)
+│   ├── schedule.json       # optional real departure times (GTFS)
+│   └── network.ts          # Loading + preparation (distances, direction mirroring)
 ├── lib/
-│   ├── geo.ts              # Haversine, Bearing, Polylinien-Interpolation/-Projektion
-│   ├── clock.ts            # Simulationsuhr (Zeitraffer, Pause, Europe/Berlin)
-│   └── timetable.ts        # Taktfahrplan-Synthese + Fahrt-Zustände (dwell/moving)
-├── engine/simulation.ts    # Uhr + Fahrplan → TramSnapshots pro Frame
-├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, Routen, Haltestellen, Tram-Boxen
-├── components/             # shadcn-artige UI (ControlPanel, TramCard, ui/*)
-└── App.tsx                 # Verdrahtung, Render-Loop, Test-API (window.__mrt)
+│   ├── geo.ts              # Haversine, bearing, polyline interpolation/projection
+│   ├── clock.ts            # Simulation clock (time-lapse, pause, Europe/Berlin)
+│   └── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
+├── engine/simulation.ts    # Clock + timetable → tram snapshots per frame
+├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, routes, stops, tram boxes
+├── components/             # shadcn-style UI (ControlPanel, TramCard, ui/*)
+└── App.tsx                 # Wiring, render loop, test API (window.__mrt)
 
 scripts/
-├── build-approx-network.mjs  # erzeugt den mitgelieferten Demo-Datensatz
-├── fetch-osm-network.mjs     # echte Geometrie aus OSM/Overpass  (npm run data:update)
-├── fetch-gtfs-schedule.mjs   # echte Abfahrtszeiten aus GTFS     (npm run data:gtfs)
-└── copy-cesium-assets.mjs    # Cesium-Statik nach public/cesium  (postinstall)
+├── build-approx-network.mjs  # generates the bundled demo dataset
+├── fetch-osm-network.mjs     # real geometry from OSM/Overpass   (npm run data:update)
+├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
+└── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
 
-**Funktionsweise der Simulation:** Für jede Linie/Richtung werden aus dem Takt
-Abfahrtszeiten erzeugt; die Fahrzeit zwischen zwei Halten ergibt sich aus der realen
-Streckendistanz (~30 km/h + 25 s Haltezeit). Pro Frame wird für jede aktive Fahrt die
-Distanz entlang der Route interpoliert und in Position + Fahrtrichtung (Heading der
-3D-Box) übersetzt. Die Boxen klemmen sich per `HeightReference` automatisch auf die
-Google-3D-Kacheln bzw. das Ellipsoid.
+**How the simulation works:** For each line/direction, departure times are generated
+from the headway; the travel time between two stops follows from the real track
+distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
+interpolated for each active trip and translated into a position + travel direction
+(heading of the 3D box). The boxes clamp themselves onto the Google 3D Tiles or the
+ellipsoid automatically via `HeightReference`.
 
 ## Roadmap (Milestone 2+)
 
-- GTFS-RT mit VehiclePositions (voller gtfs.de- oder VVW-Feed) statt nur TripUpdates
-- Detailliertere Fahrzeuge (Low-Poly-6N2 statt Quader), Beschleunigungs-/Bremsprofile
-- Haltestellen-Popups mit Abfahrtsmonitor, Tag/Nacht-Beleuchtung, Performance-Tuning
+- GTFS-RT with VehiclePositions (full gtfs.de or VVW feed) instead of TripUpdates only
+- More detailed vehicles (low-poly 6N2 instead of boxes), acceleration/braking profiles
+- Stop popups with departure boards, day/night lighting, performance tuning
 
 ## Attribution
 
-- Karten-Rendering: [CesiumJS](https://cesium.com) (Apache-2.0), Kacheln © Google –
-  bei Nutzung der Photorealistic 3D Tiles gelten die Google-Maps-Plattform-Bedingungen;
-  die Attribution wird von Cesium automatisch eingeblendet.
-- Netzdaten (nach `npm run data:update`): © OpenStreetMap-Mitwirkende, ODbL 1.0
-- Fahrplandaten (nach `npm run data:gtfs`): gtfs.de / DELFI bzw. VVW – Lizenzhinweise der Quelle beachten
+- Map rendering: [CesiumJS](https://cesium.com) (Apache-2.0), tiles © Google –
+  use of the Photorealistic 3D Tiles is subject to the Google Maps Platform terms;
+  the attribution is displayed automatically by Cesium.
+- Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
+- Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or VVW – observe the source's license terms

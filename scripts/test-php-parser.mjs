@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Paritätstest: Der PHP-Mini-Protobuf-Parser (server/api/realtime.php) muss
- * exakt dieselben Verspätungen extrahieren wie die Node-Implementierung
- * (src/lib/rt-extract.ts). Läuft lokal und in CI (benötigt php im PATH).
+ * Parity test: the PHP mini protobuf parser (server/api/realtime.php) must
+ * extract exactly the same delays as the Node implementation
+ * (src/lib/rt-extract.ts). Runs locally and in CI (requires php in PATH).
  */
 
 import { execFileSync } from 'node:child_process'
@@ -76,12 +76,12 @@ try {
 
   const same = JSON.stringify(actual) === JSON.stringify(expected)
   if (!same) {
-    console.error('❌ PHP-Parser weicht von der Node-Referenz ab!')
-    console.error('Erwartet:', JSON.stringify(expected))
-    console.error('Erhalten:', JSON.stringify(actual))
+    console.error('❌ PHP parser deviates from the Node reference!')
+    console.error('Expected:', JSON.stringify(expected))
+    console.error('Actual:', JSON.stringify(actual))
     process.exit(1)
   }
-  console.log('✅ PHP-Parser liefert exakt das Referenz-Ergebnis:', output.trim())
+  console.log('✅ PHP parser returns exactly the reference result:', output.trim())
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }

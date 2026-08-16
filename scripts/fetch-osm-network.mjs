@@ -1,19 +1,24 @@
 #!/usr/bin/env node
 /**
- * Lädt die echten Rostocker Straßenbahn-Routen aus OpenStreetMap (Overpass API)
- * und erzeugt daraus src/data/network.json mit exakter Gleisgeometrie.
+ * Fetches the real Rostock public transport routes from OpenStreetMap
+ * (Overpass API) and generates src/data/network.json with exact geometry:
+ *   - all tram lines (route=tram)
+ *   - all RSAG bus lines (route=bus, operator RSAG)
+ *   - the ferries Kabutzenhof–Gehlsdorf (56291) and
+ *     Warnemünde–Hohe Düne (56296)
  *
  *   npm run data:update
  *
- * Umgebungsvariablen:
- *   OVERPASS_URL  – alternativer Overpass-Endpunkt (überspringt die Mirror-Liste)
- *   OVERPASS_FILE – lokale JSON-Datei mit einer bereits gespeicherten
- *                   Overpass-Antwort (kein Netzwerkzugriff nötig)
+ * Environment variables:
+ *   OVERPASS_URL  – alternative Overpass endpoint (skips the mirror list)
+ *   OVERPASS_FILE – local JSON file with a previously saved Overpass
+ *                   response (no network access needed)
+ *   NETWORK_OUT   – alternative output path (default: src/data/network.json)
  *
- * Datenlizenz: © OpenStreetMap-Mitwirkende, ODbL 1.0 (https://osm.org/copyright)
+ * Data license: © OpenStreetMap contributors, ODbL 1.0 (https://osm.org/copyright)
  *
- * Hinweis: In Sandbox-/CI-Umgebungen ohne freien Internetzugang schlägt dieses
- * Skript fehl – dann bleibt der mitgelieferte approximierte Datensatz aktiv
+ * Note: In sandbox/CI environments without open internet access this script
+ * fails – the bundled approximated dataset then stays active
  * (scripts/build-approx-network.mjs).
  */
 
@@ -22,9 +27,11 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const OUT = resolve(__dirname, '../src/data/network.json')
+const OUT = process.env.NETWORK_OUT
+  ? resolve(process.env.NETWORK_OUT)
+  : resolve(__dirname, '../src/data/network.json')
 
-// Öffentliche Overpass-Instanzen; werden der Reihe nach probiert.
+// Public Overpass instances; tried in order.
 const OVERPASS_MIRRORS = process.env.OVERPASS_URL
   ? [process.env.OVERPASS_URL]
   : [
@@ -33,8 +40,8 @@ const OVERPASS_MIRRORS = process.env.OVERPASS_URL
       'https://overpass.osm.ch/api/interpreter',
     ]
 
-// Overpass-Instanzen erwarten identifizierbare Clients; Requests ohne
-// User-Agent werden teils abgelehnt (z.B. mit HTTP 403/406).
+// Overpass instances expect identifiable clients; requests without a
+// User-Agent are sometimes rejected (e.g. with HTTP 403/406).
 const REQUEST_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
   Accept: 'application/json',
@@ -42,10 +49,10 @@ const REQUEST_HEADERS = {
     'mini-rostock-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
 }
 
-// Bounding-Box Rostock (Süd, West, Nord, Ost)
+// Bounding box for Rostock (south, west, north, east)
 const BBOX = '53.95,11.95,54.22,12.35'
 
-// Fallback-Farben, falls OSM keine colour-Tags liefert (RSAG-ähnliche Palette)
+// Fallback colors in case OSM provides no colour tags (RSAG-like palette)
 const FALLBACK_COLORS = {
   1: '#D71920',
   2: '#0072BC',
@@ -56,12 +63,46 @@ const FALLBACK_COLORS = {
   7: '#00A5B5',
 }
 
-// Wichtig: "out body qt" (nicht "out skel qt"), damit Knoten/Wege ihre Tags
-// behalten – sonst fehlen die Haltestellennamen.
+// Bus lines without a colour tag get a distinguishable color in rotation.
+const BUS_PALETTE = [
+  '#1D4ED8', '#059669', '#B45309', '#7C3AED', '#BE185D',
+  '#0E7490', '#4D7C0F', '#B91C1C', '#6D28D9', '#0F766E',
+]
+
+/**
+ * The two desired ferries, addressed via their OSM relation IDs.
+ * Dimensions per operator specifications; the height is a visual
+ * approximation above the waterline (drives/superstructures).
+ */
+const FERRIES = {
+  // Careful with the IDs: 'F1'–'F4' are already RSAG BUS lines!
+  56291: {
+    id: 'FG',
+    name: 'Ferry Kabutzenhof – Gehlsdorf',
+    from: 'Kabutzenhof',
+    to: 'Gehlsdorf',
+    color: '#0E7490',
+    vehicle: { length: 19.9, width: 6.6, height: 3.5 },
+  },
+  56296: {
+    id: 'FW',
+    name: 'Ferry Warnemünde – Hohe Düne',
+    from: 'Warnemünde',
+    to: 'Hohe Düne',
+    color: '#155E75',
+    vehicle: { length: 39, width: 11, height: 6 },
+  },
+}
+
+// Important: "out body qt" (not "out skel qt") so that nodes/ways keep their
+// tags – otherwise the stop names are missing.
+// Buses: RSAG only (regional buses of other operators such as rebus are excluded).
 const QUERY = `
-[out:json][timeout:180][bbox:${BBOX}];
+[out:json][timeout:240][bbox:${BBOX}];
 (
   relation["route"="tram"];
+  relation["route"="bus"]["operator"~"Rostocker Straßenbahn|RSAG",i];
+  relation(id:${Object.keys(FERRIES).join(',')});
 );
 out body;
 >;
@@ -80,9 +121,9 @@ function haversineMeters([lon1, lat1], [lon2, lat2]) {
 }
 
 /**
- * Verkettet die Wege einer Relation zu einer durchgehenden Polylinie.
- * OSM-PTv2-Relationen führen die Wege geordnet; die Orientierung jedes Wegs
- * wird über den Anschluss an das jeweilige Streckenende bestimmt.
+ * Stitches the ways of a relation into one continuous polyline.
+ * OSM PTv2 relations list their ways in order; each way's orientation is
+ * determined by how it connects to the current end of the route.
  */
 function stitchWays(ways, wayById, nodeById, label) {
   const coords = []
@@ -114,18 +155,18 @@ function stitchWays(ways, wayById, nodeById, label) {
     const gap = Math.min(dStart, dEnd)
 
     if (gap > 150) {
-      // Lücke in der Relation (z.B. Betriebsstrecke) – Weg auslassen
+      // Gap in the relation (e.g. depot track) – skip the way
       gaps++
       continue
     }
 
-    // Ersten Punkt überspringen, wenn er dem Streckenende entspricht
+    // Skip the first point if it matches the current end of the route
     const startIdx = gap < 1 ? 1 : 0
     coords.push(...oriented.slice(startIdx))
   }
 
   if (gaps > 0) {
-    console.warn(`  ⚠ ${label}: ${gaps} Weg(e) mit Lücke > 150 m übersprungen`)
+    console.warn(`  ⚠ ${label}: skipped ${gaps} way(s) with a gap > 150 m`)
   }
   return coords
 }
@@ -164,14 +205,14 @@ function projectOntoPath(path, cum, p) {
 
 async function fetchOverpassData() {
   if (process.env.OVERPASS_FILE) {
-    console.log(`Lese lokale Overpass-Antwort ${process.env.OVERPASS_FILE}`)
+    console.log(`Reading local Overpass response ${process.env.OVERPASS_FILE}`)
     const { readFileSync } = await import('node:fs')
     return JSON.parse(readFileSync(process.env.OVERPASS_FILE, 'utf8'))
   }
 
   const errors = []
   for (const url of OVERPASS_MIRRORS) {
-    console.log(`Overpass-Abfrage an ${url} …`)
+    console.log(`Querying Overpass at ${url} …`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -181,20 +222,20 @@ async function fetchOverpassData() {
       if (!response.ok) {
         const body = (await response.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
         errors.push(`${url} → HTTP ${response.status}: ${body.slice(0, 200)}`)
-        console.warn(`  ⚠ HTTP ${response.status} – versuche nächsten Mirror`)
+        console.warn(`  ⚠ HTTP ${response.status} – trying next mirror`)
         continue
       }
       return await response.json()
     } catch (err) {
       errors.push(`${url} → ${err.message}`)
-      console.warn(`  ⚠ ${err.message} – versuche nächsten Mirror`)
+      console.warn(`  ⚠ ${err.message} – trying next mirror`)
     }
   }
   throw new Error(
-    'Alle Overpass-Endpunkte fehlgeschlagen:\n  ' +
+    'All Overpass endpoints failed:\n  ' +
       errors.join('\n  ') +
-      '\nTipp: eigenen Endpunkt via OVERPASS_URL setzen oder eine gespeicherte ' +
-      'Antwort via OVERPASS_FILE verwenden.',
+      '\nTip: set a custom endpoint via OVERPASS_URL or use a saved ' +
+      'response via OVERPASS_FILE.',
   )
 }
 
@@ -210,23 +251,40 @@ async function main() {
     else if (el.type === 'relation') relations.push(el)
   }
   console.log(
-    `${relations.length} Tram-Relationen, ${wayById.size} Wege, ${nodeById.size} Knoten geladen`,
+    `Loaded ${relations.length} route relations, ${wayById.size} ways, ${nodeById.size} nodes`,
   )
 
-  // Relationen nach Linien-Ref gruppieren
-  const byRef = new Map()
+  // Group relations by line: trams/buses via their ref tag, the ferries via
+  // their fixed relation ID (some of them carry no ref).
+  const byLine = new Map() // key → { mode, ref, fixed?, rels }
   for (const rel of relations) {
+    const ferry = FERRIES[rel.id]
+    if (ferry) {
+      const key = `ferry:${ferry.id}`
+      if (!byLine.has(key)) byLine.set(key, { mode: 'ferry', ref: ferry.id, fixed: ferry, rels: [] })
+      byLine.get(key).rels.push(rel)
+      continue
+    }
+    const mode = rel.tags?.route === 'bus' ? 'bus' : rel.tags?.route === 'tram' ? 'tram' : null
     const ref = rel.tags?.ref
-    if (!ref) continue
-    if (!byRef.has(ref)) byRef.set(ref, [])
-    byRef.get(ref).push(rel)
+    if (!mode || !ref) continue
+    const key = `${mode}:${ref}`
+    if (!byLine.has(key)) byLine.set(key, { mode, ref, rels: [] })
+    byLine.get(key).rels.push(rel)
   }
 
   const stops = {}
   const lines = []
+  const MODE_ORDER = { tram: 0, bus: 1, ferry: 2 }
+  let busColorIndex = 0
 
-  for (const [ref, rels] of [...byRef.entries()].sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }))) {
-    // Name eines Relations-Members (Knoten oder Weg) ermitteln
+  const groups = [...byLine.values()].sort(
+    (a, b) =>
+      MODE_ORDER[a.mode] - MODE_ORDER[b.mode] ||
+      a.ref.localeCompare(b.ref, 'de', { numeric: true }),
+  )
+  for (const { mode, ref, fixed, rels } of groups) {
+    // Determine the name of a relation member (node or way)
     const memberName = (m) => {
       if (!m) return undefined
       const el =
@@ -234,18 +292,18 @@ async function main() {
       return el?.tags?.name
     }
 
-    // Pro Linie die (bis zu) zwei längsten Richtungs-Varianten nehmen
+    // Per line, take the (up to) two longest direction variants
     const candidates = rels
       .map((rel) => {
         const wayMembers = rel.members.filter((m) => m.type === 'way' && !/platform/.test(m.role || ''))
-        const path = stitchWays(wayMembers, wayById, nodeById, `Linie ${ref} (${rel.id})`)
+        const path = stitchWays(wayMembers, wayById, nodeById, `Line ${ref} (${rel.id})`)
         const stopNodes = []
         rel.members.forEach((m, i) => {
           if (m.type !== 'node' || !/stop/.test(m.role || '')) return
           const node = nodeById.get(m.ref)
           if (!node) return
-          // Unbenannte stop_positions erben den Namen der benachbarten
-          // Platform (PTv2-Relationen listen stop + platform paarweise).
+          // Unnamed stop_positions inherit the name of the adjacent
+          // platform (PTv2 relations list stop + platform in pairs).
           let name = node.tags?.name
           if (!name && /platform/.test(rel.members[i + 1]?.role || '')) {
             name = memberName(rel.members[i + 1])
@@ -257,15 +315,17 @@ async function main() {
         })
         return { rel, path, stopNodes }
       })
-      .filter((c) => c.path.length >= 2 && c.stopNodes.length >= 2)
+      // Ferry relations often do not list their piers with stop roles –
+      // there is a fallback below using the path endpoints.
+      .filter((c) => c.path.length >= 2 && (c.stopNodes.length >= 2 || mode === 'ferry'))
       .sort((a, b) => b.path.length - a.path.length)
 
     if (candidates.length === 0) {
-      console.warn(`⚠ Linie ${ref}: keine verwertbare Relation – übersprungen`)
+      console.warn(`⚠ ${mode === 'bus' ? 'Bus' : mode === 'ferry' ? 'Ferry' : 'Line'} ${ref}: no usable relation – skipped`)
       continue
     }
 
-    // Zwei Richtungen mit unterschiedlichen Endpunkten wählen
+    // Pick two directions with different endpoints
     const chosen = [candidates[0]]
     const firstTo = candidates[0].rel.tags?.to
     const opposite = candidates.find((c) => c !== candidates[0] && c.rel.tags?.to !== firstTo)
@@ -284,18 +344,35 @@ async function main() {
         const dist = projectOntoPath(path, cum, coord)
         if (dist <= lastDist) {
           dropped++
-          continue // Halt liegt nicht monoton auf der Strecke (z.B. Schleife)
+          continue // stop is not monotonic along the route (e.g. a loop)
         }
         lastDist = dist
-        // Bereits bekannte Namen (z.B. aus der Gegenrichtungs-Relation)
-        // nicht mit dem Platzhalter überschreiben
+        // Do not overwrite already known names (e.g. from the
+        // opposite-direction relation) with the placeholder
         const resolvedName =
-          name || node.tags?.name || (stops[id]?.name !== 'Haltestelle' && stops[id]?.name) || 'Haltestelle'
+          name || node.tags?.name || (stops[id]?.name !== 'Stop' && stops[id]?.name) || 'Stop'
         stops[id] = { name: resolvedName, coord }
         dirStops.push(id)
       }
       if (dropped > 0) {
-        console.warn(`  ⚠ Linie ${ref}: ${dropped} nicht-monotone Halte entfernt`)
+        console.warn(`  ⚠ Line ${ref}: removed ${dropped} non-monotonic stops`)
+      }
+      if (mode === 'ferry' && dirStops.length < 2) {
+        // Derive the piers from the path endpoints; names from the relation's
+        // from/to or – if the relation carries none (e.g. 56291) – from FERRIES.
+        const mkStop = (suffix, coord, name) => {
+          const id = `ferry-${rel.id}-${suffix}`
+          stops[id] = {
+            name,
+            coord: [Number(coord[0].toFixed(6)), Number(coord[1].toFixed(6))],
+          }
+          return id
+        }
+        dirStops.length = 0
+        dirStops.push(
+          mkStop('a', path[0], rel.tags?.from || fixed?.from || 'Pier'),
+          mkStop('b', path[path.length - 1], rel.tags?.to || fixed?.to || 'Pier'),
+        )
       }
       if (dirStops.length < 2) continue
 
@@ -308,25 +385,43 @@ async function main() {
     }
 
     if (directions.length === 0) {
-      console.warn(`⚠ Linie ${ref}: keine gültige Richtung – übersprungen`)
+      console.warn(`⚠ Line ${ref}: no valid direction – skipped`)
       continue
     }
 
+    // Line IDs must be unique across the network (e.g. the RSAG assigns bus
+    // numbers F1–F4, which would collide with naive ferry IDs).
+    let lineId =
+      fixed?.id ?? (mode === 'bus' && byLine.has(`tram:${ref}`) ? `B${ref}` : ref)
+    if (lines.some((l) => l.id === lineId)) {
+      const prefixed = `${mode === 'bus' ? 'B' : mode === 'ferry' ? 'FÄ' : 'T'}${lineId}`
+      console.warn(`  ⚠ Line ID "${lineId}" assigned twice – using "${prefixed}"`)
+      lineId = prefixed
+    }
+    const name =
+      fixed?.name ?? (mode === 'bus' ? `Bus ${ref}` : `Line ${ref}`)
     const colour = chosen[0].rel.tags?.colour
+    const fallbackColor =
+      fixed?.color ??
+      (mode === 'bus'
+        ? BUS_PALETTE[busColorIndex++ % BUS_PALETTE.length]
+        : FALLBACK_COLORS[ref] || '#64748b')
     lines.push({
-      id: ref,
-      name: `Linie ${ref}`,
-      color: /^#[0-9a-fA-F]{6}$/.test(colour || '') ? colour : FALLBACK_COLORS[ref] || '#64748b',
+      id: lineId,
+      name,
+      color: /^#[0-9a-fA-F]{6}$/.test(colour || '') ? colour : fallbackColor,
+      mode,
+      ...(fixed?.vehicle ? { vehicle: fixed.vehicle } : {}),
       directions,
     })
     console.log(
-      `✓ Linie ${ref}: ${directions.length} Richtung(en), ` +
-        `${directions.map((d) => `${d.stops.length} Halte/${(cumulative(d.path).at(-1) / 1000).toFixed(1)} km`).join(' + ')}`,
+      `✓ ${name}: ${directions.length} direction(s), ` +
+        `${directions.map((d) => `${d.stops.length} stops/${(cumulative(d.path).at(-1) / 1000).toFixed(1)} km`).join(' + ')}`,
     )
   }
 
   if (lines.length === 0) {
-    throw new Error('Keine Linien extrahiert – network.json bleibt unverändert')
+    throw new Error('No lines extracted – network.json left unchanged')
   }
 
   const network = {
@@ -334,18 +429,18 @@ async function main() {
       source: 'osm',
       generated: new Date().toISOString().slice(0, 10),
       attribution:
-        'Routen- und Haltestellendaten © OpenStreetMap-Mitwirkende (ODbL 1.0), via Overpass API.',
+        'Route and stop data © OpenStreetMap contributors (ODbL 1.0), via Overpass API.',
     },
     stops,
     lines,
   }
 
   writeFileSync(OUT, JSON.stringify(network, null, 2) + '\n', 'utf8')
-  console.log(`\n✅ ${OUT} geschrieben (${lines.length} Linien, ${Object.keys(stops).length} Haltestellen)`)
-  console.log('Tipp: npm test validiert den neuen Datensatz.')
+  console.log(`\n✅ Wrote ${OUT} (${lines.length} lines, ${Object.keys(stops).length} stops)`)
+  console.log('Tip: npm test validates the new dataset.')
 }
 
 main().catch((err) => {
-  console.error('❌ Fehler:', err.message)
+  console.error('❌ Error:', err.message)
   process.exit(1)
 })
