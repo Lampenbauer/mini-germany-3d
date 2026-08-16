@@ -1238,7 +1238,7 @@
       ]
     },
     "osm-363827222": {
-      "name": "Haltestelle",
+      "name": "Stop",
       "coord": [
         12.2067651,
         54.1879303
@@ -2078,7 +2078,7 @@
       ]
     },
     "osm-2965246133": {
-      "name": "Haltestelle",
+      "name": "Stop",
       "coord": [
         12.0579575,
         54.1253616
@@ -3576,7 +3576,7 @@
       ]
     },
     "osm-12492302709": {
-      "name": "Haltestelle",
+      "name": "Stop",
       "coord": [
         12.1234698,
         54.0883183
@@ -3737,14 +3737,14 @@
       ]
     },
     "osm-12492496985": {
-      "name": "Haltestelle",
+      "name": "Stop",
       "coord": [
         12.1230131,
         54.0884226
       ]
     },
     "osm-2966850162": {
-      "name": "Haltestelle",
+      "name": "Stop",
       "coord": [
         12.1179712,
         54.0902324
