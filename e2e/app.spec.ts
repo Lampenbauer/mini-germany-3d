@@ -212,8 +212,8 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
   // Frames sekundenlang dauern, bis die Follow-Kamera greift.
   await expect
     .poll(
-      () =>
-        page.evaluate(() => {
+      async () => {
+        const state = await page.evaluate(() => {
           const camera = window.__cesiumViewer!.camera.positionCartographic
           const tramNow = window.__mrt!.trams()[0]
           const camLat = (camera.latitude * 180) / Math.PI
@@ -221,8 +221,16 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
           const dLat = (camLat - tramNow.lat) * 110540
           const dLon =
             (camLon - tramNow.lon) * 111320 * Math.cos((tramNow.lat * Math.PI) / 180)
-          return Math.hypot(dLat, dLon)
-        }),
+          return {
+            dist: Math.hypot(dLat, dLon),
+            loopError: window.__mrt!.lastLoopError(),
+          }
+        })
+        // Ein Loop-Fehler nach dem Klick würde das Folgen still verhindern –
+        // dann soll der Test die Ursache nennen statt nur die Distanz.
+        expect(state.loopError, `Render-Loop-Fehler: ${state.loopError}`).toBeNull()
+        return state.dist
+      },
       { timeout: 45_000, intervals: [500, 1000] },
     )
     .toBeLessThan(1500)
