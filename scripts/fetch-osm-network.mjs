@@ -25,6 +25,7 @@
 import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { compactPath } from './lib/simplify.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = process.env.NETWORK_OUT
@@ -340,7 +341,7 @@ async function main() {
       let dropped = 0
       for (const { node, name } of stopNodes) {
         const id = `osm-${node.id}`
-        const coord = [node.lon, node.lat]
+        const coord = [Number(node.lon.toFixed(6)), Number(node.lat.toFixed(6))]
         const dist = projectOntoPath(path, cum, coord)
         if (dist <= lastDist) {
           dropped++
@@ -379,7 +380,9 @@ async function main() {
       directions.push({
         from: rel.tags?.from || stops[dirStops[0]].name,
         to: rel.tags?.to || stops[dirStops[dirStops.length - 1]].name,
-        path: path.map(([lon, lat]) => [Number(lon.toFixed(6)), Number(lat.toFixed(6))]),
+        // Simplify (0.3 m tolerance) AFTER projecting the stops: visually
+        // lossless, but noticeably fewer points in the bundle.
+        path: compactPath(path),
         stops: dirStops,
       })
     }

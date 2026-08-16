@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "data:update": "node scripts/fetch-osm-network.mjs",
     "data:gtfs": "node scripts/fetch-gtfs-schedule.mjs",
+    "data:simplify": "node scripts/simplify-network.mjs",
     "postinstall": "node scripts/copy-cesium-assets.mjs"
   },
   "dependencies": {

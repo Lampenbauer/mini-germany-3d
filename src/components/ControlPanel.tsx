@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import {
   Bus,
   ChevronDown,
@@ -85,8 +85,13 @@ const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   ferry: Ship,
 }
 
-/** One transit-mode group of the line list (header only when >1 group). */
-function LineGroup(props: {
+/**
+ * One transit-mode group of the line list (header only when >1 group).
+ * Memoized: the panel re-renders 4×/s for the clock, but the line rows only
+ * change when a line is toggled (the `lines` array identity comes from the
+ * useMemo in App/ControlPanel).
+ */
+const LineGroup = memo(function LineGroup(props: {
   mode: TransitMode
   lines: LineToggleInfo[]
   showHeader: boolean
@@ -143,10 +148,18 @@ function LineGroup(props: {
       </ul>
     </div>
   )
-}
+})
 
 export function ControlPanel(props: ControlPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
+
+  // Stable group arrays so the memoized LineGroups skip the clock re-renders
+  const lineGroups = useMemo(() => {
+    return MODE_ORDER.map((mode) => ({
+      mode,
+      lines: props.lines.filter((l) => l.mode === mode),
+    })).filter((g) => g.lines.length > 0)
+  }, [props.lines])
 
   return (
     <Card className="pointer-events-auto w-80 max-h-[calc(100vh-2rem)] overflow-y-auto border-border/60 bg-card/85 backdrop-blur-md">
@@ -229,22 +242,16 @@ export function ControlPanel(props: ControlPanelProps) {
           {/* Lines, grouped by transit mode (headers only when >1 group) */}
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium">Lines</div>
-            {(() => {
-              const groups = MODE_ORDER.map((mode) => ({
-                mode,
-                lines: props.lines.filter((l) => l.mode === mode),
-              })).filter((g) => g.lines.length > 0)
-              return groups.map((g) => (
-                <LineGroup
-                  key={g.mode}
-                  mode={g.mode}
-                  lines={g.lines}
-                  showHeader={groups.length > 1}
-                  onToggleLine={props.onToggleLine}
-                  onSetLinesVisible={props.onSetLinesVisible}
-                />
-              ))
-            })()}
+            {lineGroups.map((g) => (
+              <LineGroup
+                key={g.mode}
+                mode={g.mode}
+                lines={g.lines}
+                showHeader={lineGroups.length > 1}
+                onToggleLine={props.onToggleLine}
+                onSetLinesVisible={props.onSetLinesVisible}
+              />
+            ))}
           </div>
 
           <div className="h-px bg-border" role="separator" />

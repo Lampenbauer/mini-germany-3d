@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { TramCard } from '@/components/TramCard'
 import { config } from '@/config'
@@ -379,15 +379,21 @@ export default function App() {
     mapRef.current?.setCameraHome(true)
   }, [])
 
-  const lineInfos: LineToggleInfo[] = network.lines.map((line) => ({
-    id: line.id,
-    name: line.name,
-    color: line.color,
-    mode: line.mode,
-    from: line.directions[0].from,
-    to: line.directions[0].to,
-    visible: visibleLines.has(line.id),
-  }))
+  // Stable across the 4×/s clock re-renders so the memoized line list in the
+  // ControlPanel can bail out; only rebuilt when a line is toggled.
+  const lineInfos: LineToggleInfo[] = useMemo(
+    () =>
+      network.lines.map((line) => ({
+        id: line.id,
+        name: line.name,
+        color: line.color,
+        mode: line.mode,
+        from: line.directions[0].from,
+        to: line.directions[0].to,
+        visible: visibleLines.has(line.id),
+      })),
+    [network, visibleLines],
+  )
 
   const dataSource =
     network.meta.source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)'
