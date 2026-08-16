@@ -53,7 +53,11 @@ test.beforeEach(async () => {
   const timeInput = page.getByLabel('Simulationszeit setzen')
   await timeInput.fill('')
   await expect(timeInput).toHaveValue('')
-  await expect.poll(tramSnapshotSignature).toBe(snapshotsAt0830)
+  // Die Snapshots ziehen erst mit dem nächsten Loop-Tick nach – mit ~350
+  // Fahrzeugen unter SwiftShader kann das auf CI-Runnern lange dauern.
+  await expect
+    .poll(tramSnapshotSignature, { timeout: 60_000, intervals: [500, 1000, 2000] })
+    .toBe(snapshotsAt0830)
   await expect(page.getByTestId('sim-clock')).toHaveText('08:30:00')
 })
 
