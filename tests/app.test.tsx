@@ -17,7 +17,10 @@ vi.mock('@/map/CesiumMap', () => {
     getGroundHeights() {
       return []
     }
-    syncTrams() {}
+    requestRender() {}
+    syncTrams() {
+      return { anyTramInView: true }
+    }
     setRoutesVisible() {}
     setStopsVisible() {}
     setLineRouteVisible() {}

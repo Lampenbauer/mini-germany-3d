@@ -28,6 +28,7 @@ export interface MrtTestApi {
   loopTicks: () => number
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
+  anyTramInView: () => boolean
 }
 
 declare global {
@@ -41,16 +42,24 @@ interface UrlOptions {
   speed: number
   paused: boolean
   timeSec: number | null
+  /** Feste Bodenhöhe in Metern (Debug, überspringt das Kachel-Sampling). */
+  groundHeight: number | undefined
 }
 
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
   const speed = Number(params.get('speed') ?? config.simulation.initialSpeed)
+  const groundHeightRaw = params.get('groundHeight')
+  const groundHeight = groundHeightRaw === null ? NaN : Number(groundHeightRaw)
   return {
     offline: params.get('offline') === '1',
     speed: Number.isFinite(speed) ? Math.min(600, Math.max(1, speed)) : 1,
     paused: params.get('paused') === '1',
     timeSec: params.get('time') ? parseTimeOfDay(params.get('time')!) : null,
+    groundHeight:
+      Number.isFinite(groundHeight) && groundHeight > -100 && groundHeight < 500
+        ? groundHeight
+        : undefined,
   }
 }
 
@@ -125,6 +134,7 @@ export default function App() {
 
     const map = new CesiumMap(container, {
       offline: urlOpts.offline,
+      fixedGroundHeight: urlOpts.groundHeight,
       onSelectTram: selectTram,
       onTilesetStatus: setTilesetStatus,
     })
@@ -146,6 +156,9 @@ export default function App() {
 
     let rafId = 0
     let lastUiUpdate = 0
+    let lastSimTick = 0
+    let lastIdleRender = 0
+    let lastAnyTramInView = true
     let loopTicks = 0
     let lastLoopError: string | null = null
     const loop = (now: number) => {
@@ -154,23 +167,42 @@ export default function App() {
       // die komplette Simulation ein.
       try {
         loopTicks++
-        const snapshots = sim.snapshots()
-        snapshotsRef.current = snapshots
-        map.syncTrams(snapshots, visibleLinesRef.current)
+        // Energie sparen: Simulation mit max. ~30 fps ticken; pausiert oder
+        // ohne sichtbare Bahn im Bild nur 2 fps; im Hintergrund-Tab gar nicht
+        // (der Browser drosselt rAF ohnehin).
+        const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
+        if (!document.hidden && now - lastSimTick >= tickInterval) {
+          lastSimTick = now
+          const snapshots = sim.snapshots()
+          snapshotsRef.current = snapshots
+          const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
+          lastAnyTramInView = viewInfo?.anyTramInView ?? false
 
-        // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
-        if (now - lastUiUpdate > 250) {
-          lastUiUpdate = now
-          setClockText(clock.formatted())
-          setTramCount(snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length)
-          const selId = selectedIdRef.current
-          if (selId) {
-            const snap = snapshots.find((s) => s.id === selId) ?? null
-            if (!snap) {
-              // Fahrt beendet → Auswahl auflösen
-              selectTram(null)
-            } else {
-              setSelected(snap)
+          // Nur neu rendern, wenn eine Bahn sichtbar in Bewegung ist – sonst
+          // reicht ~1 Frame/Sekunde (Kamera-/Kachel-Änderungen rendert Cesium
+          // im requestRenderMode von selbst).
+          const animating = lastAnyTramInView && !clock.paused
+          if (animating || now - lastIdleRender >= 1000) {
+            lastIdleRender = now
+            map.requestRender()
+          }
+
+          // UI-State nur ~4×/Sekunde aktualisieren, nicht in jedem Frame
+          if (now - lastUiUpdate > 250) {
+            lastUiUpdate = now
+            setClockText(clock.formatted())
+            setTramCount(
+              snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
+            )
+            const selId = selectedIdRef.current
+            if (selId) {
+              const snap = snapshots.find((s) => s.id === selId) ?? null
+              if (!snap) {
+                // Fahrt beendet → Auswahl auflösen
+                selectTram(null)
+              } else {
+                setSelected(snap)
+              }
             }
           }
         }
@@ -205,6 +237,7 @@ export default function App() {
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
+      anyTramInView: () => lastAnyTramInView,
     }
     window.__mrt = api
 
