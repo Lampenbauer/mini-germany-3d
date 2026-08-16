@@ -27,6 +27,7 @@ export interface MrtTestApi {
   secondsOfDay: () => number
   loopTicks: () => number
   lastLoopError: () => string | null
+  groundHeights: () => { id: string; groundHeight: number }[]
 }
 
 declare global {
@@ -203,6 +204,7 @@ export default function App() {
       secondsOfDay: () => clock.secondsOfDay(),
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
+      groundHeights: () => map.getGroundHeights(),
     }
     window.__mrt = api
 
