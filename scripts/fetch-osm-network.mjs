@@ -75,15 +75,20 @@ const BUS_PALETTE = [
  * Wasserlinie (Antriebe/Aufbauten).
  */
 const FERRIES = {
+  // Achtung bei den IDs: 'F1'–'F4' sind bereits RSAG-BUS-Linien!
   56291: {
-    id: 'F1',
+    id: 'FG',
     name: 'Fähre Kabutzenhof – Gehlsdorf',
+    from: 'Kabutzenhof',
+    to: 'Gehlsdorf',
     color: '#0E7490',
     vehicle: { length: 19.9, width: 6.6, height: 3.5 },
   },
   56296: {
-    id: 'F2',
+    id: 'FW',
     name: 'Fähre Warnemünde – Hohe Düne',
+    from: 'Warnemünde',
+    to: 'Hohe Düne',
     color: '#155E75',
     vehicle: { length: 39, width: 11, height: 6 },
   },
@@ -353,7 +358,8 @@ async function main() {
         console.warn(`  ⚠ Linie ${ref}: ${dropped} nicht-monotone Halte entfernt`)
       }
       if (mode === 'ferry' && dirStops.length < 2) {
-        // Anleger aus den Pfad-Enden ableiten; Namen aus from/to der Relation.
+        // Anleger aus den Pfad-Enden ableiten; Namen aus from/to der Relation
+        // oder – falls die Relation keine trägt (z.B. 56291) – aus FERRIES.
         const mkStop = (suffix, coord, name) => {
           const id = `ferry-${rel.id}-${suffix}`
           stops[id] = {
@@ -364,8 +370,8 @@ async function main() {
         }
         dirStops.length = 0
         dirStops.push(
-          mkStop('a', path[0], rel.tags?.from || 'Anleger'),
-          mkStop('b', path[path.length - 1], rel.tags?.to || 'Anleger'),
+          mkStop('a', path[0], rel.tags?.from || fixed?.from || 'Anleger'),
+          mkStop('b', path[path.length - 1], rel.tags?.to || fixed?.to || 'Anleger'),
         )
       }
       if (dirStops.length < 2) continue
@@ -383,9 +389,15 @@ async function main() {
       continue
     }
 
-    // Bus-Refs könnten theoretisch mit Tram-Refs kollidieren – dann Präfix.
-    const lineId =
+    // Linien-IDs müssen netzweit eindeutig sein (die RSAG vergibt z.B.
+    // Bus-Nummern F1–F4, die mit naiven Fähren-IDs kollidieren würden).
+    let lineId =
       fixed?.id ?? (mode === 'bus' && byLine.has(`tram:${ref}`) ? `B${ref}` : ref)
+    if (lines.some((l) => l.id === lineId)) {
+      const prefixed = `${mode === 'bus' ? 'B' : mode === 'ferry' ? 'FÄ' : 'T'}${lineId}`
+      console.warn(`  ⚠ Linien-ID "${lineId}" doppelt vergeben – verwende "${prefixed}"`)
+      lineId = prefixed
+    }
     const name =
       fixed?.name ?? (mode === 'bus' ? `Bus ${ref}` : `Linie ${ref}`)
     const colour = chosen[0].rel.tags?.colour

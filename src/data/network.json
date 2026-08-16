@@ -4017,14 +4017,14 @@
       ]
     },
     "ferry-56291-a": {
-      "name": "Anleger",
+      "name": "Kabutzenhof",
       "coord": [
         12.114566,
         54.095006
       ]
     },
     "ferry-56291-b": {
-      "name": "Anleger",
+      "name": "Gehlsdorf",
       "coord": [
         12.114014,
         54.099455
@@ -133355,7 +133355,7 @@
       ]
     },
     {
-      "id": "F1",
+      "id": "FG",
       "name": "Fähre Kabutzenhof – Gehlsdorf",
       "color": "#0E7490",
       "mode": "ferry",
@@ -133366,8 +133366,8 @@
       },
       "directions": [
         {
-          "from": "Anleger",
-          "to": "Anleger",
+          "from": "Kabutzenhof",
+          "to": "Gehlsdorf",
           "path": [
             [
               12.114566,
@@ -133390,7 +133390,7 @@
       ]
     },
     {
-      "id": "F2",
+      "id": "FW",
       "name": "Fähre Warnemünde – Hohe Düne",
       "color": "#155E75",
       "mode": "ferry",

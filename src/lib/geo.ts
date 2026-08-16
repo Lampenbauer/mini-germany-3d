@@ -88,13 +88,24 @@ export function sampleAtDistance(path: LonLat[], cum: number[], d: number): Path
  * Distanz entlang der Polylinie zum Fußpunkt der Projektion von `p`.
  * Verwendet eine lokale äquirektangulare Näherung pro Segment – für das
  * Zuordnen von Haltestellen auf die Strecke mehr als genau genug.
+ *
+ * `fromDist` (Meter) beschränkt die Suche auf den Streckenteil ab dieser
+ * Distanz: Bei Linien, die denselben Straßenzug mehrfach befahren
+ * (Schleifen), ist die globale Projektion mehrdeutig – Haltestellen werden
+ * deshalb sequenziell projiziert, jede erst hinter ihrer Vorgängerin.
  */
-export function projectOntoPath(path: LonLat[], cum: number[], p: LonLat): number {
+export function projectOntoPath(
+  path: LonLat[],
+  cum: number[],
+  p: LonLat,
+  fromDist = 0,
+): number {
   let bestDist = Infinity
-  let bestAlong = 0
+  let bestAlong = fromDist
   const cosLat = Math.cos(toRadians(p[1]))
 
   for (let i = 0; i < path.length - 1; i++) {
+    if (cum[i + 1] <= fromDist) continue // Segment liegt komplett vor fromDist
     const a = path[i]
     const b = path[i + 1]
     // Lokale Metrik-Koordinaten (Meter) relativ zu a
@@ -117,8 +128,9 @@ export function projectOntoPath(path: LonLat[], cum: number[], p: LonLat): numbe
     if (dSq < bestDist) {
       bestDist = dSq
       // Anteilig auf die (per Haversine berechnete) Segmentlänge umrechnen,
-      // damit das Ergebnis konsistent zu `cum` ist.
-      bestAlong = cum[i] + (cum[i + 1] - cum[i]) * t
+      // damit das Ergebnis konsistent zu `cum` ist. Nie vor fromDist landen
+      // (der Fußpunkt kann im teilweise abgeschnittenen Segment davor liegen).
+      bestAlong = Math.max(fromDist, cum[i] + (cum[i + 1] - cum[i]) * t)
     }
   }
   return bestAlong
