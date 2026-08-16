@@ -7,11 +7,23 @@ describe('Simulation mit dem Rostocker Netz', () => {
   const network = loadBundledNetwork()
   const sim = new Simulation(network, new SimClock())
 
-  it('hat zur Hauptverkehrszeit auf jeder Linie aktive Bahnen', () => {
+  it('hat zur Hauptverkehrszeit auf fast allen Linien aktive Fahrzeuge', () => {
     const snapshots = sim.snapshotsAt(8.5 * 3600)
     expect(snapshots.length).toBeGreaterThanOrEqual(network.lines.length * 2)
     const activeLines = new Set(snapshots.map((s) => s.lineId))
-    expect([...activeLines].sort()).toEqual(network.lines.map((l) => l.id).sort())
+    // Nur bekannte Linien-IDs …
+    for (const id of activeLines) {
+      expect(network.lineById.has(id), `unbekannte Linie ${id}`).toBe(true)
+    }
+    // … alle Trams fahren zur HVZ …
+    for (const line of network.lines.filter((l) => l.mode === 'tram')) {
+      expect(activeLines.has(line.id), `Tram-Linie ${line.id} inaktiv`).toBe(true)
+    }
+    // … und Busse/Fähren dürfen einzelne echte Taktlücken haben (GTFS),
+    // aber der Großteil des Netzes muss unterwegs sein.
+    expect(activeLines.size).toBeGreaterThanOrEqual(
+      Math.floor(network.lines.length * 0.75),
+    )
   })
 
   it('hat nachts um 3 Uhr keine aktiven Bahnen', () => {

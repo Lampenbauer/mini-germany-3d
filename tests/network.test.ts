@@ -22,9 +22,11 @@ describe('Netzdatensatz (strukturell, quellenunabhängig)', () => {
 
   it('jede Richtung hat mindestens 2 Haltestellen und plausible Streckenlänge', () => {
     for (const line of network.lines) {
+      // Die Gehlsdorf-Fähre quert die Warnow auf nur ~500 m
+      const minLength = line.mode === 'ferry' ? 200 : 1000
       for (const dir of line.directions) {
         expect(dir.stops.length).toBeGreaterThanOrEqual(2)
-        expect(dir.totalLength).toBeGreaterThan(1000)
+        expect(dir.totalLength).toBeGreaterThan(minLength)
         expect(dir.totalLength).toBeLessThan(30000)
       }
     }

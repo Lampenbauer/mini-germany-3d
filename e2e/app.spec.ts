@@ -78,11 +78,21 @@ test('zeigt aktive Bahnen auf allen Linien des Netzes', async () => {
   const activeLineIds = await page.evaluate(() => [
     ...new Set(window.__mrt!.trams().map((t) => t.lineId)),
   ])
-  expect(activeLineIds.sort()).toEqual(expected.sort())
+  // Aktive Linien sind bekannte Linien; einzelne Buslinien dürfen zur
+  // Prüfzeit echte GTFS-Taktlücken haben, der Großteil muss unterwegs sein.
+  for (const id of activeLineIds) expect(expected).toContain(id)
+  expect(activeLineIds.length).toBeGreaterThanOrEqual(
+    Math.floor(expected.length * 0.75),
+  )
 
-  await expect(page.getByTestId('tram-count')).toContainText(/\d+ Bahnen unterwegs/)
+  // "Bahnen" bei reinem Tram-Netz, "Fahrzeuge" sobald Busse/Fähren dabei sind
+  await expect(page.getByTestId('tram-count')).toContainText(
+    /\d+ (Bahnen|Fahrzeuge) unterwegs/,
+  )
   const count = await page.evaluate(() => window.__mrt!.visibleTramCount())
-  await expect(page.getByTestId('tram-count')).toContainText(`${count} Bahnen unterwegs`)
+  await expect(page.getByTestId('tram-count')).toContainText(
+    new RegExp(`${count} (Bahnen|Fahrzeuge) unterwegs`),
+  )
 })
 
 test('Linien-Switch blendet Bahnen der Linie aus', async () => {
@@ -114,7 +124,9 @@ test('nachts fahren keine Bahnen, morgens wieder', async () => {
   // 02:30: sicher vor der ersten Abfahrt (real wie synthetisch)
   await page.evaluate(() => window.__mrt!.setTime('02:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBe(0)
-  await expect(page.getByTestId('tram-count')).toContainText('0 Bahnen unterwegs')
+  await expect(page.getByTestId('tram-count')).toContainText(
+    /0 (Bahnen|Fahrzeuge) unterwegs/,
+  )
 
   await page.evaluate(() => window.__mrt!.setTime('08:30'))
   await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
