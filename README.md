@@ -189,6 +189,13 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 3. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).
+4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
+   `npm run data:update`, `npm run data:simplify`, and `npm run data:gtfs` before
+   the test steps, so the OSM geometry and – more importantly – the day-specific
+   GTFS departures (weekday vs. weekend service) stay current. Only if the full
+   test suite passes on the refreshed dataset is the result deployed and the new
+   `src/data/*.json` committed back to `main`; a failed Overpass/GTFS fetch or a
+   failing test leaves both the site and the repository untouched.
 
 > Note: After a data update (`npm run data:gtfs`), commit the new `schedule.json` –
 > it is rolled out as `api/schedule.json` during deploy so that browser matching
