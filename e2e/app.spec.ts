@@ -264,25 +264,31 @@ test('„Bahn folgen“ führt die Kamera zur Bahn', async () => {
 
 test('GTFS-Realtime-Endpunkt wird abgeholt und im Panel angezeigt', async ({ browser }) => {
   // Den gefilterten JSON-Endpunkt mocken – verifiziert die Kette
-  // fetch → Validierung → Status-Badge im Panel.
+  // fetch → Validierung → Status-Badge im Panel. Die Zweitseite ist eine
+  // volle Cesium-Instanz; ohne finally bliebe sie bei einem Fehlschlag bis
+  // zum Retry offen und zwei parallele SwiftShader-Kontexte können den
+  // Browser auf CI-Runnern zum Absturz bringen.
   const rtPage = await browser.newPage()
-  await rtPage.route('**/api/realtime', (route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        timestamp: 1700000000,
-        total: 42,
-        delays: { 'irgendein-trip': 120 },
+  try {
+    await rtPage.route('**/api/realtime', (route) =>
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          timestamp: 1700000000,
+          total: 42,
+          delays: { 'irgendein-trip': 120 },
+        }),
       }),
-    }),
-  )
-  await rtPage.goto('/?offline=1&rt=1&time=08:30&paused=1')
-  await rtPage.waitForFunction(() => window.__mrt?.ready === true)
+    )
+    await rtPage.goto('/?offline=1&rt=1&time=08:30&paused=1')
+    await rtPage.waitForFunction(() => window.__mrt?.ready === true)
 
-  const badge = rtPage.getByTestId('rt-status')
-  await expect(badge).toBeVisible()
-  await expect(badge).toContainText('GTFS-RT')
-  await rtPage.close()
+    const badge = rtPage.getByTestId('rt-status')
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('GTFS-RT')
+  } finally {
+    await rtPage.close()
+  }
 })
 
 test('Kameraausrichtung wird im URL-Hash gespeichert und wiederhergestellt', async ({
@@ -293,23 +299,28 @@ test('Kameraausrichtung wird im URL-Hash gespeichert und wiederhergestellt', asy
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
     .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+$/)
 
-  // Ansicht aus einem Hash wiederherstellen (frische Seite)
+  // Ansicht aus einem Hash wiederherstellen (frische Seite); finally wie im
+  // Realtime-Test, damit bei einem Fehlschlag keine zweite Cesium-Seite
+  // bis zum Retry offen bleibt.
   const other = await browser.newPage()
-  await other.goto('/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=800&heading=90&pitch=-45')
-  await other.waitForFunction(() => window.__mrt?.ready === true)
-  const view = await other.evaluate(() => {
-    const camera = window.__cesiumViewer!.camera.positionCartographic
-    return {
-      lat: (camera.latitude * 180) / Math.PI,
-      lon: (camera.longitude * 180) / Math.PI,
-      height: camera.height,
-    }
-  })
-  expect(view.lat).toBeCloseTo(54.0901, 3)
-  expect(view.lon).toBeCloseTo(12.1405, 3)
-  expect(view.height).toBeGreaterThan(700)
-  expect(view.height).toBeLessThan(900)
-  await other.close()
+  try {
+    await other.goto('/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=800&heading=90&pitch=-45')
+    await other.waitForFunction(() => window.__mrt?.ready === true)
+    const view = await other.evaluate(() => {
+      const camera = window.__cesiumViewer!.camera.positionCartographic
+      return {
+        lat: (camera.latitude * 180) / Math.PI,
+        lon: (camera.longitude * 180) / Math.PI,
+        height: camera.height,
+      }
+    })
+    expect(view.lat).toBeCloseTo(54.0901, 3)
+    expect(view.lon).toBeCloseTo(12.1405, 3)
+    expect(view.height).toBeGreaterThan(700)
+    expect(view.height).toBeLessThan(900)
+  } finally {
+    await other.close()
+  }
 })
 
 test('Pause-Button und Kamera-Reset sind bedienbar', async () => {
