@@ -134,8 +134,10 @@ npm test               # validiert die neuen Datensätze
   [gtfs.de](https://gtfs.de) (DELFI-Basis). Mit `GTFS_URL`/`GTFS_FILE` kann stattdessen
   der offizielle VVW-Feed genutzt werden. Das Skript sucht Fahrpläne für alle
   Linien aus `network.json` (Tram `route_type` 0, Bus 3, Fähre 4; Fähren werden
-  über die Anleger-Namen im `route_long_name` erkannt). Linien ohne GTFS-Treffer
-  fahren im synthetischen Modus-Takt. **Wichtig:** `data:gtfs` nach jedem
+  über die Anleger-Namen im `route_long_name` erkannt). Der Rostock-Bezug wird
+  über die Haltestellen-Koordinaten hergestellt; eine Betreiber-Übersicht pro
+  Linie im Log deckt Nummern-Kollisionen auf. Linien ohne GTFS-Treffer fahren
+  im synthetischen Modus-Takt. **Wichtig:** `data:gtfs` nach jedem
   `data:update` erneut ausführen, damit die neuen Bus-Linien Fahrpläne bekommen.
 - Die Unit-Tests passen sich der Datenquelle an: Die strikten RSAG-Prüfungen laufen nur
   gegen den Demo-Datensatz, strukturelle Prüfungen (Monotonie, Stadtgebiet, Längen)
