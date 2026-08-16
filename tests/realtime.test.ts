@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { prepareNetwork } from '@/data/network'
 import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
-import { extractDelays } from '@/lib/realtime'
+import { mapDelaysToSimTrips } from '@/lib/realtime'
+import { extractGtfsDelays } from '@/lib/rt-extract'
 import { buildRealtimeTripIdMap, simTripId } from '@/lib/timetable'
 import { testNetworkJson } from './fixtures'
 
@@ -15,7 +16,7 @@ function makeFeed(entities: object[]) {
     header: { gtfsRealtimeVersion: '2.0', timestamp: 1700000000 },
     entity: entities,
   })
-  // Roundtrip über die Protobuf-Encodierung – wie im Browser
+  // Roundtrip über die Protobuf-Encodierung – wie auf dem Server
   return FeedMessage.decode(FeedMessage.encode(message).finish())
 }
 
@@ -40,21 +41,17 @@ describe('buildRealtimeTripIdMap', () => {
   })
 })
 
-describe('extractDelays', () => {
-  const tripIdMap = new Map([
-    ['gtfs-a', 'T-0-480'],
-    ['gtfs-b', 'T-0-510'],
-  ])
+describe('extractGtfsDelays (serverseitige Filterung)', () => {
+  const tripIds = new Set(['gtfs-a', 'gtfs-b'])
 
   it('nutzt trip_update.delay, wenn vorhanden', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'gtfs-a' }, delay: 180 } },
     ])
-    const delays = extractDelays(feed, tripIdMap)
-    expect(delays.get('T-0-480')).toBe(180)
+    expect(extractGtfsDelays(feed, tripIds)).toEqual({ 'gtfs-a': 180 })
   })
 
-  it('fällt auf die erste Stop-Time-Verspätung zurück', () => {
+  it('fällt auf die erste Stop-Time-Verspätung zurück (departure vor arrival)', () => {
     const feed = makeFeed([
       {
         id: '1',
@@ -66,23 +63,52 @@ describe('extractDelays', () => {
         },
       },
     ])
-    expect(extractDelays(feed, tripIdMap).get('T-0-510')).toBe(120)
+    expect(extractGtfsDelays(feed, tripIds)).toEqual({ 'gtfs-b': 120 })
   })
 
-  it('ignoriert Fahrten ohne Zuordnung und Entities ohne TripUpdate', () => {
+  it('ignoriert fremde Fahrten, Entities ohne TripUpdate und ohne Delay-Info', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'unbekannt' }, delay: 300 } },
       { id: '2', vehicle: { position: { latitude: 54, longitude: 12 } } },
       { id: '3', tripUpdate: { trip: { tripId: 'gtfs-a' } } }, // keine Delay-Info
     ])
-    expect(extractDelays(feed, tripIdMap).size).toBe(0)
+    expect(extractGtfsDelays(feed, tripIds)).toEqual({})
   })
 
   it('verarbeitet auch Verfrühungen (negative Delays)', () => {
     const feed = makeFeed([
       { id: '1', tripUpdate: { trip: { tripId: 'gtfs-a' }, delay: -90 } },
     ])
-    expect(extractDelays(feed, tripIdMap).get('T-0-480')).toBe(-90)
+    expect(extractGtfsDelays(feed, tripIds)).toEqual({ 'gtfs-a': -90 })
+  })
+})
+
+describe('mapDelaysToSimTrips (Client)', () => {
+  it('ordnet gefilterte GTFS-Delays den Simulations-Fahrten zu', () => {
+    const tripIdMap = new Map([
+      ['gtfs-a', 'T-0-480'],
+      ['gtfs-b', 'T-0-510'],
+    ])
+    const delays = mapDelaysToSimTrips(
+      { timestamp: 0, total: 5, delays: { 'gtfs-a': 120, 'gtfs-b': -60, fremd: 30 } },
+      tripIdMap,
+    )
+    expect(delays.get('T-0-480')).toBe(120)
+    expect(delays.get('T-0-510')).toBe(-60)
+    expect(delays.size).toBe(2)
+  })
+
+  it('verwirft ungültige Werte', () => {
+    const tripIdMap = new Map([['gtfs-a', 'T-0-480']])
+    const delays = mapDelaysToSimTrips(
+      {
+        timestamp: 0,
+        total: 1,
+        delays: { 'gtfs-a': Number.NaN } as unknown as Record<string, number>,
+      },
+      tripIdMap,
+    )
+    expect(delays.size).toBe(0)
   })
 })
 

@@ -136,7 +136,7 @@ npm test               # validiert die neuen Datensätze
 | GTFS-Download dauert lange | Der Feed (~260 MB) wird unter `scripts/.cache/gtfs.zip` gecacht; Datei löschen für einen frischen Download. Bereits vorhandene Zips via `GTFS_FILE=pfad.zip` nutzen. |
 | CI/Sandbox ohne freien Internetzugang | Overpass/gtfs.de sind dort nicht erreichbar – der mitgelieferte Datensatz bleibt aktiv. |
 
-### GTFS-Realtime (implementiert)
+### GTFS-Realtime (implementiert, serverseitig gefiltert)
 
 Die App bindet den **freien GTFS-Realtime-Feed von gtfs.de** an
 (`https://realtime.gtfs.de/realtime-free.pb`, DELFI-basiert):
@@ -145,20 +145,45 @@ Die App bindet den **freien GTFS-Realtime-Feed von gtfs.de** an
   überlagert damit die Fahrplansimulation: Eine Bahn mit +3 min fährt dort, wo sie
   planmäßig vor 3 Minuten gewesen wäre. Panel-Badge „GTFS-RT · n live“ zeigt die Zahl
   der aktuell zugeordneten Fahrten, die Infokarte einer Bahn die Verspätung.
+- **Serverseitige Filterung:** Der Deutschland-Feed ist >10 MB groß. Der Browser lädt
+  ihn deshalb NICHT selbst, sondern pollt den Endpunkt **`/api/realtime`** (wenige KB
+  JSON, alle 60 s). Dahinter steckt im Dev-/Preview-Server eine Vite-Middleware
+  (Node, `vite.config.ts`) und in Produktion **`api/realtime.php`** (Shared-Hosting-
+  tauglich, eigener Mini-Protobuf-Parser ohne Abhängigkeiten). Beide laden den Feed
+  höchstens einmal pro Minute, filtern auf die Rostocker `trip_ids` aus
+  `schedule.json` und cachen das Ergebnis – alle Besucher teilen sich einen
+  Upstream-Abruf. Ein Paritätstest (`node scripts/test-php-parser.mjs`, läuft auch
+  in CI) stellt sicher, dass PHP- und Node-Implementierung identisch extrahieren.
 - **Matching:** Die GTFS-`trip_id`s des Feeds passen zum statischen gtfs.de-Feed.
-  `npm run data:gtfs` speichert sie seit dieser Version in `schedule.json`
-  (`tripIds` parallel zu `departures`) – **einmal neu ausführen**, sonst können
-  keine Updates zugeordnet werden („0 live“).
-- **Polling & Robustheit:** Abruf alle 30 s (Protobuf-Decoding via
-  `gtfs-realtime-bindings`); bei Fehlern läuft die reine Fahrplansimulation weiter.
-- **CORS:** Der Feed sendet keine CORS-Header. Im Dev-/Preview-Server übernimmt der
-  Vite-Proxy (`/gtfs-rt` → `realtime.gtfs.de`); ein Produktions-Deployment braucht
-  einen entsprechenden Reverse-Proxy. `VITE_GTFS_RT_URL` überschreibt die URL,
-  leerer String deaktiviert Realtime; URL-Parameter `?rt=1`/`?rt=0` übersteuern.
+  `npm run data:gtfs` speichert sie in `schedule.json` (`tripIds` parallel zu
+  `departures`) – ohne sie bleibt es bei „0 live“.
+- **Konfiguration:** `VITE_GTFS_RT_URL` überschreibt die Endpunkt-URL, leerer String
+  deaktiviert Realtime; URL-Parameter `?rt=1`/`?rt=0` übersteuern (Standard: an,
+  außer im Offline-Modus).
 - **Grenzen der freien Variante:** reduzierter Umfang, nur zum gtfs.de-Soll-Feed
   passende trip_ids, Attribution erforderlich. Der offizielle VVW-Weg (Registrierung
   über die [Connect-Plattform](https://www.verkehrsverbund-warnow.de/service/open-data.html))
   bleibt die Option für vollständige Echtzeitdaten.
+
+## Deployment (all-inkl Webhosting)
+
+`.github/workflows/deploy.yml` baut die App und lädt sie per rsync/SSH auf das
+all-inkl-Webhosting (Apache + PHP) nach `https://minirostock3d.lampenbauer.com`:
+
+1. **Einmalig:** In den Repo-Einstellungen das Secret **`KAS_SSH_PASSWORD`** anlegen
+   (Settings → Secrets and variables → Actions) – das SSH-Passwort des Users
+   `***REMOVED***`. Host, User und Zielverzeichnis stehen direkt im Workflow.
+2. Deploy läuft automatisch bei jedem Push (bzw. manuell über „Run workflow“):
+   Unit-Tests → PHP-Paritätstest → Build → `dist/` + `api/realtime.php` +
+   `api/schedule.json` per rsync ins Stammverzeichnis
+   `***REMOVED***/`.
+3. Die mitdeployte `.htaccess` mappt `/api/realtime` auf das PHP-Skript und setzt
+   Cache-Header (gehashte Assets ein Jahr, `index.html` no-cache, Cesium-Statik
+   einen Tag).
+
+> Hinweis: Nach einem Datenupdate (`npm run data:gtfs`) die neue `schedule.json`
+> committen – sie wird beim Deploy als `api/schedule.json` mit ausgerollt, damit
+> Browser-Matching und Server-Filter dieselben trip_ids verwenden.
 
 ## Architektur
 
