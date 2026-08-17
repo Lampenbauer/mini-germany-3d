@@ -34,6 +34,14 @@ export interface MrtTestApi {
   renderRate: () => number
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
   tramBoxDriftMeters: () => number
+  /** Color-attribute opacity currently applied to one rendered vehicle body. */
+  tramOpacity: (id: string) => number | null
+  /** Finds a deterministic real trip that crosses a tunnel portal. */
+  tunnelTransition: () => {
+    id: string
+    tunnelTime: number
+    surfaceTime: number
+  } | null
 }
 
 declare global {
@@ -281,6 +289,23 @@ export default function App() {
       anyTramInView: () => lastAnyTramInView,
       renderRate: () => renderTimes.length / 5,
       tramBoxDriftMeters: () => map.getTramBoxDriftMeters(),
+      tramOpacity: (id: string) => map.getTramOpacity(id),
+      tunnelTransition: () => {
+        // Debug-only probe for E2E: step through service time until the same
+        // active trip is found once inside and once outside a tunnel.
+        for (let time = 4 * 3600; time < 24 * 3600; time += 30) {
+          const inside = sim.snapshotsAt(time).find((snap) => snap.inTunnel)
+          if (!inside) continue
+          for (const offset of [-120, -60, 60, 120]) {
+            const surfaceTime = time + offset
+            const outside = sim
+              .snapshotsAt(surfaceTime)
+              .find((snap) => snap.id === inside.id && !snap.inTunnel)
+            if (outside) return { id: inside.id, tunnelTime: time, surfaceTime }
+          }
+        }
+        return null
+      },
     }
     window.__mrt = api
 

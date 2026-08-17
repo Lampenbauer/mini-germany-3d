@@ -67,6 +67,48 @@ export const testTunnelNetworkJson: NetworkJson = {
 }
 
 /**
+ * Same track as testTunnelNetworkJson, but with two explicitly stored
+ * directions whose tunnel layouts deliberately differ (asymmetric OSM
+ * tagging). The mirror check must NOT collapse them into one rendered
+ * direction.
+ */
+export const testAsymmetricTunnelNetworkJson: NetworkJson = {
+  meta: testNetworkJson.meta,
+  stops: testNetworkJson.stops,
+  lines: [
+    {
+      id: 'V',
+      name: 'Asymmetrische Tunnellinie',
+      color: '#3366ff',
+      directions: [
+        {
+          from: 'Alpha',
+          to: 'Gamma',
+          path: [
+            [12.1, 54.0],
+            [12.1, 54.009],
+            [12.1, 54.018],
+          ],
+          stops: ['a', 'b', 'c'],
+          tunnels: [[400, 700]],
+        },
+        {
+          from: 'Gamma',
+          to: 'Alpha',
+          path: [
+            [12.1, 54.018],
+            [12.1, 54.009],
+            [12.1, 54.0],
+          ],
+          stops: ['c', 'b', 'a'],
+          tunnels: [[100, 400]],
+        },
+      ],
+    },
+  ],
+}
+
+/**
  * Multimodal mini network: a tram (without a mode field, like the old
  * network.json), a bus, and a ferry with its own vehicle dimensions.
  */

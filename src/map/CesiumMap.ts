@@ -904,6 +904,20 @@ export class CesiumMap {
     return maxDrift
   }
 
+  /** Debug/tests: color-attribute opacity currently applied to a vehicle body. */
+  getTramOpacity(tramId: string): number | null {
+    const record = this.trams.get(tramId)
+    if (!record) return null
+    try {
+      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const alpha = attributes?.color?.[3]
+      return typeof alpha === 'number' ? alpha / 255 : null
+    } catch {
+      // The primitive has not completed its first render yet.
+      return null
+    }
+  }
+
   /** Debug: current ground heights of the trams (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.trams.entries()].map(([id, record]) => ({

@@ -20,6 +20,9 @@ vi.mock('@/map/CesiumMap', () => {
     getTramBoxDriftMeters() {
       return 0
     }
+    getTramOpacity() {
+      return null
+    }
     render() {}
     getRenderHints() {
       return { interacting: false, tilesLoading: false }
