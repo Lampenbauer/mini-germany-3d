@@ -40,9 +40,9 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import type { PreparedNetwork } from '@/data/network-types'
+import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
-import { splitPathByTunnels } from '@/lib/tunnels'
+import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
@@ -70,6 +70,13 @@ interface TramEntityRecord {
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
+  /**
+   * Shared appearance of the body primitive. Tunnel transitions only toggle
+   * its `translucent` flag – the primitive picks that up per frame
+   * (isTranslucent()) and rebuilds just its render state, no new
+   * appearance/shader per transition.
+   */
+  appearance: PerInstanceColorAppearance
   /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
   inTunnel: boolean
   /** Vehicle is the current selection (body brightened). */
@@ -112,6 +119,35 @@ const TUNNEL_VISIBILITY = 0.4
 // ~2 allocations per tram per tick.
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
+
+/**
+ * True when the reverse direction is an exact mirror of the forward one
+ * (path reversed point for point, tunnel ranges mirrored) – then a single
+ * set of polylines covers both directions. Directions that merely share
+ * length and endpoints (e.g. loops, or asymmetric tunnel tagging) are
+ * drawn separately.
+ */
+function directionsAreMirrored(
+  forward: PreparedDirection,
+  reverse: PreparedDirection,
+): boolean {
+  if (forward.path.length !== reverse.path.length) return false
+  const lastPoint = forward.path.length - 1
+  for (let i = 0; i <= lastPoint; i++) {
+    const a = forward.path[lastPoint - i]
+    const b = reverse.path[i]
+    if (a[0] !== b[0] || a[1] !== b[1]) return false
+  }
+  const mirrored = mirrorTunnelRanges(forward.tunnels, forward.totalLength)
+  if (mirrored.length !== reverse.tunnels.length) return false
+  // Mirrored meter ranges are recomputed floats – compare with a tolerance
+  // far below visibility instead of bit-exact.
+  return mirrored.every(
+    ([start, end], i) =>
+      Math.abs(start - reverse.tunnels[i][0]) < 0.01 &&
+      Math.abs(end - reverse.tunnels[i][1]) < 0.01,
+  )
+}
 
 export class CesiumMap {
   readonly viewer: Viewer
@@ -295,15 +331,11 @@ export class CesiumMap {
       const entities: Entity[] = []
 
       const dirs = [line.directions[0]]
-      // Only draw the second direction if it has its own geometry
-      // (with mirrored directions the path is identical)
+      // Only draw the second direction if it has its own geometry or its
+      // own tunnel layout (with mirrored directions both are identical)
       const d1 = line.directions[1]
       const d0 = line.directions[0]
-      const mirrored =
-        d1.path.length === d0.path.length &&
-        d1.path[0][0] === d0.path[d0.path.length - 1][0] &&
-        d1.path[0][1] === d0.path[d0.path.length - 1][1]
-      if (!mirrored) dirs.push(d1)
+      if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
 
       for (const dir of dirs) {
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
@@ -529,10 +561,6 @@ export class CesiumMap {
       // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
       if (snap.inTunnel !== record.inTunnel) {
         record.inTunnel = snap.inTunnel
-        record.primitive.appearance = new PerInstanceColorAppearance({
-          closed: true,
-          translucent: snap.inTunnel,
-        })
         record.appearanceDirty = true
       }
       if (record.appearanceDirty) {
@@ -691,6 +719,11 @@ export class CesiumMap {
       initialPosition,
       new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
     )
+    // The base render state stays opaque; only the mutable `translucent`
+    // flag switches blending on/off. (A base state built as translucent
+    // would keep its blending even after toggling the flag back off.)
+    const appearance = new PerInstanceColorAppearance({ closed: true, translucent: false })
+    appearance.translucent = snap.inTunnel
     const primitive = new Primitive({
       geometryInstances: new GeometryInstance({
         geometry: BoxGeometry.fromDimensions({
@@ -707,7 +740,7 @@ export class CesiumMap {
         },
         id: `tram:${snap.id}`,
       }),
-      appearance: new PerInstanceColorAppearance({ closed: true, translucent: snap.inTunnel }),
+      appearance,
       asynchronous: false,
       modelMatrix: matrix,
     })
@@ -740,6 +773,7 @@ export class CesiumMap {
       labelEntity,
       labelPosition,
       baseColor: color,
+      appearance,
       inTunnel: snap.inTunnel,
       highlighted: false,
       appearanceDirty: false,
@@ -758,6 +792,7 @@ export class CesiumMap {
   private applyTramAppearance(tramId: string): boolean {
     const record = this.trams.get(tramId)
     if (!record) return true
+    record.appearance.translucent = record.inTunnel
     const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
     const label = record.labelEntity.label
     if (label) {
@@ -786,7 +821,9 @@ export class CesiumMap {
       const record = this.trams.get(this.selectedId)
       if (record) {
         record.highlighted = false
-        this.applyTramAppearance(this.selectedId)
+        // Not-yet-rendered primitives are retried via appearanceDirty in
+        // syncTrams – same as tunnel transitions.
+        record.appearanceDirty = !this.applyTramAppearance(this.selectedId)
       }
     }
     this.selectedId = tramId
@@ -794,7 +831,7 @@ export class CesiumMap {
       const record = this.trams.get(tramId)
       if (record) {
         record.highlighted = true
-        this.applyTramAppearance(tramId)
+        record.appearanceDirty = !this.applyTramAppearance(tramId)
       }
     }
   }

@@ -58,11 +58,20 @@ export function mirrorTunnelRanges(
     .reverse()
 }
 
-/** true if `dist` (meters along the path) lies inside a tunnel section. */
+/**
+ * true if `dist` (meters along the path) lies inside a tunnel section.
+ * Binary search over the sorted, non-overlapping ranges – O(log n) even
+ * for directions with many underground sections.
+ */
 export function isInTunnel(ranges: readonly TunnelRange[], dist: number): boolean {
-  for (const [start, end] of ranges) {
-    if (dist < start) return false // ranges are sorted
-    if (dist <= end) return true
+  let lo = 0
+  let hi = ranges.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const [start, end] = ranges[mid]
+    if (dist < start) hi = mid - 1
+    else if (dist > end) lo = mid + 1
+    else return true
   }
   return false
 }
