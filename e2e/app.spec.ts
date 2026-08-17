@@ -101,6 +101,67 @@ test('shows active vehicles on the network lines', async () => {
   )
 })
 
+test('renders OSM tunnel route sections at reduced opacity', async () => {
+  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
+
+  const routeParts = await page.evaluate(() => {
+    const viewer = window.__cesiumViewer!
+    return viewer.entities.values.flatMap((entity) => {
+      if (!entity.id.startsWith('route:')) return []
+      const color = entity.polyline?.material?.color?.getValue(viewer.clock.currentTime)
+      return color ? [{ id: entity.id, opacity: color.alpha }] : []
+    })
+  })
+  // Line 2 crosses the tram tunnel at Rostock Hauptbahnhof: its route must
+  // consist of normal pieces (0.85) plus tunnel pieces at 40 % of that.
+  const line2Opacities = routeParts
+    .filter(({ id }) => id.startsWith('route:2:'))
+    .map(({ opacity }) => opacity)
+  const tunnelOpacity = 0.85 * 0.4
+  expect(line2Opacities.some((opacity) => Math.abs(opacity - tunnelOpacity) < 1e-6)).toBe(true)
+  expect(line2Opacities.some((opacity) => Math.abs(opacity - 0.85) < 1e-6)).toBe(true)
+})
+
+test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', async () => {
+  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
+
+  const transition = await page.evaluate(() => window.__mrt!.tunnelTransition())
+  expect(transition).not.toBeNull()
+
+  const setSimulationTime = async (seconds: number) => {
+    const hours = String(Math.floor(seconds / 3600)).padStart(2, '0')
+    const minutes = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')
+    const secs = String(seconds % 60).padStart(2, '0')
+    await page.evaluate((time) => window.__mrt!.setTime(time), `${hours}:${minutes}:${secs}`)
+  }
+
+  await setSimulationTime(transition!.tunnelTime)
+  await expect
+    .poll(
+      () =>
+        page.evaluate((id) => {
+          const snap = window.__mrt!.trams().find((tram) => tram.id === id)
+          return snap?.inTunnel ? window.__mrt!.tramOpacity(id) : null
+        }, transition!.id),
+      { timeout: 30_000 },
+    )
+    .toBeCloseTo(0.4)
+
+  await setSimulationTime(transition!.surfaceTime)
+  await expect
+    .poll(
+      () =>
+        page.evaluate((id) => {
+          const snap = window.__mrt!.trams().find((tram) => tram.id === id)
+          return snap && !snap.inTunnel ? window.__mrt!.tramOpacity(id) : null
+        }, transition!.id),
+      { timeout: 30_000 },
+    )
+    .toBeCloseTo(1)
+})
+
 test('line switch hides the vehicles of that line', async () => {
   const before = await page.evaluate(() => window.__mrt!.visibleTramCount())
   await page.getByRole('switch', { name: 'Show Line 1' }).click()

@@ -6,6 +6,8 @@
  *   - all RSAG bus lines (route=bus, operator RSAG)
  *   - the ferries Kabutzenhof–Gehlsdorf (56291) and
  *     Warnemünde–Hohe Düne (56296)
+ *   - tunnel/underground sections per direction (from the member ways'
+ *     tunnel/location/layer tags) as meter ranges along the path
  *
  *   npm run data:update
  *
@@ -26,6 +28,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compactPath } from './lib/simplify.mjs'
+import { isUndergroundWay, tunnelRangesFromSegments } from './lib/tunnels.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = process.env.NETWORK_OUT
@@ -125,9 +128,15 @@ function haversineMeters([lon1, lat1], [lon2, lat2]) {
  * Stitches the ways of a relation into one continuous polyline.
  * OSM PTv2 relations list their ways in order; each way's orientation is
  * determined by how it connects to the current end of the route.
+ *
+ * Besides the path it returns per-segment underground flags:
+ * segUnderground[i] tells whether the segment between path[i] and
+ * path[i + 1] comes from a tunnel/underground way
+ * (length = path.length - 1).
  */
-function stitchWays(ways, wayById, nodeById, label) {
+export function stitchWays(ways, wayById, nodeById, label) {
   const coords = []
+  const segUnderground = []
   let gaps = 0
 
   const wayCoords = (wayId) => {
@@ -143,9 +152,11 @@ function stitchWays(ways, wayById, nodeById, label) {
   for (const member of ways) {
     const pts = wayCoords(member.ref)
     if (!pts) continue
+    const underground = isUndergroundWay(wayById.get(member.ref))
 
     if (coords.length === 0) {
       coords.push(...pts)
+      for (let i = 1; i < pts.length; i++) segUnderground.push(underground)
       continue
     }
 
@@ -163,13 +174,17 @@ function stitchWays(ways, wayById, nodeById, label) {
 
     // Skip the first point if it matches the current end of the route
     const startIdx = gap < 1 ? 1 : 0
-    coords.push(...oriented.slice(startIdx))
+    const appended = oriented.slice(startIdx)
+    coords.push(...appended)
+    // One new segment per appended point (with startIdx 0 the first one is
+    // the short bridging segment onto this way – it inherits the way's flag).
+    for (let i = 0; i < appended.length; i++) segUnderground.push(underground)
   }
 
   if (gaps > 0) {
     console.warn(`  ⚠ ${label}: skipped ${gaps} way(s) with a gap > 150 m`)
   }
-  return coords
+  return { path: coords, segUnderground }
 }
 
 function cumulative(path) {
@@ -297,7 +312,12 @@ async function main() {
     const candidates = rels
       .map((rel) => {
         const wayMembers = rel.members.filter((m) => m.type === 'way' && !/platform/.test(m.role || ''))
-        const path = stitchWays(wayMembers, wayById, nodeById, `Line ${ref} (${rel.id})`)
+        const { path, segUnderground } = stitchWays(
+          wayMembers,
+          wayById,
+          nodeById,
+          `Line ${ref} (${rel.id})`,
+        )
         const stopNodes = []
         rel.members.forEach((m, i) => {
           if (m.type !== 'node' || !/stop/.test(m.role || '')) return
@@ -314,7 +334,7 @@ async function main() {
           }
           stopNodes.push({ node, name })
         })
-        return { rel, path, stopNodes }
+        return { rel, path, segUnderground, stopNodes }
       })
       // Ferry relations often do not list their piers with stop roles –
       // there is a fallback below using the path endpoints.
@@ -333,8 +353,9 @@ async function main() {
     if (opposite) chosen.push(opposite)
 
     const directions = []
-    for (const { rel, path, stopNodes } of chosen) {
+    for (const { rel, path, segUnderground, stopNodes } of chosen) {
       const cum = cumulative(path)
+      const tunnels = tunnelRangesFromSegments(segUnderground, cum)
 
       const dirStops = []
       let lastDist = -1
@@ -381,9 +402,12 @@ async function main() {
         from: rel.tags?.from || stops[dirStops[0]].name,
         to: rel.tags?.to || stops[dirStops[dirStops.length - 1]].name,
         // Simplify (0.3 m tolerance) AFTER projecting the stops: visually
-        // lossless, but noticeably fewer points in the bundle.
+        // lossless, but noticeably fewer points in the bundle. The tunnel
+        // meter ranges stay valid – simplification changes the path length
+        // by far less than a portal is long.
         path: compactPath(path),
         stops: dirStops,
+        ...(tunnels.length > 0 ? { tunnels } : {}),
       })
     }
 
@@ -417,9 +441,16 @@ async function main() {
       ...(fixed?.vehicle ? { vehicle: fixed.vehicle } : {}),
       directions,
     })
+    const dirSummary = (d) => {
+      const km = (cumulative(d.path).at(-1) / 1000).toFixed(1)
+      const tunnelMeters = (d.tunnels ?? []).reduce((sum, [s, e]) => sum + (e - s), 0)
+      const tunnelInfo =
+        tunnelMeters > 0 ? ` (${(tunnelMeters / 1000).toFixed(1)} km tunnel)` : ''
+      return `${d.stops.length} stops/${km} km${tunnelInfo}`
+    }
     console.log(
       `✓ ${name}: ${directions.length} direction(s), ` +
-        `${directions.map((d) => `${d.stops.length} stops/${(cumulative(d.path).at(-1) / 1000).toFixed(1)} km`).join(' + ')}`,
+        `${directions.map(dirSummary).join(' + ')}`,
     )
   }
 
@@ -443,7 +474,11 @@ async function main() {
   console.log('Tip: npm test validates the new dataset.')
 }
 
-main().catch((err) => {
-  console.error('❌ Error:', err.message)
-  process.exit(1)
-})
+// Only run as a CLI – tests import stitchWays without triggering a fetch.
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  main().catch((err) => {
+    console.error('❌ Error:', err.message)
+    process.exit(1)
+  })
+}

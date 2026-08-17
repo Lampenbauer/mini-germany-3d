@@ -100,6 +100,13 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
   and ferries their real vessel dimensions; the 3D boxes, travel speeds, and
   synthetic headways adapt accordingly. The line panel groups by mode of
   transport (with per-group toggles) as soon as more than one is present.
+- **Tunnels & underground sections:** `data:update` derives per-direction
+  tunnel ranges from the OSM tags of each route's member ways (`tunnel=*`,
+  `location=underground`, or a negative `layer` – e.g. the tram tunnel under
+  Rostock Hauptbahnhof) and stores them as meter ranges (`tunnels`) in
+  `network.json`. The map renders those route sections at **40 % opacity**,
+  and while a vehicle travels through one, its 3D box and label fade to 40 %
+  as well; the info card of a selected vehicle then shows "in tunnel".
 - **Timetable:** `src/data/schedule.json` contains real GTFS departure times per
   line/direction (typical weekday). For lines/directions without GTFS data (e.g.
   due to construction work), a synthetic, RSAG-like headway from
