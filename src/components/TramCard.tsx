@@ -27,8 +27,10 @@ const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
 
 /** Status text; ferries dock at a pier, not at a stop. */
 function statusText(tram: TramSnapshot): string {
-  if (tram.status === 'moving') return 'Moving'
-  return tram.mode === 'ferry' ? 'At pier' : 'At stop'
+  const base =
+    tram.status === 'moving' ? 'Moving' : tram.mode === 'ferry' ? 'At pier' : 'At stop'
+  // Explains why the vehicle is rendered as a 40 % ghost on the map
+  return tram.inTunnel ? `${base} · in tunnel` : base
 }
 
 export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardProps) {

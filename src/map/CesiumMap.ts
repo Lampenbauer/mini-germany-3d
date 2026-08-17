@@ -18,6 +18,7 @@ import {
   ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
   ConstantPositionProperty,
+  ConstantProperty,
   DistanceDisplayCondition,
   Entity,
   GeometryInstance,
@@ -41,6 +42,7 @@ import {
 import { config } from '@/config'
 import type { PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
+import { splitPathByTunnels } from '@/lib/tunnels'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
@@ -68,6 +70,16 @@ interface TramEntityRecord {
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
+  /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
+  inTunnel: boolean
+  /** Vehicle is the current selection (body brightened). */
+  highlighted: boolean
+  /**
+   * Body color still needs to be (re)applied: geometry attributes are only
+   * writable once the primitive has rendered, so a tunnel transition on a
+   * not-yet-rendered vehicle is retried on the following ticks.
+   */
+  appearanceDirty: boolean
   /** Half the vehicle height in meters (box center above ground). */
   halfHeight: number
   /** Smoothed ground height (ellipsoidal) below the tram in meters. */
@@ -85,6 +97,15 @@ const FALLBACK_GROUND_HEIGHT = 45
 
 /** Every how many frames the ground height is re-sampled per tram. */
 const HEIGHT_SAMPLE_INTERVAL = 12
+
+/** Base alpha of the route polylines. */
+const ROUTE_ALPHA = 0.85
+
+/**
+ * Visibility of tunnel/underground sections: route pieces and vehicles on
+ * them are rendered at 40 % of their normal opacity.
+ */
+const TUNNEL_VISIBILITY = 0.4
 
 // Scratch objects for the per-tick hot path in syncTrams: Cesium clones all
 // values it retains (ConstantProperty, modelMatrix), so reusing these avoids
@@ -263,7 +284,11 @@ export class CesiumMap {
     }
   }
 
-  /** Draws the route polylines of all lines (draped onto ground/3D tiles). */
+  /**
+   * Draws the route polylines of all lines (draped onto ground/3D tiles).
+   * Tunnel/underground sections become their own polyline pieces at 40 %
+   * of the normal opacity.
+   */
   addRoutes(network: PreparedNetwork): void {
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
@@ -281,20 +306,23 @@ export class CesiumMap {
       if (!mirrored) dirs.push(d1)
 
       for (const dir of dirs) {
-        const positions = Cartesian3.fromDegreesArray(dir.path.flat())
-        entities.push(
-          this.viewer.entities.add({
-            id: `route:${line.id}:${dir.direction}`,
-            polyline: {
-              positions,
-              width: 5,
-              clampToGround: true,
-              material: new ColorMaterialProperty(color.withAlpha(0.85)),
-              classificationType: ClassificationType.BOTH,
-              zIndex: 10 + index,
-            },
-          }),
-        )
+        const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
+        pieces.forEach((piece, pieceIndex) => {
+          const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
+          entities.push(
+            this.viewer.entities.add({
+              id: `route:${line.id}:${dir.direction}:${pieceIndex}`,
+              polyline: {
+                positions: Cartesian3.fromDegreesArray(piece.path.flat()),
+                width: 5,
+                clampToGround: true,
+                material: new ColorMaterialProperty(color.withAlpha(alpha)),
+                classificationType: ClassificationType.BOTH,
+                zIndex: 10 + index,
+              },
+            }),
+          )
+        })
       }
       this.routeEntities.set(line.id, entities)
     })
@@ -498,6 +526,19 @@ export class CesiumMap {
         this.trams.set(snap.id, record)
       }
 
+      // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
+      if (snap.inTunnel !== record.inTunnel) {
+        record.inTunnel = snap.inTunnel
+        record.primitive.appearance = new PerInstanceColorAppearance({
+          closed: true,
+          translucent: snap.inTunnel,
+        })
+        record.appearanceDirty = true
+      }
+      if (record.appearanceDirty) {
+        record.appearanceDirty = !this.applyTramAppearance(snap.id)
+      }
+
       const show = visibleLines.has(snap.lineId)
       let position = Cartesian3.fromDegrees(
         snap.lon,
@@ -638,6 +679,8 @@ export class CesiumMap {
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
     const halfHeight = snap.vehicle.height / 2
+    // Vehicles on a tunnel section start as 40 % ghosts right away.
+    const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
@@ -660,11 +703,11 @@ export class CesiumMap {
           ),
         }),
         attributes: {
-          color: ColorGeometryInstanceAttribute.fromColor(color),
+          color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
         },
         id: `tram:${snap.id}`,
       }),
-      appearance: new PerInstanceColorAppearance({ closed: true, translucent: false }),
+      appearance: new PerInstanceColorAppearance({ closed: true, translucent: snap.inTunnel }),
       asynchronous: false,
       modelMatrix: matrix,
     })
@@ -681,8 +724,8 @@ export class CesiumMap {
       label: {
         text: snap.lineId,
         font: 'bold 14px "Inter Variable", system-ui, sans-serif',
-        fillColor: Color.WHITE,
-        outlineColor: Color.fromCssColorString(snap.color),
+        fillColor: Color.WHITE.withAlpha(alpha),
+        outlineColor: color.withAlpha(alpha),
         outlineWidth: 4,
         style: LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cartesian2(0, -28),
@@ -697,35 +740,62 @@ export class CesiumMap {
       labelEntity,
       labelPosition,
       baseColor: color,
+      inTunnel: snap.inTunnel,
+      highlighted: false,
+      appearanceDirty: false,
       halfHeight,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
     }
   }
 
-  /** Brightens the selected tram's vehicle body (or reverts it). */
-  private applyTramHighlight(tramId: string, highlighted: boolean): void {
+  /**
+   * Applies the current visual state of a vehicle: selection highlight
+   * (body brightened) combined with tunnel ghosting (body and label at
+   * 40 % opacity while on an underground section). Returns false while the
+   * primitive has not rendered yet and the body color could not be written.
+   */
+  private applyTramAppearance(tramId: string): boolean {
     const record = this.trams.get(tramId)
-    if (!record) return
+    if (!record) return true
+    const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
+    const label = record.labelEntity.label
+    if (label) {
+      label.fillColor = new ConstantProperty(Color.WHITE.withAlpha(alpha))
+      label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
+    }
     try {
       const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
-      if (!attributes) return
-      const color = highlighted
+      if (!attributes) return false
+      const color = record.highlighted
         ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
         : record.baseColor
-      attributes.color = ColorGeometryInstanceAttribute.toValue(color, attributes.color)
+      attributes.color = ColorGeometryInstanceAttribute.toValue(
+        color.withAlpha(alpha),
+        attributes.color,
+      )
+      return true
     } catch {
-      // Primitive not rendered yet – simply skip the highlight then
+      // Primitive not rendered yet – retried via appearanceDirty
+      return false
     }
   }
 
   setSelected(tramId: string | null): void {
     if (this.selectedId) {
-      this.applyTramHighlight(this.selectedId, false)
+      const record = this.trams.get(this.selectedId)
+      if (record) {
+        record.highlighted = false
+        this.applyTramAppearance(this.selectedId)
+      }
     }
     this.selectedId = tramId
     if (tramId) {
-      this.applyTramHighlight(tramId, true)
+      const record = this.trams.get(tramId)
+      if (record) {
+        record.highlighted = true
+        this.applyTramAppearance(tramId)
+      }
     }
   }
 
