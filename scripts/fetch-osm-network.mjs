@@ -134,7 +134,7 @@ function haversineMeters([lon1, lat1], [lon2, lat2]) {
  * path[i + 1] comes from a tunnel/underground way
  * (length = path.length - 1).
  */
-function stitchWays(ways, wayById, nodeById, label) {
+export function stitchWays(ways, wayById, nodeById, label) {
   const coords = []
   const segUnderground = []
   let gaps = 0
@@ -474,7 +474,11 @@ async function main() {
   console.log('Tip: npm test validates the new dataset.')
 }
 
-main().catch((err) => {
-  console.error('❌ Error:', err.message)
-  process.exit(1)
-})
+// Only run as a CLI – tests import stitchWays without triggering a fetch.
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  main().catch((err) => {
+    console.error('❌ Error:', err.message)
+    process.exit(1)
+  })
+}

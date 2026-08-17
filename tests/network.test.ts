@@ -73,6 +73,19 @@ describe('Network dataset (structural, source-independent)', () => {
     }
   })
 
+  // Guards the nightly OSM refresh: if tag extraction breaks, the tram
+  // tunnel under Rostock Hauptbahnhof must not silently disappear.
+  it.runIf(loadBundledNetwork().meta.source === 'osm')(
+    'contains the Rostock tram tunnel in the OSM dataset',
+    () => {
+      const tunnelRanges = network.lines
+        .filter((line) => line.mode === 'tram')
+        .flatMap((line) => line.directions)
+        .flatMap((dir) => dir.tunnels)
+      expect(tunnelRanges.length).toBeGreaterThan(0)
+    },
+  )
+
   it('stop names are not empty', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
