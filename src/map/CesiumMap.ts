@@ -18,6 +18,7 @@ import {
   ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
   ConstantPositionProperty,
+  ConstantProperty,
   DistanceDisplayCondition,
   Entity,
   GeometryInstance,
@@ -39,8 +40,9 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import type { PreparedNetwork } from '@/data/network-types'
+import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
+import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
@@ -68,6 +70,23 @@ interface TramEntityRecord {
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
+  /**
+   * Shared appearance of the body primitive. Tunnel transitions only toggle
+   * its `translucent` flag – the primitive picks that up per frame
+   * (isTranslucent()) and rebuilds just its render state, no new
+   * appearance/shader per transition.
+   */
+  appearance: PerInstanceColorAppearance
+  /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
+  inTunnel: boolean
+  /** Vehicle is the current selection (body brightened). */
+  highlighted: boolean
+  /**
+   * Body color still needs to be (re)applied: geometry attributes are only
+   * writable once the primitive has rendered, so a tunnel transition on a
+   * not-yet-rendered vehicle is retried on the following ticks.
+   */
+  appearanceDirty: boolean
   /** Half the vehicle height in meters (box center above ground). */
   halfHeight: number
   /** Smoothed ground height (ellipsoidal) below the tram in meters. */
@@ -86,11 +105,49 @@ const FALLBACK_GROUND_HEIGHT = 45
 /** Every how many frames the ground height is re-sampled per tram. */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
+/** Base alpha of the route polylines. */
+const ROUTE_ALPHA = 0.85
+
+/**
+ * Visibility of tunnel/underground sections: route pieces and vehicles on
+ * them are rendered at 40 % of their normal opacity.
+ */
+const TUNNEL_VISIBILITY = 0.4
+
 // Scratch objects for the per-tick hot path in syncTrams: Cesium clones all
 // values it retains (ConstantProperty, modelMatrix), so reusing these avoids
 // ~2 allocations per tram per tick.
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
+
+/**
+ * True when the reverse direction is an exact mirror of the forward one
+ * (path reversed point for point, tunnel ranges mirrored) – then a single
+ * set of polylines covers both directions. Directions that merely share
+ * length and endpoints (e.g. loops, or asymmetric tunnel tagging) are
+ * drawn separately.
+ */
+function directionsAreMirrored(
+  forward: PreparedDirection,
+  reverse: PreparedDirection,
+): boolean {
+  if (forward.path.length !== reverse.path.length) return false
+  const lastPoint = forward.path.length - 1
+  for (let i = 0; i <= lastPoint; i++) {
+    const a = forward.path[lastPoint - i]
+    const b = reverse.path[i]
+    if (a[0] !== b[0] || a[1] !== b[1]) return false
+  }
+  const mirrored = mirrorTunnelRanges(forward.tunnels, forward.totalLength)
+  if (mirrored.length !== reverse.tunnels.length) return false
+  // Mirrored meter ranges are recomputed floats – compare with a tolerance
+  // far below visibility instead of bit-exact.
+  return mirrored.every(
+    ([start, end], i) =>
+      Math.abs(start - reverse.tunnels[i][0]) < 0.01 &&
+      Math.abs(end - reverse.tunnels[i][1]) < 0.01,
+  )
+}
 
 export class CesiumMap {
   readonly viewer: Viewer
@@ -263,38 +320,41 @@ export class CesiumMap {
     }
   }
 
-  /** Draws the route polylines of all lines (draped onto ground/3D tiles). */
+  /**
+   * Draws the route polylines of all lines (draped onto ground/3D tiles).
+   * Tunnel/underground sections become their own polyline pieces at 40 %
+   * of the normal opacity.
+   */
   addRoutes(network: PreparedNetwork): void {
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
 
       const dirs = [line.directions[0]]
-      // Only draw the second direction if it has its own geometry
-      // (with mirrored directions the path is identical)
+      // Only draw the second direction if it has its own geometry or its
+      // own tunnel layout (with mirrored directions both are identical)
       const d1 = line.directions[1]
       const d0 = line.directions[0]
-      const mirrored =
-        d1.path.length === d0.path.length &&
-        d1.path[0][0] === d0.path[d0.path.length - 1][0] &&
-        d1.path[0][1] === d0.path[d0.path.length - 1][1]
-      if (!mirrored) dirs.push(d1)
+      if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
 
       for (const dir of dirs) {
-        const positions = Cartesian3.fromDegreesArray(dir.path.flat())
-        entities.push(
-          this.viewer.entities.add({
-            id: `route:${line.id}:${dir.direction}`,
-            polyline: {
-              positions,
-              width: 5,
-              clampToGround: true,
-              material: new ColorMaterialProperty(color.withAlpha(0.85)),
-              classificationType: ClassificationType.BOTH,
-              zIndex: 10 + index,
-            },
-          }),
-        )
+        const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
+        pieces.forEach((piece, pieceIndex) => {
+          const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
+          entities.push(
+            this.viewer.entities.add({
+              id: `route:${line.id}:${dir.direction}:${pieceIndex}`,
+              polyline: {
+                positions: Cartesian3.fromDegreesArray(piece.path.flat()),
+                width: 5,
+                clampToGround: true,
+                material: new ColorMaterialProperty(color.withAlpha(alpha)),
+                classificationType: ClassificationType.BOTH,
+                zIndex: 10 + index,
+              },
+            }),
+          )
+        })
       }
       this.routeEntities.set(line.id, entities)
     })
@@ -498,6 +558,15 @@ export class CesiumMap {
         this.trams.set(snap.id, record)
       }
 
+      // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
+      if (snap.inTunnel !== record.inTunnel) {
+        record.inTunnel = snap.inTunnel
+        record.appearanceDirty = true
+      }
+      if (record.appearanceDirty) {
+        record.appearanceDirty = !this.applyTramAppearance(snap.id)
+      }
+
       const show = visibleLines.has(snap.lineId)
       let position = Cartesian3.fromDegrees(
         snap.lon,
@@ -638,6 +707,8 @@ export class CesiumMap {
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
     const halfHeight = snap.vehicle.height / 2
+    // Vehicles on a tunnel section start as 40 % ghosts right away.
+    const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
@@ -648,6 +719,11 @@ export class CesiumMap {
       initialPosition,
       new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
     )
+    // The base render state stays opaque; only the mutable `translucent`
+    // flag switches blending on/off. (A base state built as translucent
+    // would keep its blending even after toggling the flag back off.)
+    const appearance = new PerInstanceColorAppearance({ closed: true, translucent: false })
+    appearance.translucent = snap.inTunnel
     const primitive = new Primitive({
       geometryInstances: new GeometryInstance({
         geometry: BoxGeometry.fromDimensions({
@@ -660,11 +736,11 @@ export class CesiumMap {
           ),
         }),
         attributes: {
-          color: ColorGeometryInstanceAttribute.fromColor(color),
+          color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
         },
         id: `tram:${snap.id}`,
       }),
-      appearance: new PerInstanceColorAppearance({ closed: true, translucent: false }),
+      appearance,
       asynchronous: false,
       modelMatrix: matrix,
     })
@@ -681,8 +757,8 @@ export class CesiumMap {
       label: {
         text: snap.lineId,
         font: 'bold 14px "Inter Variable", system-ui, sans-serif',
-        fillColor: Color.WHITE,
-        outlineColor: Color.fromCssColorString(snap.color),
+        fillColor: Color.WHITE.withAlpha(alpha),
+        outlineColor: color.withAlpha(alpha),
         outlineWidth: 4,
         style: LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cartesian2(0, -28),
@@ -697,35 +773,66 @@ export class CesiumMap {
       labelEntity,
       labelPosition,
       baseColor: color,
+      appearance,
+      inTunnel: snap.inTunnel,
+      highlighted: false,
+      appearanceDirty: false,
       halfHeight,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
     }
   }
 
-  /** Brightens the selected tram's vehicle body (or reverts it). */
-  private applyTramHighlight(tramId: string, highlighted: boolean): void {
+  /**
+   * Applies the current visual state of a vehicle: selection highlight
+   * (body brightened) combined with tunnel ghosting (body and label at
+   * 40 % opacity while on an underground section). Returns false while the
+   * primitive has not rendered yet and the body color could not be written.
+   */
+  private applyTramAppearance(tramId: string): boolean {
     const record = this.trams.get(tramId)
-    if (!record) return
+    if (!record) return true
+    record.appearance.translucent = record.inTunnel
+    const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
+    const label = record.labelEntity.label
+    if (label) {
+      label.fillColor = new ConstantProperty(Color.WHITE.withAlpha(alpha))
+      label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
+    }
     try {
       const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
-      if (!attributes) return
-      const color = highlighted
+      if (!attributes) return false
+      const color = record.highlighted
         ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
         : record.baseColor
-      attributes.color = ColorGeometryInstanceAttribute.toValue(color, attributes.color)
+      attributes.color = ColorGeometryInstanceAttribute.toValue(
+        color.withAlpha(alpha),
+        attributes.color,
+      )
+      return true
     } catch {
-      // Primitive not rendered yet – simply skip the highlight then
+      // Primitive not rendered yet – retried via appearanceDirty
+      return false
     }
   }
 
   setSelected(tramId: string | null): void {
     if (this.selectedId) {
-      this.applyTramHighlight(this.selectedId, false)
+      const record = this.trams.get(this.selectedId)
+      if (record) {
+        record.highlighted = false
+        // Not-yet-rendered primitives are retried via appearanceDirty in
+        // syncTrams – same as tunnel transitions.
+        record.appearanceDirty = !this.applyTramAppearance(this.selectedId)
+      }
     }
     this.selectedId = tramId
     if (tramId) {
-      this.applyTramHighlight(tramId, true)
+      const record = this.trams.get(tramId)
+      if (record) {
+        record.highlighted = true
+        record.appearanceDirty = !this.applyTramAppearance(tramId)
+      }
     }
   }
 
@@ -795,6 +902,20 @@ export class CesiumMap {
       if (drift > maxDrift) maxDrift = drift
     }
     return maxDrift
+  }
+
+  /** Debug/tests: color-attribute opacity currently applied to a vehicle body. */
+  getTramOpacity(tramId: string): number | null {
+    const record = this.trams.get(tramId)
+    if (!record) return null
+    try {
+      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const alpha = attributes?.color?.[3]
+      return typeof alpha === 'number' ? alpha / 255 : null
+    } catch {
+      // The primitive has not completed its first render yet.
+      return null
+    }
   }
 
   /** Debug: current ground heights of the trams (for diagnosing tile heights). */

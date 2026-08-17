@@ -1,4 +1,5 @@
 import type { LonLat } from '@/lib/geo'
+import type { TunnelRange } from '@/lib/tunnels'
 
 /** Transit mode of a line. If the field is missing in network.json, 'tram' applies. */
 export type TransitMode = 'tram' | 'bus' | 'ferry'
@@ -50,6 +51,12 @@ export interface DirectionJson {
   path: LonLat[]
   /** Stop ids in travel order. */
   stops: string[]
+  /**
+   * Tunnel/underground sections as [start, end] meter ranges along `path`
+   * (from OSM: tunnel=*, location=underground, or a negative layer).
+   * Missing or empty = the whole direction runs above ground.
+   */
+  tunnels?: TunnelRange[]
 }
 
 /** Prepared network with precomputed distances. */
@@ -86,4 +93,6 @@ export interface PreparedDirection {
   cum: number[]
   totalLength: number
   stops: PreparedStop[]
+  /** Normalized tunnel sections (sorted, merged, clamped); [] = none. */
+  tunnels: TunnelRange[]
 }
