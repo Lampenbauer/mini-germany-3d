@@ -6,6 +6,7 @@
 import { SimClock } from '@/lib/clock'
 import { buildAllTrips, buildRealtimeTripIdMap, tripStateAt } from '@/lib/timetable'
 import type { ScheduleJson, TimetableOptions, Trip } from '@/lib/timetable'
+import { isInTunnel } from '@/lib/tunnels'
 import type { PreparedNetwork, TransitMode, VehicleDimensions } from '@/data/network-types'
 import { config } from '@/config'
 
@@ -23,6 +24,8 @@ export interface TramSnapshot {
   lat: number
   bearing: number
   status: 'dwell' | 'moving'
+  /** true while the vehicle is inside a tunnel/underground route section. */
+  inTunnel: boolean
   nextStopName: string
   destination: string
   origin: string
@@ -105,6 +108,7 @@ export class Simulation {
         lat: state.lat,
         bearing: state.bearing,
         status: state.status,
+        inTunnel: dir.tunnels.length > 0 && isInTunnel(dir.tunnels, state.distance),
         nextStopName: dir.stops[state.nextStopIndex]?.name ?? dir.to,
         destination: dir.to,
         origin: dir.from,
