@@ -1,6 +1,7 @@
 import { config } from '@/config'
 import { cumulativeDistances, projectOntoPath } from '@/lib/geo'
 import type { LonLat } from '@/lib/geo'
+import { mirrorTunnelRanges, normalizeTunnelRanges } from '@/lib/tunnels'
 import type {
   DirectionJson,
   NetworkJson,
@@ -45,25 +46,41 @@ function prepareDirection(
     )
   }
 
-  return { lineId, direction, from: dir.from, to: dir.to, path, cum, totalLength, stops }
+  return {
+    lineId,
+    direction,
+    from: dir.from,
+    to: dir.to,
+    path,
+    cum,
+    totalLength,
+    stops,
+    tunnels: normalizeTunnelRanges(dir.tunnels, totalLength),
+  }
 }
 
-/** Creates the opposite direction by mirroring a direction. */
-function mirrorDirection(dir: DirectionJson): DirectionJson {
+/**
+ * Creates the opposite direction by mirroring a direction. `totalLength`
+ * (of the already prepared forward direction – the reversed path has the
+ * identical length) mirrors the tunnel ranges onto the reversed path.
+ */
+function mirrorDirection(dir: DirectionJson, totalLength: number): DirectionJson {
   return {
     from: dir.to,
     to: dir.from,
     path: [...dir.path].reverse() as LonLat[],
     stops: [...dir.stops].reverse(),
+    tunnels: mirrorTunnelRanges(normalizeTunnelRanges(dir.tunnels, totalLength), totalLength),
   }
 }
 
 export function prepareNetwork(json: NetworkJson): PreparedNetwork {
   const lines: PreparedLine[] = json.lines.map((line) => {
     const dir0Json = line.directions[0]
-    const dir1Json = line.directions[1] ?? mirrorDirection(dir0Json)
+    const dir0 = prepareDirection(json, line.id, 0, dir0Json)
+    const dir1Json = line.directions[1] ?? mirrorDirection(dir0Json, dir0.totalLength)
     const directions: [PreparedDirection, PreparedDirection] = [
-      prepareDirection(json, line.id, 0, dir0Json),
+      dir0,
       prepareDirection(json, line.id, 1, dir1Json),
     ]
     const mode = line.mode ?? 'tram'
