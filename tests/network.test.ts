@@ -58,6 +58,34 @@ describe('Network dataset (structural, source-independent)', () => {
     }
   })
 
+  it('tunnel sections are sorted, non-empty, and lie within the route', () => {
+    for (const line of network.lines) {
+      for (const dir of line.directions) {
+        let prevEnd = 0
+        for (const [start, end] of dir.tunnels) {
+          const label = `${line.id}/R${dir.direction}: tunnel [${start}, ${end}]`
+          expect(start, label).toBeGreaterThanOrEqual(prevEnd)
+          expect(end, label).toBeGreaterThan(start)
+          expect(end, label).toBeLessThanOrEqual(dir.totalLength)
+          prevEnd = end
+        }
+      }
+    }
+  })
+
+  // Guards the nightly OSM refresh: if tag extraction breaks, the tram
+  // tunnel under Rostock Hauptbahnhof must not silently disappear.
+  it.runIf(loadBundledNetwork().meta.source === 'osm')(
+    'contains the Rostock tram tunnel in the OSM dataset',
+    () => {
+      const tunnelRanges = network.lines
+        .filter((line) => line.mode === 'tram')
+        .flatMap((line) => line.directions)
+        .flatMap((dir) => dir.tunnels)
+      expect(tunnelRanges.length).toBeGreaterThan(0)
+    },
+  )
+
   it('stop names are not empty', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
