@@ -23,7 +23,7 @@ after [shadcn/ui](https://ui.shadcn.com/).
 |---|-------------|--------|
 | 1 | Cesium map with Google 3D Tiles | ✅ `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable |
 | 2 | Trams as simple boxes on real routes | ✅ 3D boxes (32 m × 2.65 m × 3.6 m) with line labels, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
-| 3 | Routes/lines on the map | ✅ Polylines draped onto the ground/3D tiles in line colors + stops layer |
+| 3 | Routes/lines on the map | ✅ Polylines on the interpolated street baseline in line colors + stops layer |
 | 4 | shadcn(-style) interface | ✅ Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
 | 5 | Automated tests | ✅ Unit tests (Vitest) and functional E2E tests (Playwright) |
 
@@ -233,12 +233,24 @@ scripts/
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
 
-**How the simulation works:** For each line/direction, departure times are generated
-from the headway; the travel time between two stops follows from the real track
-distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
+**How the simulation works:** Departure times come from schedule.json (real GTFS
+departures, including short workings that only serve part of a route – trips carry a
+span and start/end mid-route); lines without GTFS data fall back to a synthetic
+headway, whose return direction departs offset by half the headway so shuttle
+services like the Warnow ferries run as the single vessel they are. The travel time
+between two stops follows from the real track distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
-(heading of the 3D box). The boxes clamp themselves onto the Google 3D Tiles or the
-ellipsoid automatically via `HeightReference`.
+(heading of the 3D box). Vehicles and stops do not use Cesium's `HeightReference`
+clamping (unreliable on 3D tiles); their height is set explicitly from tile heights
+measured by ray casts. Since those heights depend on the tile LOD currently loaded,
+they are re-measured as the camera approaches – otherwise a stop measured from the
+overview would keep floating several meters above the roofs up close. Because the
+photorealistic tiles are one merged surface (tree canopies included), raw surface
+heights would drape routes over crowns and make vehicles bob under avenues; the
+measured stop heights therefore form a per-direction street baseline
+(`src/map/height-profile.ts`) – route polylines follow it with a faint
+depth-fail tint where foliage occludes them, and vehicle height samples are
+clamped against it (canopy spikes capped, real underpass dips allowed).
 
 ## Roadmap (Milestone 2+)
 

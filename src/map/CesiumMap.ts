@@ -13,7 +13,6 @@ import {
   Cartesian2,
   Cartesian3,
   Cartographic,
-  ClassificationType,
   Color,
   ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
@@ -43,6 +42,12 @@ import { config } from '@/config'
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
+import {
+  buildProfile,
+  clampToProfile,
+  profileHeightAt,
+  type ProfileAnchor,
+} from '@/map/height-profile'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
@@ -95,6 +100,28 @@ interface TramEntityRecord {
   lastSampleFrame: number
 }
 
+interface StopEntityRecord {
+  entity: Entity
+  /** Network stop id – key into the measured stop heights. */
+  stopId: string
+  lon: number
+  lat: number
+  /** Fixed world position of the stop – basis for the camera distance check. */
+  position: Cartesian3
+  /**
+   * Camera distance in meters at which the currently applied height was
+   * measured. Infinity = not measured yet, 0 = measured most-detailed
+   * (final, no camera-dependent measurement may override it).
+   */
+  sampledFrom: number
+  /**
+   * Timestamp before which no new attempt is made – set when a measurement
+   * found no queryable tile, so a handful of unreachable stops right in
+   * front of the camera cannot monopolize the per-pass budget.
+   */
+  retryAfter: number
+}
+
 /**
  * Ellipsoidal height of Rostock's streets while no tile height has been
  * measured yet (geoid undulation ~40 m + terrain height). Replaced by real
@@ -105,8 +132,54 @@ const FALLBACK_GROUND_HEIGHT = 45
 /** Every how many frames the ground height is re-sampled per tram. */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
+/**
+ * A stop height is re-measured once the camera has come this much closer
+ * than at the previous measurement (0.7 = 30 % closer). Tile heights are
+ * LOD-dependent, so a closer camera yields a measurably better value.
+ */
+const STOP_RESAMPLE_RATIO = 0.7
+
+/** Stop heights measured per pass (one ray intersection each). */
+const STOP_HEIGHT_BUDGET = 4
+
+/**
+ * Minimum spacing between two sampling passes in ms. Deliberately wall-clock
+ * based rather than a frame count: the app throttles the simulation tick to
+ * 2 Hz whenever the clock is paused or no vehicle is in view, which would
+ * otherwise stretch a pass to 7.5 s and leave stops the user is looking at
+ * on the fallback height for minutes.
+ */
+const STOP_SAMPLE_INTERVAL_MS = 500
+
+/** How long a stop is skipped for after a measurement found no loaded tile. */
+const STOP_RETRY_MS = 1500
+
+/**
+ * Number of stops per sampleHeightMostDetailed() call during bootstrapping.
+ * Chunking lets the stops settle onto the surface progressively instead of
+ * all at once after the full run.
+ */
+const STOP_HEIGHT_CHUNK = 100
+
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
+
+/** Route polylines hover this far above the street baseline (meters). */
+const ROUTE_HEIGHT_OFFSET = 0.4
+
+/** Occluded route sections (behind trees/buildings) at this share of alpha. */
+const ROUTE_DEPTH_FAIL_ALPHA = 0.3
+
+/** One route polyline piece with its vertex geometry for height refreshes. */
+interface RoutePieceRecord {
+  entity: Entity
+  lineId: string
+  direction: 0 | 1
+  /** Vertex [lon, lat] pairs of the piece. */
+  path: [number, number][]
+  /** Along-direction distance of each vertex in meters. */
+  dists: number[]
+}
 
 /**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
@@ -119,6 +192,11 @@ const TUNNEL_VISIBILITY = 0.4
 // ~2 allocations per tram per tick.
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
+
+// Scratch for the per-pass selection of the stops nearest to the camera,
+// kept as an ascending top-N list (see resolveStopHeights).
+const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).fill(null)
+const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
 
 /**
  * True when the reverse direction is an exact mirror of the forward one
@@ -155,8 +233,15 @@ export class CesiumMap {
   private trams = new Map<string, TramEntityRecord>()
   private routeEntities = new Map<string, Entity[]>()
   private stopEntities: Entity[] = []
-  private stopRecords: { entity: Entity; lon: number; lat: number; resolved: boolean }[] = []
-  private stopScanIndex = 0
+  private stopRecords: StopEntityRecord[] = []
+  private routePieces: RoutePieceRecord[] = []
+  /** Measured ellipsoidal stop heights (stop id → meters). */
+  private stopHeights = new Map<string, number>()
+  /** Street-height baseline per `${lineId}:${direction}` – see height-profile. */
+  private heightProfiles = new Map<string, ProfileAnchor[]>()
+  private heightProfilesDirty = false
+  /** The prepared network (set by addStops; source of the profile stops). */
+  private network: PreparedNetwork | null = null
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
@@ -166,6 +251,8 @@ export class CesiumMap {
   /** Most recently measured plausible ground height – initial value for new trams. */
   private defaultGroundHeight: number
   private frameCounter = 0
+  /** Timestamp of the last stop height sampling pass (see resolveStopHeights). */
+  private lastStopSampleAt = 0
   private frustumSphere = new BoundingSphere()
   /** Time of the last user interaction (mouse/touch/wheel) in ms. */
   private lastInteractionAt = 0
@@ -321,12 +408,20 @@ export class CesiumMap {
   }
 
   /**
-   * Draws the route polylines of all lines (draped onto ground/3D tiles).
-   * Tunnel/underground sections become their own polyline pieces at 40 %
-   * of the normal opacity.
+   * Draws the route polylines of all lines.
+   *
+   * NOT clamped to ground: the photorealistic tiles are one merged surface
+   * including tree canopies, so a clamped line rides over every crown along
+   * an avenue. Instead each vertex gets an explicit height from the street
+   * baseline (interpolated stop heights, see height-profile.ts) – flat at
+   * the fallback height first, refreshed once the stop heights are
+   * bootstrapped. Sections hidden behind trees/buildings shine through
+   * faintly via depthFailMaterial. Tunnel/underground sections become their
+   * own polyline pieces at 40 % of the normal opacity.
    */
   addRoutes(network: PreparedNetwork): void {
-    network.lines.forEach((line, index) => {
+    this.routePieces ??= []
+    for (const line of network.lines) {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
 
@@ -339,25 +434,76 @@ export class CesiumMap {
 
       for (const dir of dirs) {
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
+        // Along-direction distance accumulates across the pieces (they are
+        // contiguous slices of the direction path).
+        let runningDist = 0
         pieces.forEach((piece, pieceIndex) => {
           const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
-          entities.push(
-            this.viewer.entities.add({
+          const dists: number[] = []
+          for (let i = 0; i < piece.path.length; i++) {
+            if (i > 0) {
+              const [lon1, lat1] = piece.path[i - 1]
+              const [lon2, lat2] = piece.path[i]
+              const cosLat = Math.cos((lat1 * Math.PI) / 180)
+              runningDist += Math.hypot(
+                (lon2 - lon1) * cosLat * 111320,
+                (lat2 - lat1) * 110540,
+              )
+            }
+            dists.push(runningDist)
+          }
+          const record: RoutePieceRecord = {
+            lineId: line.id,
+            direction: dir.direction,
+            path: piece.path as [number, number][],
+            dists,
+            entity: this.viewer.entities.add({
               id: `route:${line.id}:${dir.direction}:${pieceIndex}`,
               polyline: {
-                positions: Cartesian3.fromDegreesArray(piece.path.flat()),
+                positions: this.routePiecePositions(line.id, dir.direction, piece.path, dists),
                 width: 5,
-                clampToGround: true,
                 material: new ColorMaterialProperty(color.withAlpha(alpha)),
-                classificationType: ClassificationType.BOTH,
-                zIndex: 10 + index,
+                depthFailMaterial: new ColorMaterialProperty(
+                  color.withAlpha(alpha * ROUTE_DEPTH_FAIL_ALPHA),
+                ),
               },
             }),
-          )
+          }
+          this.routePieces.push(record)
+          entities.push(record.entity)
         })
       }
       this.routeEntities.set(line.id, entities)
-    })
+    }
+  }
+
+  /** Vertex positions of a route piece on the current street baseline. */
+  private routePiecePositions(
+    lineId: string,
+    direction: 0 | 1,
+    path: readonly (readonly [number, number])[],
+    dists: readonly number[],
+  ): Cartesian3[] {
+    const positions: Cartesian3[] = []
+    for (let i = 0; i < path.length; i++) {
+      const height = this.baselineHeightAt(lineId, direction, dists[i]) ?? this.defaultGroundHeight
+      positions.push(Cartesian3.fromDegrees(path[i][0], path[i][1], height + ROUTE_HEIGHT_OFFSET))
+    }
+    return positions
+  }
+
+  /**
+   * Re-anchors all route polylines onto the street baseline – called once
+   * the stop heights have been bootstrapped (before that the lines sit flat
+   * on the fallback height, like the vehicles).
+   */
+  private refreshRouteHeights(): void {
+    if (!this.routePieces) return
+    for (const piece of this.routePieces) {
+      piece.entity.polyline!.positions = new ConstantProperty(
+        this.routePiecePositions(piece.lineId, piece.direction, piece.path, piece.dists),
+      )
+    }
   }
 
   /**
@@ -366,6 +512,7 @@ export class CesiumMap {
    * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
+    this.network = network
     const seen = new Set<string>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
@@ -397,32 +544,116 @@ export class CesiumMap {
             },
           })
           this.stopEntities.push(entity)
-          this.stopRecords.push({ entity, lon, lat, resolved: false })
+          this.stopRecords.push({
+            entity,
+            stopId: stop.id,
+            lon,
+            lat,
+            position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight),
+            sampledFrom: Number.POSITIVE_INFINITY,
+            retryAfter: 0,
+          })
         }
       }
     }
   }
 
-  /** Resolves the stop heights bit by bit (a few per pass). */
+  /**
+   * Resolves the stop heights bit by bit (a few per pass).
+   *
+   * A measured height is NOT final: tileset.getHeight() only sees the tile
+   * level currently loaded, and the coarse LOD of a far-away area sits up to
+   * ~10 m above the real surface. Freezing the first measurement therefore
+   * left every stop that was far from the camera at startup floating in
+   * mid-air as soon as the camera came closer. Each stop hence remembers the
+   * camera distance its height was measured at and is re-measured once the
+   * camera has come substantially closer.
+   */
   private resolveStopHeights(): void {
     if (!this.googleTileset || this.stopRecords.length === 0) return
-    // Throttled: only every 15th simulation tick queries heights
-    if (this.frameCounter % 15 !== 0) return
-    if (this.stopRecords.every((s) => s.resolved)) return
-    let budget = 4
-    for (let i = 0; i < this.stopRecords.length && budget > 0; i++) {
-      this.stopScanIndex = (this.stopScanIndex + 1) % this.stopRecords.length
-      const stop = this.stopRecords[this.stopScanIndex]
-      if (stop.resolved) continue
-      budget--
-      const height = this.sampleGroundHeight(stop.lon, stop.lat)
-      if (height !== undefined) {
-        stop.resolved = true
-        stop.entity.position = new ConstantPositionProperty(
-          Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
-        )
+    const now = performance.now()
+    if (now - this.lastStopSampleAt < STOP_SAMPLE_INTERVAL_MS) return
+    this.lastStopSampleAt = now
+    const cameraPosition = this.viewer.camera.positionWC
+
+    // Of all stops a measurement would improve, take the ones nearest to
+    // the camera: those are what the user is looking at, and their tiles are
+    // loaded in the finest detail right now. The distance check is far
+    // cheaper than the ray intersection in sampleGroundHeight(), so scanning
+    // every stop to spend the small budget well is worth it.
+    let count = 0
+    for (const stop of this.stopRecords) {
+      if (now < stop.retryAfter) continue
+      const distance = Cartesian3.distance(cameraPosition, stop.position)
+      if (distance > stop.sampledFrom * STOP_RESAMPLE_RATIO) continue
+      if (count === STOP_HEIGHT_BUDGET && distance >= nearestDistances[count - 1]) continue
+      // Insertion into the ascending list – at four entries a linear shift
+      // beats any heap.
+      let slot = Math.min(count, STOP_HEIGHT_BUDGET - 1)
+      while (slot > 0 && nearestDistances[slot - 1] > distance) {
+        nearestDistances[slot] = nearestDistances[slot - 1]
+        nearestStops[slot] = nearestStops[slot - 1]
+        slot--
       }
+      nearestDistances[slot] = distance
+      nearestStops[slot] = stop
+      if (count < STOP_HEIGHT_BUDGET) count++
     }
+
+    for (let i = 0; i < count; i++) {
+      const stop = nearestStops[i] as StopEntityRecord
+      // Release the scratch slot – it would otherwise keep entities (and
+      // through them the viewer) alive past destroy().
+      nearestStops[i] = null
+      const height = this.sampleGroundHeight(stop.lon, stop.lat)
+      if (height === undefined) {
+        // No tile queryable there (yet) – keep the current height and let
+        // other stops have the budget for a while.
+        stop.retryAfter = now + STOP_RETRY_MS
+        continue
+      }
+      stop.sampledFrom = nearestDistances[i]
+      stop.entity.position = new ConstantPositionProperty(
+        Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
+      )
+      this.recordStopHeight(stop.stopId, height)
+    }
+  }
+
+  /** Feeds a measured stop height into the street-height baseline. */
+  private recordStopHeight(stopId: string, height: number): void {
+    this.stopHeights ??= new Map()
+    this.stopHeights.set(stopId, height)
+    this.heightProfilesDirty = true
+  }
+
+  /**
+   * Street-level baseline height at an along-route distance, interpolated
+   * between the measured stop heights of the direction. undefined while the
+   * direction has no measured stops yet.
+   */
+  private baselineHeightAt(
+    lineId: string,
+    direction: 0 | 1,
+    distance: number,
+  ): number | undefined {
+    if (!this.network || !this.stopHeights || this.stopHeights.size === 0) return undefined
+    if (this.heightProfilesDirty || !this.heightProfiles) {
+      this.heightProfiles = new Map()
+      for (const line of this.network.lines) {
+        for (const dir of line.directions) {
+          this.heightProfiles.set(
+            `${line.id}:${dir.direction}`,
+            buildProfile(
+              dir.stops.map((s) => ({ dist: s.dist, height: this.stopHeights.get(s.id) })),
+            ),
+          )
+        }
+      }
+      this.heightProfilesDirty = false
+    }
+    const anchors = this.heightProfiles.get(`${lineId}:${direction}`)
+    return anchors ? profileHeightAt(anchors, distance) : undefined
   }
 
   setRoutesVisible(visible: boolean): void {
@@ -444,6 +675,12 @@ export class CesiumMap {
    * asynchronously (specifically loading detail tiles to do so) and derives
    * the base ground height for trams and stops from them. Logs the result
    * to the console for diagnostics.
+   *
+   * Unlike tileset.getHeight(), sampleHeightMostDetailed() loads the finest
+   * tile level per point regardless of where the camera is looking, so its
+   * heights are final and settle the stops for good. It runs in chunks, so
+   * the stops drop onto the surface progressively rather than all at once
+   * after the whole (minute-long) run.
    */
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
@@ -457,48 +694,61 @@ export class CesiumMap {
       return
     }
 
-    const sampledStops = this.stopRecords.filter((_, i) => i % 2 === 0)
-    const positions = sampledStops.map((s) => Cartographic.fromDegrees(s.lon, s.lat))
+    const heights: number[] = []
     try {
-      const updated = await scene.sampleHeightMostDetailed(positions)
-      if (this.destroyed) return
-      const heights: number[] = []
-      updated.forEach((carto, i) => {
-        const h = carto?.height
-        if (h !== undefined && Number.isFinite(h) && h > -100 && h < 500) {
+      for (let start = 0; start < this.stopRecords.length; start += STOP_HEIGHT_CHUNK) {
+        const chunk = this.stopRecords.slice(start, start + STOP_HEIGHT_CHUNK)
+        const updated = await scene.sampleHeightMostDetailed(
+          chunk.map((s) => Cartographic.fromDegrees(s.lon, s.lat)),
+        )
+        if (this.destroyed) return
+        updated.forEach((carto, i) => {
+          const h = carto?.height
+          if (h === undefined || !Number.isFinite(h) || h <= -100 || h >= 500) return
           heights.push(h)
-          const stop = sampledStops[i]
-          stop.resolved = true
+          const stop = chunk[i]
+          // Most detailed measurement available – mark as final so the
+          // camera-dependent sampling in resolveStopHeights() leaves it alone.
+          stop.sampledFrom = 0
           stop.entity.position = new ConstantPositionProperty(
             Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5),
           )
+          this.recordStopHeight(stop.stopId, h)
+        })
+        if (heights.length > 0) {
+          // Raise the base for all trams already running (the ongoing
+          // per-tram sampling does the fine-tuning afterwards)
+          const median = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)]
+          this.defaultGroundHeight = median
+          for (const record of this.trams.values()) {
+            record.groundHeight = median
+          }
         }
-      })
-      if (heights.length === 0) {
-        console.warn(
-          '[MiniRostock3D] Height bootstrap: no valid tile heights determined – ' +
-            'trams will use the fallback height. Please report this message ' +
-            'along with window.__mrt.groundHeights().',
-        )
-        return
+        this.render()
       }
-      heights.sort((a, b) => a - b)
-      const median = heights[Math.floor(heights.length / 2)]
-      this.defaultGroundHeight = median
-      // Raise the base for all trams already running (the ongoing per-tram
-      // sampling does the fine-tuning afterwards)
-      for (const record of this.trams.values()) {
-        record.groundHeight = median
-      }
-      console.info(
-        `[MiniRostock3D] Tile heights determined (ellipsoidal): ` +
-          `min ${heights[0].toFixed(1)} m · median ${median.toFixed(1)} m · ` +
-          `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
-      )
-      this.render()
     } catch (error) {
       console.warn('[MiniRostock3D] Height bootstrap failed:', error)
+      return
     }
+
+    if (heights.length === 0) {
+      console.warn(
+        '[MiniRostock3D] Height bootstrap: no valid tile heights determined – ' +
+          'trams will use the fallback height. Please report this message ' +
+          'along with window.__mrt.groundHeights().',
+      )
+      return
+    }
+    heights.sort((a, b) => a - b)
+    console.info(
+      `[MiniRostock3D] Tile heights determined (ellipsoidal): ` +
+        `min ${heights[0].toFixed(1)} m · median ${this.defaultGroundHeight.toFixed(1)} m · ` +
+        `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
+    )
+    // With all stop heights known, drop the route polylines onto the
+    // street baseline (they started flat at the fallback height).
+    this.refreshRouteHeights()
+    this.render()
   }
 
   /**
@@ -604,8 +854,15 @@ export class CesiumMap {
         record.lastSampleFrame = this.frameCounter
         const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
         if (sampled !== undefined) {
+          // The raw sample is the tile TOP surface – over tree-lined
+          // streets that is the canopy. Clamp it against the street
+          // baseline so vehicles do not ride over crowns.
+          const target = clampToProfile(
+            sampled,
+            this.baselineHeightAt(snap.lineId, snap.direction, snap.distance),
+          )
           // Smooth so the tram follows inclines gently
-          record.groundHeight += (sampled - record.groundHeight) * (snapToHeight ? 1 : 0.35)
+          record.groundHeight += (target - record.groundHeight) * (snapToHeight ? 1 : 0.35)
           position = Cartesian3.fromDegrees(
             snap.lon,
             snap.lat,
@@ -709,10 +966,15 @@ export class CesiumMap {
     const halfHeight = snap.vehicle.height / 2
     // Vehicles on a tunnel section start as 40 % ghosts right away.
     const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
+    // Spawn on the street baseline where it is known – saves the visible
+    // first-seconds glide from the fallback height to the real street.
+    const spawnHeight =
+      this.baselineHeightAt(snap.lineId, snap.direction, snap.distance) ??
+      this.defaultGroundHeight
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
-      this.defaultGroundHeight + halfHeight + 0.3,
+      spawnHeight + halfHeight + 0.3,
     )
 
     const matrix = Transforms.headingPitchRollToFixedFrame(
@@ -778,7 +1040,7 @@ export class CesiumMap {
       highlighted: false,
       appearanceDirty: false,
       halfHeight,
-      groundHeight: this.defaultGroundHeight,
+      groundHeight: spawnHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
     }
   }
