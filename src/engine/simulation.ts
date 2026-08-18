@@ -22,6 +22,8 @@ export interface TramSnapshot {
   direction: 0 | 1
   lon: number
   lat: number
+  /** Along-route distance in meters (basis for the street-height baseline). */
+  distance: number
   bearing: number
   status: 'dwell' | 'moving'
   /** true while the vehicle is inside a tunnel/underground route section. */
@@ -106,6 +108,7 @@ export class Simulation {
         direction: trip.direction,
         lon: state.lon,
         lat: state.lat,
+        distance: state.distance,
         bearing: state.bearing,
         status: state.status,
         inTunnel: dir.tunnels.length > 0 && isInTunnel(dir.tunnels, state.distance),
