@@ -233,9 +233,12 @@ scripts/
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
 
-**How the simulation works:** For each line/direction, departure times are generated
-from the headway; the travel time between two stops follows from the real track
-distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
+**How the simulation works:** Departure times come from schedule.json (real GTFS
+departures, including short workings that only serve part of a route – trips carry a
+span and start/end mid-route); lines without GTFS data fall back to a synthetic
+headway, whose return direction departs offset by half the headway so shuttle
+services like the Warnow ferries run as the single vessel they are. The travel time
+between two stops follows from the real track distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
 (heading of the 3D box). Vehicles and stops do not use Cesium's `HeightReference`
 clamping (unreliable on 3D tiles); their height is set explicitly from tile heights

@@ -29,6 +29,13 @@ export interface Trip {
   lineId: string
   direction: 0 | 1
   stopTimes: StopTime[]
+  /**
+   * Set for short workings (trips serving only part of the route): display
+   * names of the actually served first/last stop. Full-route trips keep the
+   * line's terminus names.
+   */
+  origin?: string
+  destination?: string
 }
 
 /** Headway time window in minutes since midnight. */
@@ -82,6 +89,17 @@ export function departuresFromService(service: HeadwaySpan[]): number[] {
 }
 
 /**
+ * The same headway scheme shifted by half a headway – used for the return
+ * direction of shuttle services. The Warnow ferries are a single vessel
+ * going back and forth: identical departure minutes on both banks would put
+ * two boats on the water at once, offset departures put one (as long as the
+ * crossing takes less than half the headway).
+ */
+export function interleavedService(service: HeadwaySpan[]): HeadwaySpan[] {
+  return service.map((span) => ({ ...span, startMin: span.startMin + span.headwayMin / 2 }))
+}
+
+/**
  * Travel-time offsets (arrival/departure relative to the initial departure)
  * for a direction, derived from the stop distances.
  */
@@ -107,9 +125,61 @@ export function stopOffsets(
   return offsets
 }
 
+/**
+ * Along-route section a short working serves, as [start, end] meters on the
+ * direction's path (from the GTFS extraction). null/undefined = full route.
+ */
+export type TripSpan = readonly [number, number] | null
+
+/**
+ * Validates a raw span from schedule.json (plain JSON arrays carry no tuple
+ * type). Anything but a two-number array means "full route".
+ */
+export function normalizeSpan(raw: readonly number[] | null | undefined): TripSpan {
+  return raw && raw.length === 2 ? [raw[0], raw[1]] : null
+}
+
 /** Stable simulation trip id (also used for GTFS-Realtime matching). */
-export function simTripId(lineId: string, direction: 0 | 1, departureSec: number): string {
-  return `${lineId}-${direction}-${Math.round(departureSec / 60)}`
+export function simTripId(
+  lineId: string,
+  direction: 0 | 1,
+  departureSec: number,
+  span?: TripSpan,
+): string {
+  const base = `${lineId}-${direction}-${Math.round(departureSec / 60)}`
+  // Short workings can depart at the same minute as a full-route trip –
+  // the span keeps their ids distinct.
+  return span ? `${base}-s${span[0]}-${span[1]}` : base
+}
+
+/**
+ * Projection slack when mapping span endpoints onto network stops: GTFS
+ * platform coordinates land a few dozen meters off the OSM path, so stops
+ * up to this far outside the span still count as served. Kept tight on
+ * purpose – overshooting would put vehicles on sections their trip never
+ * serves (with rural bus stops ~1 km apart, "nearest stop" overshot by
+ * 500+ m).
+ */
+const SPAN_SNAP_TOLERANCE = 150
+
+/**
+ * Range of stop indices inside [span[0], span[1]] (± tolerance), or null
+ * when fewer than two stops fall inside.
+ */
+function servedStopRange(
+  dir: PreparedDirection,
+  span: readonly [number, number],
+): [number, number] | null {
+  let first = -1
+  let last = -1
+  for (let i = 0; i < dir.stops.length; i++) {
+    const dist = dir.stops[i].dist
+    if (dist < span[0] - SPAN_SNAP_TOLERANCE) continue
+    if (dist > span[1] + SPAN_SNAP_TOLERANCE) break
+    if (first === -1) first = i
+    last = i
+  }
+  return first !== -1 && last - first >= 1 ? [first, last] : null
 }
 
 export function buildTripsForDirection(
@@ -117,31 +187,60 @@ export function buildTripsForDirection(
   direction: 0 | 1,
   departures: number[],
   opts: TimetableOptions,
+  spans?: readonly (TripSpan | undefined)[],
 ): Trip[] {
   const dir = line.directions[direction]
   const speed = opts.cruiseSpeedByMode?.[line.mode] ?? opts.cruiseSpeedMps
   const offsets = stopOffsets(dir, speed, opts.dwellSeconds)
-  return departures.map((dep) => ({
-    id: simTripId(line.id, direction, dep),
-    lineId: line.id,
-    direction,
-    stopTimes: offsets.map((o, stopIndex) => ({
-      stopIndex,
-      arrival: dep + o.arrival,
-      departure: dep + o.departure,
-    })),
-  }))
+  return departures.map((dep, tripIndex) => {
+    // Short working: only the stops between the span endpoints are served.
+    let span = spans?.[tripIndex] ?? null
+    let first = 0
+    let last = dir.stops.length - 1
+    const range = span ? servedStopRange(dir, span) : null
+    if (span && !range) {
+      // Degenerate span (fewer than two stops inside) – treat as a full trip
+      span = null
+    } else if (range) {
+      ;[first, last] = range
+    }
+    const stopTimes: StopTime[] = []
+    for (let i = first; i <= last; i++) {
+      // Shift so the trip departs its real first stop at `dep`. The first
+      // stop gets no leading dwell, the last no trailing one (trip ends).
+      const arrival = i === first ? dep : dep + offsets[i].arrival - offsets[first].departure
+      const departure =
+        i === first ? dep : i === last ? arrival : dep + offsets[i].departure - offsets[first].departure
+      stopTimes.push({ stopIndex: i, arrival, departure })
+    }
+    const trip: Trip = {
+      id: simTripId(line.id, direction, dep, span),
+      lineId: line.id,
+      direction,
+      stopTimes,
+    }
+    if (span) {
+      trip.origin = dir.stops[first].name
+      trip.destination = dir.stops[last].name
+    }
+    return trip
+  })
 }
 
 /**
  * Optional real departure times from schedule.json:
- * { lines: { [lineId]: { [direction]: { departures, tripIds? } } } }
+ * { lines: { [lineId]: { [direction]: { departures, tripIds?, spans? } } } }
  * tripIds (parallel to departures) are the feed's GTFS trip_ids – they
- * connect the simulation trips to GTFS-Realtime TripUpdates.
+ * connect the simulation trips to GTFS-Realtime TripUpdates. spans (also
+ * parallel) mark short workings: [start, end] meters along the direction's
+ * path, null for full-route trips.
  */
 export interface ScheduleJson {
   meta?: { source?: string; serviceDate?: string }
-  lines?: Record<string, Record<string, { departures: number[]; tripIds?: string[] }>>
+  lines?: Record<
+    string,
+    Record<string, { departures: number[]; tripIds?: string[]; spans?: (number[] | null)[] }>
+  >
 }
 
 /** Mapping GTFS trip_id → simulation trip id from schedule.json. */
@@ -154,7 +253,8 @@ export function buildRealtimeTripIdMap(schedule?: ScheduleJson): Map<string, str
       const direction = dirKey === '1' ? 1 : 0
       data.departures.forEach((dep, i) => {
         const gtfsTripId = data.tripIds![i]
-        if (gtfsTripId) map.set(gtfsTripId, simTripId(lineId, direction, dep))
+        if (gtfsTripId)
+          map.set(gtfsTripId, simTripId(lineId, direction, dep, normalizeSpan(data.spans?.[i])))
       })
     }
   }
@@ -167,24 +267,44 @@ export function buildAllTrips(
   schedule?: ScheduleJson,
 ): Trip[] {
   const trips: Trip[] = []
-  const defaultDepartures = new Map<TransitMode, number[]>()
-  const fallbackDepartures = (mode: TransitMode): number[] => {
-    let deps = defaultDepartures.get(mode)
+  const defaultDepartures = new Map<string, number[]>()
+  const fallbackDepartures = (mode: TransitMode, direction: 0 | 1): number[] => {
+    const service = opts.service ?? DEFAULT_SERVICE_BY_MODE[mode]
+    // Ferries are single vessels shuttling between two piers – the return
+    // direction departs offset by half the headway so only one boat is on
+    // the water at a time (see interleavedService).
+    const interleave = mode === 'ferry' && direction === 1
+    const key = `${mode}:${interleave ? 1 : 0}`
+    let deps = defaultDepartures.get(key)
     if (!deps) {
-      deps = departuresFromService(opts.service ?? DEFAULT_SERVICE_BY_MODE[mode])
-      defaultDepartures.set(mode, deps)
+      deps = departuresFromService(interleave ? interleavedService(service) : service)
+      defaultDepartures.set(key, deps)
     }
     return deps
   }
 
   for (const line of network.lines) {
     for (const direction of [0, 1] as const) {
-      const real = schedule?.lines?.[line.id]?.[String(direction)]?.departures
-      const departures =
-        real && real.length > 0
-          ? [...real].sort((a, b) => a - b)
-          : fallbackDepartures(line.mode)
-      trips.push(...buildTripsForDirection(line, direction, departures, opts))
+      const real = schedule?.lines?.[line.id]?.[String(direction)]
+      if (real && real.departures.length > 0) {
+        // Sort departures and spans together (parallel arrays)
+        const order = real.departures
+          .map((dep, i) => ({ dep, span: normalizeSpan(real.spans?.[i]) }))
+          .sort((a, b) => a.dep - b.dep)
+        trips.push(
+          ...buildTripsForDirection(
+            line,
+            direction,
+            order.map((o) => o.dep),
+            opts,
+            order.map((o) => o.span),
+          ),
+        )
+      } else {
+        trips.push(
+          ...buildTripsForDirection(line, direction, fallbackDepartures(line.mode, direction), opts),
+        )
+      }
     }
   }
   return trips
