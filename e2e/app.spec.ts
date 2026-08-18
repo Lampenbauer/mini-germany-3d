@@ -85,10 +85,12 @@ test('shows active vehicles on the network lines', async () => {
     ...new Set(window.__mrt!.trams().map((t) => t.lineId)),
   ])
   // Active lines must be known lines; individual bus lines may have genuine
-  // GTFS service gaps at the probe time, but most of the network must be out.
+  // GTFS service gaps at the probe time, night-only lines (F1–F4) rest during
+  // the day, and suspended lines (line 2 during the 2026 Werftdreieck works)
+  // do not run at all – but most of the network must be out.
   for (const id of activeLineIds) expect(expected).toContain(id)
   expect(activeLineIds.length).toBeGreaterThanOrEqual(
-    Math.floor(expected.length * 0.75),
+    Math.floor((expected.length * 2) / 3),
   )
 
   // "trams" for a tram-only network, "vehicles" once buses/ferries join
@@ -187,16 +189,27 @@ test('selecting a vehicle opens the info card', async () => {
   await expect(card).not.toBeVisible()
 })
 
-test('no vehicles run at night, service resumes in the morning', async () => {
-  // 02:30: safely before the first departure (real and synthetic alike)
+test('night services keep running after midnight, daytime service resumes in the morning', async () => {
+  // 02:30: the daytime lines are off, but the Fledermaus night buses (F1–F4)
+  // and the around-the-clock Warnemünde ferry are still out. Their GTFS
+  // departures are encoded as times past 24:00 and must wrap into the early
+  // morning hours.
   await page.evaluate(() => window.__mrt!.setTime('02:30'))
-  await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBe(0)
-  await expect(page.getByTestId('tram-count')).toContainText(
-    /0 (trams|vehicles) in service/,
-  )
+  // Wait until the daytime vehicles from the previous simulation time are
+  // gone: night buses and ferries are the only lines with an F-prefixed id.
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__mrt!.trams().every((tram) => tram.lineId.startsWith('F'))),
+    )
+    .toBe(true)
+  const nightCount = await page.evaluate(() => window.__mrt!.tramCount())
+  expect(nightCount).toBeGreaterThan(0)
 
+  // 08:30: far more vehicles out than the handful of night services
   await page.evaluate(() => window.__mrt!.setTime('08:30'))
-  await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.tramCount()))
+    .toBeGreaterThan(nightCount)
 })
 
 test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {

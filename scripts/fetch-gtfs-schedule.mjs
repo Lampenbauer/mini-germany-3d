@@ -730,7 +730,7 @@ async function main() {
   if (unclassified > 0) noteParts.push(`Skipped ${unclassified} trips without a clear direction.`)
   if (linesWithoutData.length > 0) {
     noteParts.push(
-      `No GTFS departures for line(s) ${linesWithoutData.join(', ')} – the synthetic headway applies there.`,
+      `No GTFS departures for line(s) ${linesWithoutData.join(', ')} – they stay off the map (not running that day).`,
     )
   }
 

@@ -5,7 +5,7 @@
     "serviceDate": "20260821",
     "serviceCount": 23,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
-    "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. No GTFS departures for line(s) 2 – the synthetic headway applies there."
+    "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. No GTFS departures for line(s) 2 – they stay off the map (not running that day)."
   },
   "lines": {
     "1": {

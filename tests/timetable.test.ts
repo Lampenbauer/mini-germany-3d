@@ -82,6 +82,29 @@ describe('buildTripsForDirection / tripStateAt', () => {
   })
 })
 
+describe('after-midnight trips (GTFS times past 24:00)', () => {
+  const dir = line.directions[0]
+  // 02:00 on the following calendar day, encoded as 26:00 (Fledermaus style)
+  const [nightTrip] = buildTripsForDirection(line, 0, [26 * 3600], opts)
+
+  it('is active at the wrapped early-morning clock time', () => {
+    const state = tripStateAt(nightTrip, dir, 2 * 3600 + 50)
+    expect(state).not.toBeNull()
+    expect(state!.status).toBe('moving')
+  })
+
+  it('stays inactive at other times of day', () => {
+    expect(tripStateAt(nightTrip, dir, 2 * 3600 - 60)).toBeNull()
+    expect(tripStateAt(nightTrip, dir, 12 * 3600)).toBeNull()
+  })
+
+  it('keeps a midnight-spanning trip active past the day wrap', () => {
+    const [lateTrip] = buildTripsForDirection(line, 0, [24 * 3600 - 60], opts)
+    const state = tripStateAt(lateTrip, dir, 120) // 00:02, trip departed 23:59
+    expect(state).not.toBeNull()
+  })
+})
+
 describe('Opposite direction (mirrored)', () => {
   it('runs from the last stop to the first', () => {
     const dir1 = line.directions[1]
@@ -108,6 +131,15 @@ describe('buildAllTrips', () => {
     expect(trips.some((t) => t.direction === 1)).toBe(true)
   })
 
+  it('keeps lines without departures off the map when a real timetable exists', () => {
+    // Line 2 during the Werftdreieck works: the feed has other lines but none
+    // for this one – no synthetic fallback may be invented for it.
+    const schedule = { lines: { T: { '0': { departures: [8 * 3600] } } } }
+    const trips = buildAllTrips(network, opts, schedule)
+    expect(trips).toHaveLength(1)
+    expect(trips[0].direction).toBe(0)
+  })
+
   it('uses real departure times from schedule.json when available', () => {
     const schedule = {
       lines: { T: { '0': { departures: [100, 200] } } },
@@ -117,8 +149,8 @@ describe('buildAllTrips', () => {
     expect(dir0).toHaveLength(2)
     expect(dir0[0].stopTimes[0].departure).toBe(100)
     expect(dir0[1].stopTimes[0].departure).toBe(200)
-    // Direction 1 falls back to the synthetic headway
-    const dir1 = trips.filter((t) => t.direction === 1)
-    expect(dir1.length).toBeGreaterThan(2)
+    // Direction 1 has no departures in the feed and therefore does not run –
+    // real data is never mixed with synthetic trips.
+    expect(trips.filter((t) => t.direction === 1)).toHaveLength(0)
   })
 })
