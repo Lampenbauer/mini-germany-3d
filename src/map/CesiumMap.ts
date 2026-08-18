@@ -13,6 +13,7 @@ import {
   Cartesian2,
   Cartesian3,
   Cartographic,
+  ClassificationType,
   Color,
   ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
@@ -42,12 +43,6 @@ import { config } from '@/config'
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
-import {
-  buildProfile,
-  clampToProfile,
-  profileHeightAt,
-  type ProfileAnchor,
-} from '@/map/height-profile'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
 
@@ -102,8 +97,6 @@ interface TramEntityRecord {
 
 interface StopEntityRecord {
   entity: Entity
-  /** Network stop id – key into the measured stop heights. */
-  stopId: string
   lon: number
   lat: number
   /** Fixed world position of the stop – basis for the camera distance check. */
@@ -164,23 +157,6 @@ const STOP_HEIGHT_CHUNK = 100
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
 
-/** Route polylines hover this far above the street baseline (meters). */
-const ROUTE_HEIGHT_OFFSET = 0.4
-
-/** Occluded route sections (behind trees/buildings) at this share of alpha. */
-const ROUTE_DEPTH_FAIL_ALPHA = 0.3
-
-/** One route polyline piece with its vertex geometry for height refreshes. */
-interface RoutePieceRecord {
-  entity: Entity
-  lineId: string
-  direction: 0 | 1
-  /** Vertex [lon, lat] pairs of the piece. */
-  path: [number, number][]
-  /** Along-direction distance of each vertex in meters. */
-  dists: number[]
-}
-
 /**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
  * them are rendered at 40 % of their normal opacity.
@@ -234,14 +210,6 @@ export class CesiumMap {
   private routeEntities = new Map<string, Entity[]>()
   private stopEntities: Entity[] = []
   private stopRecords: StopEntityRecord[] = []
-  private routePieces: RoutePieceRecord[] = []
-  /** Measured ellipsoidal stop heights (stop id → meters). */
-  private stopHeights = new Map<string, number>()
-  /** Street-height baseline per `${lineId}:${direction}` – see height-profile. */
-  private heightProfiles = new Map<string, ProfileAnchor[]>()
-  private heightProfilesDirty = false
-  /** The prepared network (set by addStops; source of the profile stops). */
-  private network: PreparedNetwork | null = null
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
@@ -408,20 +376,12 @@ export class CesiumMap {
   }
 
   /**
-   * Draws the route polylines of all lines.
-   *
-   * NOT clamped to ground: the photorealistic tiles are one merged surface
-   * including tree canopies, so a clamped line rides over every crown along
-   * an avenue. Instead each vertex gets an explicit height from the street
-   * baseline (interpolated stop heights, see height-profile.ts) – flat at
-   * the fallback height first, refreshed once the stop heights are
-   * bootstrapped. Sections hidden behind trees/buildings shine through
-   * faintly via depthFailMaterial. Tunnel/underground sections become their
-   * own polyline pieces at 40 % of the normal opacity.
+   * Draws the route polylines of all lines (draped onto ground/3D tiles).
+   * Tunnel/underground sections become their own polyline pieces at 40 %
+   * of the normal opacity.
    */
   addRoutes(network: PreparedNetwork): void {
-    this.routePieces ??= []
-    for (const line of network.lines) {
+    network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
 
@@ -434,76 +394,25 @@ export class CesiumMap {
 
       for (const dir of dirs) {
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
-        // Along-direction distance accumulates across the pieces (they are
-        // contiguous slices of the direction path).
-        let runningDist = 0
         pieces.forEach((piece, pieceIndex) => {
           const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
-          const dists: number[] = []
-          for (let i = 0; i < piece.path.length; i++) {
-            if (i > 0) {
-              const [lon1, lat1] = piece.path[i - 1]
-              const [lon2, lat2] = piece.path[i]
-              const cosLat = Math.cos((lat1 * Math.PI) / 180)
-              runningDist += Math.hypot(
-                (lon2 - lon1) * cosLat * 111320,
-                (lat2 - lat1) * 110540,
-              )
-            }
-            dists.push(runningDist)
-          }
-          const record: RoutePieceRecord = {
-            lineId: line.id,
-            direction: dir.direction,
-            path: piece.path as [number, number][],
-            dists,
-            entity: this.viewer.entities.add({
+          entities.push(
+            this.viewer.entities.add({
               id: `route:${line.id}:${dir.direction}:${pieceIndex}`,
               polyline: {
-                positions: this.routePiecePositions(line.id, dir.direction, piece.path, dists),
+                positions: Cartesian3.fromDegreesArray(piece.path.flat()),
                 width: 5,
+                clampToGround: true,
                 material: new ColorMaterialProperty(color.withAlpha(alpha)),
-                depthFailMaterial: new ColorMaterialProperty(
-                  color.withAlpha(alpha * ROUTE_DEPTH_FAIL_ALPHA),
-                ),
+                classificationType: ClassificationType.BOTH,
+                zIndex: 10 + index,
               },
             }),
-          }
-          this.routePieces.push(record)
-          entities.push(record.entity)
+          )
         })
       }
       this.routeEntities.set(line.id, entities)
-    }
-  }
-
-  /** Vertex positions of a route piece on the current street baseline. */
-  private routePiecePositions(
-    lineId: string,
-    direction: 0 | 1,
-    path: readonly (readonly [number, number])[],
-    dists: readonly number[],
-  ): Cartesian3[] {
-    const positions: Cartesian3[] = []
-    for (let i = 0; i < path.length; i++) {
-      const height = this.baselineHeightAt(lineId, direction, dists[i]) ?? this.defaultGroundHeight
-      positions.push(Cartesian3.fromDegrees(path[i][0], path[i][1], height + ROUTE_HEIGHT_OFFSET))
-    }
-    return positions
-  }
-
-  /**
-   * Re-anchors all route polylines onto the street baseline – called once
-   * the stop heights have been bootstrapped (before that the lines sit flat
-   * on the fallback height, like the vehicles).
-   */
-  private refreshRouteHeights(): void {
-    if (!this.routePieces) return
-    for (const piece of this.routePieces) {
-      piece.entity.polyline!.positions = new ConstantProperty(
-        this.routePiecePositions(piece.lineId, piece.direction, piece.path, piece.dists),
-      )
-    }
+    })
   }
 
   /**
@@ -512,7 +421,6 @@ export class CesiumMap {
    * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
-    this.network = network
     const seen = new Set<string>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
@@ -546,7 +454,6 @@ export class CesiumMap {
           this.stopEntities.push(entity)
           this.stopRecords.push({
             entity,
-            stopId: stop.id,
             lon,
             lat,
             position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight),
@@ -616,44 +523,7 @@ export class CesiumMap {
       stop.entity.position = new ConstantPositionProperty(
         Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
       )
-      this.recordStopHeight(stop.stopId, height)
     }
-  }
-
-  /** Feeds a measured stop height into the street-height baseline. */
-  private recordStopHeight(stopId: string, height: number): void {
-    this.stopHeights ??= new Map()
-    this.stopHeights.set(stopId, height)
-    this.heightProfilesDirty = true
-  }
-
-  /**
-   * Street-level baseline height at an along-route distance, interpolated
-   * between the measured stop heights of the direction. undefined while the
-   * direction has no measured stops yet.
-   */
-  private baselineHeightAt(
-    lineId: string,
-    direction: 0 | 1,
-    distance: number,
-  ): number | undefined {
-    if (!this.network || !this.stopHeights || this.stopHeights.size === 0) return undefined
-    if (this.heightProfilesDirty || !this.heightProfiles) {
-      this.heightProfiles = new Map()
-      for (const line of this.network.lines) {
-        for (const dir of line.directions) {
-          this.heightProfiles.set(
-            `${line.id}:${dir.direction}`,
-            buildProfile(
-              dir.stops.map((s) => ({ dist: s.dist, height: this.stopHeights.get(s.id) })),
-            ),
-          )
-        }
-      }
-      this.heightProfilesDirty = false
-    }
-    const anchors = this.heightProfiles.get(`${lineId}:${direction}`)
-    return anchors ? profileHeightAt(anchors, distance) : undefined
   }
 
   setRoutesVisible(visible: boolean): void {
@@ -713,7 +583,6 @@ export class CesiumMap {
           stop.entity.position = new ConstantPositionProperty(
             Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5),
           )
-          this.recordStopHeight(stop.stopId, h)
         })
         if (heights.length > 0) {
           // Raise the base for all trams already running (the ongoing
@@ -745,10 +614,6 @@ export class CesiumMap {
         `min ${heights[0].toFixed(1)} m · median ${this.defaultGroundHeight.toFixed(1)} m · ` +
         `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
     )
-    // With all stop heights known, drop the route polylines onto the
-    // street baseline (they started flat at the fallback height).
-    this.refreshRouteHeights()
-    this.render()
   }
 
   /**
@@ -854,15 +719,8 @@ export class CesiumMap {
         record.lastSampleFrame = this.frameCounter
         const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
         if (sampled !== undefined) {
-          // The raw sample is the tile TOP surface – over tree-lined
-          // streets that is the canopy. Clamp it against the street
-          // baseline so vehicles do not ride over crowns.
-          const target = clampToProfile(
-            sampled,
-            this.baselineHeightAt(snap.lineId, snap.direction, snap.distance),
-          )
           // Smooth so the tram follows inclines gently
-          record.groundHeight += (target - record.groundHeight) * (snapToHeight ? 1 : 0.35)
+          record.groundHeight += (sampled - record.groundHeight) * (snapToHeight ? 1 : 0.35)
           position = Cartesian3.fromDegrees(
             snap.lon,
             snap.lat,
@@ -966,15 +824,10 @@ export class CesiumMap {
     const halfHeight = snap.vehicle.height / 2
     // Vehicles on a tunnel section start as 40 % ghosts right away.
     const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
-    // Spawn on the street baseline where it is known – saves the visible
-    // first-seconds glide from the fallback height to the real street.
-    const spawnHeight =
-      this.baselineHeightAt(snap.lineId, snap.direction, snap.distance) ??
-      this.defaultGroundHeight
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
-      spawnHeight + halfHeight + 0.3,
+      this.defaultGroundHeight + halfHeight + 0.3,
     )
 
     const matrix = Transforms.headingPitchRollToFixedFrame(
@@ -1040,7 +893,7 @@ export class CesiumMap {
       highlighted: false,
       appearanceDirty: false,
       halfHeight,
-      groundHeight: spawnHeight,
+      groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
     }
   }
