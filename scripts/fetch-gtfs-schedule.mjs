@@ -41,6 +41,12 @@ const ROUTE_TYPES = {
   ferry: new Set(['4', '1000', '1200']),
 }
 
+// Ferry routes that match no pier name are held onto and assigned to a
+// network ferry line later via their terminal coordinates (the gtfs.de
+// feed carries the Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
+// route_long_name, so name matching alone cannot find them).
+const FERRY_PENDING = '\u0000pending-ferry'
+
 // Note: a pre-filter via agency.txt would be tempting (a "line 22" exists in
 // dozens of cities) but fails on the feed's operator names (the RSAG is not
 // listed there as "Rostock…"). The reliable Rostock filter therefore remains
@@ -257,6 +263,14 @@ async function main() {
         break
       }
     }
+    if (
+      !routeLine.has(get('route_id')) &&
+      ROUTE_TYPES.ferry.has(type) &&
+      ferryTargets.size > 0
+    ) {
+      routeLine.set(get('route_id'), FERRY_PENDING)
+      routeAgency.set(get('route_id'), get('agency_id'))
+    }
   })
   console.log(
     `${routeLine.size} candidate routes (Germany-wide – the Rostock filter follows via the stops)`,
@@ -304,6 +318,55 @@ async function main() {
     }
   })
   console.log(`Processed ${rows} stop_times rows, ${tripTouchesRostock.size} Rostock trips`)
+
+  // ---- Resolve pending ferry routes via terminal coordinates ---------------
+  // A ferry trip belongs to a network ferry line when its first and last
+  // stop each lie within 400 m of the line's two piers (in either order).
+  {
+    const metersBetween = ([lonA, latA], [lonB, latB]) => {
+      const cosLat = Math.cos((latA * Math.PI) / 180)
+      return Math.hypot((lonB - lonA) * cosLat * 111320, (latB - latA) * 110540)
+    }
+    const ferryPiers = []
+    for (const line of networkJson.lines) {
+      if ((line.mode ?? 'tram') !== 'ferry') continue
+      const stops = line.directions[0].stops
+      const first = networkJson.stops[stops[0]]?.coord
+      const last = networkJson.stops[stops[stops.length - 1]]?.coord
+      if (first && last) ferryPiers.push({ lineId: line.id, first, last })
+    }
+    const resolvedPerLine = new Map()
+    for (const tripId of [...tripTouchesRostock]) {
+      const info = tripInfo.get(tripId)
+      if (info.lineId !== FERRY_PENDING) continue
+      const from = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
+      const to = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+      let assigned = null
+      if (from && to) {
+        for (const pier of ferryPiers) {
+          const forward =
+            metersBetween(from, pier.first) < 400 && metersBetween(to, pier.last) < 400
+          const reverse =
+            metersBetween(from, pier.last) < 400 && metersBetween(to, pier.first) < 400
+          if (forward || reverse) {
+            assigned = pier.lineId
+            break
+          }
+        }
+      }
+      if (assigned) {
+        info.lineId = assigned
+        resolvedPerLine.set(assigned, (resolvedPerLine.get(assigned) ?? 0) + 1)
+      } else {
+        // Some other ferry that happens to touch the bounding box
+        tripTouchesRostock.delete(tripId)
+        tripInfo.delete(tripId)
+      }
+    }
+    for (const [lineId, count] of [...resolvedPerLine.entries()].sort()) {
+      console.log(`  Ferry line ${lineId}: ${count} trips matched via pier coordinates`)
+    }
+  }
 
   if (tripTouchesRostock.size === 0) {
     throw new Error(
@@ -430,24 +493,32 @@ async function main() {
   // almost always closer to the "wrong" terminus). Secondary: trip_headsign.
   const dirTargets = {}
   try {
-    for (const line of networkJson.lines) {
-      const d0 = line.directions[0]
-      const d1 = line.directions[1]
+    const cumulativeMeters = (path) => {
       const cum = [0]
-      for (let i = 1; i < d0.path.length; i++) {
-        const [lon1, lat1] = d0.path[i - 1]
-        const [lon2, lat2] = d0.path[i]
+      for (let i = 1; i < path.length; i++) {
+        const [lon1, lat1] = path[i - 1]
+        const [lon2, lat2] = path[i]
         const cosLat = Math.cos((lat1 * Math.PI) / 180)
         cum.push(
           cum[i - 1] +
             Math.hypot((lon2 - lon1) * cosLat * 111320, (lat2 - lat1) * 110540),
         )
       }
+      return cum
+    }
+    for (const line of networkJson.lines) {
+      const d0 = line.directions[0]
+      const d1 = line.directions[1]
+      const cum = cumulativeMeters(d0.path)
+      // Direction 1 geometry for span projection: its own path if the line
+      // has one, otherwise the mirrored direction 0 (as prepareNetwork does).
+      const path1 = d1?.path ?? [...d0.path].reverse()
       dirTargets[line.id] = {
         to0: normalizeName(d0.to),
         to1: normalizeName(d1?.to ?? d0.from),
         path: d0.path,
         cum,
+        geo1: { path: path1, cum: cumulativeMeters(path1) },
       }
     }
   } catch {
@@ -498,8 +569,11 @@ async function main() {
     if (firstCoord && lastCoord && targets.path) {
       const a = projectOntoPath(targets.path, targets.cum, firstCoord)
       const b = projectOntoPath(targets.path, targets.cum, lastCoord)
-      // At least ~400 m of route so the direction is unambiguous
-      if (Math.abs(b - a) > 400) {
+      // Enough route between the projections so the direction is
+      // unambiguous: ~400 m, but capped at 40 % of the line length – the
+      // Warnemünde–Hohe Düne ferry crossing is shorter than 400 m in total.
+      const total = targets.cum[targets.cum.length - 1]
+      if (Math.abs(b - a) > Math.min(400, total * 0.4)) {
         stats.path++
         return b > a ? '0' : '1'
       }
@@ -516,6 +590,32 @@ async function main() {
 
     stats.skipped++
     return null
+  }
+
+  /**
+   * Along-route section [startMeters, endMeters] a trip serves on its
+   * direction's path, or null for (effectively) the full route. Short
+   * workings (Verstärker) start/end mid-route – without the span the
+   * simulation would run them across the entire line and bunch phantom
+   * vehicles near the terminus (observed: line 5 trips departing
+   * Hamburger Straße/Platz der Jugend rendered as extra full-route trams).
+   */
+  const computeTripSpan = (tripId, info, direction) => {
+    const targets = dirTargets[info.lineId]
+    if (!targets) return null
+    const geo = direction === '1' ? targets.geo1 : { path: targets.path, cum: targets.cum }
+    if (!geo?.path || geo.path.length < 2) return null
+    const firstCoord = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
+    const lastCoord = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+    if (!firstCoord || !lastCoord) return null
+    const start = projectOntoPath(geo.path, geo.cum, firstCoord)
+    const end = projectOntoPath(geo.path, geo.cum, lastCoord)
+    const total = geo.cum[geo.cum.length - 1]
+    // Projection disagrees with the classified direction – stay conservative
+    if (!(end - start > 400)) return null
+    // Covers (almost) the whole line – no span needed
+    if (start < 250 && end > total - 250) return null
+    return [Math.round(start), Math.round(end)]
   }
 
   const useDirectionId = tripsWithDirectionId > 0
@@ -558,20 +658,33 @@ async function main() {
     }
 
     const sec = timeToSeconds(first.dep)
+    const span = computeTripSpan(tripId, info, direction)
     lines[info.lineId] ??= {}
     lines[info.lineId][direction] ??= { pairs: [] }
-    lines[info.lineId][direction].pairs.push({ sec, tripId })
+    lines[info.lineId][direction].pairs.push({ sec, tripId, span })
   }
-  // Sort, deduplicate per departure time, and store the GTFS trip_ids in
-  // parallel (needed at runtime for GTFS-Realtime matching).
+  // Sort, deduplicate per departure time + served section, and store the
+  // GTFS trip_ids in parallel (needed at runtime for GTFS-Realtime
+  // matching). The span is part of the key: a full-route trip and a short
+  // working can legitimately depart at the same second. A 50 m grid absorbs
+  // projection jitter between duplicated feed entries of the same trip.
   for (const line of Object.values(lines)) {
     for (const dir of Object.values(line)) {
+      const spanKey = (p) =>
+        p.span ? `${Math.round(p.span[0] / 50)}:${Math.round(p.span[1] / 50)}` : 'full'
       const seen = new Set()
       const unique = dir.pairs
-        .sort((a, b) => a.sec - b.sec)
-        .filter((p) => (seen.has(p.sec) ? false : (seen.add(p.sec), true)))
+        .sort((a, b) => a.sec - b.sec || (a.span?.[0] ?? -1) - (b.span?.[0] ?? -1))
+        .filter((p) => {
+          const key = `${p.sec}|${spanKey(p)}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
       dir.departures = unique.map((p) => p.sec)
       dir.tripIds = unique.map((p) => p.tripId)
+      // Only written when the direction has short workings at all
+      if (unique.some((p) => p.span)) dir.spans = unique.map((p) => p.span ?? null)
       delete dir.pairs
     }
   }

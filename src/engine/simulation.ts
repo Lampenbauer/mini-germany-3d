@@ -110,8 +110,8 @@ export class Simulation {
         status: state.status,
         inTunnel: dir.tunnels.length > 0 && isInTunnel(dir.tunnels, state.distance),
         nextStopName: dir.stops[state.nextStopIndex]?.name ?? dir.to,
-        destination: dir.to,
-        origin: dir.from,
+        destination: trip.destination ?? dir.to,
+        origin: trip.origin ?? dir.from,
         delaySeconds: delay,
         realtime: this.realtimeDelays.has(trip.id),
       })
