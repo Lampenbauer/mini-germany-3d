@@ -237,8 +237,11 @@ scripts/
 from the headway; the travel time between two stops follows from the real track
 distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
-(heading of the 3D box). The boxes clamp themselves onto the Google 3D Tiles or the
-ellipsoid automatically via `HeightReference`.
+(heading of the 3D box). Vehicles and stops do not use Cesium's `HeightReference`
+clamping (unreliable on 3D tiles); their height is set explicitly from tile heights
+measured by ray casts. Since those heights depend on the tile LOD currently loaded,
+they are re-measured as the camera approaches – otherwise a stop measured from the
+overview would keep floating several meters above the roofs up close.
 
 ## Roadmap (Milestone 2+)
 
