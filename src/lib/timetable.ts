@@ -54,10 +54,12 @@ export const DEFAULT_SERVICE: HeadwaySpan[] = [
 ]
 
 /**
- * Synthetic headways per transit mode in case schedule.json provides no real
- * departures. Buses run less often than trams; the ferries shuttle back and
- * forth frequently during the day (Kabutzenhof every 15 min, Hohe Düne
- * similar).
+ * Synthetic headways per transit mode, used only when no schedule.json is
+ * available at all (development without data, broken fetch). With a real
+ * timetable present, lines the feed does not serve stay off the map instead
+ * of running on an invented headway. Buses run less often than trams; the
+ * ferries shuttle back and forth frequently during the day (Kabutzenhof
+ * every 15 min, Hohe Düne similar).
  */
 export const DEFAULT_SERVICE_BY_MODE: Record<TransitMode, HeadwaySpan[]> = {
   tram: DEFAULT_SERVICE,
@@ -283,6 +285,12 @@ export function buildAllTrips(
     return deps
   }
 
+  // The synthetic headway only fills in when there is no timetable at all.
+  // With a real feed, a line without departures genuinely does not run that
+  // day (e.g. line 2 while the 2026 Werftdreieck track works suspend it) and
+  // must not be simulated onto the map.
+  const hasSchedule = schedule?.lines != null && Object.keys(schedule.lines).length > 0
+
   for (const line of network.lines) {
     for (const direction of [0, 1] as const) {
       const real = schedule?.lines?.[line.id]?.[String(direction)]
@@ -300,7 +308,7 @@ export function buildAllTrips(
             order.map((o) => o.span),
           ),
         )
-      } else {
+      } else if (!hasSchedule) {
         trips.push(
           ...buildTripsForDirection(line, direction, fallbackDepartures(line.mode, direction), opts),
         )
@@ -326,6 +334,8 @@ export interface TramState {
   nextStopIndex: number
 }
 
+const DAY_SECONDS = 24 * 3600
+
 /** State of a trip at time tSec, or null if not underway. */
 export function tripStateAt(
   trip: Trip,
@@ -335,7 +345,16 @@ export function tripStateAt(
   const st = trip.stopTimes
   const first = st[0]
   const last = st[st.length - 1]
-  if (tSec < first.departure || tSec > last.arrival) return null
+  if (tSec < first.departure || tSec > last.arrival) {
+    // GTFS encodes after-midnight service as times past 24:00 (the Fledermaus
+    // night buses depart at up to ~28:00). The clock only ever yields 0–24 h,
+    // so probe the same time of day on the following service day.
+    if (tSec + DAY_SECONDS >= first.departure && tSec + DAY_SECONDS <= last.arrival) {
+      tSec += DAY_SECONDS
+    } else {
+      return null
+    }
+  }
 
   // Find the segment containing tSec
   for (let i = 0; i < st.length; i++) {

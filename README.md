@@ -108,11 +108,14 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
   and while a vehicle travels through one, its 3D box and label fade to 40 %
   as well; the info card of a selected vehicle then shows "in tunnel".
 - **Timetable:** `src/data/schedule.json` contains real GTFS departure times per
-  line/direction (typical weekday). For lines/directions without GTFS data (e.g.
-  due to construction work), a synthetic, RSAG-like headway from
-  `src/lib/timetable.ts` kicks in automatically. Travel time between stops is
-  derived from the real track distance; like mini-tokyo-3d, the vehicles run
-  **schedule-based**, not on real-time positions.
+  line/direction (typical weekday). Lines/directions without GTFS data stay off
+  the map – if the feed does not serve a line that day (e.g. suspended due to
+  construction work), the app does not run it either. Only when no
+  `schedule.json` exists at all (development without data) does a synthetic,
+  RSAG-like headway from `src/lib/timetable.ts` kick in for the whole network.
+  Travel time between stops is derived from the real track distance; like
+  mini-tokyo-3d, the vehicles run **schedule-based**, not on real-time
+  positions.
 
 ### Importing real data (recommended, requires unrestricted internet access)
 
@@ -131,9 +134,9 @@ npm test               # validates the new datasets
   all lines in `network.json` (tram `route_type` 0, bus 3, ferry 4; ferries are
   matched via the pier names in `route_long_name`). Rostock relevance is
   established via the stop coordinates; a per-line agency overview in the log
-  reveals route-number collisions. Lines without a GTFS match run on the
-  synthetic per-mode headway. **Important:** re-run `data:gtfs` after every
-  `data:update` so the new bus lines get timetables.
+  reveals route-number collisions. Lines without a GTFS match stay off the map
+  (they are considered not running that day). **Important:** re-run `data:gtfs`
+  after every `data:update` so the new bus lines get timetables.
 - The unit tests adapt to the data source: the strict RSAG checks only run
   against the demo dataset, while structural checks (monotonicity, city bounds,
   lengths) run against every dataset.
@@ -235,8 +238,9 @@ scripts/
 
 **How the simulation works:** Departure times come from schedule.json (real GTFS
 departures, including short workings that only serve part of a route – trips carry a
-span and start/end mid-route); lines without GTFS data fall back to a synthetic
-headway, whose return direction departs offset by half the headway so shuttle
+span and start/end mid-route); lines without GTFS data do not run. Only a missing
+schedule.json activates the synthetic headway for the whole network, whose return
+direction departs offset by half the headway so shuttle
 services like the Warnow ferries run as the single vessel they are. The travel time
 between two stops follows from the real track distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
