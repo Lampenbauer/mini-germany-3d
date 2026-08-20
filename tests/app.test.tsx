@@ -27,6 +27,9 @@ vi.mock('@/map/CesiumMap', () => {
     getRenderHints() {
       return { interacting: false, tilesLoading: false }
     }
+    consumeRenderRequest() {
+      return false
+    }
     syncTrams() {
       return { anyTramInView: true }
     }

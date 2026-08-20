@@ -235,16 +235,24 @@ export default function App() {
 
           // Render pacing (the app owns the Cesium render loop):
           //   interaction/camera flight → full frame rate
-          //   vehicles visibly moving or tiles loading → ~30 fps
-          //   otherwise → ~1 fps (effectively idle)
+          //   vehicles visibly moving → ~30 fps
+          //   only tiles streaming in → ~4 fps (enough to drive the tile
+          //   traversal without burning GPU on identical frames)
+          //   otherwise → event-driven: one-off scene changes request a
+          //   frame via CesiumMap.requestRender(); apart from that only a
+          //   slow heartbeat runs. A truly idle map renders nothing – even
+          //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
+          //   because the utilization gauge counts any periodic activity.
           const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
           const animating = lastAnyTramInView && !clock.paused
           const renderInterval = hints.interacting
             ? 0
-            : animating || hints.tilesLoading
+            : animating
               ? 33
-              : 1000
-          if (now - lastRender >= renderInterval) {
+              : hints.tilesLoading
+                ? 250
+                : 15000
+          if (map.consumeRenderRequest() || now - lastRender >= renderInterval) {
             lastRender = now
             map.render()
             renderTimes.push(now)

@@ -93,6 +93,8 @@ interface TramEntityRecord {
   groundHeight: number
   /** Frame counter of the last height query (sampling is staggered). */
   lastSampleFrame: number
+  /** Position of the last tick – detects movement for render requests. */
+  lastPosition: Cartesian3
 }
 
 interface StopEntityRecord {
@@ -153,6 +155,26 @@ const STOP_RETRY_MS = 1500
  * all at once after the full run.
  */
 const STOP_HEIGHT_CHUNK = 100
+
+/**
+ * How many stops the height bootstrap measures – a small, evenly spread
+ * subset. Sampling every stop made sampleHeightMostDetailed() load
+ * finest-LOD tiles for the entire city, which kept the tileset (and the
+ * GPU) busy for minutes after startup; for the ground-height median a few
+ * dozen points are just as good, and individual stops are refined on
+ * demand by resolveStopHeights() once the camera gets near them.
+ */
+const STOP_BOOTSTRAP_SAMPLES = 40
+
+/**
+ * Camera distance in meters up to which a vehicle counts as visible: the
+ * number label fades out here (see the label's DistanceDisplayCondition),
+ * and beyond it the body is only a few pixels. Vehicles farther away must
+ * neither hold the 30 fps render pacing nor get tile-height samples –
+ * without this cap a camera dozens of kilometers away still "sees" the
+ * whole fleet as soon as it faces the network.
+ */
+const TRAM_VISIBLE_RANGE = 20_000
 
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
@@ -228,6 +250,14 @@ export class CesiumMap {
   private lastInteractionAt = 0
   /** A camera animation (flyTo) is running until this point in time. */
   private flyingUntil = 0
+  /**
+   * A one-off scene change (selection, visibility toggle, stop height,
+   * resize, …) needs a frame. Consumed by the app's render loop – outside
+   * the interaction/animation/tile-loading states the app only renders on
+   * this flag plus a slow heartbeat, so an idle map costs no GPU at all.
+   */
+  private renderRequested = true
+  private resizeObserver: ResizeObserver | null = null
   private readonly noteInteraction = () => {
     this.lastInteractionAt = performance.now()
   }
@@ -302,6 +332,13 @@ export class CesiumMap {
 
     this.setCameraHome(false)
 
+    // A container/window resize must reach the screen even in the idle
+    // render state (viewer.render() picks the new size up via resize()).
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.requestRender())
+      this.resizeObserver.observe(container)
+    }
+
     // Interactions wake the render loop (the app then renders at full rate)
     const canvas = scene.canvas
     canvas.addEventListener('pointerdown', this.noteInteraction)
@@ -344,6 +381,7 @@ export class CesiumMap {
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
       this.viewer.scene.globe.show = false
+      this.requestRender()
       this.opts.onTilesetStatus?.('google-3d-tiles')
       window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
     } catch (error) {
@@ -358,6 +396,7 @@ export class CesiumMap {
           cells: 4,
         }),
       )
+      this.requestRender()
       this.opts.onTilesetStatus?.('failed')
     }
   }
@@ -377,6 +416,7 @@ export class CesiumMap {
     } else {
       this.viewer.camera.setView({ destination, orientation })
     }
+    this.requestRender()
   }
 
   /**
@@ -467,6 +507,7 @@ export class CesiumMap {
         }
       }
     }
+    this.requestRender()
   }
 
   /**
@@ -527,6 +568,7 @@ export class CesiumMap {
       stop.entity.position = new ConstantPositionProperty(
         Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
       )
+      this.requestRender()
     }
   }
 
@@ -534,27 +576,32 @@ export class CesiumMap {
     for (const entities of this.routeEntities.values()) {
       for (const e of entities) e.show = visible
     }
+    this.requestRender()
   }
 
   setStopsVisible(visible: boolean): void {
     for (const e of this.stopEntities) e.show = visible
+    this.requestRender()
   }
 
   setLineRouteVisible(lineId: string, visible: boolean): void {
     for (const e of this.routeEntities.get(lineId) ?? []) e.show = visible
+    this.requestRender()
   }
 
   /**
-   * One-time height bootstrapping: measures the tile heights at all stops
-   * asynchronously (specifically loading detail tiles to do so) and derives
+   * One-time height bootstrapping: measures the tile heights at a small,
+   * evenly spread subset of the stops (STOP_BOOTSTRAP_SAMPLES) and derives
    * the base ground height for trams and stops from them. Logs the result
    * to the console for diagnostics.
    *
    * Unlike tileset.getHeight(), sampleHeightMostDetailed() loads the finest
    * tile level per point regardless of where the camera is looking, so its
-   * heights are final and settle the stops for good. It runs in chunks, so
-   * the stops drop onto the surface progressively rather than all at once
-   * after the whole (minute-long) run.
+   * heights are final and settle the sampled stops for good. Deliberately
+   * NOT run for every stop: that loaded detail tiles for the whole city and
+   * kept the tileset (and the GPU) busy for minutes after startup. The
+   * remaining stops are refined on demand by resolveStopHeights() as soon
+   * as the camera gets near them.
    */
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
@@ -568,10 +615,13 @@ export class CesiumMap {
       return
     }
 
+    const stride = Math.max(1, Math.ceil(this.stopRecords.length / STOP_BOOTSTRAP_SAMPLES))
+    const sampleStops = this.stopRecords.filter((_, index) => index % stride === 0)
+
     const heights: number[] = []
     try {
-      for (let start = 0; start < this.stopRecords.length; start += STOP_HEIGHT_CHUNK) {
-        const chunk = this.stopRecords.slice(start, start + STOP_HEIGHT_CHUNK)
+      for (let start = 0; start < sampleStops.length; start += STOP_HEIGHT_CHUNK) {
+        const chunk = sampleStops.slice(start, start + STOP_HEIGHT_CHUNK)
         const updated = await scene.sampleHeightMostDetailed(
           chunk.map((s) => Cartographic.fromDegrees(s.lon, s.lat)),
         )
@@ -675,6 +725,7 @@ export class CesiumMap {
       if (!record) {
         record = this.createTramEntity(snap)
         this.trams.set(snap.id, record)
+        this.renderRequested = true
       }
 
       // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
@@ -684,6 +735,7 @@ export class CesiumMap {
       }
       if (record.appearanceDirty) {
         record.appearanceDirty = !this.applyTramAppearance(snap.id)
+        if (!record.appearanceDirty) this.renderRequested = true
       }
 
       const show = visibleLines.has(snap.lineId)
@@ -695,11 +747,12 @@ export class CesiumMap {
         positionScratch,
       )
 
-      // Frustum test per shown tram (6 plane checks – cheap). The result
-      // drives both the render pacing (anyTramInView) and whether the much
+      // Visibility test per shown tram: inside the camera frustum AND within
+      // label range (beyond that the vehicle is only a few pixels). The
+      // result drives the render pacing (anyTramInView) and whether the much
       // more expensive tile-height sampling below is worth doing at all.
       let inView = false
-      if (show) {
+      if (show && Cartesian3.distance(camera.positionWC, position) < TRAM_VISIBLE_RANGE) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
@@ -735,6 +788,13 @@ export class CesiumMap {
         }
       }
 
+      // Movement of an on-screen vehicle (sim tick, time jump, height
+      // adjustment) must reach the screen even outside the 30 fps state.
+      if (!Cartesian3.equalsEpsilon(position, record.lastPosition, 0, 0.01)) {
+        Cartesian3.clone(position, record.lastPosition)
+        if (inView) this.renderRequested = true
+      }
+
       record.labelPosition.setValue(position)
       // Update modelMatrix in place – takes effect immediately on the next render
       hprScratch.heading = CesiumMath.toRadians(snap.bearing - 90)
@@ -745,8 +805,11 @@ export class CesiumMap {
         undefined,
         record.matrix,
       )
-      record.primitive.show = show
-      record.labelEntity.show = show
+      if (record.primitive.show !== show) {
+        record.primitive.show = show
+        record.labelEntity.show = show
+        this.renderRequested = true
+      }
 
       if (followed) {
         this.updateFollowCamera(snap.lon, snap.lat)
@@ -759,6 +822,7 @@ export class CesiumMap {
         this.viewer.entities.remove(record.labelEntity)
         this.viewer.scene.primitives.remove(record.primitive)
         this.trams.delete(id)
+        this.renderRequested = true
       }
     }
 
@@ -769,6 +833,18 @@ export class CesiumMap {
   render(): void {
     if (this.destroyed) return
     this.viewer.render()
+  }
+
+  /** Marks the scene as changed – the app loop then renders a frame promptly. */
+  requestRender(): void {
+    this.renderRequested = true
+  }
+
+  /** Returns (and clears) whether a one-off scene change needs a frame. */
+  consumeRenderRequest(): boolean {
+    const requested = this.renderRequested
+    this.renderRequested = false
+    return requested
   }
 
   /**
@@ -821,6 +897,7 @@ export class CesiumMap {
         roll: 0,
       },
     })
+    this.requestRender()
   }
 
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
@@ -881,7 +958,7 @@ export class CesiumMap {
         outlineWidth: 4,
         style: LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cartesian2(0, -28),
-        distanceDisplayCondition: new DistanceDisplayCondition(0, 12000),
+        distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
     })
@@ -899,6 +976,7 @@ export class CesiumMap {
       halfHeight,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
+      lastPosition: Cartesian3.clone(initialPosition),
     }
   }
 
@@ -953,6 +1031,7 @@ export class CesiumMap {
         record.appearanceDirty = !this.applyTramAppearance(tramId)
       }
     }
+    this.requestRender()
   }
 
   /**
@@ -970,6 +1049,7 @@ export class CesiumMap {
     if (!tramId) {
       this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
     }
+    this.requestRender()
   }
 
   private updateFollowCamera(lon: number, lat: number): void {
@@ -998,6 +1078,9 @@ export class CesiumMap {
       this.followOffset.range = Cartesian3.magnitude(camera.position)
     }
     camera.lookAt(center, this.followOffset)
+    // The camera moved with the tram – must reach the screen even when the
+    // render pacing is otherwise idle.
+    this.requestRender()
   }
 
   hasTram(tramId: string): boolean {
@@ -1047,6 +1130,7 @@ export class CesiumMap {
 
   destroy(): void {
     this.destroyed = true
+    this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.viewer.destroy()
   }
