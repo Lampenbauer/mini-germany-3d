@@ -218,6 +218,8 @@ export class CesiumMap {
   private googleTileset: Cesium3DTileset | null = null
   /** Most recently measured plausible ground height – initial value for new trams. */
   private defaultGroundHeight: number
+  /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
+  private readonly effectivePixelRatio: number
   private frameCounter = 0
   /** Timestamp of the last stop height sampling pass (see resolveStopHeights). */
   private lastStopSampleAt = 0
@@ -253,12 +255,22 @@ export class CesiumMap {
       infoBox: false,
       selectionIndicator: false,
       msaaSamples: 4,
+      // Render at native device resolution: Cesium's default is CSS-pixel
+      // resolution, which leaves labels and edges visibly pixelated on
+      // Retina/HiDPI displays.
+      useBrowserRecommendedResolution: false,
       // The render loop is driven entirely by the app (see the App.tsx loop
       // + render()): Cesium's own 60 fps loop would update clock/visualizer/
       // scene every frame even without changes and put a constant load on
       // CPU/GPU.
       useDefaultRenderLoop: false,
     })
+
+    // Cap the effective pixel ratio at 2×: beyond that the extra sharpness
+    // is invisible but the fill-rate cost keeps growing quadratically.
+    const pixelRatio = window.devicePixelRatio || 1
+    this.effectivePixelRatio = Math.min(pixelRatio, 2)
+    this.viewer.resolutionScale = this.effectivePixelRatio / pixelRatio
 
     // Debug/test access to the viewer (e.g. for E2E tests)
     ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
@@ -322,6 +334,12 @@ export class CesiumMap {
       if (this.destroyed) return
       // enableCollision: prevents the camera from getting below the tiles
       tileset.enableCollision = true
+      // Screen-space error is measured in drawing-buffer pixels: without
+      // compensation the HiDPI buffer would demand one LOD level finer
+      // tiles everywhere (≈4× tile data and much longer loading churn).
+      // Scaling the budget keeps tile detail at CSS-pixel level – labels,
+      // routes, and vehicle edges stay sharp either way.
+      tileset.maximumScreenSpaceError *= this.effectivePixelRatio
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
