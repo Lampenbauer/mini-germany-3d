@@ -418,8 +418,9 @@ export default function App() {
     [network, visibleLines],
   )
 
-  const dataSource =
-    network.meta.source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)'
+  // Badge only as a warning for approximated geometry; real OSM data (the
+  // normal case) needs no callout in the panel.
+  const dataSource = network.meta.source === 'osm' ? null : 'Demo data (approximated)'
 
   const offlineMode =
     typeof window !== 'undefined' &&
