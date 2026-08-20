@@ -59,9 +59,13 @@ describe('App (UI shell)', () => {
     expect(screen.getByText('Mini Rostock 3D')).toBeInTheDocument()
     expect(screen.getByTestId('sim-clock')).toBeInTheDocument()
     expect(screen.getByTestId('tileset-status')).toHaveTextContent('Offline mode')
-    const expectedSource =
-      loadBundledNetwork().meta.source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)'
-    expect(screen.getByTestId('data-source')).toHaveTextContent(expectedSource)
+    // The data-source badge only appears as a warning for approximated
+    // demo geometry – real OSM data shows no badge.
+    if (loadBundledNetwork().meta.source === 'osm') {
+      expect(screen.queryByTestId('data-source')).not.toBeInTheDocument()
+    } else {
+      expect(screen.getByTestId('data-source')).toHaveTextContent('Demo data (approximated)')
+    }
   })
 
   it('shows all lines with their switch enabled', () => {

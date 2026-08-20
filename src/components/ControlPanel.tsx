@@ -15,13 +15,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -59,15 +53,17 @@ export interface ControlPanelProps {
   onToggleStops: (visible: boolean) => void
   tramCount: number
   tilesetStatus: TilesetStatus
-  dataSource: string
+  /** Warning badge for approximated geometry; null = no badge. */
+  dataSource: string | null
   /** Status des GTFS-Realtime-Feeds (null = deaktiviert). */
   realtimeStatus: RealtimeStatus | null
   onResetCamera: () => void
 }
 
-const TILESET_LABEL: Record<TilesetStatus, string> = {
+// The healthy state (google-3d-tiles) shows no badge – only loading and
+// degraded states are called out in the panel.
+const TILESET_LABEL: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, string> = {
   loading: 'Loading 3D tiles…',
-  'google-3d-tiles': 'Google 3D Tiles',
   offline: 'Offline mode',
   failed: '3D tiles unavailable',
 }
@@ -163,14 +159,11 @@ export function ControlPanel(props: ControlPanelProps) {
 
   return (
     <Card className="pointer-events-auto w-80 max-h-[calc(100vh-2rem)] overflow-y-auto border-border/60 bg-card/85 backdrop-blur-md">
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <TramFront className="size-5 text-primary" aria-hidden />
-            Mini Rostock 3D
-          </CardTitle>
-          <CardDescription>RSAG network & Rostock ferries – schedule simulation</CardDescription>
-        </div>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TramFront className="size-5 text-primary" aria-hidden />
+          Mini Rostock 3D
+        </CardTitle>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -295,12 +288,16 @@ export function ControlPanel(props: ControlPanelProps) {
                   : 'trams'}{' '}
               in service
             </Badge>
-            <Badge variant="outline" data-testid="tileset-status">
-              {TILESET_LABEL[props.tilesetStatus]}
-            </Badge>
-            <Badge variant="outline" data-testid="data-source">
-              {props.dataSource}
-            </Badge>
+            {props.tilesetStatus !== 'google-3d-tiles' && (
+              <Badge variant="outline" data-testid="tileset-status">
+                {TILESET_LABEL[props.tilesetStatus]}
+              </Badge>
+            )}
+            {props.dataSource !== null && (
+              <Badge variant="outline" data-testid="data-source">
+                {props.dataSource}
+              </Badge>
+            )}
             {props.realtimeStatus?.state === 'live' && (
               <Badge variant="secondary" data-testid="rt-status">
                 <RadioTower aria-hidden />

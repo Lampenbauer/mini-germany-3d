@@ -64,15 +64,16 @@ test.beforeEach(async () => {
 test('loads the app with map and control panel', async () => {
   await expect(page).toHaveTitle('Mini Rostock 3D')
   await expect(page.getByText('Mini Rostock 3D')).toBeVisible()
-  await expect(
-    page.getByText('RSAG network & Rostock ferries – schedule simulation'),
-  ).toBeVisible()
   await expect(page.locator('[data-testid=cesium-container] canvas')).toBeVisible()
   await expect(page.getByTestId('tileset-status')).toHaveText('Offline mode')
+  // The data-source badge only appears as a warning for approximated demo
+  // geometry – real OSM data shows no badge.
   const source = await page.evaluate(() => window.__mrt!.dataSource)
-  await expect(page.getByTestId('data-source')).toHaveText(
-    source === 'osm' ? 'OSM geometry' : 'Demo data (approximated)',
-  )
+  if (source === 'osm') {
+    await expect(page.getByTestId('data-source')).toHaveCount(0)
+  } else {
+    await expect(page.getByTestId('data-source')).toHaveText('Demo data (approximated)')
+  }
 })
 
 test('shows the frozen simulation time 08:30', async () => {
