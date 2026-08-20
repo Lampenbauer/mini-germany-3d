@@ -6,7 +6,6 @@ import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
 import { Simulation, type TramSnapshot } from '@/engine/simulation'
-import { computeHomeView } from '@/lib/camera'
 import { formatCameraHash, parseCameraHash } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
@@ -175,7 +174,6 @@ export default function App() {
       onTilesetStatus: setTilesetStatus,
     })
     mapRef.current = map
-    map.setHomeView(computeHomeView(network))
     // Restore the saved camera orientation from the URL hash
     const hashView = parseCameraHash(window.location.hash)
     if (hashView) map.setView(hashView)

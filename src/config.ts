@@ -24,13 +24,16 @@ export const config = {
   gtfsRealtimeUrl:
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
-  /** Initial camera position: view from the south across the entire network. */
+  /**
+   * Initial camera position (also the "Reset camera" home view). A URL hash
+   * (#lat=…&lon=…) still takes precedence when present.
+   */
   home: {
-    longitude: 12.124,
-    latitude: 54.042,
-    height: 3600,
-    heading: 3,
-    pitch: -38,
+    longitude: 12.130749,
+    latitude: 54.080002,
+    height: 1719,
+    heading: 10,
+    pitch: -60,
   },
 
   /** Simulation defaults */

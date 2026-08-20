@@ -4,9 +4,15 @@
  * so the view survives a browser reload and is shareable.
  */
 
-import type { HomeView } from '@/lib/camera'
+export interface CameraView {
+  longitude: number
+  latitude: number
+  height: number
+  heading: number
+  pitch: number
+}
 
-export function parseCameraHash(hash: string): HomeView | null {
+export function parseCameraHash(hash: string): CameraView | null {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   if (!raw) return null
   const params = new URLSearchParams(raw)
@@ -26,7 +32,7 @@ export function parseCameraHash(hash: string): HomeView | null {
   return { longitude: lon, latitude: lat, height, heading, pitch }
 }
 
-export function formatCameraHash(view: HomeView): string {
+export function formatCameraHash(view: CameraView): string {
   const heading = Math.round(((view.heading % 360) + 360) % 360)
   return (
     `#lat=${view.latitude.toFixed(6)}` +
