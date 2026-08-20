@@ -5,27 +5,28 @@
 [CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
 
-The RSAG trams (lines 1, 2, 3, 5, 6) run schedule-based along their real routes
-through the city – with time-lapse, line filters, a stops layer, and a UI styled
-after [shadcn/ui](https://ui.shadcn.com/).
+The six RSAG tram lines, some 25 RSAG bus lines, and the two Rostock ferries run
+schedule-based along their real routes through the city – with time-lapse, line
+filters, a stops layer, day/night lighting that follows the simulated time, and
+a UI styled after [shadcn/ui](https://ui.shadcn.com/).
 
-![Screenshot (offline mode with wireframe globe)](docs/screenshots/offline-overview.png)
+![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
-> The screenshot comes from the network-free **offline mode** used by the test
-> environment (`?offline=1`, wireframe instead of photo textures). With internet
-> access the app renders the photorealistic Google 3D Tiles of Rostock.
+![The same view at night – the lighting follows the simulated time](docs/screenshots/city-night.jpg)
 
 ---
 
-## Milestone 1 – Status
+## Features
 
-| # | Requirement | Status |
-|---|-------------|--------|
-| 1 | Cesium map with Google 3D Tiles | ✅ `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable |
-| 2 | Trams as simple boxes on real routes | ✅ 3D boxes (32 m × 2.65 m × 3.6 m) with line labels, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
-| 3 | Routes/lines on the map | ✅ Polylines draped onto the ground/3D tiles in line colors + stops layer |
-| 4 | shadcn(-style) interface | ✅ Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
-| 5 | Automated tests | ✅ Unit tests (Vitest) and functional E2E tests (Playwright) |
+| Feature | Details |
+|---------|---------|
+| Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
+| Vehicles as simple boxes on real routes | 3D boxes with line labels and per-mode dimensions (tram 32 m, bus 12 m, ferries their real vessel sizes), schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| Routes/lines on the map | Polylines draped onto the ground/3D tiles in line colors + stops layer; tunnel sections at reduced opacity |
+| Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock |
+| Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
+| shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
+| Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
 
 ## Quick start
 
@@ -51,6 +52,10 @@ VITE_CESIUM_ION_TOKEN=your-token
 
 - **Simulation time:** The panel lets you set the clock directly (e.g. jump to rush
   hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any time.
+  The scene lighting follows the simulated clock, so the time input doubles as a
+  day/night switch – and the ×120 time-lapse shows a full day/night cycle.
+- **Zoom to a line:** Clicking a line's name in the panel flies the camera so the
+  whole route fits into view (the compass heading is kept).
 - **Selecting a tram:** Clicking a box opens the info card (line, destination, next
   stop). "Follow" pins the camera to the vehicle and rides along – orbiting/zooming
   with the mouse remains possible; clicking empty map, "Stop following", or a camera
@@ -67,6 +72,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?speed=60` | Initial time-lapse factor (1–600) |
 | `?time=08:30` | Set the simulation time (Europe/Berlin) |
 | `?paused=1` | Start with the simulation frozen |
+| `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 
 ## Tests
@@ -89,9 +95,9 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
   2 Kurt-Schumacher-Ring ↔ Reutershagen, 3 Neuer Friedhof ↔ Dierkower Allee,
   4 Campus Südstadt ↔ Dierkower Allee, 5 Mecklenburger Allee ↔ Südblick,
   6 Campus Südstadt ↔ Neuer Friedhof) including direction-specific paths and the
-  line colors from OSM – recognizable by the "OSM geometry" badge in the app.
-  An approximated demo dataset can be restored at any time with
-  `node scripts/build-approx-network.mjs`.
+  line colors from OSM. An approximated demo dataset can be restored at any time
+  with `node scripts/build-approx-network.mjs` – the app then shows a
+  "Demo data (approximated)" warning badge (real OSM geometry needs no callout).
 - **Buses & ferries:** `npm run data:update` additionally fetches all
   **RSAG bus lines** (route=bus with operator RSAG) as well as the two ferries
   **Kabutzenhof – Gehlsdorf** (OSM relation 56291, 19.9 × 6.6 m) and
@@ -161,7 +167,7 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
   its delay.
 - **Server-side filtering:** The Germany-wide feed is >10 MB. The browser therefore
   does NOT download it itself but polls the **`/api/realtime`** endpoint (a few KB
-  of JSON, every 60 s). Behind it sits a Vite middleware in the dev/preview server
+  of JSON, every 2 minutes). Behind it sits a Vite middleware in the dev/preview server
   (Node, `vite.config.ts`) and, in production, **`api/realtime.php`**
   (shared-hosting friendly, with its own minimal protobuf parser and no
   dependencies). Both fetch the feed at most once per minute, filter it down to
@@ -200,9 +206,10 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).
 4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
-   `npm run data:update`, `npm run data:simplify`, and `npm run data:gtfs` before
-   the test steps, so the OSM geometry and – more importantly – the day-specific
-   GTFS departures (weekday vs. weekend service) stay current. Only if the full
+   `npm run data:gtfs` before the test steps, so the day-specific GTFS departures
+   (weekday vs. weekend service) stay current; the rarely changing OSM geometry
+   (`npm run data:update` + `npm run data:simplify`) is only refreshed every
+   third night. Only if the full
    test suite passes on the refreshed dataset is the result deployed and the new
    `src/data/*.json` committed back to `main`; a failed Overpass/GTFS fetch or a
    failing test leaves both the site and the repository untouched.
@@ -223,16 +230,23 @@ src/
 ├── lib/
 │   ├── geo.ts              # Haversine, bearing, polyline interpolation/projection
 │   ├── clock.ts            # Simulation clock (time-lapse, pause, Europe/Berlin)
-│   └── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
+│   ├── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
+│   ├── tunnels.ts          # Tunnel meter-ranges → path pieces / mirroring
+│   ├── camera-hash.ts      # Camera pose ↔ URL hash
+│   ├── realtime.ts         # GTFS-RT client (polls /api/realtime)
+│   └── rt-extract.ts       # Shared realtime feed → delay-map extraction
 ├── engine/simulation.ts    # Clock + timetable → tram snapshots per frame
-├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, routes, stops, tram boxes
+├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, routes, stops, vehicle boxes,
+│                           # day/night lighting, event-driven render requests
 ├── components/             # shadcn-style UI (ControlPanel, TramCard, ui/*)
-└── App.tsx                 # Wiring, render loop, test API (window.__mrt)
+└── App.tsx                 # Wiring, render loop pacing, test API (window.__mrt)
 
 scripts/
 ├── build-approx-network.mjs  # generates the bundled demo dataset
 ├── fetch-osm-network.mjs     # real geometry from OSM/Overpass   (npm run data:update)
+├── simplify-network.mjs      # thins out route geometries        (npm run data:simplify)
 ├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
+├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
 
@@ -250,11 +264,11 @@ measured by ray casts. Since those heights depend on the tile LOD currently load
 they are re-measured as the camera approaches – otherwise a stop measured from the
 overview would keep floating several meters above the roofs up close.
 
-## Roadmap (Milestone 2+)
+## Roadmap
 
 - GTFS-RT with VehiclePositions (full gtfs.de or VVW feed) instead of TripUpdates only
 - More detailed vehicles (low-poly 6N2 instead of boxes), acceleration/braking profiles
-- Stop popups with departure boards, day/night lighting, performance tuning
+- Stop popups with departure boards
 
 ## Attribution
 
