@@ -10,6 +10,7 @@ vi.mock('@/map/CesiumMap', () => {
     addRoutes() {}
     addStops() {}
     focusLine() {}
+    setSceneTime() {}
     setView() {}
     getCameraView() {
       return { longitude: 12.13, latitude: 54.08, height: 3000, heading: 0, pitch: -38 }

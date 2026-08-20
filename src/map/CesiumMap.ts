@@ -19,6 +19,7 @@ import {
   ColorMaterialProperty,
   ConstantPositionProperty,
   ConstantProperty,
+  CustomShader,
   DistanceDisplayCondition,
   Entity,
   GeometryInstance,
@@ -27,6 +28,7 @@ import {
   HeadingPitchRoll,
   Intersect,
   Ion,
+  JulianDate,
   LabelStyle,
   Math as CesiumMath,
   Matrix4,
@@ -176,6 +178,45 @@ const STOP_BOOTSTRAP_SAMPLES = 40
  */
 const TRAM_VISIBLE_RANGE = 20_000
 
+/**
+ * Time-of-day grading for the photorealistic tiles. The tiles are unlit
+ * (KHR_materials_unlit – daylight is baked into the photo textures), so the
+ * scene's sun cannot shade them; instead the baked color is blended toward
+ * golden-hour and night tints as the sun goes down. The sun direction comes
+ * from Cesium's built-in czm_sunDirectionWC, which follows viewer.clock –
+ * setSceneTime() couples that clock to the simulated time.
+ *
+ * Night keeps a blue ambient and only mild desaturation so the city stays
+ * readable: real night light (lit windows, street lamps) cannot be derived
+ * from daylight photogrammetry, this is an ambience grade.
+ */
+const TIME_OF_DAY_SHADER = `
+void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
+{
+  // sin of the sun elevation at this fragment (up = away from Earth center)
+  float sunUp = dot(czm_sunDirectionWC, normalize(fsInput.attributes.positionWC));
+
+  vec3 goldenTint = vec3(1.0, 0.84, 0.66);
+  vec3 duskTint = vec3(0.40, 0.35, 0.37);
+  vec3 nightTint = vec3(0.14, 0.17, 0.28);
+
+  // Blend regions by sun height: full day above +8 deg, golden hour down
+  // to sunset, dusk while the sun sinks to -5 deg, night below about
+  // -10 deg (matches how dark a real nautical dusk already feels).
+  float golden = 1.0 - smoothstep(0.0, 0.14, sunUp);
+  float dusk = 1.0 - smoothstep(-0.09, 0.0, sunUp);
+  float night = 1.0 - smoothstep(-0.17, -0.07, sunUp);
+
+  vec3 tint = mix(vec3(1.0), goldenTint, golden);
+  tint = mix(tint, duskTint, dusk);
+  tint = mix(tint, nightTint, night);
+
+  float luminance = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
+  vec3 color = mix(material.diffuse, vec3(luminance), 0.45 * night);
+  material.diffuse = color * tint;
+}
+`
+
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
 
@@ -314,6 +355,15 @@ export class CesiumMap {
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
+    // Day/night sky: with a globe present (ours is merely hidden), the sky
+    // atmosphere takes its dynamic lighting from these globe flags and
+    // ignores scene.atmosphere (see Scene.updateEnvironment). Without them
+    // the sky stays noon-blue around the clock; with them it darkens with
+    // the sun and the star skybox shows through at night.
+    scene.globe.enableLighting = true
+    scene.globe.dynamicAtmosphereLighting = true
+    scene.globe.dynamicAtmosphereLightingFromSun = true
+
     // The viewer's double-click zoom interferes with our own selection logic
     this.viewer.screenSpaceEventHandler.removeInputAction(
       ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
@@ -382,6 +432,8 @@ export class CesiumMap {
       // Scaling the budget keeps tile detail at CSS-pixel level – labels,
       // routes, and vehicle edges stay sharp either way.
       tileset.maximumScreenSpaceError *= this.effectivePixelRatio
+      // Day/night ambience following the simulated time (see setSceneTime)
+      tileset.customShader = new CustomShader({ fragmentShaderText: TIME_OF_DAY_SHADER })
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
@@ -881,6 +933,17 @@ export class CesiumMap {
   render(): void {
     if (this.destroyed) return
     this.viewer.render()
+  }
+
+  /**
+   * Couples the scene clock to the simulated instant (epoch ms). Sun
+   * position, atmosphere, and the tiles' time-of-day grading follow it.
+   * The caller throttles updates (~1 sim-minute steps), so an idle map at
+   * real-time speed costs about one extra render per minute.
+   */
+  setSceneTime(epochMs: number): void {
+    this.viewer.clock.currentTime = JulianDate.fromDate(new Date(epochMs))
+    this.requestRender()
   }
 
   /** Marks the scene as changed – the app loop then renders a frame promptly. */

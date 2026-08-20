@@ -192,6 +192,7 @@ export default function App() {
     let lastUiUpdate = 0
     let lastSimTick = 0
     let lastRender = 0
+    let lastLightingMs = -Infinity
     let lastAnyTramInView = true
     let loopTicks = 0
     let lastLoopError: string | null = null
@@ -208,6 +209,17 @@ export default function App() {
           const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
+
+            // Scene lighting follows the simulated time in ~1-minute steps:
+            // sun position, atmosphere, and the tiles' day/night grading.
+            // At real-time speed that is one extra render per minute; jumps
+            // (time input, midnight wrap) apply on the next tick.
+            const simMs = clock.now()
+            if (Math.abs(simMs - lastLightingMs) >= 60_000) {
+              lastLightingMs = simMs
+              map.setSceneTime(simMs)
+            }
+
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
             const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
