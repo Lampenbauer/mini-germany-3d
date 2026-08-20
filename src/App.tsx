@@ -410,6 +410,16 @@ export default function App() {
     mapRef.current?.setCameraHome(true)
   }, [])
 
+  /** Fly the camera to a line's route (keeps the compass heading). */
+  const handleFocusLine = useCallback((lineId: string) => {
+    if (followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      mapRef.current?.setFollow(null)
+    }
+    mapRef.current?.focusLine(lineId)
+  }, [])
+
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
@@ -451,6 +461,7 @@ export default function App() {
           onResetTime={handleResetTime}
           lines={lineInfos}
           onToggleLine={handleToggleLine}
+          onFocusLine={handleFocusLine}
           onSetLinesVisible={handleSetLinesVisible}
           showRoutes={showRoutes}
           onToggleRoutes={handleToggleRoutes}

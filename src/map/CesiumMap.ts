@@ -179,6 +179,9 @@ const TRAM_VISIBLE_RANGE = 20_000
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
 
+/** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
+const LINE_FOCUS_PITCH = -55
+
 /**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
  * them are rendered at 40 % of their normal opacity.
@@ -230,6 +233,8 @@ export class CesiumMap {
   private readonly opts: CesiumMapOptions
   private trams = new Map<string, TramEntityRecord>()
   private routeEntities = new Map<string, Entity[]>()
+  /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
+  private linePaths = new Map<string, number[]>()
   private stopEntities: Entity[] = []
   private stopRecords: StopEntityRecord[] = []
   private handler: ScreenSpaceEventHandler
@@ -456,6 +461,49 @@ export class CesiumMap {
         })
       }
       this.routeEntities.set(line.id, entities)
+
+      // Union of both directions – basis for the "zoom to line" camera fit
+      // (duplicate points of mirrored directions do not hurt the sphere).
+      const flat: number[] = []
+      for (const dir of line.directions) {
+        for (const [lon, lat] of dir.path) flat.push(lon, lat)
+      }
+      this.linePaths.set(line.id, flat)
+    })
+    this.requestRender()
+  }
+
+  /**
+   * Flies the camera so the entire route of a line is in view. The current
+   * compass heading is kept – only position, height, and pitch change; the
+   * distance is computed by Cesium from the route's bounding sphere.
+   */
+  focusLine(lineId: string): void {
+    const flat = this.linePaths.get(lineId)
+    if (!flat || flat.length < 4) return
+    const sphere = BoundingSphere.fromPoints(Cartesian3.fromDegreesArray(flat))
+    // The route coordinates carry no heights (ellipsoid 0 m) – lift the
+    // sphere center onto the measured ground so the camera aims at the
+    // streets instead of a point ~45 m below them.
+    const center = Cartographic.fromCartesian(sphere.center)
+    sphere.center = Cartesian3.fromRadians(
+      center.longitude,
+      center.latitude,
+      this.defaultGroundHeight,
+      undefined,
+      sphere.center,
+    )
+    // Render at full rate during the flight (see getRenderHints)
+    this.flyingUntil = performance.now() + 2100
+    this.requestRender()
+    this.viewer.camera.flyToBoundingSphere(sphere, {
+      duration: 1.5,
+      // range 0 = Cesium picks the distance at which the sphere fits fully
+      offset: new HeadingPitchRange(
+        this.viewer.camera.heading,
+        CesiumMath.toRadians(LINE_FOCUS_PITCH),
+        0,
+      ),
     })
   }
 

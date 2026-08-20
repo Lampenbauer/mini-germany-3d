@@ -45,6 +45,8 @@ export interface ControlPanelProps {
   onResetTime: () => void
   lines: LineToggleInfo[]
   onToggleLine: (lineId: string) => void
+  /** Fly the camera to the line's route (click on the line name). */
+  onFocusLine: (lineId: string) => void
   /** Alle Linien einer Gruppe auf einmal ein-/ausblenden. */
   onSetLinesVisible: (lineIds: string[], visible: boolean) => void
   showRoutes: boolean
@@ -92,6 +94,7 @@ const LineGroup = memo(function LineGroup(props: {
   lines: LineToggleInfo[]
   showHeader: boolean
   onToggleLine: (lineId: string) => void
+  onFocusLine: (lineId: string) => void
   onSetLinesVisible: (lineIds: string[], visible: boolean) => void
 }) {
   const Icon = MODE_ICON[props.mode]
@@ -119,7 +122,13 @@ const LineGroup = memo(function LineGroup(props: {
       <ul className="flex flex-col gap-1.5">
         {props.lines.map((line) => (
           <li key={line.id} className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+              title={`Zoom to ${line.name}`}
+              aria-label={`Zoom to ${line.name}`}
+              onClick={() => props.onFocusLine(line.id)}
+            >
               <span
                 className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
                 style={{ backgroundColor: line.color }}
@@ -133,7 +142,7 @@ const LineGroup = memo(function LineGroup(props: {
                   {line.from} ↔ {line.to}
                 </div>
               </div>
-            </div>
+            </button>
             <Switch
               aria-label={`Show ${line.name}`}
               checked={line.visible}
@@ -242,6 +251,7 @@ export function ControlPanel(props: ControlPanelProps) {
                 lines={g.lines}
                 showHeader={lineGroups.length > 1}
                 onToggleLine={props.onToggleLine}
+                onFocusLine={props.onFocusLine}
                 onSetLinesVisible={props.onSetLinesVisible}
               />
             ))}
