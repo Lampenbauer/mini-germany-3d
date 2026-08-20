@@ -160,7 +160,9 @@ export default function App() {
           setRealtimeStatus(status)
         },
       )
-      realtimeClient.start(30_000)
+      // Delay data changes slowly; polling every 2 minutes keeps the load
+      // on the shared endpoint low (the server caches upstream for 60 s).
+      realtimeClient.start(120_000)
     }
 
     const allLines = new Set(network.lines.map((l) => l.id))
