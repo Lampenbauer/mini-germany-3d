@@ -46,6 +46,7 @@ function mapWithFakeRouteViewer(added: AddedRoute[]): CesiumMap {
       },
     },
     routeEntities: new Map(),
+    linePaths: new Map(),
   })
   return map
 }
