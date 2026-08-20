@@ -362,22 +362,8 @@ export class CesiumMap {
     }
   }
 
-  private homeView: {
-    longitude: number
-    latitude: number
-    height: number
-    heading: number
-    pitch: number
-  } = config.home
-
-  /** Sets the home view (e.g. from the network bounding box) and jumps to it. */
-  setHomeView(view: typeof this.homeView): void {
-    this.homeView = view
-    this.setCameraHome(false)
-  }
-
   setCameraHome(animate = true): void {
-    const { longitude, latitude, height, heading, pitch } = this.homeView
+    const { longitude, latitude, height, heading, pitch } = config.home
     const destination = Cartesian3.fromDegrees(longitude, latitude, height)
     const orientation = {
       heading: CesiumMath.toRadians(heading),
