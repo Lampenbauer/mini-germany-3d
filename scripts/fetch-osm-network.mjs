@@ -8,6 +8,8 @@
  *     Warnemünde–Hohe Düne (56296)
  *   - tunnel/underground sections per direction (from the member ways'
  *     tunnel/location/layer tags) as meter ranges along the path
+ *   - bridge sections per direction (bridge=* tags) as meter ranges –
+ *     consumed by scripts/fetch-route-heights.mjs for the height profile
  *
  *   npm run data:update
  *
@@ -28,7 +30,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compactPath } from './lib/simplify.mjs'
-import { isUndergroundWay, tunnelRangesFromSegments } from './lib/tunnels.mjs'
+import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from './lib/tunnels.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = process.env.NETWORK_OUT
@@ -129,14 +131,15 @@ function haversineMeters([lon1, lat1], [lon2, lat2]) {
  * OSM PTv2 relations list their ways in order; each way's orientation is
  * determined by how it connects to the current end of the route.
  *
- * Besides the path it returns per-segment underground flags:
- * segUnderground[i] tells whether the segment between path[i] and
- * path[i + 1] comes from a tunnel/underground way
+ * Besides the path it returns per-segment underground and bridge flags:
+ * segUnderground[i] / segBridge[i] tell whether the segment between path[i]
+ * and path[i + 1] comes from a tunnel/underground or bridge way
  * (length = path.length - 1).
  */
 export function stitchWays(ways, wayById, nodeById, label) {
   const coords = []
   const segUnderground = []
+  const segBridge = []
   let gaps = 0
 
   const wayCoords = (wayId) => {
@@ -153,10 +156,14 @@ export function stitchWays(ways, wayById, nodeById, label) {
     const pts = wayCoords(member.ref)
     if (!pts) continue
     const underground = isUndergroundWay(wayById.get(member.ref))
+    const bridge = isBridgeWay(wayById.get(member.ref))
 
     if (coords.length === 0) {
       coords.push(...pts)
-      for (let i = 1; i < pts.length; i++) segUnderground.push(underground)
+      for (let i = 1; i < pts.length; i++) {
+        segUnderground.push(underground)
+        segBridge.push(bridge)
+      }
       continue
     }
 
@@ -178,13 +185,16 @@ export function stitchWays(ways, wayById, nodeById, label) {
     coords.push(...appended)
     // One new segment per appended point (with startIdx 0 the first one is
     // the short bridging segment onto this way – it inherits the way's flag).
-    for (let i = 0; i < appended.length; i++) segUnderground.push(underground)
+    for (let i = 0; i < appended.length; i++) {
+      segUnderground.push(underground)
+      segBridge.push(bridge)
+    }
   }
 
   if (gaps > 0) {
     console.warn(`  ⚠ ${label}: skipped ${gaps} way(s) with a gap > 150 m`)
   }
-  return { path: coords, segUnderground }
+  return { path: coords, segUnderground, segBridge }
 }
 
 function cumulative(path) {
@@ -312,7 +322,7 @@ async function main() {
     const candidates = rels
       .map((rel) => {
         const wayMembers = rel.members.filter((m) => m.type === 'way' && !/platform/.test(m.role || ''))
-        const { path, segUnderground } = stitchWays(
+        const { path, segUnderground, segBridge } = stitchWays(
           wayMembers,
           wayById,
           nodeById,
@@ -334,7 +344,7 @@ async function main() {
           }
           stopNodes.push({ node, name })
         })
-        return { rel, path, segUnderground, stopNodes }
+        return { rel, path, segUnderground, segBridge, stopNodes }
       })
       // Ferry relations often do not list their piers with stop roles –
       // there is a fallback below using the path endpoints.
@@ -353,9 +363,16 @@ async function main() {
     if (opposite) chosen.push(opposite)
 
     const directions = []
-    for (const { rel, path, segUnderground, stopNodes } of chosen) {
+    for (const { rel, path, segUnderground, segBridge, stopNodes } of chosen) {
       const cum = cumulative(path)
       const tunnels = tunnelRangesFromSegments(segUnderground, cum)
+      // Bridges use smaller merge/min thresholds than tunnels: they only
+      // steer the terrain-height interpolation (data:heights), where even a
+      // short deck over a stream matters, and no visibility state flickers.
+      const bridges = tunnelRangesFromSegments(segBridge, cum, {
+        mergeGapMeters: 10,
+        minLengthMeters: 10,
+      })
 
       const dirStops = []
       let lastDist = -1
@@ -408,6 +425,7 @@ async function main() {
         path: compactPath(path),
         stops: dirStops,
         ...(tunnels.length > 0 ? { tunnels } : {}),
+        ...(bridges.length > 0 ? { bridges } : {}),
       })
     }
 
@@ -443,10 +461,14 @@ async function main() {
     })
     const dirSummary = (d) => {
       const km = (cumulative(d.path).at(-1) / 1000).toFixed(1)
-      const tunnelMeters = (d.tunnels ?? []).reduce((sum, [s, e]) => sum + (e - s), 0)
-      const tunnelInfo =
-        tunnelMeters > 0 ? ` (${(tunnelMeters / 1000).toFixed(1)} km tunnel)` : ''
-      return `${d.stops.length} stops/${km} km${tunnelInfo}`
+      const rangeMeters = (ranges) => (ranges ?? []).reduce((sum, [s, e]) => sum + (e - s), 0)
+      const tunnelMeters = rangeMeters(d.tunnels)
+      const bridgeMeters = rangeMeters(d.bridges)
+      const extras = [
+        tunnelMeters > 0 ? `${(tunnelMeters / 1000).toFixed(1)} km tunnel` : '',
+        bridgeMeters > 0 ? `${(bridgeMeters / 1000).toFixed(1)} km bridge` : '',
+      ].filter(Boolean)
+      return `${d.stops.length} stops/${km} km${extras.length > 0 ? ` (${extras.join(', ')})` : ''}`
     }
     console.log(
       `✓ ${name}: ${directions.length} direction(s), ` +

@@ -80,28 +80,35 @@ export function isInTunnel(ranges: readonly TunnelRange[], dist: number): boolea
 export interface PathPiece {
   path: LonLat[]
   tunnel: boolean
+  /** Per-vertex heights of the piece – present iff heights were passed in. */
+  heights?: number[]
 }
 
 /**
  * Splits a direction path into alternating above-ground/tunnel pieces along
  * the (normalized) tunnel ranges. Neighboring pieces share their boundary
  * point, so the rendered polylines connect seamlessly. Expects `ranges` to
- * be normalized (sorted, merged, within [0, total]).
+ * be normalized (sorted, merged, within [0, total]). Optional per-vertex
+ * heights are split alongside, interpolated at the piece boundaries.
  */
 export function splitPathByTunnels(
   path: LonLat[],
   cum: number[],
   ranges: readonly TunnelRange[],
+  heights?: readonly number[],
 ): PathPiece[] {
-  if (ranges.length === 0 || path.length < 2) {
-    return [{ path, tunnel: false }]
-  }
+  const wholePath = (): PathPiece[] => [
+    { path, tunnel: false, ...(heights ? { heights: [...heights] } : {}) },
+  ]
+  if (ranges.length === 0 || path.length < 2) return wholePath()
   const total = cum[cum.length - 1]
   const pieces: PathPiece[] = []
   let cursor = 0
   const pushPiece = (start: number, end: number, tunnel: boolean): void => {
-    const slice = slicePath(path, cum, start, end)
-    if (slice.length >= 2) pieces.push({ path: slice, tunnel })
+    const slice = slicePath(path, cum, start, end, heights)
+    if (slice.path.length >= 2) {
+      pieces.push({ path: slice.path, tunnel, ...(slice.heights ? { heights: slice.heights } : {}) })
+    }
   }
   for (const [start, end] of ranges) {
     if (start > cursor) pushPiece(cursor, start, false)
@@ -109,28 +116,53 @@ export function splitPathByTunnels(
     cursor = end
   }
   if (cursor < total) pushPiece(cursor, total, false)
-  return pieces.length > 0 ? pieces : [{ path, tunnel: false }]
+  return pieces.length > 0 ? pieces : wholePath()
+}
+
+/** Height at distance `d` along the path, linearly interpolated. */
+function heightAtDistance(heights: readonly number[], cum: number[], d: number): number {
+  const last = cum.length - 1
+  if (d <= cum[0]) return heights[0]
+  if (d >= cum[last]) return heights[last]
+  let lo = 0
+  let hi = last
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (cum[mid] <= d) lo = mid
+    else hi = mid
+  }
+  const span = cum[hi] - cum[lo]
+  const t = span > 0 ? (d - cum[lo]) / span : 0
+  return heights[lo] + (heights[hi] - heights[lo]) * t
 }
 
 /**
  * Sub-polyline between two distances: interpolated boundary points plus all
  * original vertices strictly in between (consecutive duplicates dropped).
  */
-function slicePath(path: LonLat[], cum: number[], start: number, end: number): LonLat[] {
+function slicePath(
+  path: LonLat[],
+  cum: number[],
+  start: number,
+  end: number,
+  heights?: readonly number[],
+): { path: LonLat[]; heights?: number[] } {
   const out: LonLat[] = []
-  const push = (lon: number, lat: number): void => {
+  const hs: number[] | undefined = heights ? [] : undefined
+  const push = (lon: number, lat: number, h: number | undefined): void => {
     const prev = out[out.length - 1]
     if (prev && prev[0] === lon && prev[1] === lat) return
     out.push([lon, lat])
+    if (hs && h !== undefined) hs.push(h)
   }
   const first = sampleAtDistance(path, cum, start)
-  push(first.lon, first.lat)
+  push(first.lon, first.lat, heights ? heightAtDistance(heights, cum, start) : undefined)
   for (let i = 0; i < path.length; i++) {
     if (cum[i] <= start) continue
     if (cum[i] >= end) break
-    push(path[i][0], path[i][1])
+    push(path[i][0], path[i][1], heights?.[i])
   }
   const last = sampleAtDistance(path, cum, end)
-  push(last.lon, last.lat)
-  return out
+  push(last.lon, last.lat, heights ? heightAtDistance(heights, cum, end) : undefined)
+  return { path: out, heights: hs }
 }

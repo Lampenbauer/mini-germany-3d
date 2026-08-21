@@ -19,6 +19,7 @@ import {
   ColorMaterialProperty,
   ConstantPositionProperty,
   ConstantProperty,
+  Credit,
   CustomShader,
   DistanceDisplayCondition,
   Entity,
@@ -42,6 +43,7 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
+import type { LonLat } from '@/lib/geo'
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
@@ -117,6 +119,11 @@ interface StopEntityRecord {
    * front of the camera cannot monopolize the per-pass budget.
    */
   retryAfter: number
+  /**
+   * Terrain height in meters NHN from network.json (DGM) – paired with the
+   * sampled tile height to calibrate the route height offset.
+   */
+  nhn?: number
 }
 
 /**
@@ -227,6 +234,31 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
 /** Base alpha of the route polylines. */
 const ROUTE_ALPHA = 0.85
 
+/**
+ * Initial offset in meters between NHN heights (DHHN2016, the reference of
+ * the DGM route heights in network.json) and the ellipsoidal heights the
+ * scene works in: the geoid undulation around Rostock is ~36 m. Only a
+ * first guess so the routes appear at roughly the right height immediately;
+ * the height bootstrap calibrates the real offset against the Google tiles
+ * (which carry their own bias of a few meters) within seconds.
+ */
+const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
+
+/**
+ * Base lift of the route polylines above the terrain height in meters –
+ * keeps them clear of road surfaces that sit slightly above the DGM (curbs,
+ * rails) and of z-fighting with the tile mesh.
+ */
+const ROUTE_BASE_LIFT = 0.8
+
+/**
+ * Additional per-line lift stagger. Lines sharing a street would otherwise
+ * be exactly coplanar and flicker; a few decimeters are invisible from any
+ * distance at which routes are readable, but separate the depth values.
+ */
+const ROUTE_LIFT_STEP = 0.15
+const ROUTE_LIFT_SLOTS = 8
+
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
 
@@ -281,6 +313,15 @@ export class CesiumMap {
   private readonly opts: CesiumMapOptions
   private trams = new Map<string, TramEntityRecord>()
   private routeEntities = new Map<string, Entity[]>()
+  /**
+   * Route pieces drawn at absolute heights (NHN + routeHeightOffset) –
+   * kept so the calibration can rewrite their positions once the real
+   * NHN→ellipsoid offset has been measured against the loaded tiles.
+   */
+  private heightRoutePieces: { entity: Entity; path: LonLat[]; heights: number[]; lift: number }[] =
+    []
+  /** Current NHN→ellipsoidal offset for route heights (calibrated later). */
+  private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
   private stopEntities: Entity[] = []
@@ -484,14 +525,25 @@ export class CesiumMap {
   }
 
   /**
-   * Draws the route polylines of all lines (draped onto ground/3D tiles).
-   * Tunnel/underground sections become their own polyline pieces at 40 %
-   * of the normal opacity.
+   * Draws the route polylines of all lines. With per-vertex terrain heights
+   * from network.json (DGM © GeoBasis-DE/M-V) the routes are ordinary
+   * polylines at absolute heights – Cesium's ground-clamping classification
+   * passes cost measurable GPU time on EVERY rendered frame, so they are
+   * reserved as a fallback for directions without height data (and for the
+   * offline mode, whose ellipsoid ground sits at 0 m where NHN heights
+   * would float mid-air). Tunnel/underground sections become their own
+   * polyline pieces at 40 % of the normal opacity.
    */
   addRoutes(network: PreparedNetwork): void {
+    // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a
+    // visible attribution – Cesium's credit display ("Data attribution")
+    // is the canonical place for data-source credits.
+    this.viewer.creditDisplay.addStaticCredit(new Credit(network.meta.attribution, false))
+
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
+      const lift = ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP
 
       const dirs = [line.directions[0]]
       // Only draw the second direction if it has its own geometry or its
@@ -501,22 +553,42 @@ export class CesiumMap {
       if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
 
       for (const dir of dirs) {
-        const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels)
+        const heights = this.opts.offline ? undefined : dir.heights
+        const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
           const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
-          entities.push(
-            this.viewer.entities.add({
-              id: `route:${line.id}:${dir.direction}:${pieceIndex}`,
+          const material = new ColorMaterialProperty(color.withAlpha(alpha))
+          const id = `route:${line.id}:${dir.direction}:${pieceIndex}`
+          let entity: Entity
+          if (piece.heights && piece.heights.length === piece.path.length) {
+            entity = this.viewer.entities.add({
+              id,
+              polyline: {
+                positions: this.routePiecePositions(piece.path, piece.heights, lift),
+                width: 5,
+                material,
+              },
+            })
+            this.heightRoutePieces.push({
+              entity,
+              path: piece.path,
+              heights: piece.heights,
+              lift,
+            })
+          } else {
+            entity = this.viewer.entities.add({
+              id,
               polyline: {
                 positions: Cartesian3.fromDegreesArray(piece.path.flat()),
                 width: 5,
                 clampToGround: true,
-                material: new ColorMaterialProperty(color.withAlpha(alpha)),
+                material,
                 classificationType: ClassificationType.BOTH,
                 zIndex: 10 + index,
               },
-            }),
-          )
+            })
+          }
+          entities.push(entity)
         })
       }
       this.routeEntities.set(line.id, entities)
@@ -610,6 +682,7 @@ export class CesiumMap {
             position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight),
             sampledFrom: Number.POSITIVE_INFINITY,
             retryAfter: 0,
+            nhn: stop.nhn,
           })
         }
       }
@@ -686,6 +759,29 @@ export class CesiumMap {
     this.requestRender()
   }
 
+  /** World positions of a height-based route piece at the current offset. */
+  private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
+    return path.map(([lon, lat], i) =>
+      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + lift),
+    )
+  }
+
+  /**
+   * Re-anchors all height-based route pieces after the NHN→ellipsoid
+   * offset has been calibrated against the loaded Google tiles. One-off
+   * work (a few hundred polylines) – not a per-frame cost.
+   */
+  private applyRouteHeightOffset(): void {
+    for (const piece of this.heightRoutePieces) {
+      const polyline = piece.entity.polyline
+      if (!polyline) continue
+      polyline.positions = new ConstantProperty(
+        this.routePiecePositions(piece.path, piece.heights, piece.lift),
+      )
+    }
+    this.requestRender()
+  }
+
   setStopsVisible(visible: boolean): void {
     for (const e of this.stopEntities) e.show = visible
     this.requestRender()
@@ -726,6 +822,9 @@ export class CesiumMap {
     const sampleStops = this.stopRecords.filter((_, index) => index % stride === 0)
 
     const heights: number[] = []
+    // Differences between sampled tile height and the stop's DGM height –
+    // their median is the real NHN→ellipsoid offset for the route lines.
+    const nhnOffsets: number[] = []
     try {
       for (let start = 0; start < sampleStops.length; start += STOP_HEIGHT_CHUNK) {
         const chunk = sampleStops.slice(start, start + STOP_HEIGHT_CHUNK)
@@ -738,6 +837,7 @@ export class CesiumMap {
           if (h === undefined || !Number.isFinite(h) || h <= -100 || h >= 500) return
           heights.push(h)
           const stop = chunk[i]
+          if (stop.nhn !== undefined) nhnOffsets.push(h - stop.nhn)
           // Most detailed measurement available – mark as final so the
           // camera-dependent sampling in resolveStopHeights() leaves it alone.
           stop.sampledFrom = 0
@@ -775,6 +875,28 @@ export class CesiumMap {
         `min ${heights[0].toFixed(1)} m · median ${this.defaultGroundHeight.toFixed(1)} m · ` +
         `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
     )
+
+    // Calibrate the route heights: median of (tile height − DGM height)
+    // over the sampled stops. Robust against single outliers (a stop under
+    // a tree crown baked into the mesh); the plausibility window catches a
+    // systematically broken dataset.
+    if (nhnOffsets.length >= 5 && this.heightRoutePieces.length > 0) {
+      nhnOffsets.sort((a, b) => a - b)
+      const offset = nhnOffsets[Math.floor(nhnOffsets.length / 2)]
+      if (offset > 20 && offset < 60) {
+        this.routeHeightOffset = offset
+        this.applyRouteHeightOffset()
+        console.info(
+          `[MiniRostock3D] Route heights calibrated: NHN→ellipsoid offset ` +
+            `${offset.toFixed(1)} m (${nhnOffsets.length} stop samples)`,
+        )
+      } else {
+        console.warn(
+          `[MiniRostock3D] Route height calibration implausible (${offset.toFixed(1)} m) – ` +
+            `keeping the ${ROUTE_HEIGHT_OFFSET_FALLBACK} m fallback offset`,
+        )
+      }
+    }
   }
 
   /**
@@ -1257,6 +1379,7 @@ export class CesiumMap {
     this.destroyed = true
     this.resizeObserver?.disconnect()
     this.handler.destroy()
+    this.heightRoutePieces = []
     this.viewer.destroy()
   }
 }
