@@ -29,10 +29,10 @@ export const config = {
    * (#lat=…&lon=…) still takes precedence when present.
    */
   home: {
-    longitude: 12.130749,
-    latitude: 54.080002,
-    height: 1719,
-    heading: 10,
+    longitude: 12.103892,
+    latitude: 54.047534,
+    height: 7881,
+    heading: 0,
     pitch: -60,
   },
 
