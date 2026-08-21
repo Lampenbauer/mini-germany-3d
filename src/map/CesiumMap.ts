@@ -179,6 +179,13 @@ const STOP_BOOTSTRAP_SAMPLES = 40
 const TRAM_VISIBLE_RANGE = 20_000
 
 /**
+ * Camera distance in meters up to which the vehicle BODY (the 3D box) is
+ * drawn. Beyond this the box is sub-pixel noise while the number label
+ * still reads fine, so only the label stays up to TRAM_VISIBLE_RANGE.
+ */
+const TRAM_BODY_VISIBLE_RANGE = 3_000
+
+/**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
  * (KHR_materials_unlit – daylight is baked into the photo textures), so the
  * scene's sun cannot shade them; instead the baked color is blended toward
@@ -852,7 +859,8 @@ export class CesiumMap {
       // result drives the render pacing (anyTramInView) and whether the much
       // more expensive tile-height sampling below is worth doing at all.
       let inView = false
-      if (show && Cartesian3.distance(camera.positionWC, position) < TRAM_VISIBLE_RANGE) {
+      const cameraDistance = Cartesian3.distance(camera.positionWC, position)
+      if (show && cameraDistance < TRAM_VISIBLE_RANGE) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
@@ -905,8 +913,14 @@ export class CesiumMap {
         undefined,
         record.matrix,
       )
-      if (record.primitive.show !== show) {
-        record.primitive.show = show
+      // The body box is only drawn close up; the number label carries the
+      // vehicle out to TRAM_VISIBLE_RANGE. (Checked here on the CPU – a
+      // DistanceDisplayCondition attribute on the Primitive measures from
+      // the instance matrix, which is identity for these boxes since the
+      // position lives in the primitive's own modelMatrix.)
+      const showBody = show && cameraDistance < TRAM_BODY_VISIBLE_RANGE
+      if (record.primitive.show !== showBody || record.labelEntity.show !== show) {
+        record.primitive.show = showBody
         record.labelEntity.show = show
         this.renderRequested = true
       }
