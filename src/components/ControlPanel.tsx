@@ -186,163 +186,165 @@ export function ControlPanel(props: ControlPanelProps) {
         </Button>
       </CardHeader>
 
-      {!collapsed && (
-        <CardContent className="flex flex-col gap-4">
-          {/* Clock + time-lapse */}
-          <div className="flex items-center justify-between gap-2">
-            <div
-              className="font-mono text-2xl font-semibold tabular-nums"
-              data-testid="sim-clock"
-            >
-              {props.clockText}
-            </div>
-            <Button
-              variant="secondary"
-              size="icon-sm"
-              aria-label={props.paused ? 'Resume simulation' : 'Pause simulation'}
-              onClick={props.onTogglePause}
-            >
-              {props.paused ? <Play aria-hidden /> : <Pause aria-hidden />}
-            </Button>
+      <CardContent className="flex flex-col gap-4">
+        {/* Clock + pause: also visible while the panel is collapsed */}
+        <div className="flex items-center justify-between gap-2">
+          <div
+            className="font-mono text-2xl font-semibold tabular-nums"
+            data-testid="sim-clock"
+          >
+            {props.clockText}
           </div>
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            aria-label={props.paused ? 'Resume simulation' : 'Pause simulation'}
+            onClick={props.onTogglePause}
+          >
+            {props.paused ? <Play aria-hidden /> : <Pause aria-hidden />}
+          </Button>
+        </div>
 
-          {/* Set the simulation time (e.g. jump to rush hour). The field is
-              picker-only: typing is blocked and a click anywhere on it opens
-              the native time dropdown, so no invalid input can be entered. */}
-          <div className="flex items-center gap-2">
-            <Input
-              type="time"
-              aria-label="Set simulation time"
-              className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-              inputMode="none"
-              onKeyDown={(e) => {
-                // Only block typing where the picker can take over
-                if (
-                  'showPicker' in e.currentTarget &&
-                  e.key !== 'Tab' &&
-                  e.key !== 'Escape' &&
-                  e.key !== 'Enter'
-                ) {
-                  e.preventDefault()
-                }
-              }}
-              onClick={(e) => {
-                // Not supported by every browser (Safari < 16) – typing
-                // into the field parts still works as the fallback there.
-                try {
-                  e.currentTarget.showPicker()
-                } catch {
-                  /* picker already open or unsupported */
-                }
-              }}
-              onChange={(e) => {
-                if (e.target.value) props.onSetTime(e.target.value)
-              }}
-            />
-            <Button variant="outline" size="sm" onClick={props.onResetTime}>
-              <TimerReset aria-hidden />
-              Now
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Gauge className="size-4" aria-hidden />
-                Time-lapse
-              </span>
-              <span className="font-mono tabular-nums" data-testid="speed-value">
-                ×{props.speed}
-              </span>
+        {!collapsed && (
+          <>
+            {/* Set the simulation time (e.g. jump to rush hour). The field is
+                picker-only: typing is blocked and a click anywhere on it opens
+                the native time dropdown, so no invalid input can be entered. */}
+            <div className="flex items-center gap-2">
+              <Input
+                type="time"
+                aria-label="Set simulation time"
+                className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                inputMode="none"
+                onKeyDown={(e) => {
+                  // Only block typing where the picker can take over
+                  if (
+                    'showPicker' in e.currentTarget &&
+                    e.key !== 'Tab' &&
+                    e.key !== 'Escape' &&
+                    e.key !== 'Enter'
+                  ) {
+                    e.preventDefault()
+                  }
+                }}
+                onClick={(e) => {
+                  // Not supported by every browser (Safari < 16) – typing
+                  // into the field parts still works as the fallback there.
+                  try {
+                    e.currentTarget.showPicker()
+                  } catch {
+                    /* picker already open or unsupported */
+                  }
+                }}
+                onChange={(e) => {
+                  if (e.target.value) props.onSetTime(e.target.value)
+                }}
+              />
+              <Button variant="outline" size="sm" onClick={props.onResetTime}>
+                <TimerReset aria-hidden />
+                Now
+              </Button>
             </div>
-            <Slider
-              aria-label="Time-lapse"
-              min={1}
-              max={120}
-              step={1}
-              value={[props.speed]}
-              onValueChange={([v]) => props.onSpeedChange(v)}
-            />
-          </div>
 
-          <div className="h-px bg-border" role="separator" />
-
-          {/* Layers */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-1.5 text-sm font-medium">
-              <Layers className="size-4" aria-hidden />
-              Layers
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Routes</span>
-              <Switch
-                aria-label="Show routes"
-                checked={props.showRoutes}
-                onCheckedChange={props.onToggleRoutes}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Gauge className="size-4" aria-hidden />
+                  Time-lapse
+                </span>
+                <span className="font-mono tabular-nums" data-testid="speed-value">
+                  ×{props.speed}
+                </span>
+              </div>
+              <Slider
+                aria-label="Time-lapse"
+                min={1}
+                max={120}
+                step={1}
+                value={[props.speed]}
+                onValueChange={([v]) => props.onSpeedChange(v)}
               />
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Stops</span>
-              <Switch
-                aria-label="Show stops"
-                checked={props.showStops}
-                onCheckedChange={props.onToggleStops}
-              />
+
+            <div className="h-px bg-border" role="separator" />
+
+            {/* Layers */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                <Layers className="size-4" aria-hidden />
+                Layers
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Routes</span>
+                <Switch
+                  aria-label="Show routes"
+                  checked={props.showRoutes}
+                  onCheckedChange={props.onToggleRoutes}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Stops</span>
+                <Switch
+                  aria-label="Show stops"
+                  checked={props.showStops}
+                  onCheckedChange={props.onToggleStops}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="h-px bg-border" role="separator" />
+            <div className="h-px bg-border" role="separator" />
 
-          {/* Lines, grouped by transit mode (headers only when >1 group) */}
-          <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium">Lines</div>
-            {lineGroups.map((g) => (
-              <LineGroup
-                key={g.mode}
-                mode={g.mode}
-                lines={g.lines}
-                showHeader={lineGroups.length > 1}
-                onToggleLine={props.onToggleLine}
-                onFocusLine={props.onFocusLine}
-                onSetLinesVisible={props.onSetLinesVisible}
-              />
-            ))}
-          </div>
+            {/* Lines, grouped by transit mode (headers only when >1 group) */}
+            <div className="flex flex-col gap-2">
+              <div className="text-sm font-medium">Lines</div>
+              {lineGroups.map((g) => (
+                <LineGroup
+                  key={g.mode}
+                  mode={g.mode}
+                  lines={g.lines}
+                  showHeader={lineGroups.length > 1}
+                  onToggleLine={props.onToggleLine}
+                  onFocusLine={props.onFocusLine}
+                  onSetLinesVisible={props.onSetLinesVisible}
+                />
+              ))}
+            </div>
 
-          <div className="h-px bg-border" role="separator" />
+            <div className="h-px bg-border" role="separator" />
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" data-testid="tram-count">
-              <TramFront aria-hidden />
-              {props.tramCount}{' '}
-              {new Set(props.lines.map((l) => l.mode)).size > 1
-                ? props.tramCount === 1
-                  ? 'vehicle'
-                  : 'vehicles'
-                : props.tramCount === 1
-                  ? 'tram'
-                  : 'trams'}{' '}
-              in service
-            </Badge>
-            {props.tilesetStatus !== 'google-3d-tiles' && (
-              <Badge variant="outline" data-testid="tileset-status">
-                {TILESET_LABEL[props.tilesetStatus]}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="secondary" data-testid="tram-count">
+                <TramFront aria-hidden />
+                {props.tramCount}{' '}
+                {new Set(props.lines.map((l) => l.mode)).size > 1
+                  ? props.tramCount === 1
+                    ? 'vehicle'
+                    : 'vehicles'
+                  : props.tramCount === 1
+                    ? 'tram'
+                    : 'trams'}{' '}
+                in service
               </Badge>
-            )}
-            {props.dataSource !== null && (
-              <Badge variant="outline" data-testid="data-source">
-                {props.dataSource}
-              </Badge>
-            )}
-            {props.realtimeStatus?.state === 'live' && (
-              <Badge variant="secondary" data-testid="rt-status">
-                <RadioTower aria-hidden />
-                GTFS-RT · {props.realtimeStatus.matchedCount} live
-              </Badge>
-            )}
-          </div>
-        </CardContent>
-      )}
+              {props.tilesetStatus !== 'google-3d-tiles' && (
+                <Badge variant="outline" data-testid="tileset-status">
+                  {TILESET_LABEL[props.tilesetStatus]}
+                </Badge>
+              )}
+              {props.dataSource !== null && (
+                <Badge variant="outline" data-testid="data-source">
+                  {props.dataSource}
+                </Badge>
+              )}
+              {props.realtimeStatus?.state === 'live' && (
+                <Badge variant="secondary" data-testid="rt-status">
+                  <RadioTower aria-hidden />
+                  GTFS-RT · {props.realtimeStatus.matchedCount} live
+                </Badge>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
     </Card>
   )
 }
