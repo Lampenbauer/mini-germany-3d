@@ -264,7 +264,9 @@ export default function App() {
           }
 
           // Render pacing (the app owns the Cesium render loop):
-          //   interaction/camera flight → full frame rate
+          //   interaction/camera flight → ~60 fps (15 ms threshold: one
+          //   16.7 ms display frame plus ~2 ms vsync-jitter margin, so the
+          //   gate does not flip-flop between 60 and 30)
           //   vehicles visibly moving → ~30 fps
           //   only tiles streaming in → ~30 fps as well: the tile
           //   traversal (selecting, requesting, and swapping in loaded
@@ -282,7 +284,7 @@ export default function App() {
           const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
           const animating = lastAnyTramInView && !clock.paused
           const renderInterval = hints.interacting
-            ? 0
+            ? 15
             : animating || hints.tilesLoading
               ? 33
               : 15000
