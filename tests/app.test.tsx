@@ -97,6 +97,17 @@ describe('App (UI shell)', () => {
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('zooming to a hidden line switches it back on', () => {
+    render(<App />)
+    const firstLine = loadBundledNetwork().lines[0]
+    const sw = screen.getByRole('switch', { name: `Show ${firstLine.name}` })
+    fireEvent.click(sw)
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: `Zoom to ${firstLine.name}` }))
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+  })
+
   it('pause button toggles between pause and resume', () => {
     render(<App />)
     const pauseBtn = screen.getByRole('button', { name: 'Pause simulation' })
