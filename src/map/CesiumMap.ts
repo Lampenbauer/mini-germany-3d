@@ -27,20 +27,27 @@ import {
   GridImageryProvider,
   HeadingPitchRange,
   HeadingPitchRoll,
+  HorizontalOrigin,
   Intersect,
   Ion,
   JulianDate,
+  LabelCollection,
   LabelStyle,
   Math as CesiumMath,
   Matrix4,
   PerInstanceColorAppearance,
+  PointPrimitiveCollection,
   Primitive,
+  SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Transforms,
+  VerticalOrigin,
   Viewer,
   createGooglePhotorealistic3DTileset,
   type Cesium3DTileset,
+  type Label,
+  type PointPrimitive,
 } from 'cesium'
 import { config } from '@/config'
 import type { LonLat } from '@/lib/geo'
@@ -108,7 +115,15 @@ interface TramEntityRecord {
 }
 
 interface StopEntityRecord {
-  entity: Entity
+  /** Disc marker (own PointPrimitiveCollection, drawn below all labels). */
+  point: PointPrimitive
+  /** Name label (own LabelCollection, drawn above all discs). */
+  label: Label
+  /**
+   * Half the rendered label width in CSS px including the outline – the
+   * screen-space rectangle for the label declutter.
+   */
+  labelHalfWidth: number
   lon: number
   lat: number
   /** Fixed world position of the stop – basis for the camera distance check. */
@@ -167,6 +182,27 @@ const STOP_SAMPLE_INTERVAL_MS = 500
 
 /** How long a stop is skipped for after a measurement found no loaded tile. */
 const STOP_RETRY_MS = 1500
+
+/** Camera distance in meters up to which the stop discs are drawn. */
+const STOP_DISC_RANGE = 9000
+
+/** Camera distance in meters up to which stop name labels are drawn. */
+const STOP_LABEL_RANGE = 2600
+
+/** Font of the stop name labels (also used to measure declutter widths). */
+const STOP_LABEL_FONT = '13px "Inter Variable", system-ui, sans-serif'
+
+/** Approximate rendered stop label height in CSS px (13 px font + outline). */
+const STOP_LABEL_HEIGHT = 16
+
+/** Vertical anchor offset of a stop label above its disc in CSS px. */
+const STOP_LABEL_OFFSET_Y = -16
+
+/**
+ * Minimum screen-space gap between two stop labels in CSS px – labels whose
+ * padded rectangles intersect an already accepted one are hidden.
+ */
+const STOP_LABEL_GAP = 4
 
 /**
  * Number of stops per sampleHeightMostDetailed() call during bootstrapping.
@@ -291,6 +327,9 @@ const TUNNEL_VISIBILITY = 0.4
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
 
+// Scratch for the stop label declutter's screen projections.
+const windowScratch = new Cartesian2()
+
 // Scratch for the per-pass selection of the stops nearest to the camera,
 // kept as an ascending top-N list (see resolveStopHeights).
 const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).fill(null)
@@ -343,8 +382,24 @@ export class CesiumMap {
   private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
-  private stopEntities: Entity[] = []
+  /**
+   * Stop discs and name labels live in own collections instead of entity
+   * graphics: both render depth-clamped to the near plane
+   * (disableDepthTestDistance), where only the draw order of the
+   * collections decides what overlaps what – and the entity visualizers
+   * give no order guarantee, which left discs covering neighboring stop
+   * names. The disc collection is inserted before the label collection,
+   * so every label draws above every disc.
+   */
+  private stopPoints: PointPrimitiveCollection | null = null
+  private stopLabels: LabelCollection | null = null
   private stopRecords: StopEntityRecord[] = []
+  /** A stop changed (position, visibility) – the label declutter must rerun. */
+  private stopLabelsDirty = true
+  /** Camera view matrix of the last declutter pass (all zeros = never ran). */
+  private declutterViewMatrix = new Matrix4()
+  /** Shared 2D context for measuring stop label widths (declutter rects). */
+  private measureCtx: CanvasRenderingContext2D | null = null
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
@@ -696,6 +751,17 @@ export class CesiumMap {
    * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
+    // Insert at the front of the primitive list: discs (index 0) before
+    // labels (index 1) puts every stop name above every disc, and both
+    // below the tram badges (entity billboards, added at viewer
+    // construction and thus drawn after these). See stopPoints/stopLabels.
+    const points = new PointPrimitiveCollection()
+    const labels = new LabelCollection()
+    this.viewer.scene.primitives.add(points, 0)
+    this.viewer.scene.primitives.add(labels, 1)
+    this.stopPoints = points
+    this.stopLabels = labels
+
     const seen = new Set<string>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
@@ -703,32 +769,37 @@ export class CesiumMap {
           if (seen.has(stop.id)) continue
           seen.add(stop.id)
           const [lon, lat] = stop.coord
-          const entity = this.viewer.entities.add({
+          const position = Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight + 0.5)
+          const point = points.add({
             id: `stop:${stop.id}`,
-            position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight + 0.5),
-            point: {
-              pixelSize: 7,
-              color: Color.fromCssColorString('#f8fafc'),
-              outlineColor: Color.fromCssColorString('#334155'),
-              outlineWidth: 2,
-              distanceDisplayCondition: new DistanceDisplayCondition(0, 9000),
-              disableDepthTestDistance: 3000,
-            },
-            label: {
-              text: stop.name,
-              font: '13px "Inter Variable", system-ui, sans-serif',
-              fillColor: Color.fromCssColorString('#e2e8f0'),
-              outlineColor: Color.fromCssColorString('#0f172a'),
-              outlineWidth: 3,
-              style: LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new Cartesian2(0, -16),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, 2600),
-              disableDepthTestDistance: 3000,
-            },
+            position,
+            pixelSize: 7,
+            color: Color.fromCssColorString('#f8fafc'),
+            outlineColor: Color.fromCssColorString('#334155'),
+            outlineWidth: 2,
+            distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
+            disableDepthTestDistance: 3000,
           })
-          this.stopEntities.push(entity)
+          const label = labels.add({
+            id: `stop:${stop.id}`,
+            position,
+            text: stop.name,
+            font: STOP_LABEL_FONT,
+            fillColor: Color.fromCssColorString('#e2e8f0'),
+            outlineColor: Color.fromCssColorString('#0f172a'),
+            outlineWidth: 3,
+            style: LabelStyle.FILL_AND_OUTLINE,
+            horizontalOrigin: HorizontalOrigin.CENTER,
+            verticalOrigin: VerticalOrigin.BOTTOM,
+            pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
+            distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
+            disableDepthTestDistance: 3000,
+          })
           this.stopRecords.push({
-            entity,
+            point,
+            label,
+            // Outline (3 px) sticks out on both sides of the measured text
+            labelHalfWidth: this.measureStopLabelWidth(stop.name) / 2 + 3,
             lon,
             lat,
             position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight),
@@ -739,7 +810,83 @@ export class CesiumMap {
         }
       }
     }
+    this.stopLabelsDirty = true
     this.requestRender()
+  }
+
+  /** Rendered width of a stop label in CSS px (jsdom: rough estimate). */
+  private measureStopLabelWidth(text: string): number {
+    if (!this.measureCtx && typeof document !== 'undefined') {
+      this.measureCtx = document.createElement('canvas').getContext('2d')
+    }
+    if (!this.measureCtx) return text.length * 7
+    this.measureCtx.font = STOP_LABEL_FONT
+    return this.measureCtx.measureText(text).width
+  }
+
+  /**
+   * Hides stop labels that would overlap an already accepted one. Cesium
+   * draws every label unconditionally, so dense sections (downtown, shared
+   * corridors) turned into unreadable text piles. The stop nearest to the
+   * camera wins; a hidden label keeps its disc, so the stop itself stays
+   * on the map. Only recomputed when the camera actually moved or a stop
+   * changed (stopLabelsDirty) – an idle scene pays nothing.
+   */
+  private declutterStopLabels(): void {
+    if (!this.stopLabels || !this.stopLabels.show || this.stopRecords.length === 0) return
+    const camera = this.viewer.camera
+    if (
+      !this.stopLabelsDirty &&
+      Matrix4.equals(this.declutterViewMatrix, camera.viewMatrix)
+    ) {
+      return
+    }
+    this.stopLabelsDirty = false
+    Matrix4.clone(camera.viewMatrix, this.declutterViewMatrix)
+
+    const scene = this.viewer.scene
+    const cameraPosition = camera.positionWC
+    // Candidates: stops whose label the DistanceDisplayCondition draws at
+    // all. Behind-camera stops project to undefined and are skipped – their
+    // label is off screen either way, its show flag does not matter.
+    const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
+    for (const record of this.stopRecords) {
+      const distance = Cartesian3.distance(cameraPosition, record.position)
+      if (distance > STOP_LABEL_RANGE) continue
+      const windowPosition = SceneTransforms.worldToWindowCoordinates(
+        scene,
+        record.point.position,
+        windowScratch,
+      )
+      if (!windowPosition) continue
+      candidates.push({ record, distance, x: windowPosition.x, y: windowPosition.y })
+    }
+    candidates.sort((a, b) => a.distance - b.distance)
+
+    const kept: { left: number; right: number; top: number; bottom: number }[] = []
+    let changed = false
+    for (const candidate of candidates) {
+      const halfWidth = candidate.record.labelHalfWidth + STOP_LABEL_GAP
+      // Window y grows downward; the label is anchored bottom-center at
+      // pixelOffset above the disc.
+      const bottom = candidate.y + STOP_LABEL_OFFSET_Y
+      const top = bottom - STOP_LABEL_HEIGHT - STOP_LABEL_GAP
+      const left = candidate.x - halfWidth
+      const right = candidate.x + halfWidth
+      let free = true
+      for (const rect of kept) {
+        if (left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top) {
+          free = false
+          break
+        }
+      }
+      if (free) kept.push({ left, right, top, bottom })
+      if (candidate.record.label.show !== free) {
+        candidate.record.label.show = free
+        changed = true
+      }
+    }
+    if (changed) this.requestRender()
   }
 
   /**
@@ -797,9 +944,10 @@ export class CesiumMap {
         continue
       }
       stop.sampledFrom = nearestDistances[i]
-      stop.entity.position = new ConstantPositionProperty(
-        Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5),
-      )
+      const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
+      stop.point.position = lifted
+      stop.label.position = lifted
+      this.stopLabelsDirty = true
       this.requestRender()
     }
   }
@@ -835,7 +983,9 @@ export class CesiumMap {
   }
 
   setStopsVisible(visible: boolean): void {
-    for (const e of this.stopEntities) e.show = visible
+    if (this.stopPoints) this.stopPoints.show = visible
+    if (this.stopLabels) this.stopLabels.show = visible
+    this.stopLabelsDirty = true
     this.requestRender()
   }
 
@@ -893,9 +1043,10 @@ export class CesiumMap {
           // Most detailed measurement available – mark as final so the
           // camera-dependent sampling in resolveStopHeights() leaves it alone.
           stop.sampledFrom = 0
-          stop.entity.position = new ConstantPositionProperty(
-            Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5),
-          )
+          const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5)
+          stop.point.position = lifted
+          stop.label.position = lifted
+          this.stopLabelsDirty = true
         })
         if (heights.length > 0) {
           // Raise the base for all trams already running (the ongoing
@@ -992,6 +1143,7 @@ export class CesiumMap {
   ): { anyTramInView: boolean } {
     this.frameCounter++
     this.resolveStopHeights()
+    this.declutterStopLabels()
     const alive = new Set<string>()
 
     // Visibility test: is at least one tram inside the camera frustum?

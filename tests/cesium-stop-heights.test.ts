@@ -1,4 +1,4 @@
-import { Cartesian3, Cartographic, JulianDate } from 'cesium'
+import { Cartesian3, Cartographic } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CesiumMap } from '@/map/CesiumMap'
 
@@ -44,8 +44,8 @@ interface Harness {
   /** Moves the fake camera to a distance (in meters) from the stop. */
   setCameraDistance: (meters: number) => void
   getHeight: ReturnType<typeof vi.fn>
-  stop: { entity: { position: unknown }; sampledFrom: number }
-  /** Height currently applied to the stop entity. */
+  stop: { point: { position: unknown }; label: { position: unknown }; sampledFrom: number }
+  /** Height currently applied to the stop primitives. */
   entityHeight: () => number
 }
 
@@ -55,7 +55,8 @@ function harness(sampledFrom = Number.POSITIVE_INFINITY): Harness {
 
   const stopPosition = Cartesian3.fromDegrees(STOP.lon, STOP.lat, 45)
   const stop = {
-    entity: { position: undefined as unknown },
+    point: { position: undefined as unknown },
+    label: { position: undefined as unknown },
     lon: STOP.lon,
     lat: STOP.lat,
     position: stopPosition,
@@ -86,10 +87,8 @@ function harness(sampledFrom = Number.POSITIVE_INFINITY): Harness {
       camera.positionWC = Cartesian3.fromDegrees(STOP.lon, STOP.lat, 45 + meters)
     },
     entityHeight: () => {
-      const position = (
-        stop.entity.position as { getValue: (t: JulianDate) => Cartesian3 }
-      ).getValue(JulianDate.now())
-      return Cartographic.fromCartesian(position).height
+      // Point and label always get the same position – checking one suffices
+      return Cartographic.fromCartesian(stop.point.position as Cartesian3).height
     },
   }
 }
@@ -185,7 +184,8 @@ describe('stop height refinement', () => {
     // take minutes to reach the ones actually on screen.
     const heights = [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]
     const stops = heights.map((_, i) => ({
-      entity: { position: undefined as unknown },
+      point: { position: undefined as unknown },
+      label: { position: undefined as unknown },
       lon: STOP.lon + i * 0.01,
       lat: STOP.lat,
       position: Cartesian3.fromDegrees(STOP.lon + i * 0.01, STOP.lat, 45),
