@@ -35,14 +35,20 @@ import {
   Ion,
   JulianDate,
   LabelStyle,
+  Material,
+  MaterialAppearance,
   Math as CesiumMath,
+  Matrix3,
   Matrix4,
   PerInstanceColorAppearance,
+  PlaneGeometry,
   Primitive,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
+  Simon1994PlanetaryPositions,
   Transforms,
+  VertexFormat,
   VerticalOrigin,
   Viewer,
   createGooglePhotorealistic3DTileset,
@@ -121,6 +127,12 @@ interface TramEntityRecord {
   lastSampleFrame: number
   /** Position of the last tick – detects movement for render requests. */
   lastPosition: Cartesian3
+  /** Night-time light pool under the vehicle (null without 2D canvas). */
+  glow: Primitive | null
+  /** Live modelMatrix of the glow quad (updated in place). */
+  glowMatrix: Matrix4 | null
+  /** Ground extent of the pool (vehicle footprint plus spill). */
+  glowScale: Cartesian3
 }
 
 interface StopEntityRecord {
@@ -259,6 +271,24 @@ const TRAM_VISIBLE_RANGE = 20_000
 const TRAM_BODY_VISIBLE_RANGE = 3_000
 
 /**
+ * Night-time cabin glow: a soft, warm light pool under every vehicle, as
+ * if the interior lighting spilled onto the road. Drawn as a flat,
+ * radial-gradient quad; its opacity follows the real sun elevation with
+ * the same ramp the tiles' time-of-day shader uses, so the pools fade in
+ * exactly while the city grades into night.
+ */
+const GLOW_COLOR = Color.fromCssColorString('#ffd9a0')
+/** Pool opacity in full night (scaled by the sun ramp in between). */
+const GLOW_MAX_ALPHA = 0.5
+/** Sine of the sun elevation where the glow starts (dusk) / is fully on. */
+const GLOW_SUN_START = -0.05
+const GLOW_SUN_FULL = -0.17
+/** Meters above the sampled ground – below routes, above the road mesh. */
+const GLOW_LIFT = 0.15
+/** Camera distance in meters up to which the pools are drawn. */
+const GLOW_VISIBLE_RANGE = 2_500
+
+/**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
  * (KHR_materials_unlit – daylight is baked into the photo textures), so the
  * scene's sun cannot shade them; instead the baked color is blended toward
@@ -383,6 +413,13 @@ export const TUNNEL_VISIBILITY = 0.2
 // values it retains (ConstantProperty, modelMatrix), so reusing these avoids
 // ~2 allocations per tram per tick.
 const positionScratch = new Cartesian3()
+
+// Scratches for the sun-elevation night factor (see updateNightFactor).
+const sunPositionScratch = new Cartesian3()
+const sunTransformScratch = new Matrix3()
+
+// Scratch for the per-tick glow pool pose (see syncTrams).
+const glowPositionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
 
 // Scratch for the stop label declutter's screen projections.
@@ -479,6 +516,15 @@ export class CesiumMap {
   /** Timestamp of the last stop height sampling pass (see resolveStopHeights). */
   private lastStopSampleAt = 0
   private frustumSphere = new BoundingSphere()
+  /** 0 = day … 1 = full night; drives the cabin-glow opacity. */
+  private nightFactor = 0
+  /** Radial gradient sprite of the glow pools (null: no 2D canvas). */
+  private glowSpriteCanvas?: HTMLCanvasElement | null
+  /** Material/appearance shared by ALL pools – one uniform sets the alpha. */
+  private glowMaterial: Material | null = null
+  private glowAppearance: MaterialAppearance | null = null
+  /** Unit up vector at the city center (sun elevation reference). */
+  private cityUp: Cartesian3 | null = null
   /** Time of the last user interaction (mouse/touch/wheel) in ms. */
   private lastInteractionAt = 0
   /** A camera animation (flyTo) is running until this point in time. */
@@ -1547,6 +1593,38 @@ export class CesiumMap {
         this.renderRequested = true
       }
 
+      // Night-time cabin glow: only at night, never in tunnels, and only
+      // where the pool is more than a couple of pixels.
+      if (record.glow && record.glowMatrix) {
+        const showGlow =
+          showBody &&
+          !record.inTunnel &&
+          this.nightFactor > 0.02 &&
+          cameraDistance < GLOW_VISIBLE_RANGE
+        if (record.glow.show !== showGlow) {
+          record.glow.show = showGlow
+          this.renderRequested = true
+        }
+        if (showGlow) {
+          // Same heading as the body (hprScratch above), anchored on the
+          // ground instead of the vehicle center.
+          Transforms.headingPitchRollToFixedFrame(
+            Cartesian3.fromDegrees(
+              snap.lon,
+              snap.lat,
+              record.groundHeight + GLOW_LIFT,
+              undefined,
+              glowPositionScratch,
+            ),
+            hprScratch,
+            undefined,
+            undefined,
+            record.glowMatrix,
+          )
+          Matrix4.multiplyByScale(record.glowMatrix, record.glowScale, record.glowMatrix)
+        }
+      }
+
       if (followed) {
         this.updateFollowCamera(snap.lon, snap.lat)
       }
@@ -1557,6 +1635,7 @@ export class CesiumMap {
         if (id === this.followId) this.setFollow(null)
         this.viewer.entities.remove(record.labelEntity)
         this.viewer.scene.primitives.remove(record.primitive)
+        if (record.glow) this.viewer.scene.primitives.remove(record.glow)
         this.trams.delete(id)
         this.renderRequested = true
       }
@@ -1580,7 +1659,98 @@ export class CesiumMap {
    */
   setSceneTime(epochMs: number): void {
     this.viewer.clock.currentTime = JulianDate.fromDate(new Date(epochMs))
+    this.updateNightFactor(this.viewer.clock.currentTime)
     this.requestRender()
+  }
+
+  /**
+   * Recomputes the day/night factor from the real sun elevation over the
+   * city and applies it to the shared glow material – the pools fade in
+   * with the same sun ramp the tiles' time-of-day shader grades by.
+   * Called with setSceneTime's ~1-sim-minute throttle.
+   */
+  private updateNightFactor(time: JulianDate): void {
+    this.cityUp ??= Cartesian3.normalize(
+      Cartesian3.fromDegrees(config.home.longitude, config.home.latitude),
+      new Cartesian3(),
+    )
+    const sun = Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(
+      time,
+      sunPositionScratch,
+    )
+    // Without loaded EOP data the precise ICRF transform is unavailable –
+    // the TEME approximation is plenty for a lighting ramp.
+    const toFixed = Transforms.computeIcrfToFixedMatrix(time, sunTransformScratch)
+    Matrix3.multiplyByVector(
+      toFixed ?? Transforms.computeTemeToPseudoFixedMatrix(time, sunTransformScratch),
+      sun,
+      sun,
+    )
+    const sunUp = Cartesian3.dot(Cartesian3.normalize(sun, sun), this.cityUp)
+    const t = CesiumMath.clamp(
+      (sunUp - GLOW_SUN_FULL) / (GLOW_SUN_START - GLOW_SUN_FULL),
+      0,
+      1,
+    )
+    const night = 1 - t * t * (3 - 2 * t) // smoothstep
+    if (Math.abs(night - this.nightFactor) < 0.01 && night !== 0) return
+    this.nightFactor = night
+    if (this.glowMaterial) {
+      const uniforms = this.glowMaterial.uniforms as { color: Color }
+      uniforms.color.alpha = GLOW_MAX_ALPHA * night
+    }
+  }
+
+  /** Shared radial-gradient sprite of the glow pools (null: no 2D canvas). */
+  private glowSprite(): HTMLCanvasElement | null {
+    // ??=-style caching that also survives prototype-based test instances
+    if (this.glowSpriteCanvas !== undefined) return this.glowSpriteCanvas
+    this.glowSpriteCanvas = null
+    if (typeof document !== 'undefined') {
+      const canvas = document.createElement('canvas')
+      canvas.width = 256
+      canvas.height = 256
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128)
+        gradient.addColorStop(0, 'rgba(255,255,255,0.9)')
+        gradient.addColorStop(0.35, 'rgba(255,255,255,0.4)')
+        gradient.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = gradient
+        ctx.fillRect(0, 0, 256, 256)
+        this.glowSpriteCanvas = canvas
+      }
+    }
+    return this.glowSpriteCanvas
+  }
+
+  /** Appearance shared by all glow pools (lazy; null without 2D canvas). */
+  private glowPoolAppearance(): MaterialAppearance | null {
+    if (this.glowAppearance) return this.glowAppearance
+    const sprite = this.glowSprite()
+    if (!sprite) return null
+    // One material for every pool: a single uniform write dims all pools
+    // with the night factor. The sprite carries the falloff, the color
+    // uniform carries warmth and the ramped alpha.
+    this.glowMaterial = new Material({
+      fabric: {
+        type: 'VehicleGlow',
+        uniforms: {
+          image: sprite,
+          color: GLOW_COLOR.withAlpha(GLOW_MAX_ALPHA * this.nightFactor),
+        },
+        components: {
+          diffuse: 'color.rgb',
+          alpha: 'texture(image, materialInput.st).a * color.a',
+        },
+      },
+    })
+    this.glowAppearance = new MaterialAppearance({
+      flat: true,
+      translucent: true,
+      material: this.glowMaterial,
+    })
+    return this.glowAppearance
   }
 
   /** Marks the scene as changed – the app loop then renders a frame promptly. */
@@ -1782,6 +1952,30 @@ export class CesiumMap {
           }),
     })
 
+    // Night-time cabin glow: pool extent = footprint plus sideways spill
+    const glowScale = new Cartesian3(
+      snap.vehicle.length * 1.25 + 4,
+      snap.vehicle.width * 3.5,
+      1,
+    )
+    let glow: Primitive | null = null
+    let glowMatrix: Matrix4 | null = null
+    const glowAppearance = this.glowPoolAppearance()
+    if (glowAppearance) {
+      glow = new Primitive({
+        geometryInstances: new GeometryInstance({
+          geometry: new PlaneGeometry({ vertexFormat: VertexFormat.POSITION_AND_ST }),
+        }),
+        appearance: glowAppearance,
+        asynchronous: false,
+        allowPicking: false,
+        modelMatrix: Matrix4.multiplyByScale(Matrix4.clone(matrix), glowScale, new Matrix4()),
+        show: false, // syncTrams turns it on at night
+      })
+      this.viewer.scene.primitives.add(glow)
+      glowMatrix = glow.modelMatrix
+    }
+
     return {
       primitive,
       matrix: liveMatrix,
@@ -1797,6 +1991,9 @@ export class CesiumMap {
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
       lastPosition: Cartesian3.clone(initialPosition),
+      glow,
+      glowMatrix,
+      glowScale,
     }
   }
 
