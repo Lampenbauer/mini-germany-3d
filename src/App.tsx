@@ -10,8 +10,10 @@ import schedule from '@/data/schedule.json'
 import { Simulation, type TramSnapshot } from '@/engine/simulation'
 import {
   formatCameraHash,
+  formatUiStateHash,
   formatVehicleHash,
   parseCameraHash,
+  parseUiStateHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
@@ -138,6 +140,10 @@ export default function App() {
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
   const showRoutesRef = useRef(showRoutes)
+  // Mirrors for the hash writer (closures in the init effect must not see
+  // stale React state): layer toggles and pause travel in the URL.
+  const showStopsRef = useRef(showStops)
+  const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
     const map = mapRef.current
@@ -173,11 +179,24 @@ export default function App() {
     if (!container) return
 
     const urlOpts = readUrlOptions()
+    // Layer/pause state restored from a shared URL. The ?paused search
+    // param stays the boot flag (tests); the hash marks a user pause.
+    const uiState = parseUiStateHash(window.location.hash)
+    const startPaused = urlOpts.paused || uiState.paused
     const clock = new SimClock(Date.now(), urlOpts.speed)
     if (urlOpts.timeSec !== null) clock.setSecondsOfDay(urlOpts.timeSec)
-    if (urlOpts.paused) clock.setPaused(true)
+    if (startPaused) clock.setPaused(true)
     setSpeed(urlOpts.speed)
-    setPaused(urlOpts.paused)
+    setPaused(startPaused)
+    pausedRef.current = startPaused
+    if (uiState.routesHidden) {
+      showRoutesRef.current = false
+      setShowRoutes(false)
+    }
+    if (uiState.stopsHidden) {
+      showStopsRef.current = false
+      setShowStops(false)
+    }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
@@ -223,9 +242,16 @@ export default function App() {
       // While a vehicle is selected the URL carries ONLY its trip id – a
       // shared link then re-selects and follows the vehicle, no camera
       // pose needed. Without a selection the camera pose is the URL state.
-      const hash = selectedIdRef.current
-        ? formatVehicleHash(selectedIdRef.current)
-        : formatCameraHash(m.getCameraView())
+      // Layer toggles and pause ride along in either form.
+      const hash =
+        (selectedIdRef.current
+          ? formatVehicleHash(selectedIdRef.current)
+          : formatCameraHash(m.getCameraView())) +
+        formatUiStateHash({
+          routesHidden: !showRoutesRef.current,
+          stopsHidden: !showStopsRef.current,
+          paused: pausedRef.current,
+        })
       if (hash !== window.location.hash) {
         window.history.replaceState(null, '', hash)
       }
@@ -266,6 +292,9 @@ export default function App() {
     if (hashView) map.setView(hashView)
     map.addRoutes(network)
     map.addStops(network)
+    // Apply the layer visibility restored from the hash to the fresh map
+    if (uiState.routesHidden) applyRouteVisibility()
+    if (uiState.stopsHidden) map.setStopsVisible(false)
 
     // A vehicle shared via the URL (#vehicle=…) is restored as soon as its
     // trip shows up in the snapshots – it may take a moment for the
@@ -411,7 +440,11 @@ export default function App() {
         if (sec !== null) clock.setSecondsOfDay(sec)
       },
       setSpeed: (s: number) => clock.setSpeed(s),
-      setPaused: (p: boolean) => clock.setPaused(p),
+      setPaused: (p: boolean) => {
+        clock.setPaused(p)
+        pausedRef.current = p
+        setPaused(p)
+      },
       selectTram,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
@@ -495,13 +528,17 @@ export default function App() {
       showRoutesRef.current = visible
       setShowRoutes(visible)
       applyRouteVisibility()
+      // Discrete event – the shareable URL updates immediately
+      writeHashRef.current()
     },
     [applyRouteVisibility],
   )
 
   const handleToggleStops = useCallback((visible: boolean) => {
+    showStopsRef.current = visible
     setShowStops(visible)
     mapRef.current?.setStopsVisible(visible)
+    writeHashRef.current()
   }, [])
 
   const handleSpeedChange = useCallback((value: number) => {
@@ -512,6 +549,8 @@ export default function App() {
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
       simRef.current?.clock.setPaused(!prev)
+      pausedRef.current = !prev
+      writeHashRef.current()
       return !prev
     })
   }, [])
