@@ -121,7 +121,7 @@ test('renders OSM tunnel route sections at reduced opacity', async () => {
   const line2Opacities = routeParts
     .filter(({ id }) => id.startsWith('route:2:'))
     .map(({ opacity }) => opacity)
-  const tunnelOpacity = 0.85 * 0.4
+  const tunnelOpacity = 0.85 * 0.2
   expect(line2Opacities.some((opacity) => Math.abs(opacity - tunnelOpacity) < 1e-6)).toBe(true)
   expect(line2Opacities.some((opacity) => Math.abs(opacity - 0.85) < 1e-6)).toBe(true)
 })
@@ -150,7 +150,7 @@ test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', 
         }, transition!.id),
       { timeout: 30_000 },
     )
-    .toBeCloseTo(0.4)
+    .toBeCloseTo(0.2)
 
   await setSimulationTime(transition!.surfaceTime)
   await expect

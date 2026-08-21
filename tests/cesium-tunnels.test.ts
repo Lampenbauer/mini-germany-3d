@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
 import type { TramSnapshot } from '@/engine/simulation'
-import { CesiumMap } from '@/map/CesiumMap'
+import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -87,7 +87,7 @@ const applyTramAppearance = (map: CesiumMap, tramId: string): boolean =>
   ).applyTramAppearance(tramId)
 
 describe('Cesium tunnel rendering', () => {
-  it('renders route pieces at 0.85 / 0.34 / 0.85 opacity (mirrored line drawn once)', () => {
+  it('renders route pieces at full / tunnel-dimmed / full opacity (mirrored line drawn once)', () => {
     const added: AddedRoute[] = []
     const map = mapWithFakeRouteViewer(added)
 
@@ -103,7 +103,7 @@ describe('Cesium tunnel rendering', () => {
     expect(added.map((entity) => entity.polyline?.positions?.length)).toEqual([2, 2, 3])
     const opacities = routeOpacities(added)
     expect(opacities[0]).toBeCloseTo(0.85)
-    expect(opacities[1]).toBeCloseTo(0.85 * 0.4)
+    expect(opacities[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY)
     expect(opacities[2]).toBeCloseTo(0.85)
 
     map.setLineRouteVisible('U', false)
@@ -128,12 +128,12 @@ describe('Cesium tunnel rendering', () => {
       'route:V:1:2',
     ])
     const tunnelPieces = routeOpacities(added).filter(
-      (alpha) => Math.abs(alpha - 0.85 * 0.4) < 1e-9,
+      (alpha) => Math.abs(alpha - 0.85 * TUNNEL_VISIBILITY) < 1e-9,
     )
     expect(tunnelPieces).toHaveLength(2)
   })
 
-  it('keeps 40 % alpha on body and label while selecting and deselecting in a tunnel', () => {
+  it('keeps the tunnel alpha on body and label while selecting and deselecting in a tunnel', () => {
     const record = fakeRecord()
     const { attributes } = record
     const map = Object.create(CesiumMap.prototype) as CesiumMap
@@ -141,16 +141,16 @@ describe('Cesium tunnel rendering', () => {
 
     expect(applyTramAppearance(map, 'vehicle')).toBe(true)
     expect(record.appearance.translucent).toBe(true)
-    expect(attributes.color[3]).toBe(102) // 0.4 * 255
-    expect(record.labelEntity.label.fillColor?.getValue().alpha).toBeCloseTo(0.4)
+    expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+    expect(record.labelEntity.label.fillColor?.getValue().alpha).toBeCloseTo(TUNNEL_VISIBILITY)
     // The badge billboard ghosts via its color multiplier
-    expect(record.labelEntity.billboard.color?.getValue().alpha).toBeCloseTo(0.4)
+    expect(record.labelEntity.billboard.color?.getValue().alpha).toBeCloseTo(TUNNEL_VISIBILITY)
     const baseColor = [...attributes.color]
 
     map.setSelected('vehicle')
     expect(attributes.color[1]).toBeGreaterThan(baseColor[1])
     expect(attributes.color[2]).toBeGreaterThan(baseColor[2])
-    expect(attributes.color[3]).toBe(102)
+    expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
 
     map.setSelected(null)
     expect([...attributes.color]).toEqual(baseColor)
@@ -202,7 +202,7 @@ describe('Cesium tunnel rendering', () => {
     const color = instance.attributes?.color as ColorGeometryInstanceAttribute
 
     expect(record.appearance.translucent).toBe(true)
-    expect(color.value[3]).toBe(102)
+    expect(color.value[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
     // The base render state was built opaque, so leaving the tunnel removes
     // the blending again (a translucent base state would keep it forever).
     record.appearance.translucent = false
@@ -229,6 +229,6 @@ describe('Cesium tunnel rendering', () => {
 
     ready = true
     expect(applyTramAppearance(map, 'vehicle')).toBe(true)
-    expect(attributes.color[3]).toBe(102)
+    expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
   })
 })
