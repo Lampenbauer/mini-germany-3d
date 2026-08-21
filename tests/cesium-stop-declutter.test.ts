@@ -13,6 +13,7 @@ interface FakeStop {
   disc: { position: Cartesian3 }
   label: { show: boolean }
   labelHalfWidth: number
+  lineVisible: boolean
   position: Cartesian3
 }
 
@@ -31,7 +32,7 @@ function makeStop(
   // Camera sits at the origin – the position doubles as the distance.
   const position = new Cartesian3(cameraDistance, 0, 0)
   screen.set(position, { x, y })
-  return { disc: { position }, label: { show: true }, labelHalfWidth, position }
+  return { disc: { position }, label: { show: true }, labelHalfWidth, lineVisible: true, position }
 }
 
 function harness(stops: FakeStop[], screen: Map<Cartesian3, { x: number; y: number }>) {

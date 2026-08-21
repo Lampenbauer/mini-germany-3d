@@ -133,6 +133,13 @@ interface StopEntityRecord {
    * rectangle for the label declutter.
    */
   labelHalfWidth: number
+  /** Ids of all lines serving this stop (stops are shared across lines). */
+  lines: string[]
+  /**
+   * At least one serving line is currently shown – drives disc/label
+   * visibility together with the global stops layer toggle.
+   */
+  lineVisible: boolean
   lon: number
   lat: number
   /** Fixed world position of the stop – basis for the camera distance check. */
@@ -931,15 +938,29 @@ export class CesiumMap {
     this.viewer.scene.primitives.add(billboards)
     this.stopBillboards = billboards
 
-    const unique: { id: string; name: string; lon: number; lat: number; nhn?: number }[] = []
-    const seen = new Set<string>()
+    const unique: {
+      id: string
+      name: string
+      lon: number
+      lat: number
+      nhn?: number
+      lines: string[]
+    }[] = []
+    // Stops are shared across lines – collect every serving line per stop,
+    // so hiding lines can hide exactly the stops no shown line serves.
+    const byId = new Map<string, string[]>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const stop of dir.stops) {
-          if (seen.has(stop.id)) continue
-          seen.add(stop.id)
+          const lines = byId.get(stop.id)
+          if (lines) {
+            if (!lines.includes(line.id)) lines.push(line.id)
+            continue
+          }
           const [lon, lat] = stop.coord
-          unique.push({ id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn })
+          const entry = { id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn, lines: [line.id] }
+          byId.set(stop.id, entry.lines)
+          unique.push(entry)
         }
       }
     }
@@ -984,6 +1005,8 @@ export class CesiumMap {
         disc: discs[i],
         label,
         labelHalfWidth: plate ? plate.width / 2 : stop.name.length * 3.5,
+        lines: stop.lines,
+        lineVisible: true,
         lon: stop.lon,
         lat: stop.lat,
         position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight),
@@ -994,6 +1017,30 @@ export class CesiumMap {
     })
     this.stopLabelsDirty = true
     this.requestRender()
+  }
+
+  /**
+   * Applies the line visibility to the stops: a stop stays on the map as
+   * long as at least one line serving it is shown. Composes with the
+   * global stops layer toggle (collection show) and with the label
+   * declutter, which skips hidden stops and re-runs after a change.
+   */
+  setVisibleLines(visibleLines: ReadonlySet<string>): void {
+    let changed = false
+    for (const record of this.stopRecords) {
+      const visible = record.lines.some((id) => visibleLines.has(id))
+      if (visible === record.lineVisible) continue
+      record.lineVisible = visible
+      record.disc.show = visible
+      // Re-shown labels start visible; the declutter prunes overlaps on
+      // its next pass (stopLabelsDirty below).
+      record.label.show = visible
+      changed = true
+    }
+    if (changed) {
+      this.stopLabelsDirty = true
+      this.requestRender()
+    }
   }
 
   /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
@@ -1078,6 +1125,7 @@ export class CesiumMap {
     // label is off screen either way, its show flag does not matter.
     const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
     for (const record of this.stopRecords) {
+      if (!record.lineVisible) continue
       const distance = Cartesian3.distance(cameraPosition, record.position)
       if (distance > STOP_LABEL_RANGE) continue
       const windowPosition = SceneTransforms.worldToWindowCoordinates(

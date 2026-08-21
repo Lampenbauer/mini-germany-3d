@@ -448,6 +448,8 @@ export default function App() {
         else next.add(lineId)
         visibleLinesRef.current = next
         mapRef.current?.setLineRouteVisible(lineId, showRoutesRef.current && next.has(lineId))
+        // Stops no shown line serves disappear along with their lines
+        mapRef.current?.setVisibleLines(next)
         return next
       })
     },
@@ -465,6 +467,7 @@ export default function App() {
           mapRef.current?.setLineRouteVisible(id, showRoutesRef.current && visible)
         }
         visibleLinesRef.current = next
+        mapRef.current?.setVisibleLines(next)
         return next
       })
     },
