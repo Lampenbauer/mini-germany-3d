@@ -55,6 +55,12 @@ export interface CesiumMapOptions {
   offline?: boolean
   /** Fixed ground height in meters (skips all height sampling; debug). */
   fixedGroundHeight?: number
+  /**
+   * Tile LOD budget override in drawing-buffer pixels (?sse=…): replaces
+   * the default budget including its pixel-ratio scaling. Lower = finer
+   * tiles everywhere at a steep data/memory cost (~4× per halving).
+   */
+  maximumScreenSpaceError?: number
   onSelectTram?: (tramId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
 }
@@ -474,12 +480,38 @@ export class CesiumMap {
       if (this.destroyed) return
       // enableCollision: prevents the camera from getting below the tiles
       tileset.enableCollision = true
-      // Screen-space error is measured in drawing-buffer pixels: without
-      // compensation the HiDPI buffer would demand one LOD level finer
-      // tiles everywhere (≈4× tile data and much longer loading churn).
-      // Scaling the budget keeps tile detail at CSS-pixel level – labels,
-      // routes, and vehicle edges stay sharp either way.
-      tileset.maximumScreenSpaceError *= this.effectivePixelRatio
+      // Tile LOD budget. Screen-space error is measured in drawing-buffer
+      // pixels, so the budget scales with the pixel ratio to stay a
+      // constant CSS-pixel tolerance across displays. Cesium's default
+      // (16 CSS px equivalent) left mid-distance buildings visibly mushy
+      // at tilted views – tuned via the ?sse= override to 6 CSS px, the
+      // value where the middle distance reads as sharp. A tilted city
+      // view then needs roughly 1.1 GB of tile memory, still inside the
+      // cache budget below.
+      const TILE_SSE_CSS_PX = 6
+      tileset.maximumScreenSpaceError =
+        this.opts.maximumScreenSpaceError ?? TILE_SSE_CSS_PX * this.effectivePixelRatio
+      // Cesium's dynamic SSE (on by default) additionally relaxes the error
+      // budget for tiles far from a tilted camera by up to
+      // dynamicScreenSpaceErrorFactor pixels – and because the "street
+      // level" reference height comes from the global tileset's enormous
+      // bounding volume, the full effect applies even kilometers above the
+      // city, leaving the horizon visibly mushy. A factor of 6 instead of
+      // 24 keeps some horizon savings without the smeared backdrop;
+      // 0 would disable the optimization entirely.
+      tileset.dynamicScreenSpaceErrorFactor = 6
+      // Tile memory budget. With the default 512 MB cache (+512 MB
+      // overflow) a tilted city view exceeds the limit, and Cesium then
+      // raises the EFFECTIVE screen-space error by 2 % per frame
+      // (memoryAdjustedScreenSpaceError) until the view fits – silently
+      // overriding every SSE setting above and leaving distant tiles far
+      // coarser than configured, no matter how the knobs are tuned. Give
+      // the photorealistic tileset a budget that matches its appetite,
+      // scaled down for low-memory devices (navigator.deviceMemory is in
+      // GB and Chrome-only, capped at 8; elsewhere assume mid-range).
+      const deviceMemoryGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 4
+      tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
+      tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
       // Day/night ambience following the simulated time (see setSceneTime)
       tileset.customShader = new CustomShader({ fragmentShaderText: TIME_OF_DAY_SHADER })
       this.googleTileset = tileset
@@ -1364,6 +1396,31 @@ export class CesiumMap {
     } catch {
       // The primitive has not completed its first render yet.
       return null
+    }
+  }
+
+  /**
+   * Debug: tile memory usage vs. budget and the LOD budget actually in
+   * effect. effectiveSse > configuredSse means Cesium's memory ratchet is
+   * degrading the LOD because the view does not fit into cacheBytes.
+   */
+  getTileMemoryInfo(): {
+    usedMB: number
+    cacheMB: number
+    configuredSse: number
+    effectiveSse: number
+  } | null {
+    const tileset = this.googleTileset
+    if (!tileset) return null
+    // Public in Cesium's JS API but missing from its TS typings.
+    const effectiveSse =
+      (tileset as unknown as { memoryAdjustedScreenSpaceError?: number })
+        .memoryAdjustedScreenSpaceError ?? tileset.maximumScreenSpaceError
+    return {
+      usedMB: Math.round(tileset.totalMemoryUsageInBytes / 1024 / 1024),
+      cacheMB: Math.round(tileset.cacheBytes / 1024 / 1024),
+      configuredSse: Math.round(tileset.maximumScreenSpaceError * 10) / 10,
+      effectiveSse: Math.round(effectiveSse * 10) / 10,
     }
   }
 

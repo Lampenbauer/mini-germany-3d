@@ -41,6 +41,16 @@ export interface MrtTestApi {
     tunnelTime: number
     surfaceTime: number
   } | null
+  /**
+   * Tile memory diagnostics: whether Cesium's memory ratchet is currently
+   * degrading the LOD (effectiveSse > configuredSse means yes).
+   */
+  tileMemory: () => {
+    usedMB: number
+    cacheMB: number
+    configuredSse: number
+    effectiveSse: number
+  } | null
 }
 
 declare global {
@@ -58,6 +68,8 @@ interface UrlOptions {
   groundHeight: number | undefined
   /** Force GTFS-Realtime (?rt=1) or disable it (?rt=0); null = auto. */
   realtime: boolean | null
+  /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
+  maximumScreenSpaceError: number | undefined
 }
 
 function readUrlOptions(): UrlOptions {
@@ -65,6 +77,8 @@ function readUrlOptions(): UrlOptions {
   const speed = Number(params.get('speed') ?? config.simulation.initialSpeed)
   const groundHeightRaw = params.get('groundHeight')
   const groundHeight = groundHeightRaw === null ? NaN : Number(groundHeightRaw)
+  const sseRaw = params.get('sse')
+  const sse = sseRaw === null ? NaN : Number(sseRaw)
   return {
     offline: params.get('offline') === '1',
     speed: Number.isFinite(speed) ? Math.min(600, Math.max(1, speed)) : 1,
@@ -75,6 +89,7 @@ function readUrlOptions(): UrlOptions {
         ? groundHeight
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
+    maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
   }
 }
 
@@ -172,6 +187,7 @@ export default function App() {
     const map = new CesiumMap(container, {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
+      maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       onSelectTram: selectTram,
       onTilesetStatus: setTilesetStatus,
     })
@@ -250,8 +266,14 @@ export default function App() {
           // Render pacing (the app owns the Cesium render loop):
           //   interaction/camera flight → full frame rate
           //   vehicles visibly moving → ~30 fps
-          //   only tiles streaming in → ~4 fps (enough to drive the tile
-          //   traversal without burning GPU on identical frames)
+          //   only tiles streaming in → ~30 fps as well: the tile
+          //   traversal (selecting, requesting, and swapping in loaded
+          //   tiles) only advances once per rendered frame, and an LOD
+          //   refinement is a cascade of several such rounds – at the
+          //   previous 4 fps each round cost 250 ms and freshly loaded
+          //   tiles visibly appeared seconds late after zooming. The
+          //   streaming phase lasts a few seconds at most, then the idle
+          //   states below take over again.
           //   otherwise → event-driven: one-off scene changes request a
           //   frame via CesiumMap.requestRender(); apart from that only a
           //   slow heartbeat runs. A truly idle map renders nothing – even
@@ -261,11 +283,9 @@ export default function App() {
           const animating = lastAnyTramInView && !clock.paused
           const renderInterval = hints.interacting
             ? 0
-            : animating
+            : animating || hints.tilesLoading
               ? 33
-              : hints.tilesLoading
-                ? 250
-                : 15000
+              : 15000
           if (map.consumeRenderRequest() || now - lastRender >= renderInterval) {
             lastRender = now
             map.render()
@@ -306,6 +326,7 @@ export default function App() {
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
+      tileMemory: () => map.getTileMemoryInfo(),
       anyTramInView: () => lastAnyTramInView,
       renderRate: () => renderTimes.length / 5,
       tramBoxDriftMeters: () => map.getTramBoxDriftMeters(),
