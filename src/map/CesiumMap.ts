@@ -627,6 +627,44 @@ export class CesiumMap {
   }
 
   /**
+   * Rotates the camera to the given heading and/or pitch (in degrees)
+   * while keeping the ground point at the screen center fixed – the view
+   * pivots in place instead of jumping elsewhere. Omitted components keep
+   * their current value. Used by the 2D/3D and "face north" buttons.
+   */
+  setCameraOrientation(orientation: { headingDeg?: number; pitchDeg?: number }): void {
+    const camera = this.viewer.camera
+    const carto = camera.positionCartographic
+    const heading =
+      orientation.headingDeg !== undefined
+        ? CesiumMath.toRadians(orientation.headingDeg)
+        : camera.heading
+    const pitch =
+      orientation.pitchDeg !== undefined
+        ? CesiumMath.toRadians(orientation.pitchDeg)
+        : camera.pitch
+    // Pivot: where the view axis meets the ground, derived from pitch and
+    // the height above ground (no ray cast needed). Near-horizontal views
+    // would put that point at infinity – clamp them to a plausible pivot.
+    const heightAbove = Math.max(50, carto.height - this.defaultGroundHeight)
+    const descent = Math.tan(-camera.pitch)
+    const forward = descent > 0.05 ? heightAbove / descent : heightAbove * 20
+    const earthRadius = 6378137
+    const target = Cartesian3.fromRadians(
+      carto.longitude + (forward * Math.sin(camera.heading)) / (earthRadius * Math.cos(carto.latitude)),
+      carto.latitude + (forward * Math.cos(camera.heading)) / earthRadius,
+      this.defaultGroundHeight,
+    )
+    // Render at full rate during the flight (see getRenderHints)
+    this.flyingUntil = performance.now() + 1600
+    this.requestRender()
+    this.viewer.camera.flyToBoundingSphere(new BoundingSphere(target, 0), {
+      duration: 1,
+      offset: new HeadingPitchRange(heading, pitch, Math.hypot(heightAbove, forward)),
+    })
+  }
+
+  /**
    * Draws the route polylines of all lines. With per-vertex terrain heights
    * from network.json (DGM © GeoBasis-DE/M-V) the routes are ordinary
    * polylines at absolute heights – Cesium's ground-clamping classification

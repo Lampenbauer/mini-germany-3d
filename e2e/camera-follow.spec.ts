@@ -75,5 +75,5 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Stop following' }).click({ force: true })
   await page.getByRole('button', { name: 'Close selection' }).click({ force: true })
-  await expect(page.getByTestId('tram-card')).not.toBeVisible()
+  await expect(page.getByTestId('vehicle-card')).not.toBeVisible()
 })

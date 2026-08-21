@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { TramSnapshot } from '@/engine/simulation'
 
-export interface TramCardProps {
+export interface VehicleCardProps {
   tram: TramSnapshot
   following: boolean
   onToggleFollow: () => void
@@ -34,11 +34,11 @@ function statusText(tram: TramSnapshot): string {
   return tram.inTunnel ? `${base} · in tunnel` : base
 }
 
-export function TramCard({ tram, following, onToggleFollow, onClose }: TramCardProps) {
+export function VehicleCard({ tram, following, onToggleFollow, onClose }: VehicleCardProps) {
   return (
     <Card
-      className="pointer-events-auto w-80 border-border/60 bg-card/85 backdrop-blur-md"
-      data-testid="tram-card"
+      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-md"
+      data-testid="vehicle-card"
     >
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2 text-base">

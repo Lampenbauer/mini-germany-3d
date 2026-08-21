@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Compass, Home } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
-import { TramCard } from '@/components/TramCard'
+import { VehicleCard } from '@/components/VehicleCard'
+import { Button } from '@/components/ui/button'
 import { config } from '@/config'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
@@ -114,6 +116,8 @@ export default function App() {
   const [selected, setSelected] = useState<TramSnapshot | null>(null)
   const [following, setFollowing] = useState(false)
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
+  // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
+  const [cameraIs2D, setCameraIs2D] = useState(false)
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
   const showRoutesRef = useRef(showRoutes)
@@ -247,6 +251,7 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
+              setCameraIs2D(map.getCameraView().pitch < -85)
               setTramCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
@@ -447,6 +452,31 @@ export default function App() {
     mapRef.current?.setCameraHome(true)
   }, [])
 
+  /** Toggle between the tilted 3D view (pitch -60°) and top-down 2D (-90°). */
+  const handleToggleViewMode = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      map.setFollow(null)
+    }
+    const is2D = map.getCameraView().pitch < -85
+    map.setCameraOrientation({ pitchDeg: is2D ? -60 : -90 })
+    setCameraIs2D(!is2D)
+  }, [])
+
+  const handleFaceNorth = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      map.setFollow(null)
+    }
+    map.setCameraOrientation({ headingDeg: 0 })
+  }, [])
+
   /** Fly the camera to a line's route (keeps the compass heading). */
   const handleFocusLine = useCallback((lineId: string) => {
     if (followingRef.current) {
@@ -508,13 +538,12 @@ export default function App() {
           tilesetStatus={tilesetStatus}
           dataSource={dataSource}
           realtimeStatus={realtimeStatus}
-          onResetCamera={handleResetCamera}
         />
       </div>
 
       {selected && (
-        <div className="pointer-events-none absolute bottom-8 left-4 z-10">
-          <TramCard
+        <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <VehicleCard
             tram={selected}
             following={following}
             onToggleFollow={handleToggleFollow}
@@ -522,6 +551,41 @@ export default function App() {
           />
         </div>
       )}
+
+      {/* Map controls: 2D/3D, face north, camera reset. bottom-8 keeps them
+          clear of the Cesium attribution line at the lower screen edge. */}
+      <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+        <Button
+          variant="secondary"
+          size="icon"
+          className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
+          title={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
+          aria-label={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
+          onClick={handleToggleViewMode}
+        >
+          {cameraIs2D ? '3D' : '2D'}
+        </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+          title="Face north"
+          aria-label="Face north"
+          onClick={handleFaceNorth}
+        >
+          <Compass aria-hidden />
+        </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+          title="Reset camera"
+          aria-label="Reset camera"
+          onClick={handleResetCamera}
+        >
+          <Home aria-hidden />
+        </Button>
+      </div>
     </div>
   )
 }
