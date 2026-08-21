@@ -12,6 +12,7 @@ import {
   BlendOption,
   BoundingSphere,
   BoxGeometry,
+  CallbackProperty,
   Cartesian2,
   Cartesian3,
   Cartographic,
@@ -327,6 +328,18 @@ const FERRY_ROUTE_EXTRA_LIFT = 1.25
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
 
+/**
+ * Attention pulse on a line's route after "zoom to line": the opacity
+ * swings smoothly from full to zero and back (cosine), several dips over
+ * the total duration. Smooth instead of hard on/off blinking – the route
+ * stays readable while clearly calling attention to itself. All OTHER
+ * lines fade out for the duration (ROUTE_PULSE_FADE_MS ramps at both
+ * ends), so the pulsing line stands out even on shared corridors.
+ */
+const ROUTE_PULSE_DURATION_MS = 3000
+const ROUTE_PULSE_PERIOD_MS = 750
+const ROUTE_PULSE_FADE_MS = 250
+
 /** Follow camera: initial offset behind/above the vehicle. */
 const FOLLOW_PITCH_DEG = -16
 const FOLLOW_RANGE = 150
@@ -462,6 +475,8 @@ export class CesiumMap {
   private lastInteractionAt = 0
   /** A camera animation (flyTo) is running until this point in time. */
   private flyingUntil = 0
+  /** Running route attention pulse (see startRoutePulse), null = none. */
+  private routePulse: { lineId: string; start: number; until: number } | null = null
   /**
    * A one-off scene change (selection, visibility toggle, stop height,
    * resize, …) needs a frame. Consumed by the app's render loop – outside
@@ -756,7 +771,21 @@ export class CesiumMap {
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
           const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
-          const material = new ColorMaterialProperty(color.withAlpha(alpha))
+          // Non-constant color: routes stay in Cesium's static polyline
+          // batch (isDynamic only looks at geometry properties), but the
+          // batch refreshes the per-instance color attribute in place on
+          // every rendered frame – the supported path for animating the
+          // attention pulse without primitive rebuilds. Replacing the
+          // color property per frame instead re-batches asynchronously
+          // and never becomes visible.
+          const baseColor = color.withAlpha(alpha)
+          const scratchColor = new Color()
+          const material = new ColorMaterialProperty(
+            new CallbackProperty(
+              () => this.routePieceColor(line.id, baseColor, scratchColor),
+              false,
+            ),
+          )
           const id = `route:${line.id}:${dir.direction}:${pieceIndex}`
           let entity: Entity
           if (piece.heights && piece.heights.length === piece.path.length) {
@@ -823,8 +852,9 @@ export class CesiumMap {
       undefined,
       sphere.center,
     )
-    // Render at full rate during the flight (see getRenderHints)
-    this.flyingUntil = performance.now() + 2100
+    // Render at full rate during flight AND pulse (see getRenderHints)
+    this.flyingUntil = performance.now() + Math.max(2100, ROUTE_PULSE_DURATION_MS + 200)
+    this.startRoutePulse(lineId)
     this.requestRender()
     this.viewer.camera.flyToBoundingSphere(sphere, {
       duration: 1.5,
@@ -835,6 +865,54 @@ export class CesiumMap {
         0,
       ),
     })
+  }
+
+  /** Starts the attention pulse on a line's route (replaces any running one). */
+  private startRoutePulse(lineId: string): void {
+    const now = performance.now()
+    this.routePulse = { lineId, start: now, until: now + ROUTE_PULSE_DURATION_MS }
+    this.requestRender()
+  }
+
+  /**
+   * Current color of a route piece – the CallbackProperty behind every
+   * piece's material, evaluated per rendered frame by Cesium's color
+   * batch. Without a pulse it is the base color, so ending a pulse
+   * restores the exact originals by construction. (Offline mode draws
+   * ground-clamped routes in Cesium's per-material batch, which does not
+   * re-evaluate colors per frame – the pulse is only visible on the
+   * height-based routes of the normal online mode.)
+   */
+  private routePieceColor(lineId: string, base: Color, result: Color): Color {
+    const pulse = this.routePulse
+    if (!pulse) return Color.clone(base, result)
+    const now = performance.now()
+    if (now >= pulse.until) return Color.clone(base, result)
+    if (pulse.lineId !== lineId) {
+      // Every other line clears the stage while the pulse runs – faded
+      // out at the start and back in at the end instead of popping.
+      const fadeOut = Math.min(1, (now - pulse.start) / ROUTE_PULSE_FADE_MS)
+      const fadeIn = Math.min(1, (pulse.until - now) / ROUTE_PULSE_FADE_MS)
+      const hidden = Math.min(fadeOut, fadeIn)
+      return Color.fromAlpha(base, base.alpha * (1 - hidden), result)
+    }
+    const phase = ((now - pulse.start) % ROUTE_PULSE_PERIOD_MS) / ROUTE_PULSE_PERIOD_MS
+    // Cosine: starts at full opacity, dips to 0, comes back – per period
+    const factor = 0.5 + 0.5 * Math.cos(2 * Math.PI * phase)
+    return Color.fromAlpha(base, base.alpha * factor, result)
+  }
+
+  /**
+   * Drives the pulse from render(): keeps frames coming while it runs
+   * (regardless of the simulation tick rate) and clears it once over –
+   * the final requestRender repaints the base colors.
+   */
+  private updateRoutePulse(): void {
+    if (!this.routePulse) return
+    if (performance.now() >= this.routePulse.until) {
+      this.routePulse = null
+    }
+    this.requestRender()
   }
 
   /**
@@ -1441,6 +1519,7 @@ export class CesiumMap {
   /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
+    this.updateRoutePulse()
     this.viewer.render()
   }
 
