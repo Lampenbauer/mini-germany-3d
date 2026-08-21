@@ -20,10 +20,19 @@ export function normalizeRanges(
   totalLength: number,
 ): [number, number][]
 
+export interface BridgeProfileOptions {
+  anchorSetbackMeters?: number
+  deckClearanceMeters?: number
+  portalFeatherMeters?: number
+}
+
+export const BRIDGE_PROFILE_DEFAULTS: Required<BridgeProfileOptions>
+
 export function applyBridgeProfile(
   heights: number[],
   cum: readonly number[],
   bridgeRanges: readonly (readonly [number, number])[],
+  opts?: BridgeProfileOptions,
 ): void
 
 export function indexPreviousHeights(prevNetwork: unknown): {

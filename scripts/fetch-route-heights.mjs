@@ -4,7 +4,9 @@
  * digital terrain model of Mecklenburg-Vorpommern (open WCS at
  * geodaten-mv.de, © GeoBasis-DE/M-V):
  *   - per direction a `heights` array (meters NHN/DHHN2016, one entry per
- *     path vertex, bridge sections interpolated between their end points)
+ *     path vertex; bridge sections become a straight deck interpolated
+ *     between anchors just outside the span, plus ~1 m feathered deck
+ *     clearance – see BRIDGE_PROFILE_DEFAULTS in lib/route-heights.mjs)
  *   - per stop an `nhn` height – the runtime calibrates the offset between
  *     NHN and the Google 3D tiles' ellipsoidal heights against these
  *
