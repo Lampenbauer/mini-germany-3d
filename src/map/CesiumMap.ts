@@ -8,6 +8,8 @@
  */
 
 import {
+  BillboardCollection,
+  BlendOption,
   BoundingSphere,
   BoxGeometry,
   Cartesian2,
@@ -31,12 +33,10 @@ import {
   Intersect,
   Ion,
   JulianDate,
-  LabelCollection,
   LabelStyle,
   Math as CesiumMath,
   Matrix4,
   PerInstanceColorAppearance,
-  PointPrimitiveCollection,
   Primitive,
   SceneTransforms,
   ScreenSpaceEventHandler,
@@ -45,9 +45,8 @@ import {
   VerticalOrigin,
   Viewer,
   createGooglePhotorealistic3DTileset,
+  type Billboard,
   type Cesium3DTileset,
-  type Label,
-  type PointPrimitive,
 } from 'cesium'
 import { config } from '@/config'
 import type { LonLat } from '@/lib/geo'
@@ -115,13 +114,13 @@ interface TramEntityRecord {
 }
 
 interface StopEntityRecord {
-  /** Disc marker (own PointPrimitiveCollection, drawn below all labels). */
-  point: PointPrimitive
-  /** Name label (own LabelCollection, drawn above all discs). */
-  label: Label
+  /** Disc marker – a billboard in stopBillboards, added before all names. */
+  disc: Billboard
+  /** Name plate – a billboard in stopBillboards, added after all discs. */
+  label: Billboard
   /**
-   * Half the rendered label width in CSS px including the outline – the
-   * screen-space rectangle for the label declutter.
+   * Half the rendered name plate width in CSS px – the screen-space
+   * rectangle for the label declutter.
    */
   labelHalfWidth: number
   lon: number
@@ -189,11 +188,15 @@ const STOP_DISC_RANGE = 9000
 /** Camera distance in meters up to which stop name labels are drawn. */
 const STOP_LABEL_RANGE = 2600
 
-/** Font of the stop name labels (also used to measure declutter widths). */
-const STOP_LABEL_FONT = '13px "Inter Variable", system-ui, sans-serif'
+/** Rendered size of a stop disc in CSS px (fill + outline). */
+const STOP_DISC_SIZE = 11
 
-/** Approximate rendered stop label height in CSS px (13 px font + outline). */
-const STOP_LABEL_HEIGHT = 16
+/** Font size of the stop name plates in CSS px. */
+const STOP_LABEL_FONT_SIZE = 13
+const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
+
+/** Canvas height of a stop name plate in CSS px (font + outline). */
+const STOP_LABEL_HEIGHT = 20
 
 /** Vertical anchor offset of a stop label above its disc in CSS px. */
 const STOP_LABEL_OFFSET_Y = -16
@@ -383,23 +386,22 @@ export class CesiumMap {
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
   /**
-   * Stop discs and name labels live in own collections instead of entity
-   * graphics: both render depth-clamped to the near plane
-   * (disableDepthTestDistance), where only the draw order of the
-   * collections decides what overlaps what – and the entity visualizers
-   * give no order guarantee, which left discs covering neighboring stop
-   * names. The disc collection is inserted before the label collection,
-   * so every label draws above every disc.
+   * Discs AND name plates of all stops in one purely translucent billboard
+   * collection. Both are depth-clamped to the near plane
+   * (disableDepthTestDistance), where opaque passes write depth and the
+   * per-frame command sort – not the primitive list – decides what covers
+   * what, which left discs over neighboring stop names. Within a single
+   * translucent command, fragments instead blend strictly in add order:
+   * all discs first, every name after them, so names always draw on top.
+   * (Tram badges stay above both: their opaque entity billboards write
+   * near-plane depth this depth-tested collection cannot pass.)
    */
-  private stopPoints: PointPrimitiveCollection | null = null
-  private stopLabels: LabelCollection | null = null
+  private stopBillboards: BillboardCollection | null = null
   private stopRecords: StopEntityRecord[] = []
   /** A stop changed (position, visibility) – the label declutter must rerun. */
   private stopLabelsDirty = true
   /** Camera view matrix of the last declutter pass (all zeros = never ran). */
   private declutterViewMatrix = new Matrix4()
-  /** Shared 2D context for measuring stop label widths (declutter rects). */
-  private measureCtx: CanvasRenderingContext2D | null = null
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
@@ -751,17 +753,17 @@ export class CesiumMap {
    * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
-    // Insert at the front of the primitive list: discs (index 0) before
-    // labels (index 1) puts every stop name above every disc, and both
-    // below the tram badges (entity billboards, added at viewer
-    // construction and thus drawn after these). See stopPoints/stopLabels.
-    const points = new PointPrimitiveCollection()
-    const labels = new LabelCollection()
-    this.viewer.scene.primitives.add(points, 0)
-    this.viewer.scene.primitives.add(labels, 1)
-    this.stopPoints = points
-    this.stopLabels = labels
+    // One shared billboard collection for discs AND name plates, rendered
+    // purely translucent – see stopBillboards for why the add order inside
+    // a single collection is the only reliable overlap order. The names
+    // are pre-rendered to canvases (like the tram badges); Cesium's Label
+    // primitives would live in their own collection again and lose the
+    // ordering guarantee.
+    const billboards = new BillboardCollection({ blendOption: BlendOption.TRANSLUCENT })
+    this.viewer.scene.primitives.add(billboards)
+    this.stopBillboards = billboards
 
+    const unique: { id: string; name: string; lon: number; lat: number; nhn?: number }[] = []
     const seen = new Set<string>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
@@ -769,59 +771,116 @@ export class CesiumMap {
           if (seen.has(stop.id)) continue
           seen.add(stop.id)
           const [lon, lat] = stop.coord
-          const position = Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight + 0.5)
-          const point = points.add({
-            id: `stop:${stop.id}`,
-            position,
-            pixelSize: 7,
-            color: Color.fromCssColorString('#f8fafc'),
-            outlineColor: Color.fromCssColorString('#334155'),
-            outlineWidth: 2,
-            distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
-            disableDepthTestDistance: 3000,
-          })
-          const label = labels.add({
-            id: `stop:${stop.id}`,
-            position,
-            text: stop.name,
-            font: STOP_LABEL_FONT,
-            fillColor: Color.fromCssColorString('#e2e8f0'),
-            outlineColor: Color.fromCssColorString('#0f172a'),
-            outlineWidth: 3,
-            style: LabelStyle.FILL_AND_OUTLINE,
-            horizontalOrigin: HorizontalOrigin.CENTER,
-            verticalOrigin: VerticalOrigin.BOTTOM,
-            pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
-            distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
-            disableDepthTestDistance: 3000,
-          })
-          this.stopRecords.push({
-            point,
-            label,
-            // Outline (3 px) sticks out on both sides of the measured text
-            labelHalfWidth: this.measureStopLabelWidth(stop.name) / 2 + 3,
-            lon,
-            lat,
-            position: Cartesian3.fromDegrees(lon, lat, this.defaultGroundHeight),
-            sampledFrom: Number.POSITIVE_INFINITY,
-            retryAfter: 0,
-            nhn: stop.nhn,
-          })
+          unique.push({ id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn })
         }
       }
     }
+
+    const positions = unique.map((stop) =>
+      Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight + 0.5),
+    )
+
+    // First pass: all discs (one shared image via a fixed imageId).
+    // In environments without a 2D canvas (jsdom) the billboards simply
+    // carry no image – nothing renders there anyway.
+    const discImage = this.stopDiscImage()
+    const discs = unique.map((stop, i) => {
+      const disc = billboards.add({
+        id: `stop:${stop.id}`,
+        position: positions[i],
+        width: STOP_DISC_SIZE,
+        height: STOP_DISC_SIZE,
+        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
+        disableDepthTestDistance: 3000,
+      })
+      if (discImage) disc.setImage('mrt:stop-disc', discImage)
+      return disc
+    })
+
+    // Second pass: every name plate after every disc
+    unique.forEach((stop, i) => {
+      const plate = this.stopNameplate(stop.name)
+      const label = billboards.add({
+        id: `stop:${stop.id}`,
+        position: positions[i],
+        image: plate?.canvas,
+        width: plate?.width,
+        height: plate?.height,
+        horizontalOrigin: HorizontalOrigin.CENTER,
+        verticalOrigin: VerticalOrigin.BOTTOM,
+        pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
+        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
+        disableDepthTestDistance: 3000,
+      })
+      this.stopRecords.push({
+        disc: discs[i],
+        label,
+        labelHalfWidth: plate ? plate.width / 2 : stop.name.length * 3.5,
+        lon: stop.lon,
+        lat: stop.lat,
+        position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight),
+        sampledFrom: Number.POSITIVE_INFINITY,
+        retryAfter: 0,
+        nhn: stop.nhn,
+      })
+    })
     this.stopLabelsDirty = true
     this.requestRender()
   }
 
-  /** Rendered width of a stop label in CSS px (jsdom: rough estimate). */
-  private measureStopLabelWidth(text: string): number {
-    if (!this.measureCtx && typeof document !== 'undefined') {
-      this.measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    if (!this.measureCtx) return text.length * 7
-    this.measureCtx.font = STOP_LABEL_FONT
-    return this.measureCtx.measureText(text).width
+  /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
+  private stopDiscImage(): HTMLCanvasElement | undefined {
+    if (typeof document === 'undefined') return undefined
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+    const ratio = this.effectivePixelRatio
+    const size = Math.round(STOP_DISC_SIZE * ratio)
+    canvas.width = size
+    canvas.height = size
+    const center = size / 2
+    ctx.beginPath()
+    // Stroke is centered on the arc – pull the radius in by half of it
+    ctx.arc(center, center, center - ratio, 0, 2 * Math.PI)
+    ctx.fillStyle = '#f8fafc'
+    ctx.fill()
+    ctx.lineWidth = 2 * ratio
+    ctx.strokeStyle = '#334155'
+    ctx.stroke()
+    return canvas
+  }
+
+  /**
+   * Renders a stop name (outlined text, same look as the previous Label
+   * primitives) to a canvas at the drawing-buffer pixel ratio. Returns
+   * undefined where no 2D canvas is available (jsdom).
+   */
+  private stopNameplate(
+    name: string,
+  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
+    if (typeof document === 'undefined') return undefined
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+    const ratio = this.effectivePixelRatio
+    const font = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
+    ctx.font = font
+    const textWidth = ctx.measureText(name).width
+    const padX = 4 * ratio
+    const height = Math.round(STOP_LABEL_HEIGHT * ratio)
+    const width = Math.ceil(textWidth + 2 * padX)
+    canvas.width = width
+    canvas.height = height
+    ctx.font = font
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 3 * ratio
+    ctx.strokeStyle = '#0f172a'
+    ctx.strokeText(name, width / 2, height / 2)
+    ctx.fillStyle = '#e2e8f0'
+    ctx.fillText(name, width / 2, height / 2)
+    return { canvas, width: width / ratio, height: height / ratio }
   }
 
   /**
@@ -833,7 +892,7 @@ export class CesiumMap {
    * changed (stopLabelsDirty) – an idle scene pays nothing.
    */
   private declutterStopLabels(): void {
-    if (!this.stopLabels || !this.stopLabels.show || this.stopRecords.length === 0) return
+    if (!this.stopBillboards || !this.stopBillboards.show || this.stopRecords.length === 0) return
     const camera = this.viewer.camera
     if (
       !this.stopLabelsDirty &&
@@ -855,7 +914,7 @@ export class CesiumMap {
       if (distance > STOP_LABEL_RANGE) continue
       const windowPosition = SceneTransforms.worldToWindowCoordinates(
         scene,
-        record.point.position,
+        record.disc.position,
         windowScratch,
       )
       if (!windowPosition) continue
@@ -945,7 +1004,7 @@ export class CesiumMap {
       }
       stop.sampledFrom = nearestDistances[i]
       const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
-      stop.point.position = lifted
+      stop.disc.position = lifted
       stop.label.position = lifted
       this.stopLabelsDirty = true
       this.requestRender()
@@ -983,8 +1042,7 @@ export class CesiumMap {
   }
 
   setStopsVisible(visible: boolean): void {
-    if (this.stopPoints) this.stopPoints.show = visible
-    if (this.stopLabels) this.stopLabels.show = visible
+    if (this.stopBillboards) this.stopBillboards.show = visible
     this.stopLabelsDirty = true
     this.requestRender()
   }
@@ -1044,7 +1102,7 @@ export class CesiumMap {
           // camera-dependent sampling in resolveStopHeights() leaves it alone.
           stop.sampledFrom = 0
           const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5)
-          stop.point.position = lifted
+          stop.disc.position = lifted
           stop.label.position = lifted
           this.stopLabelsDirty = true
         })
