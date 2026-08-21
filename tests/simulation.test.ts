@@ -92,3 +92,25 @@ describe('Simulation with the Rostock network', () => {
     },
   )
 })
+
+describe('terrain heights in snapshots', () => {
+  const network = loadBundledNetwork()
+  const sim = new Simulation(network, new SimClock())
+
+  it('every vehicle carries an interpolated NHN height from its route profile', () => {
+    const snapshots = sim.snapshotsAt(12 * 3600)
+    expect(snapshots.length).toBeGreaterThan(0)
+    for (const s of snapshots) {
+      // The bundled dataset has DGM heights for all directions; Rostock
+      // terrain spans roughly -7…55 m NHN (ferries ride at 0).
+      expect(s.nhn, `${s.lineId} without nhn`).toBeDefined()
+      expect(s.nhn!).toBeGreaterThan(-10)
+      expect(s.nhn!).toBeLessThan(60)
+    }
+  })
+
+  it('ferries ride at sea level', () => {
+    const snapshots = sim.snapshotsAt(12 * 3600).filter((s) => s.mode === 'ferry')
+    for (const s of snapshots) expect(s.nhn).toBe(0)
+  })
+})
