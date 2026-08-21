@@ -6,7 +6,9 @@
  *   npm run data:gtfs
  *
  * Environment variables:
- *   GTFS_URL   – GTFS zip URL (default: https://download.gtfs.de/germany/nv_free/latest.zip)
+ *   GTFS_URL   – GTFS zip URL (default: https://download.gtfs.de/germany/free/latest.zip,
+ *                the FULL Germany feed – the smaller nv_free local-transit
+ *                split excludes rail and thus the S-Bahn).
  *                Alternatively the official VVW feed can be used here
  *                (registration: https://www.verkehrsverbund-warnow.de/service/open-data.html)
  *   GTFS_FILE  – local path to an already downloaded GTFS zip
@@ -29,7 +31,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../src/data/schedule.json')
 const NETWORK_JSON = resolve(__dirname, '../src/data/network.json')
 const CACHE_DIR = resolve(__dirname, '.cache')
-const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/nv_free/latest.zip'
+// Full feed, not nv_free: gtfs.de sorts S-Bahn schedules into the
+// regional-rail split, so the local-transit feed alone has no trains.
+const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/free/latest.zip'
 
 // Rough bounding box for Rostock to filter the stops
 const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
@@ -37,6 +41,10 @@ const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
 // GTFS route_types per mode of transport (basic and extended types)
 const ROUTE_TYPES = {
   tram: new Set(['0', '900']),
+  // 2 rail, 106 regional rail, 109 suburban railway – feeds label the
+  // Rostock S-Bahn inconsistently; false positives (an "S1" elsewhere in
+  // Germany) are eliminated by the stop-BBOX filter below.
+  train: new Set(['2', '106', '109']),
   bus: new Set(['3', '700', '704']),
   ferry: new Set(['4', '1000', '1200']),
 }
@@ -46,6 +54,18 @@ const ROUTE_TYPES = {
 // feed carries the Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
 // route_long_name, so name matching alone cannot find them).
 const FERRY_PENDING = '\u0000pending-ferry'
+
+// The gtfs.de feed collapses the Rostock S-Bahn's Güstrow legs into ONE
+// route with the bare short name "S" (no headsigns either). Its trips are
+// told apart by the branch stations they serve OUTSIDE the Rostock box:
+// the S2 runs via Schwaan/Bützow, the S3 via Kavelstorf/Laage. Trips of
+// such routes are held as pending and classified during the stop_times
+// scan; unclassifiable ones are dropped.
+const TRAIN_PENDING = String.fromCharCode(0) + 'pending-train'
+const TRAIN_BRANCH_PROBES = [
+  { lineId: 'S2', pattern: /^(Schwaan|Bützow)\b/ },
+  { lineId: 'S3', pattern: /^(Kavelstorf|Kronskamp|Laage|Plaaz)\b/ },
+]
 
 // Note: a pre-filter via agency.txt would be tempting (a "line 22" exists in
 // dozens of cities) but fails on the feed's operator names (the RSAG is not
@@ -194,7 +214,7 @@ async function main() {
   }
   console.log(
     `network.json: ${networkLines.size} lines (` +
-      ['tram', 'bus', 'ferry']
+      ['tram', 'train', 'bus', 'ferry']
         .map((m) => `${[...networkLines.values()].filter((v) => v === m).length}× ${m}`)
         .join(', ') +
       ')',
@@ -214,12 +234,17 @@ async function main() {
   // ---- stops.txt: stops within the Rostock city area -----------------------
   const rostockStopCoords = new Map() // stop_id → [lon, lat]
   const rostockStopNames = new Map() // stop_id → name (for diagnostics)
+  const trainProbeStops = new Map() // stop_id → lineId (S-Bahn branch, OUTSIDE bbox)
   scanCsv(files['stops.txt'], (get) => {
+    const name = get('stop_name')
+    for (const probe of TRAIN_BRANCH_PROBES) {
+      if (probe.pattern.test(name)) trainProbeStops.set(get('stop_id'), probe.lineId)
+    }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
     if (lon > BBOX.minLon && lon < BBOX.maxLon && lat > BBOX.minLat && lat < BBOX.maxLat) {
       rostockStopCoords.set(get('stop_id'), [lon, lat])
-      rostockStopNames.set(get('stop_id'), get('stop_name'))
+      rostockStopNames.set(get('stop_id'), name)
     }
   })
   const stopsInRostock = rostockStopCoords
@@ -271,6 +296,17 @@ async function main() {
       routeLine.set(get('route_id'), FERRY_PENDING)
       routeAgency.set(get('route_id'), get('agency_id'))
     }
+    // S-Bahn routes whose short name carries no line number ("S"): held as
+    // pending, classified per trip via the branch stations they serve.
+    if (
+      !routeLine.has(get('route_id')) &&
+      ROUTE_TYPES.train.has(type) &&
+      /^S[0-9]{0,2}$/.test(short) &&
+      [...networkLines.values()].includes('train')
+    ) {
+      routeLine.set(get('route_id'), TRAIN_PENDING)
+      routeAgency.set(get('route_id'), get('agency_id'))
+    }
   })
   console.log(
     `${routeLine.size} candidate routes (Germany-wide – the Rostock filter follows via the stops)`,
@@ -294,27 +330,41 @@ async function main() {
   })
   console.log(`${tripInfo.size} candidate trips (${tripsWithDirectionId} with direction_id)`)
 
-  // ---- stop_times.txt: first departure, first/last stop + Rostock relevance
+  // ---- stop_times.txt: first/last stop WITHIN the Rostock bbox ------------
+  // Departure times and geometry anchors deliberately use the in-box
+  // portion of a trip, not its true origin: lines truncated at the map
+  // edge (the S-Bahn at Rostock Hbf – S2/S3 really start in Güstrow,
+  // ~40 minutes earlier) must depart the network at their LOCAL time.
+  // For trips fully inside the box (all RSAG lines) both are identical.
   console.log('Streaming stop_times.txt … (largest file, please wait)')
-  const firstDeparture = new Map() // trip_id → {seq, dep, stopId}
-  const lastStop = new Map() // trip_id → {seq, stopId}
+  const firstRostockStop = new Map() // trip_id → {seq, dep, stopId}
+  const lastRostockStop = new Map() // trip_id → {seq, stopId}
   const tripTouchesRostock = new Set()
+  const tripBranchLine = new Map() // trip_id → lineId (pending S-Bahn trips)
   let rows = 0
   scanCsv(files['stop_times.txt'], (get) => {
     rows++
     if (rows % 10_000_000 === 0) console.log(`  … ${rows / 1e6} million rows`)
     const tripId = get('trip_id')
-    if (!tripInfo.has(tripId)) return
+    const info = tripInfo.get(tripId)
+    if (!info) return
     const stopId = get('stop_id')
-    if (stopsInRostock.has(stopId)) tripTouchesRostock.add(tripId)
-    const seq = Number(get('stop_sequence'))
-    const cur = firstDeparture.get(tripId)
-    if (!cur || seq < cur.seq) {
-      firstDeparture.set(tripId, { seq, dep: get('departure_time'), stopId })
+    // Branch classification for pending S-Bahn trips – their probe
+    // stations lie OUTSIDE the bbox, so check before the Rostock filter.
+    if (info.lineId === TRAIN_PENDING) {
+      const branchLine = trainProbeStops.get(stopId)
+      if (branchLine) tripBranchLine.set(tripId, branchLine)
     }
-    const last = lastStop.get(tripId)
+    if (!stopsInRostock.has(stopId)) return
+    tripTouchesRostock.add(tripId)
+    const seq = Number(get('stop_sequence'))
+    const cur = firstRostockStop.get(tripId)
+    if (!cur || seq < cur.seq) {
+      firstRostockStop.set(tripId, { seq, dep: get('departure_time'), stopId })
+    }
+    const last = lastRostockStop.get(tripId)
     if (!last || seq > last.seq) {
-      lastStop.set(tripId, { seq, stopId })
+      lastRostockStop.set(tripId, { seq, stopId })
     }
   })
   console.log(`Processed ${rows} stop_times rows, ${tripTouchesRostock.size} Rostock trips`)
@@ -339,8 +389,8 @@ async function main() {
     for (const tripId of [...tripTouchesRostock]) {
       const info = tripInfo.get(tripId)
       if (info.lineId !== FERRY_PENDING) continue
-      const from = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
-      const to = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+      const from = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
+      const to = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
       let assigned = null
       if (from && to) {
         for (const pier of ferryPiers) {
@@ -365,6 +415,34 @@ async function main() {
     }
     for (const [lineId, count] of [...resolvedPerLine.entries()].sort()) {
       console.log(`  Ferry line ${lineId}: ${count} trips matched via pier coordinates`)
+    }
+  }
+
+  // ---- Resolve pending S-Bahn trips via their branch stations --------------
+  {
+    const resolvedPerLine = new Map()
+    let droppedTrainTrips = 0
+    for (const tripId of [...tripTouchesRostock]) {
+      const info = tripInfo.get(tripId)
+      if (info.lineId !== TRAIN_PENDING) continue
+      const branchLine = tripBranchLine.get(tripId)
+      if (branchLine && networkLines.has(branchLine)) {
+        info.lineId = branchLine
+        resolvedPerLine.set(branchLine, (resolvedPerLine.get(branchLine) ?? 0) + 1)
+      } else {
+        // No branch station served (e.g. a short working entirely inside
+        // the box) – the line number cannot be told, so stay honest and
+        // drop the trip rather than guessing.
+        droppedTrainTrips++
+        tripTouchesRostock.delete(tripId)
+        tripInfo.delete(tripId)
+      }
+    }
+    for (const [lineId, count] of [...resolvedPerLine.entries()].sort()) {
+      console.log(`  S-Bahn line ${lineId}: ${count} trips matched via branch stations`)
+    }
+    if (droppedTrainTrips > 0) {
+      console.warn(`  ⚠ ${droppedTrainTrips} S-Bahn trips without an identifiable branch dropped`)
     }
   }
 
@@ -564,8 +642,8 @@ async function main() {
     const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
 
     // 1) Travel direction along the line geometry
-    const firstCoord = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
-    const lastCoord = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+    const firstCoord = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
+    const lastCoord = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
     if (firstCoord && lastCoord && targets.path) {
       const a = projectOntoPath(targets.path, targets.cum, firstCoord)
       const b = projectOntoPath(targets.path, targets.cum, lastCoord)
@@ -605,8 +683,8 @@ async function main() {
     if (!targets) return null
     const geo = direction === '1' ? targets.geo1 : { path: targets.path, cum: targets.cum }
     if (!geo?.path || geo.path.length < 2) return null
-    const firstCoord = rostockStopCoords.get(firstDeparture.get(tripId)?.stopId)
-    const lastCoord = rostockStopCoords.get(lastStop.get(tripId)?.stopId)
+    const firstCoord = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
+    const lastCoord = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
     if (!firstCoord || !lastCoord) return null
     const start = projectOntoPath(geo.path, geo.cum, firstCoord)
     const end = projectOntoPath(geo.path, geo.cum, lastCoord)
@@ -643,7 +721,7 @@ async function main() {
   for (const tripId of tripTouchesRostock) {
     const info = tripInfo.get(tripId)
     if (!activeServiceIds.has(info.serviceId)) continue
-    const first = firstDeparture.get(tripId)
+    const first = firstRostockStop.get(tripId)
     if (!first?.dep) continue
 
     let direction
@@ -704,8 +782,8 @@ async function main() {
       const info = tripInfo.get(tripId)
       if (!activeServiceIds.has(info.serviceId)) continue
       const direction = classifyTrip(tripId, info)
-      const from = rostockStopNames.get(firstDeparture.get(tripId)?.stopId) ?? '?'
-      const to = rostockStopNames.get(lastStop.get(tripId)?.stopId) ?? '?'
+      const from = rostockStopNames.get(firstRostockStop.get(tripId)?.stopId) ?? '?'
+      const to = rostockStopNames.get(lastRostockStop.get(tripId)?.stopId) ?? '?'
       const key = `${from} → ${to}`
       endpoints[info.lineId] ??= {}
       const dirMap = (endpoints[info.lineId][direction ?? 'skipped'] ??= new Map())

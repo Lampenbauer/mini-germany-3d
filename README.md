@@ -5,10 +5,11 @@
 [CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
 
-The six RSAG tram lines, some 25 RSAG bus lines, and the two Rostock ferries run
-schedule-based along their real routes through the city – with time-lapse, line
-filters, a stops layer, day/night lighting that follows the simulated time, and
-a UI styled after [shadcn/ui](https://ui.shadcn.com/).
+The six RSAG tram lines, some 25 RSAG bus lines, the three S-Bahn lines on the
+Warnemünde–Rostock Hbf corridor, and the two Rostock ferries run schedule-based
+along their real routes through the city – with time-lapse, line filters, a
+stops layer, day/night lighting that follows the simulated time, and a UI
+styled after [shadcn/ui](https://ui.shadcn.com/).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -21,7 +22,7 @@ a UI styled after [shadcn/ui](https://ui.shadcn.com/).
 | Feature | Details |
 |---------|---------|
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
-| Vehicles as simple boxes on real routes | 3D boxes with line labels and per-mode dimensions (tram 32 m, bus 12 m, ferries their real vessel sizes), schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| Vehicles as simple boxes on real routes | 3D boxes with line labels and per-mode dimensions (tram 32 m, S-Bahn 57 m Talent 2, bus 12 m, ferries their real vessel sizes), schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines draped onto the ground/3D tiles in line colors + stops layer; tunnel sections at reduced opacity |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
@@ -98,14 +99,19 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
   line colors from OSM. An approximated demo dataset can be restored at any time
   with `node scripts/build-approx-network.mjs` – the app then shows a
   "Demo data (approximated)" warning badge (real OSM geometry needs no callout).
-- **Buses & ferries:** `npm run data:update` additionally fetches all
-  **RSAG bus lines** (route=bus with operator RSAG) as well as the two ferries
+- **Buses, S-Bahn & ferries:** `npm run data:update` additionally fetches all
+  **RSAG bus lines** (route=bus with operator RSAG), the **S-Bahn lines S1–S3**
+  (route=train with service=commuter, DB Regio), and the two ferries
   **Kabutzenhof – Gehlsdorf** (OSM relation 56291, 19.9 × 6.6 m) and
-  **Warnemünde – Hohe Düne** (relation 56296, 39 × 11 m). Each line in
-  `network.json` carries its mode of transport (`mode`: `tram`/`bus`/`ferry`),
-  and ferries their real vessel dimensions; the 3D boxes, travel speeds, and
-  synthetic headways adapt accordingly. The line panel groups by mode of
-  transport (with per-group toggles) as soon as more than one is present.
+  **Warnemünde – Hohe Düne** (relation 56296, 39 × 11 m). The S-Bahn routes are
+  **truncated at Rostock Hbf**: S2/S3 really continue to Güstrow, far outside
+  the city map, so only the shared Warnemünde–Hbf corridor is kept and their
+  departures are anchored to the Hbf stop times. Each line in `network.json`
+  carries its mode of transport (`mode`: `tram`/`train`/`bus`/`ferry`), and
+  trains/ferries their real vehicle dimensions (Talent 2, ferry vessels); the
+  3D boxes, travel speeds, and synthetic headways adapt accordingly. The line
+  panel groups by mode of transport (with per-group toggles) as soon as more
+  than one is present.
 - **Tunnels & underground sections:** `data:update` derives per-direction
   tunnel ranges from the OSM tags of each route's member ways (`tunnel=*`,
   `location=underground`, or a negative `layer` – e.g. the tram tunnel under
@@ -134,7 +140,7 @@ npm test               # validates the new datasets
 ```
 
 - `data:update` overwrites `network.json` with the real OSM relations for
-  tram, RSAG bus, and the two ferries
+  tram, S-Bahn (truncated at Rostock Hbf), RSAG bus, and the two ferries
   (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)),
   including tunnel and bridge sections as meter ranges along each path.
 - `data:heights` samples the official digital terrain model of
@@ -149,8 +155,11 @@ npm test               # validates the new datasets
 - `data:gtfs` downloads the free Germany-wide public transport feed from
   [gtfs.de](https://gtfs.de) (DELFI-based) by default. With `GTFS_URL`/`GTFS_FILE`
   the official VVW feed can be used instead. The script looks up timetables for
-  all lines in `network.json` (tram `route_type` 0, bus 3, ferry 4; ferries are
-  matched via the pier names in `route_long_name`). Rostock relevance is
+  all lines in `network.json` (tram `route_type` 0, S-Bahn 2/106/109, bus 3,
+  ferry 4; ferries are matched via the pier names in `route_long_name`).
+  Departure times and direction detection use each trip's first/last stop
+  **within the Rostock bounding box**, so S2/S3 trips from Güstrow depart the
+  truncated network at their real Rostock Hbf times. Rostock relevance is
   established via the stop coordinates; a per-line agency overview in the log
   reveals route-number collisions. Lines without a GTFS match stay off the map
   (they are considered not running that day). **Important:** re-run `data:gtfs`
