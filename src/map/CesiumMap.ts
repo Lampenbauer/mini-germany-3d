@@ -265,6 +265,13 @@ const ROUTE_BASE_LIFT = 0.8
 const ROUTE_LIFT_STEP = 0.15
 const ROUTE_LIFT_SLOTS = 8
 
+/**
+ * Additional lift for ferry route lines in meters: their NHN height is 0,
+ * but the Google mesh's water surface undulates up to ~1 m around the
+ * geoid, which the land-calibrated height offset cannot capture.
+ */
+const FERRY_ROUTE_EXTRA_LIFT = 0.75
+
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
 
@@ -575,7 +582,14 @@ export class CesiumMap {
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
-      const lift = ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP
+      // Ferry lines get extra clearance: their heights are 0 m NHN, but
+      // the water surface in the Google mesh undulates (waves, wakes,
+      // reconstruction noise) up to ~1 m around the geoid, and the
+      // land-calibrated offset does not account for it – without the
+      // extra lift the lines visibly dip into the water tiles.
+      const modeLift = line.mode === 'ferry' ? FERRY_ROUTE_EXTRA_LIFT : 0
+      const lift =
+        ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
 
       const dirs = [line.directions[0]]
       // Only draw the second direction if it has its own geometry or its
