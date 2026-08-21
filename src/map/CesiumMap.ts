@@ -222,6 +222,8 @@ const STOP_DISC_SIZE = 10
 
 /** Font size of the stop name plates in CSS px. */
 const STOP_LABEL_FONT_SIZE = 13
+/** Font size of the serving-lines suffix, e.g. "(1, 5, 25)". */
+const STOP_LABEL_LINES_FONT_SIZE = 11
 const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
 
 /** Canvas height of a stop name plate in CSS px (font + outline). */
@@ -1035,7 +1037,7 @@ export class CesiumMap {
 
     // Second pass: every name plate after every disc
     unique.forEach((stop, i) => {
-      const plate = this.stopNameplate(stop.name)
+      const plate = this.stopNameplate(stop.name, stop.lines)
       const label = billboards.add({
         id: `stop:${stop.id}`,
         position: positions[i],
@@ -1051,7 +1053,9 @@ export class CesiumMap {
       this.stopRecords.push({
         disc: discs[i],
         label,
-        labelHalfWidth: plate ? plate.width / 2 : stop.name.length * 3.5,
+        labelHalfWidth: plate
+          ? plate.width / 2
+          : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
         lines: stop.lines,
         lineVisible: true,
         lon: stop.lon,
@@ -1113,35 +1117,49 @@ export class CesiumMap {
   }
 
   /**
-   * Renders a stop name (outlined text, same look as the previous Label
-   * primitives) to a canvas at the drawing-buffer pixel ratio. Returns
-   * undefined where no 2D canvas is available (jsdom).
+   * Renders a stop name plus the serving lines in parentheses (outlined
+   * text, the lines slightly smaller and dimmer) to a canvas at the
+   * drawing-buffer pixel ratio. Returns undefined where no 2D canvas is
+   * available (jsdom).
    */
   private stopNameplate(
     name: string,
+    lines: string[],
   ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
     if (typeof document === 'undefined') return undefined
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
     if (!ctx) return undefined
     const ratio = this.effectivePixelRatio
-    const font = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
-    ctx.font = font
-    const textWidth = ctx.measureText(name).width
+    const nameFont = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
+    const linesFont = `${Math.round(STOP_LABEL_LINES_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
+    const suffix = lines.length > 0 ? `(${lines.join(', ')})` : ''
+    ctx.font = nameFont
+    const nameWidth = ctx.measureText(name).width
+    ctx.font = linesFont
+    const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
+    const gap = suffix ? 5 * ratio : 0
     const padX = 4 * ratio
     const height = Math.round(STOP_LABEL_HEIGHT * ratio)
-    const width = Math.ceil(textWidth + 2 * padX)
+    const width = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
     canvas.width = width
     canvas.height = height
-    ctx.font = font
-    ctx.textAlign = 'center'
+    ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     ctx.lineJoin = 'round'
     ctx.lineWidth = 3 * ratio
     ctx.strokeStyle = '#0f172a'
-    ctx.strokeText(name, width / 2, height / 2)
+    ctx.font = nameFont
+    ctx.strokeText(name, padX, height / 2)
     ctx.fillStyle = '#e2e8f0'
-    ctx.fillText(name, width / 2, height / 2)
+    ctx.fillText(name, padX, height / 2)
+    if (suffix) {
+      ctx.font = linesFont
+      ctx.strokeText(suffix, padX + nameWidth + gap, height / 2)
+      // Dimmer than the name, so long line lists stay secondary
+      ctx.fillStyle = '#b7c2d0'
+      ctx.fillText(suffix, padX + nameWidth + gap, height / 2)
+    }
     return { canvas, width: width / ratio, height: height / ratio }
   }
 
