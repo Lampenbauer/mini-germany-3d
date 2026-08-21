@@ -170,13 +170,15 @@ describe('Cesium tunnel rendering', () => {
         },
       },
     })
+    // A box-body mode: tram/train use glTF models, whose appearance path
+    // has no appearance/render state (covered by the model branch).
     const snapshot: TramSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
       lineName: 'Tunnellinie',
       color: '#ff0000',
-      mode: 'tram',
-      vehicle: config.vehicles.tram,
+      mode: 'bus',
+      vehicle: config.vehicles.bus,
       direction: 0,
       lon: 12.1,
       lat: 54.0,

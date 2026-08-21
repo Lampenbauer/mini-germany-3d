@@ -18,6 +18,7 @@ import {
   Cartographic,
   ClassificationType,
   Color,
+  ColorBlendMode,
   ColorGeometryInstanceAttribute,
   ColorMaterialProperty,
   ConstantPositionProperty,
@@ -36,7 +37,9 @@ import {
   JulianDate,
   LabelStyle,
   Math as CesiumMath,
+  Matrix3,
   Matrix4,
+  Model,
   PerInstanceColorAppearance,
   Primitive,
   SceneTransforms,
@@ -51,7 +54,7 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import type { LonLat } from '@/lib/geo'
-import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
+import type { PreparedDirection, PreparedNetwork, TransitMode } from '@/data/network-types'
 import type { TramSnapshot } from '@/engine/simulation'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 
@@ -81,26 +84,47 @@ export interface CesiumMapOptions {
 
 interface TramEntityRecord {
   /**
-   * The vehicle body as a Primitive with a direct modelMatrix: position
-   * updates take effect immediately. (Entity boxes rebuild their geometry
-   * asynchronously on every position change – under continuous movement this
-   * rebuild starves as soon as the render rate drops to tick level, and the
-   * boxes visibly freeze.)
+   * The vehicle body with a direct modelMatrix: position updates take
+   * effect immediately. (Entity boxes rebuild their geometry
+   * asynchronously on every position change – under continuous movement
+   * this rebuild starves as soon as the render rate drops to tick level,
+   * and the boxes visibly freeze.) Modes with a glTF model use a Model
+   * primitive instead of the box; while its async load is in flight the
+   * body is null and only the badge marks the vehicle.
    */
-  primitive: Primitive
-  /** Reused modelMatrix of the primitive (updated in place). */
+  primitive: Primitive | null
+  /** Body is a glTF consist (see VEHICLE_MODELS) instead of a colored box. */
+  isModelBody: boolean
+  /**
+   * Wagon models of a glTF body in consist order; slots stay undefined
+   * while their async load is in flight. Empty for box bodies.
+   */
+  models: (Model | undefined)[]
+  /** Live modelMatrix instances of the wagons (updated in place). */
+  modelMatrices: (Matrix4 | undefined)[]
+  /** Per-wagon travel-axis offset from the vehicle center in meters. */
+  wagonOffsets: number[]
+  /** Per-wagon 180° flip (rear cab cars face backwards). */
+  wagonFlips: boolean[]
+  /** Uniform model scale (VEHICLE_MODELS.scale). 0 for box bodies. */
+  modelScale: number
+  /**
+   * Base pose of the vehicle (position + heading, unscaled): the box
+   * primitive's live matrix, or the per-tick source the wagon matrices
+   * are composed from.
+   */
   matrix: Matrix4
   /** Entity for the number label (billboard path, updates without rebuild). */
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
   baseColor: Color
   /**
-   * Shared appearance of the body primitive. Tunnel transitions only toggle
-   * its `translucent` flag – the primitive picks that up per frame
-   * (isTranslucent()) and rebuilds just its render state, no new
-   * appearance/shader per transition.
+   * Shared appearance of the body primitive (box bodies only, null for
+   * model bodies). Tunnel transitions only toggle its `translucent` flag –
+   * the primitive picks that up per frame (isTranslucent()) and rebuilds
+   * just its render state, no new appearance/shader per transition.
    */
-  appearance: PerInstanceColorAppearance
+  appearance: PerInstanceColorAppearance | null
   /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
   inTunnel: boolean
   /** Vehicle is the current selection (body brightened). */
@@ -257,6 +281,63 @@ const TRAM_VISIBLE_RANGE = 20_000
  * still reads fine, so only the label stays up to TRAM_VISIBLE_RANGE.
  */
 const TRAM_BODY_VISIBLE_RANGE = 3_000
+
+interface VehicleModelSpec {
+  /** Uniform scale (tuned visually against the photo tiles). */
+  scale: number
+  /**
+   * Model-space distance from origin to wheel bottom – times scale it
+   * puts the wheels on the road.
+   */
+  baseLift: number
+  /** Gap between wagons in meters. */
+  gap: number
+  /**
+   * Consist front to back. length = model length in model units (from the
+   * glTF bounds); flipped wagons face backwards (rear cab cars).
+   */
+  wagons: { uri: string; length: number; flipped?: boolean }[]
+}
+
+/**
+ * glTF vehicle models (Kenney Train Kit, CC0 – see
+ * public/models/LICENSE-kenney-train-kit.txt). Modes without an entry
+ * keep the colored box. A single Kenney wagon is stylized-short, so
+ * vehicles are drawn as consists of several wagons at natural
+ * proportions: the tram as three coupled units, the S-Bahn as cab car +
+ * middle coach + rear cab car (flipped). The models are tinted in the
+ * line color (see applyTramAppearance).
+ */
+const VEHICLE_MODELS: Partial<Record<TransitMode, VehicleModelSpec>> = {
+  tram: {
+    scale: 3.4,
+    baseLift: 0.36,
+    gap: 0.4,
+    wagons: [
+      { uri: 'models/tram.glb', length: 2.69 },
+      { uri: 'models/tram.glb', length: 2.69 },
+      { uri: 'models/tram.glb', length: 2.69 },
+    ],
+  },
+  train: {
+    scale: 3.6,
+    baseLift: 0.36,
+    gap: 0.5,
+    wagons: [
+      { uri: 'models/sbahn.glb', length: 2.5 },
+      { uri: 'models/sbahn-mid.glb', length: 2.64 },
+      { uri: 'models/sbahn-mid.glb', length: 2.64 },
+      { uri: 'models/sbahn.glb', length: 2.5, flipped: true },
+    ],
+  },
+}
+
+/** How strongly the line color covers the model's own livery (0–1). */
+const MODEL_TINT_AMOUNT = 0.5
+
+// Scratches for the per-tick wagon pose composition.
+const wagonTranslationScratch = new Cartesian3()
+const wagonFlipMatrix = Matrix4.fromRotationTranslation(Matrix3.fromRotationZ(Math.PI))
 
 /**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
@@ -592,6 +673,10 @@ export class CesiumMap {
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       if (e.buttons !== 0) this.noteInteraction()
     })
+
+    // CC0 requires no attribution – naming the vehicle-model author in the
+    // credit line is a courtesy.
+    this.viewer.creditDisplay.addStaticCredit(new Credit('Vehicle models: Kenney.nl', false))
 
     // Camera change events for the URL persistence. The default
     // percentageChanged (0.5) only fires on huge jumps – 1 % keeps every
@@ -1535,17 +1620,33 @@ export class CesiumMap {
         undefined,
         record.matrix,
       )
-      // The body box is only drawn close up; the number label carries the
+      // glTF consists: compose each wagon pose from the fresh base pose
+      for (let k = 0; k < record.modelMatrices.length; k++) {
+        const wagonMatrix = record.modelMatrices[k]
+        if (wagonMatrix) this.composeWagonMatrix(record, k, wagonMatrix)
+      }
+      // The body is only drawn close up; the number label carries the
       // vehicle out to TRAM_VISIBLE_RANGE. (Checked here on the CPU – a
       // DistanceDisplayCondition attribute on the Primitive measures from
       // the instance matrix, which is identity for these boxes since the
       // position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < TRAM_BODY_VISIBLE_RANGE
-      if (record.primitive.show !== showBody || record.labelEntity.show !== show) {
+      let visibilityChanged = false
+      if (record.primitive && record.primitive.show !== showBody) {
         record.primitive.show = showBody
-        record.labelEntity.show = show
-        this.renderRequested = true
+        visibilityChanged = true
       }
+      for (const model of record.models) {
+        if (model && model.show !== showBody) {
+          model.show = showBody
+          visibilityChanged = true
+        }
+      }
+      if (record.labelEntity.show !== show) {
+        record.labelEntity.show = show
+        visibilityChanged = true
+      }
+      if (visibilityChanged) this.renderRequested = true
 
       if (followed) {
         this.updateFollowCamera(snap.lon, snap.lat)
@@ -1556,7 +1657,12 @@ export class CesiumMap {
       if (!alive.has(id)) {
         if (id === this.followId) this.setFollow(null)
         this.viewer.entities.remove(record.labelEntity)
-        this.viewer.scene.primitives.remove(record.primitive)
+        // Wagons may still be loading (attachWagon then destroys the late
+        // arrivals itself).
+        if (record.primitive) this.viewer.scene.primitives.remove(record.primitive)
+        for (const model of record.models) {
+          if (model) this.viewer.scene.primitives.remove(model)
+        }
         this.trams.delete(id)
         this.renderRequested = true
       }
@@ -1701,8 +1807,11 @@ export class CesiumMap {
 
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
-    const halfHeight = snap.vehicle.height / 2
-    // Vehicles on a tunnel section start as 40 % ghosts right away.
+    const modelSpec = VEHICLE_MODELS[snap.mode]
+    // Model bodies: origin-to-wheel distance instead of half the box
+    // height, so the shared position formula puts the wheels on the road.
+    const halfHeight = modelSpec ? modelSpec.scale * modelSpec.baseLift : snap.vehicle.height / 2
+    // Vehicles on a tunnel section start as ghosts right away.
     const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
@@ -1714,36 +1823,56 @@ export class CesiumMap {
       initialPosition,
       new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
     )
-    // The base render state stays opaque; only the mutable `translucent`
-    // flag switches blending on/off. (A base state built as translucent
-    // would keep its blending even after toggling the flag back off.)
-    const appearance = new PerInstanceColorAppearance({ closed: true, translucent: false })
-    appearance.translucent = snap.inTunnel
-    const primitive = new Primitive({
-      geometryInstances: new GeometryInstance({
-        geometry: BoxGeometry.fromDimensions({
-          vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
-          // Vehicle dimensions per line: tram/bus/ferry differ noticeably
-          dimensions: new Cartesian3(
-            snap.vehicle.length,
-            snap.vehicle.width,
-            snap.vehicle.height,
-          ),
+
+    let primitive: Primitive | null = null
+    let appearance: PerInstanceColorAppearance | null = null
+    // Consist layout: wagon centers along the travel axis, vehicle center
+    // at the pose origin (front wagon at positive X).
+    const wagonOffsets: number[] = []
+    const wagonFlips: boolean[] = []
+    if (modelSpec) {
+      const lengths = modelSpec.wagons.map((w) => w.length * modelSpec.scale)
+      const total =
+        lengths.reduce((sum, l) => sum + l, 0) + modelSpec.gap * (modelSpec.wagons.length - 1)
+      let consumed = 0
+      modelSpec.wagons.forEach((wagon, index) => {
+        wagonOffsets.push(total / 2 - consumed - lengths[index] / 2)
+        wagonFlips.push(wagon.flipped === true)
+        consumed += lengths[index] + modelSpec.gap
+      })
+    } else {
+      // The base render state stays opaque; only the mutable `translucent`
+      // flag switches blending on/off. (A base state built as translucent
+      // would keep its blending even after toggling the flag back off.)
+      appearance = new PerInstanceColorAppearance({ closed: true, translucent: false })
+      appearance.translucent = snap.inTunnel
+      primitive = new Primitive({
+        geometryInstances: new GeometryInstance({
+          geometry: BoxGeometry.fromDimensions({
+            vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
+            // Vehicle dimensions per line: tram/bus/ferry differ noticeably
+            dimensions: new Cartesian3(
+              snap.vehicle.length,
+              snap.vehicle.width,
+              snap.vehicle.height,
+            ),
+          }),
+          attributes: {
+            color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
+          },
+          id: `tram:${snap.id}`,
         }),
-        attributes: {
-          color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
-        },
-        id: `tram:${snap.id}`,
-      }),
-      appearance,
-      asynchronous: false,
-      modelMatrix: matrix,
-    })
-    this.viewer.scene.primitives.add(primitive)
+        appearance,
+        asynchronous: false,
+        modelMatrix: matrix,
+      })
+      this.viewer.scene.primitives.add(primitive)
+    }
     // IMPORTANT: Primitive CLONES the modelMatrix passed in – for the
     // in-place updates in syncTrams, the primitive's own instance must be
-    // referenced, otherwise the vehicle bodies never move.
-    const liveMatrix = primitive.modelMatrix
+    // referenced, otherwise the vehicle bodies never move. (Model bodies
+    // rebind in attachVehicleModel for the same reason.)
+    const liveMatrix = primitive ? primitive.modelMatrix : matrix
 
     const labelPosition = new ConstantPositionProperty(initialPosition)
     // Badge like in the line panel: line number on a rounded rectangle in
@@ -1782,8 +1911,14 @@ export class CesiumMap {
           }),
     })
 
-    return {
+    const record: TramEntityRecord = {
       primitive,
+      isModelBody: modelSpec !== undefined,
+      models: [],
+      modelMatrices: [],
+      wagonOffsets,
+      wagonFlips,
+      modelScale: modelSpec?.scale ?? 0,
       matrix: liveMatrix,
       labelEntity,
       labelPosition,
@@ -1791,13 +1926,76 @@ export class CesiumMap {
       appearance,
       inTunnel: snap.inTunnel,
       highlighted: false,
-      appearanceDirty: false,
+      // Model bodies apply tint/tunnel ghost once the wagons attached
+      appearanceDirty: modelSpec !== undefined,
       halfHeight,
       bearing: snap.bearing,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
       lastPosition: Cartesian3.clone(initialPosition),
     }
+    if (modelSpec) {
+      modelSpec.wagons.forEach((wagon, index) => {
+        void this.attachWagon(record, snap.id, wagon.uri, index)
+      })
+    }
+    return record
+  }
+
+  /**
+   * Loads one wagon of a vehicle's glTF consist and attaches it to its
+   * record slot. Geometry and textures are shared across all vehicles via
+   * Cesium's ResourceCache, so only the first load per file costs
+   * anything. Until every wagon arrived, appearanceDirty keeps the
+   * tint/ghost application retrying.
+   */
+  private async attachWagon(
+    record: TramEntityRecord,
+    tramId: string,
+    uri: string,
+    index: number,
+  ): Promise<void> {
+    let model: Model
+    try {
+      model = await Model.fromGltfAsync({
+        url: `${import.meta.env.BASE_URL}${uri}`,
+        id: `tram:${tramId}`,
+        modelMatrix: this.composeWagonMatrix(record, index, new Matrix4()),
+      })
+    } catch (error) {
+      console.warn('[MiniRostock3D] Vehicle model failed to load:', error)
+      return
+    }
+    // The trip may have ended (or the map been destroyed) during the load
+    if (this.destroyed || this.trams.get(tramId) !== record) {
+      model.destroy()
+      return
+    }
+    model.colorBlendMode = ColorBlendMode.MIX
+    model.colorBlendAmount = MODEL_TINT_AMOUNT
+    this.viewer.scene.primitives.add(model)
+    // fromGltfAsync clones the matrix – rebind so the in-place pose
+    // updates in syncTrams reach the model.
+    record.models[index] = model
+    record.modelMatrices[index] = model.modelMatrix
+    record.appearanceDirty = true
+    this.requestRender()
+  }
+
+  /** Wagon pose: vehicle base pose → travel-axis offset → flip → scale. */
+  private composeWagonMatrix(
+    record: TramEntityRecord,
+    index: number,
+    result: Matrix4,
+  ): Matrix4 {
+    Matrix4.clone(record.matrix, result)
+    Matrix4.multiplyByTranslation(
+      result,
+      Cartesian3.fromElements(record.wagonOffsets[index], 0, 0, wagonTranslationScratch),
+      result,
+    )
+    if (record.wagonFlips[index]) Matrix4.multiply(result, wagonFlipMatrix, result)
+    return Matrix4.multiplyByUniformScale(result, record.modelScale, result)
   }
 
   /**
@@ -1809,7 +2007,7 @@ export class CesiumMap {
   private applyTramAppearance(tramId: string): boolean {
     const record = this.trams.get(tramId)
     if (!record) return true
-    record.appearance.translucent = record.inTunnel
+    if (record.appearance) record.appearance.translucent = record.inTunnel
     const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
     // Badge billboard: dim the whole badge via the color multiplier; the
     // text-label fallback (no canvas) dims fill and outline instead.
@@ -1822,8 +2020,30 @@ export class CesiumMap {
       label.fillColor = new ConstantProperty(Color.WHITE.withAlpha(alpha))
       label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
     }
+    if (record.isModelBody) {
+      // glTF consist: tinted in the line color (colorBlendMode MIX, set at
+      // attach) like the boxes were; the alpha carries the tunnel
+      // ghosting, selection brightens the tint and adds a silhouette.
+      const tint = record.highlighted
+        ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
+        : record.baseColor
+      let complete = true
+      for (let k = 0; k < record.wagonOffsets.length; k++) {
+        const model = record.models[k]
+        if (!model) {
+          complete = false // wagon still loading – retried via appearanceDirty
+          continue
+        }
+        model.color = tint.withAlpha(alpha)
+        model.silhouetteColor = Color.WHITE
+        model.silhouetteSize = record.highlighted ? 2.5 : 0
+      }
+      return complete
+    }
     try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const attributes = (record.primitive as Primitive).getGeometryInstanceAttributes(
+        `tram:${tramId}`,
+      )
       if (!attributes) return false
       const color = record.highlighted
         ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
@@ -2007,21 +2227,29 @@ export class CesiumMap {
     for (const record of this.trams.values()) {
       const labelPos = record.labelPosition.getValue(this.viewer.clock.currentTime)
       if (!labelPos) continue
-      const dx = record.primitive.modelMatrix[12] - labelPos.x
-      const dy = record.primitive.modelMatrix[13] - labelPos.y
-      const dz = record.primitive.modelMatrix[14] - labelPos.z
+      // record.matrix is the live body matrix (box primitive or glTF model)
+      const dx = record.matrix[12] - labelPos.x
+      const dy = record.matrix[13] - labelPos.y
+      const dz = record.matrix[14] - labelPos.z
       const drift = Math.sqrt(dx * dx + dy * dy + dz * dz)
       if (drift > maxDrift) maxDrift = drift
     }
     return maxDrift
   }
 
-  /** Debug/tests: color-attribute opacity currently applied to a vehicle body. */
+  /** Debug/tests: opacity currently applied to a vehicle body. */
   getTramOpacity(tramId: string): number | null {
     const record = this.trams.get(tramId)
     if (!record) return null
+    if (record.isModelBody) {
+      const model = record.models.find((m) => m !== undefined)
+      // null while the async wagon loads are in flight
+      return model ? (model.color?.alpha ?? 1) : null
+    }
     try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const attributes = (record.primitive as Primitive).getGeometryInstanceAttributes(
+        `tram:${tramId}`,
+      )
       const alpha = attributes?.color?.[3]
       return typeof alpha === 'number' ? alpha / 255 : null
     } catch {
