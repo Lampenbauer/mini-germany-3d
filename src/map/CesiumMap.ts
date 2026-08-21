@@ -328,6 +328,24 @@ const FOLLOW_RANGE = 150
 const FOLLOW_FLIGHT_SECONDS = 1.4
 
 /**
+ * Per-update easing of the chase heading toward the travel bearing
+ * (~0.25 s time constant at the 30 fps tick). The bearing jumps at path
+ * segment boundaries – applying it directly would visibly snap the view.
+ */
+const FOLLOW_CHASE_EASE = 0.12
+
+/**
+ * Deviations beyond these thresholds between the camera pose and the pose
+ * the chase applied last frame mean the user moved the camera by hand.
+ * Rotating (heading/pitch) disengages the chase; a pure range change is
+ * zooming and is adopted into the chase instead. Radians for angles,
+ * relative for the range; generous against floating-point noise, far
+ * below any real mouse input.
+ */
+const CHASE_BREAK_ANGLE = 0.003
+const CHASE_BREAK_RANGE_RATIO = 0.01
+
+/**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
  * them are rendered at 40 % of their normal opacity.
  */
@@ -418,6 +436,12 @@ export class CesiumMap {
   private followOffset: HeadingPitchRange | null = null
   /** Until this time the approach flight runs and lookAt stays disengaged. */
   private followFlightUntil = 0
+  /**
+   * Chase mode: the camera stays exactly behind the vehicle (heading
+   * follows the travel bearing) until the user moves the camera by hand –
+   * from then on manual orbit/zoom is adopted as before.
+   */
+  private followChase = false
   private googleTileset: Cesium3DTileset | null = null
   /** Most recently measured plausible ground height – initial value for new trams. */
   private defaultGroundHeight: number
@@ -1703,6 +1727,7 @@ export class CesiumMap {
   setFollow(tramId: string | null): void {
     this.followId = tramId
     this.followOffset = null
+    this.followChase = tramId !== null
     if (!tramId) {
       // Also abort a still-running approach flight (e.g. "Stop following"
       // clicked mid-flight), otherwise it lands on the abandoned vehicle.
@@ -1728,9 +1753,17 @@ export class CesiumMap {
         carto.latitude,
         record.groundHeight + record.halfHeight * 2 + 2,
       )
-      this.followFlightUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000
+      // The tween only ends with its complete/cancel callback – under slow
+      // rendering that can be well after the nominal duration, and a tween
+      // frame landing after the lookAt hand-over would move the camera and
+      // trip the chase's manual-input detection. The timestamp is only a
+      // safety cap for a tween whose callbacks never fire.
+      this.followFlightUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000 + 2000
+      const endFlight = () => {
+        this.followFlightUntil = 0
+      }
       // Render at full rate during the flight (see getRenderHints)
-      this.flyingUntil = this.followFlightUntil + 200
+      this.flyingUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000 + 200
       this.viewer.camera.flyToBoundingSphere(new BoundingSphere(center, 0), {
         duration: FOLLOW_FLIGHT_SECONDS,
         offset: new HeadingPitchRange(
@@ -1738,6 +1771,8 @@ export class CesiumMap {
           CesiumMath.toRadians(FOLLOW_PITCH_DEG),
           FOLLOW_RANGE,
         ),
+        complete: endFlight,
+        cancel: endFlight,
       })
     }
     this.requestRender()
@@ -1758,12 +1793,48 @@ export class CesiumMap {
 
     if (!this.followOffset) {
       // First frame: the approach flight ends in exactly this pose, so the
-      // lookAt hand-over continues seamlessly from it.
+      // lookAt hand-over continues seamlessly from it. A tween that hit the
+      // safety cap without completing must not keep animating into the
+      // engaged lookAt.
+      camera.cancelFlight()
       this.followOffset = new HeadingPitchRange(
         camera.heading,
         CesiumMath.toRadians(FOLLOW_PITCH_DEG),
         FOLLOW_RANGE,
       )
+    } else if (this.followChase) {
+      // Chase: any camera pose that deviates from what the chase applied
+      // last frame must come from the user (drag/zoom between our ticks) –
+      // hand control over to manual orbit for the rest of this follow.
+      const headingMoved =
+        Math.abs(CesiumMath.negativePiToPi(camera.heading - this.followOffset.heading)) >
+        CHASE_BREAK_ANGLE
+      const pitchMoved = Math.abs(camera.pitch - this.followOffset.pitch) > CHASE_BREAK_ANGLE
+      const rangeMoved =
+        Math.abs(Cartesian3.magnitude(camera.position) - this.followOffset.range) >
+        this.followOffset.range * CHASE_BREAK_RANGE_RATIO
+      if (headingMoved || pitchMoved) {
+        this.followChase = false
+        this.followOffset.heading = camera.heading
+        this.followOffset.pitch = camera.pitch
+        this.followOffset.range = Cartesian3.magnitude(camera.position)
+      } else {
+        // Zooming (range change only) does not break the chase: adopt the
+        // new distance and keep trailing the vehicle.
+        if (rangeMoved) {
+          this.followOffset.range = Cartesian3.magnitude(camera.position)
+        }
+        if (record) {
+          // Stay behind the vehicle: ease the heading toward the travel
+          // bearing (it jumps at path segment boundaries).
+          const turn = CesiumMath.negativePiToPi(
+            CesiumMath.toRadians(record.bearing) - this.followOffset.heading,
+          )
+          this.followOffset.heading = CesiumMath.zeroToTwoPi(
+            this.followOffset.heading + turn * FOLLOW_CHASE_EASE,
+          )
+        }
+      }
     } else {
       // Adopt user orbit/zoom: in the lookAt reference frame heading/pitch
       // are relative and the tram sits at the origin.
