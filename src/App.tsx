@@ -74,6 +74,16 @@ interface UrlOptions {
   maximumScreenSpaceError: number | undefined
 }
 
+/** Delay of the URL update after the camera settled (moveEnd) in ms. */
+const HASH_DEBOUNCE_MS = 300
+
+/**
+ * Throttle between URL updates while the camera keeps moving (drags,
+ * flights, chase cam) in ms. Also keeps Safari's replaceState rate limit
+ * (~100 calls per 30 s) far away.
+ */
+const HASH_MAX_WAIT_MS = 2000
+
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
   const speed = Number(params.get('speed') ?? config.simulation.initialSpeed)
@@ -188,12 +198,52 @@ export default function App() {
     visibleLinesRef.current = allLines
     setVisibleLines(new Set(allLines))
 
+    // Event-driven URL persistence: camera events debounce into one write
+    // shortly after the pose settles; during sustained motion (flights,
+    // chase cam) at most one write per HASH_MAX_WAIT_MS lands. replaceState
+    // keeps the browser history clean. An idle map costs nothing – there is
+    // no polling timer.
+    let hashTimeout = 0
+    let lastHashWriteAt = -Infinity
+    const writeHash = () => {
+      window.clearTimeout(hashTimeout)
+      hashTimeout = 0
+      const m = mapRef.current
+      if (!m) return
+      lastHashWriteAt = performance.now()
+      const hash = formatCameraHash(m.getCameraView())
+      if (hash !== window.location.hash) {
+        window.history.replaceState(null, '', hash)
+      }
+    }
+    const scheduleHashWrite = (settled: boolean) => {
+      if (settled) {
+        // Movement over (camera.moveEnd) – one final write shortly after
+        window.clearTimeout(hashTimeout)
+        hashTimeout = window.setTimeout(writeHash, HASH_DEBOUNCE_MS)
+        return
+      }
+      // Still moving: throttle. A plain trailing debounce fires mid-gesture
+      // whenever slow rendering stretches the frame gaps beyond the
+      // debounce, so the pending write is aimed at the throttle boundary.
+      const since = performance.now() - lastHashWriteAt
+      if (since >= HASH_MAX_WAIT_MS) {
+        writeHash()
+        return
+      }
+      window.clearTimeout(hashTimeout)
+      hashTimeout = window.setTimeout(writeHash, HASH_MAX_WAIT_MS - since)
+    }
+    // The last state must still land in the URL when the tab goes away
+    window.addEventListener('pagehide', writeHash)
+
     const map = new CesiumMap(container, {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       onSelectTram: selectTram,
       onTilesetStatus: setTilesetStatus,
+      onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
     // Restore the saved camera orientation from the URL hash
@@ -202,13 +252,10 @@ export default function App() {
     map.addRoutes(network)
     map.addStops(network)
 
-    // Write the camera orientation to the URL hash every 1500 ms
-    const hashTimer = window.setInterval(() => {
-      const hash = formatCameraHash(map.getCameraView())
-      if (hash !== window.location.hash) {
-        window.history.replaceState(null, '', hash)
-      }
-    }, 1500)
+    // First write right away: a camera that never moves after boot fires no
+    // change event (the first rendered frame establishes the baseline), yet
+    // the URL must be shareable immediately.
+    writeHash()
 
     let rafId = 0
     let lastUiUpdate = 0
@@ -359,7 +406,8 @@ export default function App() {
 
     return () => {
       cancelAnimationFrame(rafId)
-      window.clearInterval(hashTimer)
+      window.removeEventListener('pagehide', writeHash)
+      window.clearTimeout(hashTimeout)
       realtimeClient?.stop()
       window.__mrt = undefined
       map.destroy()
