@@ -105,6 +105,8 @@ interface TramEntityRecord {
   appearanceDirty: boolean
   /** Half the vehicle height in meters (box center above ground). */
   halfHeight: number
+  /** Current direction of travel in degrees (0° = north, clockwise). */
+  bearing: number
   /** Smoothed ground height (ellipsoidal) below the tram in meters. */
   groundHeight: number
   /** Frame counter of the last height query (sampling is staggered). */
@@ -318,6 +320,13 @@ const FERRY_ROUTE_EXTRA_LIFT = 0.75
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
 
+/** Follow camera: initial offset behind/above the vehicle. */
+const FOLLOW_PITCH_DEG = -16
+const FOLLOW_RANGE = 150
+
+/** Duration of the approach flight when following starts, in seconds. */
+const FOLLOW_FLIGHT_SECONDS = 1.4
+
 /**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
  * them are rendered at 40 % of their normal opacity.
@@ -407,6 +416,8 @@ export class CesiumMap {
   private destroyed = false
   private followId: string | null = null
   private followOffset: HeadingPitchRange | null = null
+  /** Until this time the approach flight runs and lookAt stays disengaged. */
+  private followFlightUntil = 0
   private googleTileset: Cesium3DTileset | null = null
   /** Most recently measured plausible ground height – initial value for new trams. */
   private defaultGroundHeight: number
@@ -1347,6 +1358,7 @@ export class CesiumMap {
 
       record.labelPosition.setValue(position)
       // Update modelMatrix in place – takes effect immediately on the next render
+      record.bearing = snap.bearing
       hprScratch.heading = CesiumMath.toRadians(snap.bearing - 90)
       Transforms.headingPitchRollToFixedFrame(
         position,
@@ -1612,6 +1624,7 @@ export class CesiumMap {
       highlighted: false,
       appearanceDirty: false,
       halfHeight,
+      bearing: snap.bearing,
       groundHeight: this.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
       lastPosition: Cartesian3.clone(initialPosition),
@@ -1691,12 +1704,48 @@ export class CesiumMap {
     this.followId = tramId
     this.followOffset = null
     if (!tramId) {
+      // Also abort a still-running approach flight (e.g. "Stop following"
+      // clicked mid-flight), otherwise it lands on the abandoned vehicle.
+      if (performance.now() < this.followFlightUntil) this.viewer.camera.cancelFlight()
+      this.followFlightUntil = 0
       this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
+      this.requestRender()
+      return
+    }
+    // Approach with a camera flight instead of teleporting: fly to the
+    // vehicle's current position with the same offset the follow camera
+    // starts from, and only engage the per-frame lookAt once the flight is
+    // done (updateFollowCamera skips until followFlightUntil). The flight
+    // ends BEHIND the vehicle looking along its direction of travel
+    // (heading = bearing); afterwards the user can orbit freely as before.
+    // The vehicle moves a few meters during the flight.
+    const record = this.trams.get(tramId)
+    if (record) {
+      this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
+      const carto = Cartographic.fromCartesian(record.lastPosition)
+      const center = Cartesian3.fromRadians(
+        carto.longitude,
+        carto.latitude,
+        record.groundHeight + record.halfHeight * 2 + 2,
+      )
+      this.followFlightUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000
+      // Render at full rate during the flight (see getRenderHints)
+      this.flyingUntil = this.followFlightUntil + 200
+      this.viewer.camera.flyToBoundingSphere(new BoundingSphere(center, 0), {
+        duration: FOLLOW_FLIGHT_SECONDS,
+        offset: new HeadingPitchRange(
+          CesiumMath.toRadians(record.bearing),
+          CesiumMath.toRadians(FOLLOW_PITCH_DEG),
+          FOLLOW_RANGE,
+        ),
+      })
     }
     this.requestRender()
   }
 
   private updateFollowCamera(lon: number, lat: number): void {
+    // The approach flight is still running – lookAt would cut it short.
+    if (performance.now() < this.followFlightUntil) return
     const camera = this.viewer.camera
 
     // Camera center at the height of the followed tram (its ground height
@@ -1708,11 +1757,12 @@ export class CesiumMap {
     const center = Cartesian3.fromDegrees(lon, lat, groundHeight + vehicleHeight + 2)
 
     if (!this.followOffset) {
-      // First frame: swing in behind/above the tram
+      // First frame: the approach flight ends in exactly this pose, so the
+      // lookAt hand-over continues seamlessly from it.
       this.followOffset = new HeadingPitchRange(
         camera.heading,
-        CesiumMath.toRadians(-32),
-        450,
+        CesiumMath.toRadians(FOLLOW_PITCH_DEG),
+        FOLLOW_RANGE,
       )
     } else {
       // Adopt user orbit/zoom: in the lookAt reference frame heading/pitch
