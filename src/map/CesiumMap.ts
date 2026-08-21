@@ -329,6 +329,8 @@ export class CesiumMap {
   readonly viewer: Viewer
   private readonly opts: CesiumMapOptions
   private trams = new Map<string, TramEntityRecord>()
+  /** Rendered line badges (rounded rectangle + line number), one per line. */
+  private badgeCache = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>()
   private routeEntities = new Map<string, Entity[]>()
   /**
    * Route pieces drawn at absolute heights (NHN + routeHeightOffset) –
@@ -1217,6 +1219,57 @@ export class CesiumMap {
     this.requestRender()
   }
 
+  /**
+   * Draws (and caches) the badge for a line: the line number in white on a
+   * rounded rectangle filled with the line color – the same look as the
+   * badges in the line panel. Rendered at the drawing-buffer pixel ratio so
+   * it stays sharp on HiDPI screens; the billboard shows it at CSS size.
+   * Returns undefined where no 2D canvas is available (jsdom) – the caller
+   * then falls back to a plain text label.
+   */
+  private lineBadge(
+    lineId: string,
+    color: Color,
+  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
+    // ??= : prototype-based test instances skip the class field initializers
+    this.badgeCache ??= new Map()
+    const cached = this.badgeCache.get(lineId)
+    if (cached) return cached
+    if (typeof document === 'undefined') return undefined
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+
+    const ratio = this.effectivePixelRatio
+    const font = `bold ${Math.round(14 * ratio)}px "Inter Variable", system-ui, sans-serif`
+    ctx.font = font
+    const textWidth = ctx.measureText(lineId).width
+    const padX = 5 * ratio
+    const height = Math.round(22 * ratio)
+    const width = Math.max(height, Math.round(textWidth + 2 * padX))
+    canvas.width = width
+    canvas.height = height
+
+    const radius = 5 * ratio
+    ctx.beginPath()
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(0, 0, width, height, radius)
+    } else {
+      ctx.rect(0, 0, width, height)
+    }
+    ctx.fillStyle = color.toCssColorString()
+    ctx.fill()
+    ctx.font = font
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(lineId, width / 2, height / 2 + 0.5 * ratio)
+
+    const entry = { canvas, width: width / ratio, height: height / ratio }
+    this.badgeCache.set(lineId, entry)
+    return entry
+  }
+
   private createTramEntity(snap: TramSnapshot): TramEntityRecord {
     const color = Color.fromCssColorString(snap.color)
     const halfHeight = snap.vehicle.height / 2
@@ -1264,20 +1317,40 @@ export class CesiumMap {
     const liveMatrix = primitive.modelMatrix
 
     const labelPosition = new ConstantPositionProperty(initialPosition)
+    // Badge like in the line panel: line number on a rounded rectangle in
+    // the line color (pre-rendered per line, see lineBadge) – far easier
+    // to spot against the photo tiles than outlined text alone. Tunnel
+    // ghosting dims the whole badge via the billboard color multiplier.
+    const badge = this.lineBadge(snap.lineId, color)
     const labelEntity = this.viewer.entities.add({
       id: `tram:${snap.id}`,
       position: labelPosition,
-      label: {
-        text: snap.lineId,
-        font: 'bold 14px "Inter Variable", system-ui, sans-serif',
-        fillColor: Color.WHITE.withAlpha(alpha),
-        outlineColor: color.withAlpha(alpha),
-        outlineWidth: 4,
-        style: LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cartesian2(0, -28),
-        distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
+      ...(badge
+        ? {
+            billboard: {
+              image: badge.canvas,
+              width: badge.width,
+              height: badge.height,
+              color: Color.WHITE.withAlpha(alpha),
+              pixelOffset: new Cartesian2(0, -30),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          }
+        : {
+            // No 2D canvas (jsdom): plain outlined text label
+            label: {
+              text: snap.lineId,
+              font: 'bold 14px "Inter Variable", system-ui, sans-serif',
+              fillColor: Color.WHITE.withAlpha(alpha),
+              outlineColor: color.withAlpha(alpha),
+              outlineWidth: 4,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cartesian2(0, -30),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+          }),
     })
 
     return {
@@ -1308,6 +1381,12 @@ export class CesiumMap {
     if (!record) return true
     record.appearance.translucent = record.inTunnel
     const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
+    // Badge billboard: dim the whole badge via the color multiplier; the
+    // text-label fallback (no canvas) dims fill and outline instead.
+    const billboard = record.labelEntity.billboard
+    if (billboard) {
+      billboard.color = new ConstantProperty(Color.WHITE.withAlpha(alpha))
+    }
     const label = record.labelEntity.label
     if (label) {
       label.fillColor = new ConstantProperty(Color.WHITE.withAlpha(alpha))
