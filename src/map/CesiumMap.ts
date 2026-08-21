@@ -200,13 +200,13 @@ const STOP_SAMPLE_INTERVAL_MS = 500
 const STOP_RETRY_MS = 1500
 
 /** Camera distance in meters up to which the stop discs are drawn. */
-const STOP_DISC_RANGE = 9000
+const STOP_DISC_RANGE = 20000
 
 /** Camera distance in meters up to which stop name labels are drawn. */
 const STOP_LABEL_RANGE = 2600
 
 /** Rendered size of a stop disc in CSS px (fill + outline). */
-const STOP_DISC_SIZE = 11
+const STOP_DISC_SIZE = 10
 
 /** Font size of the stop name plates in CSS px. */
 const STOP_LABEL_FONT_SIZE = 13
