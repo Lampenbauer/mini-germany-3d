@@ -308,7 +308,7 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
 
   vec3 goldenTint = vec3(1.0, 0.84, 0.66);
   vec3 duskTint = vec3(0.40, 0.35, 0.37);
-  vec3 nightTint = vec3(0.14, 0.17, 0.28);
+  vec3 nightTint = vec3(0.09, 0.11, 0.20);
 
   // Blend regions by sun height: full day above +8 deg, golden hour down
   // to sunset, dusk while the sun sinks to -5 deg, night below about
