@@ -10,7 +10,7 @@ import { CesiumMap } from '@/map/CesiumMap'
  */
 
 interface FakeStop {
-  point: { position: Cartesian3 }
+  disc: { position: Cartesian3 }
   label: { show: boolean }
   labelHalfWidth: number
   position: Cartesian3
@@ -31,7 +31,7 @@ function makeStop(
   // Camera sits at the origin – the position doubles as the distance.
   const position = new Cartesian3(cameraDistance, 0, 0)
   screen.set(position, { x, y })
-  return { point: { position }, label: { show: true }, labelHalfWidth, position }
+  return { disc: { position }, label: { show: true }, labelHalfWidth, position }
 }
 
 function harness(stops: FakeStop[], screen: Map<Cartesian3, { x: number; y: number }>) {
@@ -49,7 +49,7 @@ function harness(stops: FakeStop[], screen: Map<Cartesian3, { x: number; y: numb
       camera: { positionWC: Cartesian3.ZERO, viewMatrix: Matrix4.clone(Matrix4.IDENTITY) },
       scene: {},
     },
-    stopLabels: { show: true },
+    stopBillboards: { show: true },
     stopRecords: stops,
     stopLabelsDirty: true,
     declutterViewMatrix: new Matrix4(),

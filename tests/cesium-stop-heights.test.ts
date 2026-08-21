@@ -44,7 +44,7 @@ interface Harness {
   /** Moves the fake camera to a distance (in meters) from the stop. */
   setCameraDistance: (meters: number) => void
   getHeight: ReturnType<typeof vi.fn>
-  stop: { point: { position: unknown }; label: { position: unknown }; sampledFrom: number }
+  stop: { disc: { position: unknown }; label: { position: unknown }; sampledFrom: number }
   /** Height currently applied to the stop primitives. */
   entityHeight: () => number
 }
@@ -55,7 +55,7 @@ function harness(sampledFrom = Number.POSITIVE_INFINITY): Harness {
 
   const stopPosition = Cartesian3.fromDegrees(STOP.lon, STOP.lat, 45)
   const stop = {
-    point: { position: undefined as unknown },
+    disc: { position: undefined as unknown },
     label: { position: undefined as unknown },
     lon: STOP.lon,
     lat: STOP.lat,
@@ -87,8 +87,8 @@ function harness(sampledFrom = Number.POSITIVE_INFINITY): Harness {
       camera.positionWC = Cartesian3.fromDegrees(STOP.lon, STOP.lat, 45 + meters)
     },
     entityHeight: () => {
-      // Point and label always get the same position – checking one suffices
-      return Cartographic.fromCartesian(stop.point.position as Cartesian3).height
+      // Disc and label always get the same position – checking one suffices
+      return Cartographic.fromCartesian(stop.disc.position as Cartesian3).height
     },
   }
 }
@@ -184,7 +184,7 @@ describe('stop height refinement', () => {
     // take minutes to reach the ones actually on screen.
     const heights = [70, 71, 72, 73, 74, 75, 76, 77, 78, 79]
     const stops = heights.map((_, i) => ({
-      point: { position: undefined as unknown },
+      disc: { position: undefined as unknown },
       label: { position: undefined as unknown },
       lon: STOP.lon + i * 0.01,
       lat: STOP.lat,
