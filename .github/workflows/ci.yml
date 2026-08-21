@@ -138,9 +138,11 @@ jobs:
       group: deploy-all-inkl
       cancel-in-progress: false
     env:
-      KAS_SSH_HOST: ***REMOVED***
-      KAS_SSH_USER: ***REMOVED***
-      KAS_TARGET_DIR: ***REMOVED***/
+      # SSH host, user, and target directory (with trailing slash!) live in
+      # repo secrets alongside KAS_SSH_PASSWORD (Settings → Secrets → Actions).
+      KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
+      KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
+      KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
     steps:
       - uses: actions/checkout@v7
 
@@ -164,8 +166,8 @@ jobs:
             echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
             exit 0
           fi
-          if [ -z "$SSHPASS" ]; then
-            echo "::error::Secret KAS_SSH_PASSWORD is not set (repo Settings → Secrets → Actions)."
+          if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
+            echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
             exit 1
           fi
           sudo apt-get update -qq

@@ -191,15 +191,16 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
 rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 `https://minirostock3d.lampenbauer.com`:
 
-1. **One-time setup:** Create the secret **`KAS_SSH_PASSWORD`** in the repository
-   settings (Settings → Secrets and variables → Actions) – the SSH password of the
-   user `***REMOVED***`. Host, user, and target directory are defined directly in
-   the workflow.
+1. **One-time setup:** Create four secrets in the repository settings
+   (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH
+   password), **`KAS_SSH_HOST`** (the SSH host), **`KAS_SSH_USER`** (the SSH
+   user), and **`KAS_TARGET_DIR`** (the document root on the webspace, with a
+   trailing slash).
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and
-   `api/schedule.json` rsynced to the document root
-   `***REMOVED***/`. PR checks, feature-branch pushes,
+   `api/schedule.json` rsynced to the document root from the
+   `KAS_TARGET_DIR` secret. PR checks, feature-branch pushes,
    and failed tests do not deploy. A manual run of the CI workflow on `main` also
    goes through all tests first, which makes it suitable as a recovery deploy.
 3. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
