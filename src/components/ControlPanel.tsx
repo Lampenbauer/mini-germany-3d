@@ -101,7 +101,7 @@ const LineGroup = memo(function LineGroup(props: {
   const Icon = MODE_ICON[props.mode]
   const allVisible = props.lines.every((l) => l.visible)
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 mb-1.5 last:mb-0">
       {props.showHeader && (
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
