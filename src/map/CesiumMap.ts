@@ -315,7 +315,7 @@ const ROUTE_LIFT_SLOTS = 8
  * but the Google mesh's water surface undulates up to ~1 m around the
  * geoid, which the land-calibrated height offset cannot capture.
  */
-const FERRY_ROUTE_EXTRA_LIFT = 0.75
+const FERRY_ROUTE_EXTRA_LIFT = 1.25
 
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
