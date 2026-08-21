@@ -1,10 +1,11 @@
 /**
- * Persists the camera orientation in the URL hash, e.g.
- *   #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
- * so the view survives a browser reload and is shareable. While a vehicle
- * is selected its trip id is appended as &vehicle=… – trip ids are
- * deterministic across reloads (see simTripId), so the link restores the
- * selection for anyone who opens it while that trip is active.
+ * Persists the view in the URL hash in one of two forms:
+ *   camera pose  #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
+ *   selection    #vehicle=1-0-500
+ * While a vehicle is selected, ONLY its trip id is in the URL – trip ids
+ * are deterministic across reloads (see simTripId), and opening such a
+ * link re-selects the vehicle and follows it, so no camera pose is
+ * needed. Without a selection the camera pose makes the view shareable.
  */
 
 export interface CameraView {
@@ -35,16 +36,20 @@ export function parseCameraHash(hash: string): CameraView | null {
   return { longitude: lon, latitude: lat, height, heading, pitch }
 }
 
-export function formatCameraHash(view: CameraView, vehicleId?: string | null): string {
+export function formatCameraHash(view: CameraView): string {
   const heading = Math.round(((view.heading % 360) + 360) % 360)
   return (
     `#lat=${view.latitude.toFixed(6)}` +
     `&lon=${view.longitude.toFixed(6)}` +
     `&height=${Math.round(view.height)}` +
     `&heading=${heading === 360 ? 0 : heading}` +
-    `&pitch=${Math.round(view.pitch)}` +
-    (vehicleId ? `&vehicle=${encodeURIComponent(vehicleId)}` : '')
+    `&pitch=${Math.round(view.pitch)}`
   )
+}
+
+/** Hash for a selected vehicle – the trip id is the whole shared state. */
+export function formatVehicleHash(vehicleId: string): string {
+  return `#vehicle=${encodeURIComponent(vehicleId)}`
 }
 
 /**
