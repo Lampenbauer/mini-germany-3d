@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatCameraHash, parseCameraHash, parseVehicleHash } from '@/lib/camera-hash'
+import {
+  formatCameraHash,
+  formatVehicleHash,
+  parseCameraHash,
+  parseVehicleHash,
+} from '@/lib/camera-hash'
 
 describe('formatCameraHash / parseCameraHash', () => {
   it('formats using the documented scheme', () => {
@@ -49,23 +54,22 @@ describe('formatCameraHash / parseCameraHash', () => {
 describe('vehicle selection in the hash', () => {
   const view = { latitude: 54.0901, longitude: 12.1405, height: 800, heading: 61, pitch: -57 }
 
-  it('appends the trip id and round-trips it', () => {
-    const hash = formatCameraHash(view, '1-0-500-s11071-18627')
-    expect(hash).toContain('&vehicle=1-0-500-s11071-18627')
+  it('holds ONLY the trip id and round-trips it', () => {
+    const hash = formatVehicleHash('1-0-500-s11071-18627')
+    expect(hash).toBe('#vehicle=1-0-500-s11071-18627')
     expect(parseVehicleHash(hash)).toBe('1-0-500-s11071-18627')
-    // The camera part stays parseable alongside the vehicle
-    expect(parseCameraHash(hash)).not.toBeNull()
+    // A vehicle hash carries no camera pose
+    expect(parseCameraHash(hash)).toBeNull()
   })
 
-  it('omits the parameter without a selection', () => {
+  it('camera hashes carry no vehicle', () => {
     expect(formatCameraHash(view)).not.toContain('vehicle=')
-    expect(formatCameraHash(view, null)).not.toContain('vehicle=')
     expect(parseVehicleHash(formatCameraHash(view))).toBeNull()
   })
 
   it('URL-encodes unusual ids on the way out and decodes on the way in', () => {
     const id = 'FG-0-3&x=1'
-    expect(parseVehicleHash(formatCameraHash(view, id))).toBe(id)
+    expect(parseVehicleHash(formatVehicleHash(id))).toBe(id)
   })
 
   it('rejects empty and oversized ids', () => {
