@@ -131,17 +131,62 @@ describe('fillHeightGaps', () => {
 })
 
 describe('applyBridgeProfile', () => {
+  // Neutral options isolate the pure anchor interpolation.
+  const plain = { anchorSetbackMeters: 0, deckClearanceMeters: 0, portalFeatherMeters: 0 }
+
   it('replaces the terrain dip under a bridge with a straight deck', () => {
     const cum = [0, 100, 200, 300, 400]
     // Terrain dips to 0 (water) in the middle; bridge spans 50–350 m
     const heights = [12, 6, 0, 6, 12]
-    applyBridgeProfile(heights, cum, [[50, 350]])
+    applyBridgeProfile(heights, cum, [[50, 350]], plain)
     // Deck ends: terrain at 50 m = 9, at 350 m = 9 → linear in between
     expect(heights[1]).toBeCloseTo(9, 5)
     expect(heights[2]).toBeCloseTo(9, 5)
     expect(heights[3]).toBeCloseTo(9, 5)
     expect(heights[0]).toBe(12)
     expect(heights[4]).toBe(12)
+  })
+
+  it('samples anchors outside the range so edge dips cannot pull the deck down', () => {
+    const cum = [0, 100, 200, 300, 400]
+    // Terrain right at the boundary (100 m) already dips into the void
+    const heights = [10, 4, 0, 4, 10]
+    applyBridgeProfile(heights, cum, [[100, 300]], { ...plain, anchorSetbackMeters: 50 })
+    // Anchors at 50 m / 350 m → terrain 7 on both sides, not the dipped 4
+    expect(heights[2]).toBeCloseTo(7, 5)
+  })
+
+  it('adds the deck clearance feathered in from the portals', () => {
+    const cum = [0, 10, 100, 190, 200]
+    const heights = [5, 5, 0, 5, 5]
+    applyBridgeProfile(heights, cum, [[0, 200]], {
+      ...plain,
+      deckClearanceMeters: 1,
+      portalFeatherMeters: 20,
+    })
+    // 10 m into the bridge: half the feather ramp → +0.5
+    expect(heights[1]).toBeCloseTo(5.5, 5)
+    // Mid-span: full clearance → 5 + 1
+    expect(heights[2]).toBeCloseTo(6, 5)
+    // 10 m before the end: half ramp again
+    expect(heights[3]).toBeCloseTo(5.5, 5)
+  })
+
+  it('reads anchors from the pristine terrain even with adjacent ranges', () => {
+    const cum = [0, 100, 200, 300, 400]
+    const heights = [8, 2, 8, 2, 8]
+    // Second range's start anchor (at 200 m with setback 0) must see the
+    // original terrain 8, not a value mutated by the first range.
+    applyBridgeProfile(
+      heights,
+      cum,
+      [
+        [50, 150],
+        [200, 380],
+      ],
+      plain,
+    )
+    expect(heights[3]).toBeGreaterThan(2)
   })
 })
 

@@ -121,20 +121,52 @@ export function indexPreviousHeights(prevNetwork) {
   return { heightsByPath, nhnByStop }
 }
 
+/** Default tuning of the bridge deck profile (meters). */
+export const BRIDGE_PROFILE_DEFAULTS = {
+  /**
+   * Anchor heights are sampled this far OUTSIDE the bridge range: exactly
+   * at the range boundary the DGM's 5 m bilinear footprint already mixes
+   * in cells under the bridge (water, embankment foot) and pulls the whole
+   * interpolated span down.
+   */
+  anchorSetbackMeters: 8,
+  /**
+   * Extra deck clearance over the anchor interpolation: the Google mesh
+   * models bridges with deck thickness and railings, and photogrammetry
+   * inflates thin structures – the roadway in the mesh sits noticeably
+   * above the true road level, so a line at true level cuts through it.
+   */
+  deckClearanceMeters: 1,
+  /** The clearance ramps in over this length at both portals (no step). */
+  portalFeatherMeters: 15,
+}
+
 /**
  * Straightens the height profile across each bridge range: every vertex
  * whose distance falls inside [start, end] gets the linear interpolation
- * between the terrain heights at the two bridge ends. Mutates `heights`
- * in place.
+ * between the terrain heights just OUTSIDE the two bridge ends (see
+ * anchorSetbackMeters), plus a feathered deck clearance. Anchor heights
+ * for all ranges are read from the pristine terrain profile before any
+ * mutation. Mutates `heights` in place.
  */
-export function applyBridgeProfile(heights, cum, bridgeRanges) {
+export function applyBridgeProfile(heights, cum, bridgeRanges, opts = {}) {
+  const { anchorSetbackMeters, deckClearanceMeters, portalFeatherMeters } = {
+    ...BRIDGE_PROFILE_DEFAULTS,
+    ...opts,
+  }
+  const total = cum[cum.length - 1]
+  const terrain = [...heights]
   for (const [start, end] of bridgeRanges) {
-    const h0 = heightAtDistance(heights, cum, start)
-    const h1 = heightAtDistance(heights, cum, end)
+    const h0 = heightAtDistance(terrain, cum, Math.max(0, start - anchorSetbackMeters))
+    const h1 = heightAtDistance(terrain, cum, Math.min(total, end + anchorSetbackMeters))
     for (let i = 0; i < heights.length; i++) {
       if (cum[i] <= start || cum[i] >= end) continue
       const t = (cum[i] - start) / (end - start)
-      heights[i] = h0 + (h1 - h0) * t
+      const feather =
+        portalFeatherMeters > 0
+          ? Math.min(1, (cum[i] - start) / portalFeatherMeters, (end - cum[i]) / portalFeatherMeters)
+          : 1
+      heights[i] = h0 + (h1 - h0) * t + deckClearanceMeters * feather
     }
   }
 }
