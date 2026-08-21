@@ -20,3 +20,11 @@ export function clipPathAt(
   keep: 'before' | 'after',
   ranges?: readonly (readonly [number, number])[],
 ): { path: number[][]; ranges: [number, number][] }
+
+export const NAME_INHERIT_RADIUS: number
+
+export function inheritUnnamedStopNames(
+  stops: Record<string, { name: string; coord: [number, number] | number[] }>,
+): void
+
+export function fetchStopAreaNames(osmNodeIds: number[]): Promise<Map<number, string>>

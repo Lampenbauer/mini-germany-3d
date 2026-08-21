@@ -308,20 +308,14 @@ function projectOntoPath(path, cum, p) {
   return bestAlong
 }
 
-async function fetchOverpassData() {
-  if (process.env.OVERPASS_FILE) {
-    console.log(`Reading local Overpass response ${process.env.OVERPASS_FILE}`)
-    const { readFileSync } = await import('node:fs')
-    return JSON.parse(readFileSync(process.env.OVERPASS_FILE, 'utf8'))
-  }
-
+async function postOverpass(query) {
   const errors = []
   for (const url of OVERPASS_MIRRORS) {
     console.log(`Querying Overpass at ${url} …`)
     try {
       const response = await fetch(url, {
         method: 'POST',
-        body: 'data=' + encodeURIComponent(QUERY),
+        body: 'data=' + encodeURIComponent(query),
         headers: REQUEST_HEADERS,
       })
       if (!response.ok) {
@@ -342,6 +336,49 @@ async function fetchOverpassData() {
       '\nTip: set a custom endpoint via OVERPASS_URL or use a saved ' +
       'response via OVERPASS_FILE.',
   )
+}
+
+async function fetchOverpassData() {
+  if (process.env.OVERPASS_FILE) {
+    console.log(`Reading local Overpass response ${process.env.OVERPASS_FILE}`)
+    const { readFileSync } = await import('node:fs')
+    return JSON.parse(readFileSync(process.env.OVERPASS_FILE, 'utf8'))
+  }
+  return postOverpass(QUERY)
+}
+
+/**
+ * Names of the stop_area relations containing the given OSM nodes – the
+ * authoritative source for stop_position nodes that carry no name tag
+ * themselves (e.g. "Thomas-Morus-Straße", whose nearest named stop in the
+ * dataset is the WRONG neighbor). Returns an empty map in OVERPASS_FILE
+ * replays (no network) and on lookup failure – the proximity fallback in
+ * inheritUnnamedStopNames still runs afterwards.
+ */
+export async function fetchStopAreaNames(osmNodeIds) {
+  const names = new Map()
+  if (process.env.OVERPASS_FILE || osmNodeIds.length === 0) return names
+  const query =
+    '[out:json];node(id:' +
+    osmNodeIds.join(',') +
+    ');rel(bn)["public_transport"="stop_area"];out body;'
+  let data
+  try {
+    data = await postOverpass(query)
+  } catch (err) {
+    console.warn(`  ⚠ stop_area lookup failed: ${err.message}`)
+    return names
+  }
+  const wanted = new Set(osmNodeIds)
+  for (const el of data.elements ?? []) {
+    if (el.type !== 'relation' || !el.tags?.name) continue
+    for (const member of el.members ?? []) {
+      if (member.type === 'node' && wanted.has(member.ref)) {
+        names.set(member.ref, el.tags.name)
+      }
+    }
+  }
+  return names
 }
 
 async function main() {
@@ -639,6 +676,23 @@ async function main() {
     throw new Error('No lines extracted – network.json left unchanged')
   }
 
+  // Unnamed stop_positions: first ask OSM's stop_area relations (the
+  // authoritative name), then fall back to the nearest named neighbor.
+  const unnamed = Object.entries(stops).filter(([, stop]) => stop.name === 'Stop')
+  if (unnamed.length > 0) {
+    const areaNames = await fetchStopAreaNames(
+      unnamed.map(([id]) => Number(id.replace('osm-', ''))).filter(Number.isFinite),
+    )
+    for (const [id, stop] of unnamed) {
+      const name = areaNames.get(Number(id.replace('osm-', '')))
+      if (name) {
+        stop.name = name
+        console.log(`  ℹ Unnamed stop ${id} named "${name}" via its stop_area`)
+      }
+    }
+  }
+  inheritUnnamedStopNames(stops)
+
   const network = {
     meta: {
       source: 'osm',
@@ -653,6 +707,47 @@ async function main() {
   writeFileSync(OUT, JSON.stringify(network, null, 2) + '\n', 'utf8')
   console.log(`\n✅ Wrote ${OUT} (${lines.length} lines, ${Object.keys(stops).length} stops)`)
   console.log('Tip: npm test validates the new dataset.')
+}
+
+/**
+ * Meters between two [lon, lat] pairs (flat-earth, fine at city scale).
+ */
+function stopDistanceMeters(a, b) {
+  const latRad = (a[1] * Math.PI) / 180
+  return Math.hypot((a[0] - b[0]) * 111320 * Math.cos(latRad), (a[1] - b[1]) * 111320)
+}
+
+/**
+ * Second stage after the stop_area lookup: stops still named 'Stop'
+ * inherit the name of the nearest properly named stop within
+ * NAME_INHERIT_RADIUS meters – at Doberaner Platz the correct name stands
+ * two meters away. The radius is deliberately tight: at ~70 m the nearest
+ * neighbor is regularly the WRONG station (verified against stop_areas).
+ * Only stops with no such neighbor keep the placeholder.
+ */
+export const NAME_INHERIT_RADIUS = 60
+export function inheritUnnamedStopNames(stops) {
+  const named = Object.values(stops).filter((s) => s.name && s.name !== 'Stop')
+  for (const [id, stop] of Object.entries(stops)) {
+    if (stop.name !== 'Stop') continue
+    let best = null
+    let bestDist = NAME_INHERIT_RADIUS
+    for (const candidate of named) {
+      const d = stopDistanceMeters(stop.coord, candidate.coord)
+      if (d < bestDist) {
+        best = candidate
+        bestDist = d
+      }
+    }
+    if (best) {
+      stop.name = best.name
+      console.log(
+        `  ℹ Unnamed stop ${id} inherits "${best.name}" (${bestDist.toFixed(0)} m away)`,
+      )
+    } else {
+      console.warn(`  ⚠ Unnamed stop ${id} keeps the placeholder – no named stop within ${NAME_INHERIT_RADIUS} m`)
+    }
+  }
 }
 
 // Only run as a CLI – tests import stitchWays without triggering a fetch.
