@@ -6,9 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Nightly data refresh: GTFS schedule every night, OSM network only
-    # every third night (see the refresh step), then the full
-    # test/build/deploy pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
+    # Nightly data refresh: GTFS schedule every night, OSM network and
+    # terrain heights only once a week (see the refresh step), then the
+    # full test/build/deploy pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
     - cron: '30 2 * * *'
 
 permissions:
@@ -44,14 +44,26 @@ jobs:
       - name: Refresh network & schedule data (nightly)
         if: github.event_name == 'schedule'
         run: |
-          # The OSM network changes rarely – fetch it only every third
-          # night (epoch day modulo 3, stable across month boundaries)
-          # to spare the public Overpass mirrors.
-          if [ $(( $(date +%s) / 86400 % 3 )) -eq 0 ]; then
-            npm run data:update
-            npm run data:simplify
+          # The OSM network changes rarely – fetch it only once a week
+          # (Sunday night) to spare the public Overpass mirrors. A failed
+          # fetch (mirrors overloaded/unreachable) keeps the previous
+          # network data and must not block the nightly GTFS refresh.
+          if [ "$(date +%u)" -eq 7 ]; then
+            if npm run data:update; then
+              npm run data:simplify
+              # Terrain heights (DGM via geodaten-mv.de WCS) per route
+              # vertex. PREV_NETWORK lets unchanged geometry reuse the
+              # committed heights, so the WCS is only hit for actual
+              # changes. Soft failure: without heights the app falls back
+              # to clamping the routes onto the 3D tiles – worse GPU
+              # load, but correct.
+              git show HEAD:src/data/network.json > "$RUNNER_TEMP/network-prev.json" || true
+              PREV_NETWORK="$RUNNER_TEMP/network-prev.json" npm run data:heights || echo "::warning::Route height refresh failed – routes fall back to ground clamping."
+            else
+              echo "::warning::OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
+            fi
           else
-            echo "OSM network refresh skipped – runs every third night."
+            echo "OSM network refresh skipped – runs Sunday night."
           fi
           npm run data:gtfs
 

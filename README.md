@@ -127,13 +127,25 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
 
 ```bash
 npm run data:update    # Real track geometries + stops from OpenStreetMap (Overpass API)
+npm run data:simplify  # Simplify the path geometry (visually lossless)
+npm run data:heights   # Terrain heights per route vertex from the MV DGM (WCS)
 npm run data:gtfs      # Real departure times from a GTFS feed → src/data/schedule.json
 npm test               # validates the new datasets
 ```
 
 - `data:update` overwrites `network.json` with the real OSM relations for
   tram, RSAG bus, and the two ferries
-  (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)).
+  (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)),
+  including tunnel and bridge sections as meter ranges along each path.
+- `data:heights` samples the official digital terrain model of
+  Mecklenburg-Vorpommern (open WCS at geodaten-mv.de, © GeoBasis-DE/M-V,
+  5 m grid) at every route vertex and stop. Bridge sections get a straight
+  deck interpolated between their end points. With these heights the app
+  draws the route polylines at absolute heights instead of clamping them
+  onto the 3D tiles per frame – that classification pass used to cost
+  measurable GPU time on every rendered frame. The NHN→ellipsoid offset is
+  calibrated at runtime against sampled Google-tile heights; without
+  heights in `network.json` the app falls back to ground clamping.
 - `data:gtfs` downloads the free Germany-wide public transport feed from
   [gtfs.de](https://gtfs.de) (DELFI-based) by default. With `GTFS_URL`/`GTFS_FILE`
   the official VVW feed can be used instead. The script looks up timetables for
@@ -209,10 +221,14 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
    `npm run data:gtfs` before the test steps, so the day-specific GTFS departures
    (weekday vs. weekend service) stay current; the rarely changing OSM geometry
-   (`npm run data:update` + `npm run data:simplify`) is only refreshed every
-   third night. Only if the full
+   (`npm run data:update` + `npm run data:simplify` + `npm run data:heights`) is
+   only refreshed once a week (Sunday night). Route directions whose geometry is
+   unchanged reuse the committed terrain heights (`PREV_NETWORK`), so the DGM WCS
+   is only queried for actual changes. A failed Overpass fetch (overloaded
+   mirrors) keeps the previous network data with a workflow warning and does not
+   block the GTFS refresh. Only if the full
    test suite passes on the refreshed dataset is the result deployed and the new
-   `src/data/*.json` committed back to `main`; a failed Overpass/GTFS fetch or a
+   `src/data/*.json` committed back to `main`; a failed GTFS fetch or a
    failing test leaves both the site and the repository untouched.
 
 > Note: After a data update (`npm run data:gtfs`), commit the new `schedule.json` –
@@ -277,4 +293,7 @@ overview would keep floating several meters above the roofs up close.
   use of the Photorealistic 3D Tiles is subject to the Google Maps Platform terms;
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
+- Terrain heights (after `npm run data:heights`): © GeoBasis-DE/M-V
+  (digitales Geländemodell via WCS, [geodaten-mv.de](https://www.geodaten-mv.de)) –
+  shown in the app inside Cesium's "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or VVW – observe the source's license terms

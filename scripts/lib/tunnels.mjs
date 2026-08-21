@@ -20,6 +20,16 @@ export function isUndergroundWay(way) {
 }
 
 /**
+ * true if the OSM way crosses a bridge. Deliberately only the explicit
+ * bridge tag – a positive layer alone also occurs on overpass ramps and
+ * would misclassify normal embankment sections.
+ */
+export function isBridgeWay(way) {
+  const bridge = way?.tags?.bridge
+  return Boolean(bridge && bridge !== 'no')
+}
+
+/**
  * Converts per-segment underground flags into [start, end] meter ranges
  * along the path. `segFlags[i]` describes the segment between path point i
  * and i+1; `cum` are the cumulative distances (length = segFlags.length + 1).

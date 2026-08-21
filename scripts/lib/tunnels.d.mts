@@ -6,6 +6,8 @@ export interface OsmWayLike {
 
 export function isUndergroundWay(way: OsmWayLike | null | undefined): boolean
 
+export function isBridgeWay(way: OsmWayLike | null | undefined): boolean
+
 export function tunnelRangesFromSegments(
   segFlags: readonly boolean[],
   cum: readonly number[],

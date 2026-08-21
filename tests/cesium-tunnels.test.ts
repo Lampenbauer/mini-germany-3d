@@ -44,9 +44,13 @@ function mapWithFakeRouteViewer(added: AddedRoute[]): CesiumMap {
           return entity
         },
       },
+      creditDisplay: { addStaticCredit: vi.fn() },
     },
     routeEntities: new Map(),
     linePaths: new Map(),
+    heightRoutePieces: [],
+    // offline: keeps the ground-clamped route branch these tests inspect
+    opts: { offline: true },
   })
   return map
 }

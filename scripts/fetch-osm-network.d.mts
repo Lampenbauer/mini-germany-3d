@@ -3,6 +3,7 @@
 export interface StitchedWayPath {
   path: number[][]
   segUnderground: boolean[]
+  segBridge: boolean[]
 }
 
 export function stitchWays(

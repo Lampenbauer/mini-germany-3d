@@ -37,7 +37,7 @@ function prepareDirection(
     // stop listed twice) → skip it instead of building travel times with
     // 0 m segments.
     if (stops.length > 0 && dist <= prevDist + 1) continue
-    stops.push({ id: stopId, name: stop.name, coord: stop.coord as LonLat, dist })
+    stops.push({ id: stopId, name: stop.name, coord: stop.coord as LonLat, dist, nhn: stop.nhn })
     prevDist = dist
   }
   if (stops.length < 2) {
@@ -45,6 +45,14 @@ function prepareDirection(
       `Line ${lineId} direction ${direction}: fewer than 2 projectable stops`,
     )
   }
+
+  // Heights are only usable when they line up with the path vertex by
+  // vertex – a mismatched array (e.g. path re-simplified after the height
+  // run) silently produced routes at wrong heights, so drop it instead.
+  const heights =
+    dir.heights && dir.heights.length === path.length && dir.heights.every(Number.isFinite)
+      ? dir.heights
+      : undefined
 
   return {
     lineId,
@@ -56,6 +64,7 @@ function prepareDirection(
     totalLength,
     stops,
     tunnels: normalizeTunnelRanges(dir.tunnels, totalLength),
+    heights,
   }
 }
 
@@ -71,6 +80,7 @@ function mirrorDirection(dir: DirectionJson, totalLength: number): DirectionJson
     path: [...dir.path].reverse() as LonLat[],
     stops: [...dir.stops].reverse(),
     tunnels: mirrorTunnelRanges(normalizeTunnelRanges(dir.tunnels, totalLength), totalLength),
+    heights: dir.heights ? [...dir.heights].reverse() : undefined,
   }
 }
 

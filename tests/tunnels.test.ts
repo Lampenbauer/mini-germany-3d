@@ -133,6 +133,37 @@ describe('splitPathByTunnels', () => {
     expect(pieces[0].path).toHaveLength(2)
     expect(pieces[1].path).toHaveLength(2)
   })
+
+  it('omits heights unless they are passed in', () => {
+    const pieces = splitPathByTunnels(path, cum, [[400, 700]])
+    expect(pieces.every((p) => p.heights === undefined)).toBe(true)
+  })
+
+  it('splits heights alongside the path with interpolated boundaries', () => {
+    const heights = [10, 20, 30]
+    const pieces = splitPathByTunnels(path, cum, [[400, 700]], heights)
+    for (const piece of pieces) {
+      expect(piece.heights).toHaveLength(piece.path.length)
+    }
+    // Whole-route endpoints keep their original heights
+    expect(pieces[0].heights![0]).toBe(10)
+    expect(pieces[2].heights!.at(-1)).toBe(30)
+    // Boundary heights are interpolated along the ~2001.6 m route: the
+    // portal at 400 m sits at 10 + (400 / cum[1]) * 10
+    const expected400 = 10 + (400 / cum[1]) * 10
+    expect(pieces[0].heights!.at(-1)).toBeCloseTo(expected400, 5)
+    expect(pieces[1].heights![0]).toBeCloseTo(expected400, 5)
+    // The middle vertex keeps its exact height in the piece containing it
+    expect(pieces[2].heights).toContain(20)
+  })
+
+  it('returns copied heights for the no-tunnel case', () => {
+    const heights = [10, 20, 30]
+    const pieces = splitPathByTunnels(path, cum, [], heights)
+    expect(pieces).toHaveLength(1)
+    expect(pieces[0].heights).toEqual(heights)
+    expect(pieces[0].heights).not.toBe(heights)
+  })
 })
 
 describe('prepareNetwork with tunnel data', () => {
