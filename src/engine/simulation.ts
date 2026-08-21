@@ -1,6 +1,6 @@
 /**
  * Link between clock, timetable, and map: delivers the state of all active
- * trams per frame as display-ready snapshots.
+ * vehicles per frame as display-ready snapshots.
  */
 
 import { SimClock } from '@/lib/clock'
@@ -11,7 +11,7 @@ import { isInTunnel } from '@/lib/tunnels'
 import type { PreparedNetwork, TransitMode, VehicleDimensions } from '@/data/network-types'
 import { config } from '@/config'
 
-export interface TramSnapshot {
+export interface VehicleSnapshot {
   id: string
   lineId: string
   lineName: string
@@ -85,13 +85,13 @@ export class Simulation {
     return this.realtimeDelays.size
   }
 
-  /** Snapshots of all active trams at the current simulation time. */
-  snapshots(): TramSnapshot[] {
+  /** Snapshots of all active vehicles at the current simulation time. */
+  snapshots(): VehicleSnapshot[] {
     return this.snapshotsAt(this.clock.secondsOfDay())
   }
 
-  snapshotsAt(tSec: number): TramSnapshot[] {
-    const snapshots: TramSnapshot[] = []
+  snapshotsAt(tSec: number): VehicleSnapshot[] {
+    const snapshots: VehicleSnapshot[] = []
     for (const trip of this.trips) {
       const line = this.network.lineById.get(trip.lineId)
       if (!line) continue

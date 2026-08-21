@@ -4,9 +4,9 @@ declare global {
   interface Window {
     __mrt?: {
       ready: boolean
-      tramCount: () => number
-      visibleTramCount: () => number
-      trams: () => {
+      vehicleCount: () => number
+      visibleVehicleCount: () => number
+      vehicles: () => {
         id: string
         lineId: string
         nextStopName: string
@@ -17,14 +17,14 @@ declare global {
       setTime: (hhmm: string) => void
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
-      selectTram: (id: string | null) => void
+      selectVehicle: (id: string | null) => void
       dataSource: string
       lineIds: () => string[]
       secondsOfDay: () => number
       loopTicks: () => number
       lastLoopError: () => string | null
-      tramBoxDriftMeters: () => number
-      tramOpacity: (id: string) => number | null
+      vehicleBoxDriftMeters: () => number
+      vehicleOpacity: (id: string) => number | null
       tunnelTransition: () => {
         id: string
         tunnelTime: number

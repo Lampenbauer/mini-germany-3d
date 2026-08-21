@@ -46,20 +46,20 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
 
   await page.goto('/?offline=1&time=08:30&paused=1')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.tramCount() > 0,
+    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
 
   // Select a vehicle – the URL must switch to the vehicle-only hash
-  const tramId = await page.evaluate(() => {
-    const id = window.__mrt!.trams()[0].id
-    window.__mrt!.selectTram(id)
+  const vehicleId = await page.evaluate(() => {
+    const id = window.__mrt!.vehicles()[0].id
+    window.__mrt!.selectVehicle(id)
     return id
   })
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toBe(`#vehicle=${encodeURIComponent(tramId)}&paused=1`)
+    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&paused=1`)
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   // Fresh app boot from the shared link (about:blank tears down the first
@@ -72,7 +72,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   const card = page.getByTestId('vehicle-card')
   await expect(card).toBeVisible({ timeout: 60_000 })
-  await expect(card).toContainText(tramId)
+  await expect(card).toContainText(vehicleId)
   await expect(card.getByRole('button', { name: 'Stop following' })).toBeVisible({
     timeout: 30_000,
   })

@@ -53,7 +53,7 @@ export interface ControlPanelProps {
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
   onToggleStops: (visible: boolean) => void
-  tramCount: number
+  vehicleCount: number
   tilesetStatus: TilesetStatus
   /** Warning badge for approximated geometry; null = no badge. */
   dataSource: string | null
@@ -313,14 +313,14 @@ export function ControlPanel(props: ControlPanelProps) {
             <div className="h-px bg-border" role="separator" />
 
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" data-testid="tram-count">
+              <Badge variant="secondary" data-testid="vehicle-count">
                 <TramFront aria-hidden />
-                {props.tramCount}{' '}
+                {props.vehicleCount}{' '}
                 {new Set(props.lines.map((l) => l.mode)).size > 1
-                  ? props.tramCount === 1
+                  ? props.vehicleCount === 1
                     ? 'vehicle'
                     : 'vehicles'
-                  : props.tramCount === 1
+                  : props.vehicleCount === 1
                     ? 'tram'
                     : 'trams'}{' '}
                 in service

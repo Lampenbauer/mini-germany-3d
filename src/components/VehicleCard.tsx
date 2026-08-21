@@ -2,10 +2,10 @@ import { ArrowRight, Crosshair, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { TramSnapshot } from '@/engine/simulation'
+import type { VehicleSnapshot } from '@/engine/simulation'
 
 export interface VehicleCardProps {
-  tram: TramSnapshot
+  vehicle: VehicleSnapshot
   following: boolean
   onToggleFollow: () => void
   onClose: () => void
@@ -19,7 +19,7 @@ function formatDelay(delaySeconds: number): string {
 }
 
 /** Mode-appropriate label for the follow button. */
-const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
+const FOLLOW_LABEL: Record<VehicleSnapshot['mode'], string> = {
   tram: 'Follow tram',
   train: 'Follow train',
   bus: 'Follow bus',
@@ -27,14 +27,14 @@ const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
 }
 
 /** Status text; ferries dock at a pier, not at a stop. */
-function statusText(tram: TramSnapshot): string {
+function statusText(vehicle: VehicleSnapshot): string {
   const base =
-    tram.status === 'moving' ? 'Moving' : tram.mode === 'ferry' ? 'At pier' : 'At stop'
+    vehicle.status === 'moving' ? 'Moving' : vehicle.mode === 'ferry' ? 'At pier' : 'At stop'
   // Explains why the vehicle is rendered as a 40 % ghost on the map
-  return tram.inTunnel ? `${base} · in tunnel` : base
+  return vehicle.inTunnel ? `${base} · in tunnel` : base
 }
 
-export function VehicleCard({ tram, following, onToggleFollow, onClose }: VehicleCardProps) {
+export function VehicleCard({ vehicle, following, onToggleFollow, onClose }: VehicleCardProps) {
   return (
     <Card
       className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-md"
@@ -44,14 +44,14 @@ export function VehicleCard({ tram, following, onToggleFollow, onClose }: Vehicl
         <CardTitle className="flex items-center gap-2 text-base">
           <span
             className="flex size-7 items-center justify-center rounded-md text-sm font-bold text-white"
-            style={{ backgroundColor: tram.color }}
+            style={{ backgroundColor: vehicle.color }}
           >
-            {tram.lineId}
+            {vehicle.lineId}
           </span>
           <span className="flex items-center gap-1.5">
-            {tram.origin}
+            {vehicle.origin}
             <ArrowRight className="size-4 text-muted-foreground" aria-hidden />
-            {tram.destination}
+            {vehicle.destination}
           </span>
         </CardTitle>
         <Button variant="ghost" size="icon-sm" aria-label="Close selection" onClick={onClose}>
@@ -61,11 +61,11 @@ export function VehicleCard({ tram, following, onToggleFollow, onClose }: Vehicl
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <span className="text-muted-foreground">Status</span>
-          <span data-testid="tram-status">{statusText(tram)}</span>
+          <span data-testid="vehicle-status">{statusText(vehicle)}</span>
           <span className="text-muted-foreground">Next stop</span>
-          <span data-testid="tram-next-stop">{tram.nextStopName}</span>
+          <span data-testid="vehicle-next-stop">{vehicle.nextStopName}</span>
           <span className="text-muted-foreground">Trip</span>
-          <span className="font-mono text-xs">{tram.id}</span>
+          <span className="font-mono text-xs">{vehicle.id}</span>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -74,11 +74,11 @@ export function VehicleCard({ tram, following, onToggleFollow, onClose }: Vehicl
             onClick={onToggleFollow}
           >
             <Crosshair aria-hidden />
-            {following ? 'Stop following' : FOLLOW_LABEL[tram.mode]}
+            {following ? 'Stop following' : FOLLOW_LABEL[vehicle.mode]}
           </Button>
-          {tram.realtime ? (
-            <Badge variant="secondary" data-testid="tram-delay">
-              GTFS-RT · {formatDelay(tram.delaySeconds)}
+          {vehicle.realtime ? (
+            <Badge variant="secondary" data-testid="vehicle-delay">
+              GTFS-RT · {formatDelay(vehicle.delaySeconds)}
             </Badge>
           ) : (
             <Badge variant="secondary">Schedule simulation</Badge>

@@ -321,9 +321,9 @@ export function buildAllTrips(
   return trips
 }
 
-export type TramStatus = 'dwell' | 'moving'
+export type VehicleStatus = 'dwell' | 'moving'
 
-export interface TramState {
+export interface VehicleState {
   tripId: string
   lineId: string
   direction: 0 | 1
@@ -332,7 +332,7 @@ export interface TramState {
   lon: number
   lat: number
   bearing: number
-  status: TramStatus
+  status: VehicleStatus
   /** Index of the next stop (in direction of travel). */
   nextStopIndex: number
 }
@@ -344,7 +344,7 @@ export function tripStateAt(
   trip: Trip,
   dir: PreparedDirection,
   tSec: number,
-): TramState | null {
+): VehicleState | null {
   const st = trip.stopTimes
   const first = st[0]
   const last = st[st.length - 1]
@@ -404,13 +404,13 @@ export function tripStateAt(
   return null
 }
 
-/** All active trams at time tSec. */
-export function activeTramStates(
+/** All active vehicles at time tSec. */
+export function activeVehicleStates(
   trips: Trip[],
   network: PreparedNetwork,
   tSec: number,
-): TramState[] {
-  const states: TramState[] = []
+): VehicleState[] {
+  const states: VehicleState[] = []
   for (const trip of trips) {
     const line = network.lineById.get(trip.lineId)
     if (!line) continue

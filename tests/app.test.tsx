@@ -18,10 +18,10 @@ vi.mock('@/map/CesiumMap', () => {
     getGroundHeights() {
       return []
     }
-    getTramBoxDriftMeters() {
+    getVehicleBoxDriftMeters() {
       return 0
     }
-    getTramOpacity() {
+    getVehicleOpacity() {
       return null
     }
     render() {}
@@ -31,8 +31,8 @@ vi.mock('@/map/CesiumMap', () => {
     consumeRenderRequest() {
       return false
     }
-    syncTrams() {
-      return { anyTramInView: true }
+    syncVehicles() {
+      return { anyVehicleInView: true }
     }
     setRoutesVisible() {}
     setStopsVisible() {}
@@ -41,7 +41,7 @@ vi.mock('@/map/CesiumMap', () => {
     setSelected() {}
     setFollow() {}
     setCameraHome() {}
-    hasTram() {
+    hasVehicle() {
       return false
     }
     destroy() {}
@@ -121,7 +121,7 @@ describe('App (UI shell)', () => {
     render(<App />)
     expect(window.__mrt).toBeDefined()
     expect(window.__mrt!.ready).toBe(true)
-    expect(typeof window.__mrt!.tramCount()).toBe('number')
+    expect(typeof window.__mrt!.vehicleCount()).toBe('number')
   })
 
   it('sets the simulation time via the time input and restores real time', () => {
