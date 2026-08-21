@@ -206,12 +206,35 @@ export function ControlPanel(props: ControlPanelProps) {
             </Button>
           </div>
 
-          {/* Set the simulation time (e.g. jump to rush hour) */}
+          {/* Set the simulation time (e.g. jump to rush hour). The field is
+              picker-only: typing is blocked and a click anywhere on it opens
+              the native time dropdown, so no invalid input can be entered. */}
           <div className="flex items-center gap-2">
             <Input
               type="time"
               aria-label="Set simulation time"
-              className="h-8 flex-1"
+              className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              inputMode="none"
+              onKeyDown={(e) => {
+                // Only block typing where the picker can take over
+                if (
+                  'showPicker' in e.currentTarget &&
+                  e.key !== 'Tab' &&
+                  e.key !== 'Escape' &&
+                  e.key !== 'Enter'
+                ) {
+                  e.preventDefault()
+                }
+              }}
+              onClick={(e) => {
+                // Not supported by every browser (Safari < 16) – typing
+                // into the field parts still works as the fallback there.
+                try {
+                  e.currentTarget.showPicker()
+                } catch {
+                  /* picker already open or unsupported */
+                }
+              }}
               onChange={(e) => {
                 if (e.target.value) props.onSetTime(e.target.value)
               }}
