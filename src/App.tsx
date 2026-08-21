@@ -553,14 +553,22 @@ export default function App() {
   }, [])
 
   /** Fly the camera to a line's route (keeps the compass heading). */
-  const handleFocusLine = useCallback((lineId: string) => {
-    if (followingRef.current) {
-      followingRef.current = false
-      setFollowing(false)
-      mapRef.current?.setFollow(null)
-    }
-    mapRef.current?.focusLine(lineId)
-  }, [])
+  const handleFocusLine = useCallback(
+    (lineId: string) => {
+      // Zooming to a hidden line implies wanting to see it – switch it
+      // back on exactly like its toggle would (routes, stops, vehicles).
+      if (!visibleLinesRef.current.has(lineId)) {
+        handleSetLinesVisible([lineId], true)
+      }
+      if (followingRef.current) {
+        followingRef.current = false
+        setFollowing(false)
+        mapRef.current?.setFollow(null)
+      }
+      mapRef.current?.focusLine(lineId)
+    },
+    [handleSetLinesVisible],
+  )
 
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
