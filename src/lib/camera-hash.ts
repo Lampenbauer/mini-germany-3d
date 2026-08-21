@@ -53,6 +53,37 @@ export function formatVehicleHash(vehicleId: string): string {
 }
 
 /**
+ * UI state that rides along in either hash form (camera pose or vehicle):
+ * the Routes/Stops layer toggles and the pause state. Only deviations
+ * from the defaults (both layers on, clock running) appear in the URL, so
+ * default sessions keep clean hashes.
+ */
+export interface HashUiState {
+  routesHidden: boolean
+  stopsHidden: boolean
+  paused: boolean
+}
+
+/** Suffix appended to a camera or vehicle hash ('' when all defaults). */
+export function formatUiStateHash(state: HashUiState): string {
+  return (
+    (state.routesHidden ? '&routes=0' : '') +
+    (state.stopsHidden ? '&stops=0' : '') +
+    (state.paused ? '&paused=1' : '')
+  )
+}
+
+export function parseUiStateHash(hash: string): HashUiState {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  const params = new URLSearchParams(raw)
+  return {
+    routesHidden: params.get('routes') === '0',
+    stopsHidden: params.get('stops') === '0',
+    paused: params.get('paused') === '1',
+  }
+}
+
+/**
  * Trip id of the vehicle selection carried in the hash, or null. Kept
  * permissive on the format – an id that matches no active trip is simply
  * never found by the restore and times out silently.

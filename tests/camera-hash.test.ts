@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatCameraHash,
+  formatUiStateHash,
   formatVehicleHash,
   parseCameraHash,
+  parseUiStateHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
 
@@ -76,5 +78,42 @@ describe('vehicle selection in the hash', () => {
     expect(parseVehicleHash('')).toBeNull()
     expect(parseVehicleHash('#vehicle=')).toBeNull()
     expect(parseVehicleHash(`#vehicle=${'x'.repeat(200)}`)).toBeNull()
+  })
+})
+
+describe('layer and pause state in the hash', () => {
+  const view = { latitude: 54.0901, longitude: 12.1405, height: 800, heading: 61, pitch: -57 }
+
+  it('appends only deviations from the defaults', () => {
+    expect(
+      formatUiStateHash({ routesHidden: false, stopsHidden: false, paused: false }),
+    ).toBe('')
+    expect(formatUiStateHash({ routesHidden: true, stopsHidden: true, paused: true })).toBe(
+      '&routes=0&stops=0&paused=1',
+    )
+  })
+
+  it('round-trips alongside both hash forms', () => {
+    const suffix = formatUiStateHash({ routesHidden: true, stopsHidden: false, paused: true })
+    const withCamera = formatCameraHash(view) + suffix
+    const withVehicle = formatVehicleHash('1-0-500') + suffix
+    for (const hash of [withCamera, withVehicle]) {
+      expect(parseUiStateHash(hash)).toEqual({
+        routesHidden: true,
+        stopsHidden: false,
+        paused: true,
+      })
+    }
+    // The extra params disturb neither the camera nor the vehicle parser
+    expect(parseCameraHash(withCamera)).not.toBeNull()
+    expect(parseVehicleHash(withVehicle)).toBe('1-0-500')
+  })
+
+  it('defaults everything when absent', () => {
+    expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
+      routesHidden: false,
+      stopsHidden: false,
+      paused: false,
+    })
   })
 })
