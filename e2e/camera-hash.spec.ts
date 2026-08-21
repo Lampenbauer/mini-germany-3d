@@ -39,3 +39,37 @@ test('camera pose is saved to and restored from the URL hash', async ({
   expect(view.height).toBeGreaterThan(700)
   expect(view.height).toBeLessThan(900)
 })
+
+test('a selected vehicle is shared and restored via the URL', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.waitForFunction(
+    () => window.__mrt?.ready === true && window.__mrt.tramCount() > 0,
+    undefined,
+    { timeout: 120_000 },
+  )
+
+  // Select a vehicle – the periodic hash writer must pick it up
+  const tramId = await page.evaluate(() => {
+    const id = window.__mrt!.trams()[0].id
+    window.__mrt!.selectTram(id)
+    return id
+  })
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
+    .toContain(`vehicle=${encodeURIComponent(tramId)}`)
+  const sharedUrl = await page.evaluate(() => window.location.href)
+
+  // Fresh app boot from the shared link (about:blank tears down the first
+  // WebGL context, see above) – the same trip is selected again and the
+  // vehicle card opens.
+  await page.goto('about:blank')
+  await page.goto(sharedUrl)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+  const card = page.getByTestId('vehicle-card')
+  await expect(card).toBeVisible({ timeout: 60_000 })
+  await expect(card).toContainText(tramId)
+})

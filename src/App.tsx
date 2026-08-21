@@ -8,7 +8,7 @@ import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
 import { Simulation, type TramSnapshot } from '@/engine/simulation'
-import { formatCameraHash, parseCameraHash } from '@/lib/camera-hash'
+import { formatCameraHash, parseCameraHash, parseVehicleHash } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -114,6 +114,8 @@ export default function App() {
   const selectedIdRef = useRef<string | null>(null)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<TramSnapshot[]>([])
+  /** Set by the init effect – selection changes write the URL immediately. */
+  const writeHashRef = useRef<() => void>(() => {})
 
   const [visibleLines, setVisibleLines] = useState<Set<string>>(new Set())
   const [showRoutes, setShowRoutes] = useState(true)
@@ -142,6 +144,8 @@ export default function App() {
 
   const selectTram = useCallback((id: string | null) => {
     selectedIdRef.current = id
+    // Selection is a discrete event – the shareable URL updates immediately
+    writeHashRef.current()
     const map = mapRef.current
     map?.setSelected(id)
     if (!id) {
@@ -211,7 +215,7 @@ export default function App() {
       const m = mapRef.current
       if (!m) return
       lastHashWriteAt = performance.now()
-      const hash = formatCameraHash(m.getCameraView())
+      const hash = formatCameraHash(m.getCameraView(), selectedIdRef.current)
       if (hash !== window.location.hash) {
         window.history.replaceState(null, '', hash)
       }
@@ -234,6 +238,7 @@ export default function App() {
       window.clearTimeout(hashTimeout)
       hashTimeout = window.setTimeout(writeHash, HASH_MAX_WAIT_MS - since)
     }
+    writeHashRef.current = writeHash
     // The last state must still land in the URL when the tab goes away
     window.addEventListener('pagehide', writeHash)
 
@@ -251,6 +256,13 @@ export default function App() {
     if (hashView) map.setView(hashView)
     map.addRoutes(network)
     map.addStops(network)
+
+    // A vehicle selection shared via the URL (&vehicle=…) is restored as
+    // soon as its trip shows up in the snapshots – it may take a moment
+    // for the simulation to have it, and it may never appear (link opened
+    // while the trip is not active), so the attempt expires silently.
+    let pendingSharedVehicle = parseVehicleHash(window.location.hash)
+    const sharedVehicleDeadline = performance.now() + 20_000
 
     // First write right away: a camera that never moves after boot fires no
     // change event (the first rendered frame establishes the baseline), yet
@@ -293,6 +305,17 @@ export default function App() {
             snapshotsRef.current = snapshots
             const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
             lastAnyTramInView = viewInfo?.anyTramInView ?? false
+
+            // After syncTrams, so the selection highlight finds the tram
+            // record (setSelected only marks records that already exist).
+            if (pendingSharedVehicle) {
+              if (snapshots.some((s) => s.id === pendingSharedVehicle)) {
+                selectTram(pendingSharedVehicle)
+                pendingSharedVehicle = null
+              } else if (now > sharedVehicleDeadline) {
+                pendingSharedVehicle = null
+              }
+            }
 
             // Update UI state only ~4×/second, not every frame
             if (now - lastUiUpdate > 250) {
@@ -408,6 +431,7 @@ export default function App() {
       cancelAnimationFrame(rafId)
       window.removeEventListener('pagehide', writeHash)
       window.clearTimeout(hashTimeout)
+      writeHashRef.current = () => {}
       realtimeClient?.stop()
       window.__mrt = undefined
       map.destroy()

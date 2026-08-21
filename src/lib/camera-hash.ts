@@ -1,7 +1,10 @@
 /**
  * Persists the camera orientation in the URL hash, e.g.
  *   #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
- * so the view survives a browser reload and is shareable.
+ * so the view survives a browser reload and is shareable. While a vehicle
+ * is selected its trip id is appended as &vehicle=… – trip ids are
+ * deterministic across reloads (see simTripId), so the link restores the
+ * selection for anyone who opens it while that trip is active.
  */
 
 export interface CameraView {
@@ -32,13 +35,27 @@ export function parseCameraHash(hash: string): CameraView | null {
   return { longitude: lon, latitude: lat, height, heading, pitch }
 }
 
-export function formatCameraHash(view: CameraView): string {
+export function formatCameraHash(view: CameraView, vehicleId?: string | null): string {
   const heading = Math.round(((view.heading % 360) + 360) % 360)
   return (
     `#lat=${view.latitude.toFixed(6)}` +
     `&lon=${view.longitude.toFixed(6)}` +
     `&height=${Math.round(view.height)}` +
     `&heading=${heading === 360 ? 0 : heading}` +
-    `&pitch=${Math.round(view.pitch)}`
+    `&pitch=${Math.round(view.pitch)}` +
+    (vehicleId ? `&vehicle=${encodeURIComponent(vehicleId)}` : '')
   )
+}
+
+/**
+ * Trip id of the vehicle selection carried in the hash, or null. Kept
+ * permissive on the format – an id that matches no active trip is simply
+ * never found by the restore and times out silently.
+ */
+export function parseVehicleHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!raw) return null
+  const vehicle = new URLSearchParams(raw).get('vehicle')
+  if (!vehicle || vehicle.length > 128) return null
+  return vehicle
 }
