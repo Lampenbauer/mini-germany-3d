@@ -68,7 +68,11 @@ function fakeRecord(overrides: Record<string, unknown> = {}) {
     attributes,
     primitive: { getGeometryInstanceAttributes: vi.fn(() => attributes) },
     appearance: new PerInstanceColorAppearance({ closed: true, translucent: false }),
-    labelEntity: { label: {} as { fillColor?: ConstantProperty; outlineColor?: ConstantProperty } },
+    labelEntity: {
+      // Both variants present so the badge and the text fallback are covered
+      billboard: {} as { color?: ConstantProperty },
+      label: {} as { fillColor?: ConstantProperty; outlineColor?: ConstantProperty },
+    },
     baseColor: Color.RED,
     inTunnel: true,
     highlighted: false,
@@ -139,7 +143,8 @@ describe('Cesium tunnel rendering', () => {
     expect(record.appearance.translucent).toBe(true)
     expect(attributes.color[3]).toBe(102) // 0.4 * 255
     expect(record.labelEntity.label.fillColor?.getValue().alpha).toBeCloseTo(0.4)
-    expect(record.labelEntity.label.outlineColor?.getValue().alpha).toBeCloseTo(0.4)
+    // The badge billboard ghosts via its color multiplier
+    expect(record.labelEntity.billboard.color?.getValue().alpha).toBeCloseTo(0.4)
     const baseColor = [...attributes.color]
 
     map.setSelected('vehicle')
