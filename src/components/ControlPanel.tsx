@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
-  Home,
   Layers,
   Pause,
   Play,
@@ -60,7 +59,6 @@ export interface ControlPanelProps {
   dataSource: string | null
   /** Status des GTFS-Realtime-Feeds (null = deaktiviert). */
   realtimeStatus: RealtimeStatus | null
-  onResetCamera: () => void
 }
 
 // The healthy state (google-3d-tiles) shows no badge – only loading and
@@ -170,7 +168,9 @@ export function ControlPanel(props: ControlPanelProps) {
   }, [props.lines])
 
   return (
-    <Card className="pointer-events-auto w-80 max-h-[calc(100vh-2rem)] overflow-y-auto border-border/60 bg-card/85 backdrop-blur-md">
+    // max-h leaves ~2.5rem below the panel so it cannot cover the Cesium
+    // attribution line at the bottom edge of the map
+    <Card className="pointer-events-auto w-80 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-border/60 bg-card/85 backdrop-blur-md">
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <TramFront className="size-5 text-primary" aria-hidden />
@@ -244,24 +244,6 @@ export function ControlPanel(props: ControlPanelProps) {
 
           <div className="h-px bg-border" role="separator" />
 
-          {/* Lines, grouped by transit mode (headers only when >1 group) */}
-          <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium">Lines</div>
-            {lineGroups.map((g) => (
-              <LineGroup
-                key={g.mode}
-                mode={g.mode}
-                lines={g.lines}
-                showHeader={lineGroups.length > 1}
-                onToggleLine={props.onToggleLine}
-                onFocusLine={props.onFocusLine}
-                onSetLinesVisible={props.onSetLinesVisible}
-              />
-            ))}
-          </div>
-
-          <div className="h-px bg-border" role="separator" />
-
           {/* Layers */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-sm font-medium">
@@ -284,6 +266,24 @@ export function ControlPanel(props: ControlPanelProps) {
                 onCheckedChange={props.onToggleStops}
               />
             </div>
+          </div>
+
+          <div className="h-px bg-border" role="separator" />
+
+          {/* Lines, grouped by transit mode (headers only when >1 group) */}
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium">Lines</div>
+            {lineGroups.map((g) => (
+              <LineGroup
+                key={g.mode}
+                mode={g.mode}
+                lines={g.lines}
+                showHeader={lineGroups.length > 1}
+                onToggleLine={props.onToggleLine}
+                onFocusLine={props.onFocusLine}
+                onSetLinesVisible={props.onSetLinesVisible}
+              />
+            ))}
           </div>
 
           <div className="h-px bg-border" role="separator" />
@@ -318,11 +318,6 @@ export function ControlPanel(props: ControlPanelProps) {
               </Badge>
             )}
           </div>
-
-          <Button variant="outline" size="sm" onClick={props.onResetCamera}>
-            <Home aria-hidden />
-            Reset camera
-          </Button>
         </CardContent>
       )}
     </Card>
