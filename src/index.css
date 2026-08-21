@@ -71,6 +71,18 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/*
+ * Tailwind v4 preflight leaves buttons at cursor: default – restore the
+ * pointer for every enabled control (covers the shadcn Buttons and the
+ * Radix Switches, which render as <button role="switch">).
+ */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 html,
 body,
 #root {
