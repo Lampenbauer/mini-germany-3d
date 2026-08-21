@@ -139,7 +139,11 @@ interface StopEntityRecord {
  */
 const FALLBACK_GROUND_HEIGHT = 45
 
-/** Every how many frames the ground height is re-sampled per tram. */
+/**
+ * Every how many frames the ground height is re-sampled per tram – only
+ * for vehicles WITHOUT route terrain heights (approximated dataset); with
+ * heights present the height comes from the route profile instead.
+ */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
 /**
@@ -971,10 +975,14 @@ export class CesiumMap {
    * Called every frame: updates positions in place, creates new entities,
    * and removes finished trips.
    *
-   * The trams' height is set EXPLICITLY (tile height + half the vehicle
-   * height) instead of via HeightReference clamping – clamping entity
-   * geometries onto 3D tiles is unreliable in practice, which left the
-   * boxes sitting below the photorealistic surface.
+   * The trams' height is set EXPLICITLY instead of via HeightReference
+   * clamping (clamping entity geometries onto 3D tiles is unreliable in
+   * practice, which left boxes below the photorealistic surface). The
+   * height source is the direction's DGM terrain profile (snapshot `nhn` +
+   * the calibrated NHN→ellipsoid offset) – the same numbers the route
+   * polylines use, so vehicles and lines are congruent by construction and
+   * no tileset.getHeight ray casts are needed. Vehicles without route
+   * heights (approximated dataset) fall back to sampling the 3D tiles.
    */
   syncTrams(
     snapshots: TramSnapshot[],
@@ -1014,6 +1022,20 @@ export class CesiumMap {
       }
 
       const show = visibleLines.has(snap.lineId)
+
+      // Vehicle height: terrain profile of the route (NHN + calibrated
+      // offset) whenever the direction carries DGM heights – deterministic,
+      // congruent with the route polylines, and free of ray casts. In
+      // offline mode the ground is the bare ellipsoid, where NHN heights
+      // would float mid-air, so the fallback below applies there too.
+      const routeGroundHeight =
+        this.opts.fixedGroundHeight === undefined && !this.opts.offline && snap.nhn !== undefined
+          ? snap.nhn + this.routeHeightOffset
+          : undefined
+      if (routeGroundHeight !== undefined) {
+        record.groundHeight = routeGroundHeight
+      }
+
       let position = Cartesian3.fromDegrees(
         snap.lon,
         snap.lat,
@@ -1024,8 +1046,8 @@ export class CesiumMap {
 
       // Visibility test per shown tram: inside the camera frustum AND within
       // label range (beyond that the vehicle is only a few pixels). The
-      // result drives the render pacing (anyTramInView) and whether the much
-      // more expensive tile-height sampling below is worth doing at all.
+      // result drives the render pacing (anyTramInView) and whether the
+      // fallback tile-height sampling below is worth doing at all.
       let inView = false
       const cameraDistance = Cartesian3.distance(camera.positionWC, position)
       if (show && cameraDistance < TRAM_VISIBLE_RANGE) {
@@ -1035,11 +1057,13 @@ export class CesiumMap {
         if (inView) anyTramInView = true
       }
 
-      // Update the ground height in a staggered fashion (not every tram in
-      // every frame) and only where it is visible: tileset.getHeight does a
-      // ray intersection against the loaded tiles and dominates the tick cost.
+      // Fallback for vehicles WITHOUT route heights (approximated dataset):
+      // sample the tile height in a staggered fashion (not every tram in
+      // every frame) and only where visible – tileset.getHeight does a ray
+      // intersection against the loaded tiles and would dominate the tick.
       const followed = snap.id === this.followId
       if (
+        routeGroundHeight === undefined &&
         this.opts.fixedGroundHeight === undefined &&
         (inView || followed) &&
         this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL

@@ -4,6 +4,7 @@
  */
 
 import { SimClock } from '@/lib/clock'
+import { heightAtDistance } from '@/lib/geo'
 import { buildAllTrips, buildRealtimeTripIdMap, tripStateAt } from '@/lib/timetable'
 import type { ScheduleJson, TimetableOptions, Trip } from '@/lib/timetable'
 import { isInTunnel } from '@/lib/tunnels'
@@ -24,6 +25,12 @@ export interface TramSnapshot {
   lat: number
   bearing: number
   status: 'dwell' | 'moving'
+  /**
+   * Terrain height in meters NHN at the current position, interpolated
+   * from the direction's per-vertex DGM heights; undefined when the
+   * direction carries no height data (the map then samples the 3D tiles).
+   */
+  nhn?: number
   /** true while the vehicle is inside a tunnel/underground route section. */
   inTunnel: boolean
   nextStopName: string
@@ -108,6 +115,7 @@ export class Simulation {
         lat: state.lat,
         bearing: state.bearing,
         status: state.status,
+        nhn: dir.heights ? heightAtDistance(dir.heights, dir.cum, state.distance) : undefined,
         inTunnel: dir.tunnels.length > 0 && isInTunnel(dir.tunnels, state.distance),
         nextStopName: dir.stops[state.nextStopIndex]?.name ?? dir.to,
         destination: trip.destination ?? dir.to,

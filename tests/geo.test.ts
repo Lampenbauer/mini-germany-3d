@@ -3,6 +3,7 @@ import {
   bearingDegrees,
   cumulativeDistances,
   haversineMeters,
+  heightAtDistance,
   projectOntoPath,
   sampleAtDistance,
   type LonLat,
@@ -88,5 +89,16 @@ describe('projectOntoPath', () => {
     // Corner point exactly on the path
     const corner = projectOntoPath(path, cum, [12.1, 54.009])
     expect(corner).toBeCloseTo(cum[1], 0)
+  })
+})
+
+describe('heightAtDistance', () => {
+  it('interpolates linearly between vertices and clamps at the ends', () => {
+    const cum = [0, 100, 300]
+    const heights = [10, 20, 10]
+    expect(heightAtDistance(heights, cum, -5)).toBe(10)
+    expect(heightAtDistance(heights, cum, 50)).toBeCloseTo(15)
+    expect(heightAtDistance(heights, cum, 200)).toBeCloseTo(15)
+    expect(heightAtDistance(heights, cum, 999)).toBe(10)
   })
 })

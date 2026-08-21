@@ -85,6 +85,31 @@ export function sampleAtDistance(path: LonLat[], cum: number[], d: number): Path
 }
 
 /**
+ * Height at distance `d` along a path with per-vertex heights (linear
+ * interpolation, `d` clamped to [0, total]). `heights` and `cum` must be
+ * parallel to the same path.
+ */
+export function heightAtDistance(
+  heights: readonly number[],
+  cum: readonly number[],
+  d: number,
+): number {
+  const last = cum.length - 1
+  if (d <= cum[0]) return heights[0]
+  if (d >= cum[last]) return heights[last]
+  let lo = 0
+  let hi = last
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (cum[mid] <= d) lo = mid
+    else hi = mid
+  }
+  const span = cum[hi] - cum[lo]
+  const t = span > 0 ? (d - cum[lo]) / span : 0
+  return heights[lo] + (heights[hi] - heights[lo]) * t
+}
+
+/**
  * Distance along the polyline to the foot of the projection of `p`.
  * Uses a local equirectangular approximation per segment – more than
  * accurate enough for matching stops onto the route.

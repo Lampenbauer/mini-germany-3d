@@ -6,7 +6,7 @@
  * to render affected route sections and vehicles at reduced visibility.
  */
 
-import { sampleAtDistance } from '@/lib/geo'
+import { heightAtDistance, sampleAtDistance } from '@/lib/geo'
 import type { LonLat } from '@/lib/geo'
 
 /** [start, end] in meters along the direction path (start < end). */
@@ -117,23 +117,6 @@ export function splitPathByTunnels(
   }
   if (cursor < total) pushPiece(cursor, total, false)
   return pieces.length > 0 ? pieces : wholePath()
-}
-
-/** Height at distance `d` along the path, linearly interpolated. */
-function heightAtDistance(heights: readonly number[], cum: number[], d: number): number {
-  const last = cum.length - 1
-  if (d <= cum[0]) return heights[0]
-  if (d >= cum[last]) return heights[last]
-  let lo = 0
-  let hi = last
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1
-    if (cum[mid] <= d) lo = mid
-    else hi = mid
-  }
-  const span = cum[hi] - cum[lo]
-  const t = span > 0 ? (d - cum[lo]) / span : 0
-  return heights[lo] + (heights[hi] - heights[lo]) * t
 }
 
 /**
