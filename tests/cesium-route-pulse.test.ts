@@ -1,7 +1,7 @@
 import { Color, ColorMaterialProperty, JulianDate } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { prepareNetwork } from '@/data/network'
-import { CesiumMap } from '@/map/CesiumMap'
+import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -77,7 +77,7 @@ describe('route attention pulse', () => {
 
     clockMs += 375
     expect(h.alpha('route:U:0:0')).toBeCloseTo(0.85, 5)
-    expect(h.alpha('route:U:0:1')).toBeCloseTo(0.85 * 0.4, 5)
+    expect(h.alpha('route:U:0:1')).toBeCloseTo(0.85 * TUNNEL_VISIBILITY, 5)
   })
 
   it('returns the exact base colors when the duration is over', () => {
@@ -88,7 +88,7 @@ describe('route attention pulse', () => {
 
     clockMs += 3000
     expect(h.alpha('route:U:0:0')).toBeCloseTo(0.85, 5)
-    expect(h.alpha('route:U:0:1')).toBeCloseTo(0.85 * 0.4, 5)
+    expect(h.alpha('route:U:0:1')).toBeCloseTo(0.85 * TUNNEL_VISIBILITY, 5)
     // The render()-driver clears the finished pulse
     h.internals.updateRoutePulse()
     expect(h.internals.routePulse).toBeNull()

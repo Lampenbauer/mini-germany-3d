@@ -374,9 +374,10 @@ const CHASE_BREAK_RANGE_RATIO = 0.01
 
 /**
  * Visibility of tunnel/underground sections: route pieces and vehicles on
- * them are rendered at 40 % of their normal opacity.
+ * them are rendered at this fraction of their normal opacity. Exported for
+ * the tests, which pin the ghosting behaviour against it.
  */
-const TUNNEL_VISIBILITY = 0.2
+export const TUNNEL_VISIBILITY = 0.2
 
 // Scratch objects for the per-tick hot path in syncTrams: Cesium clones all
 // values it retains (ConstantProperty, modelMatrix), so reusing these avoids
