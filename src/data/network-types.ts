@@ -28,6 +28,8 @@ export interface NetworkMeta {
 export interface StopJson {
   name: string
   coord: LonLat
+  /** Terrain height in meters NHN (DGM, © GeoBasis-DE/M-V); missing = unknown. */
+  nhn?: number
 }
 
 export interface LineJson {
@@ -57,6 +59,17 @@ export interface DirectionJson {
    * Missing or empty = the whole direction runs above ground.
    */
   tunnels?: TunnelRange[]
+  /**
+   * Bridge sections as [start, end] meter ranges along `path` (OSM
+   * bridge=*). Only consumed by the data pipeline (bridge decks are
+   * interpolated into `heights` there); the runtime ignores them.
+   */
+  bridges?: [number, number][]
+  /**
+   * Terrain height per path vertex in meters NHN (DGM © GeoBasis-DE/M-V,
+   * bridge decks interpolated). Missing = draw routes clamped to ground.
+   */
+  heights?: number[]
 }
 
 /** Prepared network with precomputed distances. */
@@ -82,6 +95,8 @@ export interface PreparedStop {
   coord: LonLat
   /** Distance of the stop along the direction path in meters. */
   dist: number
+  /** Terrain height in meters NHN; basis for the route height calibration. */
+  nhn?: number
 }
 
 export interface PreparedDirection {
@@ -95,4 +110,9 @@ export interface PreparedDirection {
   stops: PreparedStop[]
   /** Normalized tunnel sections (sorted, merged, clamped); [] = none. */
   tunnels: TunnelRange[]
+  /**
+   * Terrain height per path vertex (meters NHN), validated against the
+   * path length; undefined = clamp routes to the 3D tiles instead.
+   */
+  heights?: number[]
 }

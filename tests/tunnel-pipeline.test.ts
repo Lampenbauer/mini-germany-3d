@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { stitchWays } from '../scripts/fetch-osm-network.mjs'
-import { isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
+import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
 
 /**
  * Tests for the OSM pipeline helpers (scripts/lib/tunnels.mjs and
@@ -31,6 +31,20 @@ describe('isUndergroundWay', () => {
     expect(isUndergroundWay({ tags: { railway: 'tram' } })).toBe(false)
     expect(isUndergroundWay({})).toBe(false)
     expect(isUndergroundWay(undefined)).toBe(false)
+  })
+})
+
+describe('isBridgeWay', () => {
+  it('detects bridge tags (every value except "no")', () => {
+    expect(isBridgeWay({ tags: { bridge: 'yes' } })).toBe(true)
+    expect(isBridgeWay({ tags: { bridge: 'viaduct' } })).toBe(true)
+    expect(isBridgeWay({ tags: { bridge: 'no' } })).toBe(false)
+  })
+
+  it('ignores a positive layer without a bridge tag', () => {
+    expect(isBridgeWay({ tags: { layer: '1' } })).toBe(false)
+    expect(isBridgeWay({})).toBe(false)
+    expect(isBridgeWay(undefined)).toBe(false)
   })
 })
 
@@ -97,6 +111,22 @@ describe('stitchWays underground flags', () => {
     const { path, segUnderground } = stitchWays([{ ref: 10 }, { ref: 11 }], ways, nodes, 'test')
     expect(path).toEqual([p1, p2, p3])
     expect(segUnderground).toEqual([false, true])
+  })
+
+  it('classifies bridge ways segment by segment', () => {
+    const nodes = new Map([
+      [1, { lon: p1[0], lat: p1[1] }],
+      [2, { lon: p2[0], lat: p2[1] }],
+      [3, { lon: p3[0], lat: p3[1] }],
+    ])
+    const ways = new Map([
+      [10, { nodes: [1, 2], tags: { bridge: 'yes' } }],
+      [11, { nodes: [2, 3], tags: {} }],
+    ])
+
+    const { segBridge, segUnderground } = stitchWays([{ ref: 10 }, { ref: 11 }], ways, nodes, 'test')
+    expect(segBridge).toEqual([true, false])
+    expect(segUnderground).toEqual([false, false])
   })
 
   it('merges a sub-meter connector into the following way (inherits its flag)', () => {
