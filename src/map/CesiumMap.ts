@@ -348,7 +348,7 @@ const ROUTE_PULSE_PERIOD_MS = 750
 const ROUTE_PULSE_FADE_MS = 250
 
 /** Follow camera: initial offset behind/above the vehicle. */
-const FOLLOW_PITCH_DEG = -16
+const FOLLOW_PITCH_DEG = -14
 const FOLLOW_RANGE = 150
 
 /** Duration of the approach flight when following starts, in seconds. */
