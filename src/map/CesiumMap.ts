@@ -281,14 +281,14 @@ const TRAM_BODY_VISIBLE_RANGE = 3_000
  */
 const GLOW_COLOR = Color.fromCssColorString('#ffd9a0')
 /** Pool opacity in full night (scaled by the sun ramp in between). */
-const GLOW_MAX_ALPHA = 0.5
+const GLOW_MAX_ALPHA = 0.95
 /** Sine of the sun elevation where the glow starts (dusk) / is fully on. */
 const GLOW_SUN_START = -0.05
 const GLOW_SUN_FULL = -0.17
 /** Meters above the sampled ground – below routes, above the road mesh. */
 const GLOW_LIFT = 0.15
 /** Camera distance in meters up to which the pools are drawn. */
-const GLOW_VISIBLE_RANGE = 2_500
+const GLOW_VISIBLE_RANGE = 2_000
 
 /**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
@@ -310,7 +310,7 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
 
   vec3 goldenTint = vec3(1.0, 0.84, 0.66);
   vec3 duskTint = vec3(0.40, 0.35, 0.37);
-  vec3 nightTint = vec3(0.09, 0.11, 0.20);
+  vec3 nightTint = vec3(0.06, 0.08, 0.15);
 
   // Blend regions by sun height: full day above +8 deg, golden hour down
   // to sunset, dusk while the sun sinks to -5 deg, night below about
@@ -1972,8 +1972,8 @@ export class CesiumMap {
 
     // Night-time cabin glow: pool extent = footprint plus sideways spill
     const glowScale = new Cartesian3(
-      snap.vehicle.length * 1.25 + 4,
-      snap.vehicle.width * 3.5,
+      snap.vehicle.length * 1.5 + 4,
+      snap.vehicle.width * 3.9,
       1,
     )
     let glow: Primitive | null = null
