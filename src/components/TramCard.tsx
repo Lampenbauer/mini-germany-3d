@@ -21,6 +21,7 @@ function formatDelay(delaySeconds: number): string {
 /** Mode-appropriate label for the follow button. */
 const FOLLOW_LABEL: Record<TramSnapshot['mode'], string> = {
   tram: 'Follow tram',
+  train: 'Follow train',
   bus: 'Follow bus',
   ferry: 'Follow ferry',
 }

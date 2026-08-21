@@ -63,6 +63,9 @@ export const DEFAULT_SERVICE: HeadwaySpan[] = [
  */
 export const DEFAULT_SERVICE_BY_MODE: Record<TransitMode, HeadwaySpan[]> = {
   tram: DEFAULT_SERVICE,
+  // S-Bahn fallback: each of the three lines every 30 min ≈ the real
+  // 7.5–15 min combined headway on the shared Warnemünde corridor.
+  train: [{ startMin: 4 * 60 + 30, endMin: 24 * 60, headwayMin: 30 }],
   bus: [
     { startMin: 5 * 60, endMin: 6 * 60, headwayMin: 30 },
     { startMin: 6 * 60, endMin: 19 * 60, headwayMin: 20 },

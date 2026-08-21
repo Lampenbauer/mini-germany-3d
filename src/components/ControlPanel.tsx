@@ -11,6 +11,7 @@ import {
   RadioTower,
   Ship,
   TimerReset,
+  TrainFront,
   TramFront,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -71,14 +72,16 @@ const TILESET_LABEL: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, string> =
 }
 
 /** Display order and labels of the transit-mode groups. */
-const MODE_ORDER: TransitMode[] = ['tram', 'bus', 'ferry']
+const MODE_ORDER: TransitMode[] = ['tram', 'train', 'bus', 'ferry']
 const MODE_LABEL: Record<TransitMode, string> = {
   tram: 'Tram',
+  train: 'S-Bahn',
   bus: 'Bus',
   ferry: 'Ferry',
 }
 const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   tram: TramFront,
+  train: TrainFront,
   bus: Bus,
   ferry: Ship,
 }

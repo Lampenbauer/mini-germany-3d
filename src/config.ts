@@ -45,6 +45,7 @@ export const config = {
     /** Mode-specific travel speeds (m/s); missing = cruiseSpeedMps. */
     cruiseSpeedByMode: {
       tram: 8.3,
+      train: 11.0, // S-Bahn ~40 km/h between city stations (incl. accel/brake)
       bus: 6.9, // ~25 km/h city traffic
       ferry: 3.0, // ~6 kn harbor crossing
     },
@@ -59,6 +60,8 @@ export const config = {
   vehicles: {
     /** Modeled after a 6N2. */
     tram: { length: 32, width: 2.65, height: 3.6 },
+    /** S-Bahn: Talent 2 (BR 442) three-car unit (usually set per line in network.json). */
+    train: { length: 56.8, width: 2.92, height: 4.3 },
     /** Standard 12 m city bus. */
     bus: { length: 12, width: 2.55, height: 3.1 },
     /** Fallback in case a ferry comes without dimensions. */

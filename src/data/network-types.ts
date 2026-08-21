@@ -2,7 +2,7 @@ import type { LonLat } from '@/lib/geo'
 import type { TunnelRange } from '@/lib/tunnels'
 
 /** Transit mode of a line. If the field is missing in network.json, 'tram' applies. */
-export type TransitMode = 'tram' | 'bus' | 'ferry'
+export type TransitMode = 'tram' | 'train' | 'bus' | 'ferry'
 
 /** Vehicle dimensions in meters (length × width × height). */
 export interface VehicleDimensions {

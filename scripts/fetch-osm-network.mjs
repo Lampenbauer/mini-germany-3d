@@ -4,6 +4,9 @@
  * (Overpass API) and generates src/data/network.json with exact geometry:
  *   - all tram lines (route=tram)
  *   - all RSAG bus lines (route=bus, operator RSAG)
+ *   - the S-Bahn lines S1–S3 (route=train, service=commuter, DB Regio),
+ *     truncated at Rostock Hbf: S2/S3 continue to Güstrow far outside the
+ *     city map, so only the shared Warnemünde–Hbf corridor is kept
  *   - the ferries Kabutzenhof–Gehlsdorf (56291) and
  *     Warnemünde–Hohe Düne (56296)
  *   - tunnel/underground sections per direction (from the member ways'
@@ -45,6 +48,19 @@ const OVERPASS_MIRRORS = process.env.OVERPASS_URL
       'https://overpass.kumi.systems/api/interpreter',
       'https://overpass.osm.ch/api/interpreter',
     ]
+
+/**
+ * Terminal at which S-Bahn routes are truncated: everything beyond
+ * Rostock Hbf (toward Güstrow/Laage) lies outside the city map. The stop
+ * closest to this point marks the cut.
+ */
+const TRAIN_TERMINAL_NAME = /Rostock Hbf|Rostock Hauptbahnhof/
+
+/**
+ * S-Bahn vehicle: Bombardier Talent 2 (BR 442) three-car unit as run by
+ * DB Regio on the Rostock S-Bahn (visual approximation like the ferries).
+ */
+const TRAIN_VEHICLE = { length: 56.8, width: 2.92, height: 4.3 }
 
 // Overpass instances expect identifiable clients; requests without a
 // User-Agent are sometimes rejected (e.g. with HTTP 403/406).
@@ -103,15 +119,23 @@ const FERRIES = {
 // Important: "out body qt" (not "out skel qt") so that nodes/ways keep their
 // tags – otherwise the stop names are missing.
 // Buses: RSAG only (regional buses of other operators such as rebus are excluded).
+// Trains: only the S-Bahn (service=commuter, refs S1–S3) – regional/long-
+// distance trains through the same corridor are out of scope.
 const QUERY = `
 [out:json][timeout:240][bbox:${BBOX}];
 (
   relation["route"="tram"];
   relation["route"="bus"]["operator"~"Rostocker Straßenbahn|RSAG",i];
+  relation["route"="train"]["service"="commuter"]["ref"~"^S[0-9]+$"];
   relation(id:${Object.keys(FERRIES).join(',')});
 );
 out body;
 >;
+out body qt;
+// Station/halt nodes for naming the S-Bahn stops: rail stop_position
+// nodes are mostly unnamed (or carry track names like "Gleis 3"), the
+// real station name lives on the railway=station/halt node nearby.
+node["railway"~"^(station|halt)$"]["name"](${BBOX});
 out body qt;
 `
 
@@ -152,15 +176,32 @@ export function stitchWays(ways, wayById, nodeById, label) {
     return pts.length >= 2 ? pts : null
   }
 
-  for (const member of ways) {
+  for (let memberIndex = 0; memberIndex < ways.length; memberIndex++) {
+    const member = ways[memberIndex]
     const pts = wayCoords(member.ref)
     if (!pts) continue
     const underground = isUndergroundWay(wayById.get(member.ref))
     const bridge = isBridgeWay(wayById.get(member.ref))
 
     if (coords.length === 0) {
-      coords.push(...pts)
-      for (let i = 1; i < pts.length; i++) {
+      // The first way's stored orientation is arbitrary (rail relations in
+      // particular often list the terminal stub pointing INTO the buffer
+      // stop) – orient it so its end faces the next way, otherwise every
+      // following way looks like a >150 m gap and gets skipped.
+      let oriented = pts
+      for (let j = memberIndex + 1; j < ways.length; j++) {
+        const nextPts = wayCoords(ways[j].ref)
+        if (!nextPts) continue
+        const gapFrom = (p) =>
+          Math.min(
+            haversineMeters(p, nextPts[0]),
+            haversineMeters(p, nextPts[nextPts.length - 1]),
+          )
+        if (gapFrom(pts[0]) < gapFrom(pts[pts.length - 1])) oriented = [...pts].reverse()
+        break
+      }
+      coords.push(...oriented)
+      for (let i = 1; i < oriented.length; i++) {
         segUnderground.push(underground)
         segBridge.push(bridge)
       }
@@ -203,6 +244,44 @@ function cumulative(path) {
     cum.push(cum[i - 1] + haversineMeters(path[i - 1], path[i]))
   }
   return cum
+}
+
+/**
+ * Cuts a stitched direction at `cutDist` (meters along the path) and keeps
+ * the requested side. Used for the S-Bahn: S2/S3 continue far beyond the
+ * city map toward Güstrow, so everything past Rostock Hbf is dropped. The
+ * cut point itself is interpolated onto the path, and the tunnel/bridge
+ * meter ranges are clipped (and, for the 'after' side, shifted) so they
+ * stay valid for the shortened path.
+ */
+export function clipPathAt(path, cum, cutDist, keep, ranges = []) {
+  const total = cum[cum.length - 1]
+  const clamped = Math.max(0, Math.min(total, cutDist))
+  const interpolate = (dist) => {
+    let i = 1
+    while (i < cum.length - 1 && cum[i] < dist) i++
+    const span = cum[i] - cum[i - 1]
+    const t = span > 0 ? (dist - cum[i - 1]) / span : 0
+    return [
+      path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t,
+      path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t,
+    ]
+  }
+  let clippedPath
+  let clipRange
+  if (keep === 'before') {
+    clippedPath = path.filter((_, i) => cum[i] < clamped)
+    clippedPath.push(interpolate(clamped))
+    clipRange = ([s, e]) => (s >= clamped ? null : [s, Math.min(e, clamped)])
+  } else {
+    clippedPath = [interpolate(clamped), ...path.filter((_, i) => cum[i] > clamped)]
+    clipRange = ([s, e]) => (e <= clamped ? null : [Math.max(0, s - clamped), e - clamped])
+  }
+  const clippedRanges = ranges
+    .map(clipRange)
+    .filter((r) => r !== null && r[1] - r[0] >= 1)
+    .map(([s, e]) => [Math.round(s * 10) / 10, Math.round(e * 10) / 10])
+  return { path: clippedPath, ranges: clippedRanges }
 }
 
 function projectOntoPath(path, cum, p) {
@@ -276,8 +355,27 @@ async function main() {
     else if (el.type === 'way') wayById.set(el.id, el)
     else if (el.type === 'relation') relations.push(el)
   }
+  // Named railway station/halt nodes (fetched alongside the relations):
+  // the S-Bahn stop_positions are mostly unnamed or carry track names
+  // ("Gleis 3"), so train stops take the name of the nearest station.
+  const stationNodes = [...nodeById.values()].filter(
+    (n) => /^(station|halt)$/.test(n.tags?.railway ?? '') && n.tags?.name,
+  )
+  const nearestStationName = (node) => {
+    let best = null
+    let bestDist = 400
+    for (const station of stationNodes) {
+      const d = haversineMeters([node.lon, node.lat], [station.lon, station.lat])
+      if (d < bestDist) {
+        bestDist = d
+        best = station.tags.name
+      }
+    }
+    return best
+  }
   console.log(
-    `Loaded ${relations.length} route relations, ${wayById.size} ways, ${nodeById.size} nodes`,
+    `Loaded ${relations.length} route relations, ${wayById.size} ways, ` +
+      `${nodeById.size} nodes (${stationNodes.length} named rail stations)`,
   )
 
   // Group relations by line: trams/buses via their ref tag, the ferries via
@@ -291,7 +389,14 @@ async function main() {
       byLine.get(key).rels.push(rel)
       continue
     }
-    const mode = rel.tags?.route === 'bus' ? 'bus' : rel.tags?.route === 'tram' ? 'tram' : null
+    const mode =
+      rel.tags?.route === 'bus'
+        ? 'bus'
+        : rel.tags?.route === 'tram'
+          ? 'tram'
+          : rel.tags?.route === 'train'
+            ? 'train'
+            : null
     const ref = rel.tags?.ref
     if (!mode || !ref) continue
     const key = `${mode}:${ref}`
@@ -301,7 +406,7 @@ async function main() {
 
   const stops = {}
   const lines = []
-  const MODE_ORDER = { tram: 0, bus: 1, ferry: 2 }
+  const MODE_ORDER = { tram: 0, train: 1, bus: 2, ferry: 3 }
   let busColorIndex = 0
 
   const groups = [...byLine.values()].sort(
@@ -342,6 +447,11 @@ async function main() {
           if (!name && /platform/.test(rel.members[i - 1]?.role || '')) {
             name = memberName(rel.members[i - 1])
           }
+          // Rail: node/platform names are track labels ("Gleis 3") or
+          // missing entirely – the nearest station/halt node is the truth.
+          if (mode === 'train') {
+            name = nearestStationName(node) ?? name
+          }
           stopNodes.push({ node, name })
         })
         return { rel, path, segUnderground, segBridge, stopNodes }
@@ -363,16 +473,53 @@ async function main() {
     if (opposite) chosen.push(opposite)
 
     const directions = []
-    for (const { rel, path, segUnderground, segBridge, stopNodes } of chosen) {
-      const cum = cumulative(path)
-      const tunnels = tunnelRangesFromSegments(segUnderground, cum)
+    for (const { rel, path: rawPath, segUnderground, segBridge, stopNodes: rawStopNodes } of chosen) {
+      let path = rawPath
+      let stopNodes = rawStopNodes
+      let cum = cumulative(path)
+      let tunnels = tunnelRangesFromSegments(segUnderground, cum)
       // Bridges use smaller merge/min thresholds than tunnels: they only
       // steer the terrain-height interpolation (data:heights), where even a
       // short deck over a stream matters, and no visibility state flickers.
-      const bridges = tunnelRangesFromSegments(segBridge, cum, {
+      let bridges = tunnelRangesFromSegments(segBridge, cum, {
         mergeGapMeters: 10,
         minLengthMeters: 10,
       })
+
+      // S-Bahn: cut the route at Rostock Hbf and keep the Warnemünde side.
+      // S2/S3 continue to Güstrow – far outside the city map, and their
+      // in-box remainder would end mid-track in open country.
+      if (mode === 'train') {
+        const stopDist = (predicate) => {
+          const hit = stopNodes.find(({ node, name }) =>
+            predicate(name || node.tags?.name || ''),
+          )
+          return hit
+            ? projectOntoPath(path, cum, [hit.node.lon, hit.node.lat])
+            : null
+        }
+        const hbfDist = stopDist((n) => TRAIN_TERMINAL_NAME.test(n))
+        const seasideDist = stopDist((n) => /Warnemünde/.test(n))
+        if (hbfDist === null || seasideDist === null) {
+          console.warn(
+            `  ⚠ Line ${ref} (${rel.id}): Rostock Hbf or Warnemünde stop not found – relation skipped`,
+          )
+          continue
+        }
+        const keep = seasideDist < hbfDist ? 'before' : 'after'
+        const clipped = clipPathAt(path, cum, hbfDist, keep, tunnels)
+        tunnels = clipped.ranges
+        bridges = clipPathAt(path, cum, hbfDist, keep, bridges).ranges
+        path = clipped.path
+        cum = cumulative(path)
+        // Keep only stops on the surviving corridor (50 m tolerance keeps
+        // the Hbf platform node right at the cut).
+        const rawCum = cumulative(rawPath)
+        stopNodes = stopNodes.filter(({ node }) => {
+          const d = projectOntoPath(rawPath, rawCum, [node.lon, node.lat])
+          return keep === 'before' ? d <= hbfDist + 50 : d >= hbfDist - 50
+        })
+      }
 
       const dirStops = []
       let lastDist = -1
@@ -416,8 +563,16 @@ async function main() {
       if (dirStops.length < 2) continue
 
       directions.push({
-        from: rel.tags?.from || stops[dirStops[0]].name,
-        to: rel.tags?.to || stops[dirStops[dirStops.length - 1]].name,
+        // Trains: relation from/to name the full run (…→ Güstrow), but the
+        // route is truncated – the surviving terminal stops are the truth.
+        from:
+          mode === 'train'
+            ? stops[dirStops[0]].name
+            : rel.tags?.from || stops[dirStops[0]].name,
+        to:
+          mode === 'train'
+            ? stops[dirStops[dirStops.length - 1]].name
+            : rel.tags?.to || stops[dirStops[dirStops.length - 1]].name,
         // Simplify (0.3 m tolerance) AFTER projecting the stops: visually
         // lossless, but noticeably fewer points in the bundle. The tunnel
         // meter ranges stay valid – simplification changes the path length
@@ -444,19 +599,23 @@ async function main() {
       lineId = prefixed
     }
     const name =
-      fixed?.name ?? (mode === 'bus' ? `Bus ${ref}` : `Line ${ref}`)
+      fixed?.name ??
+      (mode === 'bus' ? `Bus ${ref}` : mode === 'train' ? `S-Bahn ${ref}` : `Line ${ref}`)
     const colour = chosen[0].rel.tags?.colour
     const fallbackColor =
       fixed?.color ??
       (mode === 'bus'
         ? BUS_PALETTE[busColorIndex++ % BUS_PALETTE.length]
-        : FALLBACK_COLORS[ref] || '#64748b')
+        : mode === 'train'
+          ? '#008D4F' // S-Bahn green, if OSM ever drops the colour tags
+          : FALLBACK_COLORS[ref] || '#64748b')
+    const vehicle = fixed?.vehicle ?? (mode === 'train' ? TRAIN_VEHICLE : undefined)
     lines.push({
       id: lineId,
       name,
       color: /^#[0-9a-fA-F]{6}$/.test(colour || '') ? colour : fallbackColor,
       mode,
-      ...(fixed?.vehicle ? { vehicle: fixed.vehicle } : {}),
+      ...(vehicle ? { vehicle } : {}),
       directions,
     })
     const dirSummary = (d) => {

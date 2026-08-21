@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stitchWays } from '../scripts/fetch-osm-network.mjs'
+import { clipPathAt, stitchWays } from '../scripts/fetch-osm-network.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
 
 /**
@@ -166,5 +166,41 @@ describe('stitchWays underground flags', () => {
     const { path, segUnderground } = stitchWays([{ ref: 10 }, { ref: 11 }], ways, nodes, 'test')
     expect(path).toEqual([p1, p2, [12.1, 54.00105], [12.1, 54.002]])
     expect(segUnderground).toEqual([false, true, true])
+  })
+})
+
+describe('clipPathAt (S-Bahn truncation at Rostock Hbf)', () => {
+  // Straight north–south path: ~111 m per 0.001° latitude.
+  const path = [
+    [12.1, 54.0],
+    [12.1, 54.001],
+    [12.1, 54.002],
+    [12.1, 54.003],
+  ]
+  const cum = [0, 111.2, 222.4, 333.6]
+
+  it('keeps the "before" side with an interpolated cut point', () => {
+    const { path: clipped } = clipPathAt(path, cum, 166.8, 'before')
+    expect(clipped).toHaveLength(3)
+    expect(clipped[2][1]).toBeCloseTo(54.0015, 5)
+  })
+
+  it('keeps the "after" side and shifts the ranges to the new origin', () => {
+    const { path: clipped, ranges } = clipPathAt(path, cum, 111.2, 'after', [
+      [50, 100], // entirely before the cut → dropped
+      [100, 200], // straddles the cut → clipped and shifted
+    ])
+    expect(clipped[0][1]).toBeCloseTo(54.001, 6)
+    expect(ranges).toHaveLength(1)
+    expect(ranges[0][0]).toBeCloseTo(0, 1)
+    expect(ranges[0][1]).toBeCloseTo(88.8, 1)
+  })
+
+  it('clips ranges on the "before" side without shifting', () => {
+    const { ranges } = clipPathAt(path, cum, 200, 'before', [
+      [100, 300],
+      [250, 300], // entirely after the cut → dropped
+    ])
+    expect(ranges).toEqual([[100, 200]])
   })
 })
