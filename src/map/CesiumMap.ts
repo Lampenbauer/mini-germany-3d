@@ -3,7 +3,7 @@
  * Tiles, line routes, stops, and the animated tram boxes.
  *
  * Deliberately kept free of any React dependency – React drives this class
- * through a narrow API (syncTrams, setLineVisibility, …) so the render loop
+ * through a narrow API (syncVehicles, setLineVisibility, …) so the render loop
  * does not run through React re-renders.
  */
 
@@ -58,7 +58,7 @@ import {
 import { config } from '@/config'
 import type { LonLat } from '@/lib/geo'
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
-import type { TramSnapshot } from '@/engine/simulation'
+import type { VehicleSnapshot } from '@/engine/simulation'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
@@ -74,7 +74,7 @@ export interface CesiumMapOptions {
    * tiles everywhere at a steep data/memory cost (~4× per halving).
    */
   maximumScreenSpaceError?: number
-  onSelectTram?: (tramId: string | null) => void
+  onSelectVehicle?: (vehicleId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
   /**
    * Fired while the camera pose changes (per rendered frame, threshold
@@ -85,7 +85,7 @@ export interface CesiumMapOptions {
   onCameraChanged?: (settled: boolean) => void
 }
 
-interface TramEntityRecord {
+interface VehicleRecord {
   /**
    * The vehicle body as a Primitive with a direct modelMatrix: position
    * updates take effect immediately. (Entity boxes rebuild their geometry
@@ -263,14 +263,14 @@ const STOP_BOOTSTRAP_SAMPLES = 40
  * without this cap a camera dozens of kilometers away still "sees" the
  * whole fleet as soon as it faces the network.
  */
-const TRAM_VISIBLE_RANGE = 20_000
+const VEHICLE_VISIBLE_RANGE = 20_000
 
 /**
  * Camera distance in meters up to which the vehicle BODY (the 3D box) is
  * drawn. Beyond this the box is sub-pixel noise while the number label
- * still reads fine, so only the label stays up to TRAM_VISIBLE_RANGE.
+ * still reads fine, so only the label stays up to VEHICLE_VISIBLE_RANGE.
  */
-const TRAM_BODY_VISIBLE_RANGE = 3_000
+const VEHICLE_BODY_VISIBLE_RANGE = 3_000
 
 /**
  * Night-time cabin glow: a soft, warm light pool under every vehicle, as
@@ -411,7 +411,7 @@ const CHASE_BREAK_RANGE_RATIO = 0.01
  */
 export const TUNNEL_VISIBILITY = 0.2
 
-// Scratch objects for the per-tick hot path in syncTrams: Cesium clones all
+// Scratch objects for the per-tick hot path in syncVehicles: Cesium clones all
 // values it retains (ConstantProperty, modelMatrix), so reusing these avoids
 // ~2 allocations per tram per tick.
 const positionScratch = new Cartesian3()
@@ -420,7 +420,7 @@ const positionScratch = new Cartesian3()
 const sunPositionScratch = new Cartesian3()
 const sunTransformScratch = new Matrix3()
 
-// Scratch for the per-tick glow pool pose (see syncTrams).
+// Scratch for the per-tick glow pool pose (see syncVehicles).
 const glowPositionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
 
@@ -464,7 +464,7 @@ function directionsAreMirrored(
 export class CesiumMap {
   readonly viewer: Viewer
   private readonly opts: CesiumMapOptions
-  private trams = new Map<string, TramEntityRecord>()
+  private vehicles = new Map<string, VehicleRecord>()
   /** Rendered line badges (rounded rectangle + line number), one per line. */
   private badgeCache = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>()
   private routeEntities = new Map<string, Entity[]>()
@@ -487,7 +487,7 @@ export class CesiumMap {
    * what, which left discs over neighboring stop names. Within a single
    * translucent command, fragments instead blend strictly in add order:
    * all discs first, every name after them, so names always draw on top.
-   * (Tram badges stay above both: their opaque entity billboards write
+   * (Vehicle badges stay above both: their opaque entity billboards write
    * near-plane depth this depth-tested collection cannot pass.)
    */
   private stopBillboards: BillboardCollection | null = null
@@ -510,7 +510,7 @@ export class CesiumMap {
    */
   private followChase = false
   private googleTileset: Cesium3DTileset | null = null
-  /** Most recently measured plausible ground height – initial value for new trams. */
+  /** Most recently measured plausible ground height – initial value for new vehicles. */
   private defaultGroundHeight: number
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
   private readonly effectivePixelRatio: number
@@ -657,13 +657,13 @@ export class CesiumMap {
       const pickedId = picked?.id
       // Vehicle-body primitives return the instance id as a string, the
       // number label an Entity – both carry the "tram:" prefix.
-      let tramId: string | null = null
-      if (pickedId instanceof Entity && pickedId.id.startsWith('tram:')) {
-        tramId = pickedId.id.slice('tram:'.length)
-      } else if (typeof pickedId === 'string' && pickedId.startsWith('tram:')) {
-        tramId = pickedId.slice('tram:'.length)
+      let vehicleId: string | null = null
+      if (pickedId instanceof Entity && pickedId.id.startsWith('vehicle:')) {
+        vehicleId = pickedId.id.slice('vehicle:'.length)
+      } else if (typeof pickedId === 'string' && pickedId.startsWith('vehicle:')) {
+        vehicleId = pickedId.slice('vehicle:'.length)
       }
-      this.opts.onSelectTram?.(tramId)
+      this.opts.onSelectVehicle?.(vehicleId)
     }, ScreenSpaceEventType.LEFT_CLICK)
   }
 
@@ -973,7 +973,7 @@ export class CesiumMap {
 
   /**
    * Draws all stops (deduplicated across lines).
-   * Heights are – as with the trams – set explicitly and adjusted as soon
+   * Heights are – as with the vehicles – set explicitly and adjusted as soon
    * as the 3D tiles are loaded at the respective location.
    */
   addStops(network: PreparedNetwork): void {
@@ -1336,7 +1336,7 @@ export class CesiumMap {
   /**
    * One-time height bootstrapping: measures the tile heights at a small,
    * evenly spread subset of the stops (STOP_BOOTSTRAP_SAMPLES) and derives
-   * the base ground height for trams and stops from them. Logs the result
+   * the base ground height for vehicles and stops from them. Logs the result
    * to the console for diagnostics.
    *
    * Unlike tileset.getHeight(), sampleHeightMostDetailed() loads the finest
@@ -1388,11 +1388,11 @@ export class CesiumMap {
           this.stopLabelsDirty = true
         })
         if (heights.length > 0) {
-          // Raise the base for all trams already running (the ongoing
+          // Raise the base for all vehicles already running (the ongoing
           // per-tram sampling does the fine-tuning afterwards)
           const median = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)]
           this.defaultGroundHeight = median
-          for (const record of this.trams.values()) {
+          for (const record of this.vehicles.values()) {
             record.groundHeight = median
           }
         }
@@ -1406,7 +1406,7 @@ export class CesiumMap {
     if (heights.length === 0) {
       console.warn(
         '[MiniRostock3D] Height bootstrap: no valid tile heights determined – ' +
-          'trams will use the fallback height. Please report this message ' +
+          'vehicles will use the fallback height. Please report this message ' +
           'along with window.__mrt.groundHeights().',
       )
       return
@@ -1467,7 +1467,7 @@ export class CesiumMap {
    * Called every frame: updates positions in place, creates new entities,
    * and removes finished trips.
    *
-   * The trams' height is set EXPLICITLY instead of via HeightReference
+   * The vehicles' height is set EXPLICITLY instead of via HeightReference
    * clamping (clamping entity geometries onto 3D tiles is unreliable in
    * practice, which left boxes below the photorealistic surface). The
    * height source is the direction's DGM terrain profile (snapshot `nhn` +
@@ -1476,10 +1476,10 @@ export class CesiumMap {
    * no tileset.getHeight ray casts are needed. Vehicles without route
    * heights (approximated dataset) fall back to sampling the 3D tiles.
    */
-  syncTrams(
-    snapshots: TramSnapshot[],
+  syncVehicles(
+    snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-  ): { anyTramInView: boolean } {
+  ): { anyVehicleInView: boolean } {
     this.frameCounter++
     this.resolveStopHeights()
     this.declutterStopLabels()
@@ -1493,14 +1493,14 @@ export class CesiumMap {
       camera.directionWC,
       camera.upWC,
     )
-    let anyTramInView = false
+    let anyVehicleInView = false
 
     for (const snap of snapshots) {
       alive.add(snap.id)
-      let record = this.trams.get(snap.id)
+      let record = this.vehicles.get(snap.id)
       if (!record) {
-        record = this.createTramEntity(snap)
-        this.trams.set(snap.id, record)
+        record = this.createVehicleEntity(snap)
+        this.vehicles.set(snap.id, record)
         this.renderRequested = true
       }
 
@@ -1510,7 +1510,7 @@ export class CesiumMap {
         record.appearanceDirty = true
       }
       if (record.appearanceDirty) {
-        record.appearanceDirty = !this.applyTramAppearance(snap.id)
+        record.appearanceDirty = !this.applyVehicleAppearance(snap.id)
         if (!record.appearanceDirty) this.renderRequested = true
       }
 
@@ -1539,15 +1539,15 @@ export class CesiumMap {
 
       // Visibility test per shown tram: inside the camera frustum AND within
       // label range (beyond that the vehicle is only a few pixels). The
-      // result drives the render pacing (anyTramInView) and whether the
+      // result drives the render pacing (anyVehicleInView) and whether the
       // fallback tile-height sampling below is worth doing at all.
       let inView = false
       const cameraDistance = Cartesian3.distance(camera.positionWC, position)
-      if (show && cameraDistance < TRAM_VISIBLE_RANGE) {
+      if (show && cameraDistance < VEHICLE_VISIBLE_RANGE) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
-        if (inView) anyTramInView = true
+        if (inView) anyVehicleInView = true
       }
 
       // Fallback for vehicles WITHOUT route heights (approximated dataset):
@@ -1600,11 +1600,11 @@ export class CesiumMap {
         record.matrix,
       )
       // The body box is only drawn close up; the number label carries the
-      // vehicle out to TRAM_VISIBLE_RANGE. (Checked here on the CPU – a
+      // vehicle out to VEHICLE_VISIBLE_RANGE. (Checked here on the CPU – a
       // DistanceDisplayCondition attribute on the Primitive measures from
       // the instance matrix, which is identity for these boxes since the
       // position lives in the primitive's own modelMatrix.)
-      const showBody = show && cameraDistance < TRAM_BODY_VISIBLE_RANGE
+      const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
       if (record.primitive.show !== showBody || record.labelEntity.show !== show) {
         record.primitive.show = showBody
         record.labelEntity.show = show
@@ -1648,18 +1648,18 @@ export class CesiumMap {
       }
     }
 
-    for (const [id, record] of this.trams) {
+    for (const [id, record] of this.vehicles) {
       if (!alive.has(id)) {
         if (id === this.followId) this.setFollow(null)
         this.viewer.entities.remove(record.labelEntity)
         this.viewer.scene.primitives.remove(record.primitive)
         if (record.glow) this.viewer.scene.primitives.remove(record.glow)
-        this.trams.delete(id)
+        this.vehicles.delete(id)
         this.renderRequested = true
       }
     }
 
-    return { anyTramInView }
+    return { anyVehicleInView }
   }
 
   /** Renders exactly one frame (the app controls the frequency). */
@@ -1887,7 +1887,7 @@ export class CesiumMap {
     return entry
   }
 
-  private createTramEntity(snap: TramSnapshot): TramEntityRecord {
+  private createVehicleEntity(snap: VehicleSnapshot): VehicleRecord {
     const color = Color.fromCssColorString(snap.color)
     const halfHeight = snap.vehicle.height / 2
     // Vehicles on a tunnel section start as 40 % ghosts right away.
@@ -1921,7 +1921,7 @@ export class CesiumMap {
         attributes: {
           color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
         },
-        id: `tram:${snap.id}`,
+        id: `vehicle:${snap.id}`,
       }),
       appearance,
       asynchronous: false,
@@ -1929,7 +1929,7 @@ export class CesiumMap {
     })
     this.viewer.scene.primitives.add(primitive)
     // IMPORTANT: Primitive CLONES the modelMatrix passed in – for the
-    // in-place updates in syncTrams, the primitive's own instance must be
+    // in-place updates in syncVehicles, the primitive's own instance must be
     // referenced, otherwise the vehicle bodies never move.
     const liveMatrix = primitive.modelMatrix
 
@@ -1940,7 +1940,7 @@ export class CesiumMap {
     // ghosting dims the whole badge via the billboard color multiplier.
     const badge = this.lineBadge(snap.lineId, color)
     const labelEntity = this.viewer.entities.add({
-      id: `tram:${snap.id}`,
+      id: `vehicle:${snap.id}`,
       position: labelPosition,
       ...(badge
         ? {
@@ -1950,7 +1950,7 @@ export class CesiumMap {
               height: badge.height,
               color: Color.WHITE.withAlpha(alpha),
               pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           }
@@ -1964,7 +1964,7 @@ export class CesiumMap {
               outlineWidth: 4,
               style: LabelStyle.FILL_AND_OUTLINE,
               pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, TRAM_VISIBLE_RANGE),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           }),
@@ -1988,7 +1988,7 @@ export class CesiumMap {
         asynchronous: false,
         allowPicking: false,
         modelMatrix: Matrix4.multiplyByScale(Matrix4.clone(matrix), glowScale, new Matrix4()),
-        show: false, // syncTrams turns it on at night
+        show: false, // syncVehicles turns it on at night
       })
       this.viewer.scene.primitives.add(glow)
       glowMatrix = glow.modelMatrix
@@ -2021,8 +2021,8 @@ export class CesiumMap {
    * 40 % opacity while on an underground section). Returns false while the
    * primitive has not rendered yet and the body color could not be written.
    */
-  private applyTramAppearance(tramId: string): boolean {
-    const record = this.trams.get(tramId)
+  private applyVehicleAppearance(vehicleId: string): boolean {
+    const record = this.vehicles.get(vehicleId)
     if (!record) return true
     record.appearance.translucent = record.inTunnel
     const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
@@ -2038,7 +2038,7 @@ export class CesiumMap {
       label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
     }
     try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const attributes = record.primitive.getGeometryInstanceAttributes(`vehicle:${vehicleId}`)
       if (!attributes) return false
       const color = record.highlighted
         ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
@@ -2054,22 +2054,22 @@ export class CesiumMap {
     }
   }
 
-  setSelected(tramId: string | null): void {
+  setSelected(vehicleId: string | null): void {
     if (this.selectedId) {
-      const record = this.trams.get(this.selectedId)
+      const record = this.vehicles.get(this.selectedId)
       if (record) {
         record.highlighted = false
         // Not-yet-rendered primitives are retried via appearanceDirty in
-        // syncTrams – same as tunnel transitions.
-        record.appearanceDirty = !this.applyTramAppearance(this.selectedId)
+        // syncVehicles – same as tunnel transitions.
+        record.appearanceDirty = !this.applyVehicleAppearance(this.selectedId)
       }
     }
-    this.selectedId = tramId
-    if (tramId) {
-      const record = this.trams.get(tramId)
+    this.selectedId = vehicleId
+    if (vehicleId) {
+      const record = this.vehicles.get(vehicleId)
       if (record) {
         record.highlighted = true
-        record.appearanceDirty = !this.applyTramAppearance(tramId)
+        record.appearanceDirty = !this.applyVehicleAppearance(vehicleId)
       }
     }
     this.requestRender()
@@ -2084,11 +2084,11 @@ export class CesiumMap {
    * repositions the camera each frame via camera.lookAt – mouse orbit and
    * zoom remain possible.
    */
-  setFollow(tramId: string | null): void {
-    this.followId = tramId
+  setFollow(vehicleId: string | null): void {
+    this.followId = vehicleId
     this.followOffset = null
-    this.followChase = tramId !== null
-    if (!tramId) {
+    this.followChase = vehicleId !== null
+    if (!vehicleId) {
       // Also abort a still-running approach flight (e.g. "Stop following"
       // clicked mid-flight), otherwise it lands on the abandoned vehicle.
       if (performance.now() < this.followFlightUntil) this.viewer.camera.cancelFlight()
@@ -2104,7 +2104,7 @@ export class CesiumMap {
     // ends BEHIND the vehicle looking along its direction of travel
     // (heading = bearing); afterwards the user can orbit freely as before.
     // The vehicle moves a few meters during the flight.
-    const record = this.trams.get(tramId)
+    const record = this.vehicles.get(vehicleId)
     if (record) {
       this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
       const carto = Cartographic.fromCartesian(record.lastPosition)
@@ -2144,8 +2144,8 @@ export class CesiumMap {
     const camera = this.viewer.camera
 
     // Camera center at the height of the followed tram (its ground height
-    // is already sampled on the 3D tiles and smoothed in syncTrams).
-    const record = this.followId ? this.trams.get(this.followId) : undefined
+    // is already sampled on the 3D tiles and smoothed in syncVehicles).
+    const record = this.followId ? this.vehicles.get(this.followId) : undefined
     const groundHeight = record?.groundHeight ?? this.defaultGroundHeight
     const vehicleHeight = (record?.halfHeight ?? config.vehicles.tram.height / 2) * 2
 
@@ -2208,18 +2208,18 @@ export class CesiumMap {
     this.requestRender()
   }
 
-  hasTram(tramId: string): boolean {
-    return this.trams.has(tramId)
+  hasVehicle(vehicleId: string): boolean {
+    return this.vehicles.has(vehicleId)
   }
 
   /**
    * Debug/tests: maximum distance between vehicle body (primitive matrix)
-   * and number label across all trams in meters. Must be ~0 – a larger
+   * and number label across all vehicles in meters. Must be ~0 – a larger
    * value means the vehicle bodies no longer follow the simulation.
    */
-  getTramBoxDriftMeters(): number {
+  getVehicleBoxDriftMeters(): number {
     let maxDrift = 0
-    for (const record of this.trams.values()) {
+    for (const record of this.vehicles.values()) {
       const labelPos = record.labelPosition.getValue(this.viewer.clock.currentTime)
       if (!labelPos) continue
       const dx = record.primitive.modelMatrix[12] - labelPos.x
@@ -2232,11 +2232,11 @@ export class CesiumMap {
   }
 
   /** Debug/tests: color-attribute opacity currently applied to a vehicle body. */
-  getTramOpacity(tramId: string): number | null {
-    const record = this.trams.get(tramId)
+  getVehicleOpacity(vehicleId: string): number | null {
+    const record = this.vehicles.get(vehicleId)
     if (!record) return null
     try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`tram:${tramId}`)
+      const attributes = record.primitive.getGeometryInstanceAttributes(`vehicle:${vehicleId}`)
       const alpha = attributes?.color?.[3]
       return typeof alpha === 'number' ? alpha / 255 : null
     } catch {
@@ -2270,9 +2270,9 @@ export class CesiumMap {
     }
   }
 
-  /** Debug: current ground heights of the trams (for diagnosing tile heights). */
+  /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
-    return [...this.trams.entries()].map(([id, record]) => ({
+    return [...this.vehicles.entries()].map(([id, record]) => ({
       id,
       groundHeight: Math.round(record.groundHeight * 10) / 10,
     }))

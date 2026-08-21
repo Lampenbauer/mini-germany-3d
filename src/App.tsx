@@ -7,7 +7,7 @@ import { config } from '@/config'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
-import { Simulation, type TramSnapshot } from '@/engine/simulation'
+import { Simulation, type VehicleSnapshot } from '@/engine/simulation'
 import {
   formatCameraHash,
   formatUiStateHash,
@@ -24,26 +24,26 @@ import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 /** Debug/test API that the E2E tests use under window.__mrt. */
 export interface MrtTestApi {
   ready: boolean
-  tramCount: () => number
-  visibleTramCount: () => number
-  trams: () => TramSnapshot[]
+  vehicleCount: () => number
+  visibleVehicleCount: () => number
+  vehicles: () => VehicleSnapshot[]
   setTime: (hhmm: string) => void
   setSpeed: (speed: number) => void
   setPaused: (paused: boolean) => void
-  selectTram: (id: string | null) => void
+  selectVehicle: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
   secondsOfDay: () => number
   loopTicks: () => number
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
-  anyTramInView: () => boolean
+  anyVehicleInView: () => boolean
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
-  tramBoxDriftMeters: () => number
+  vehicleBoxDriftMeters: () => number
   /** Color-attribute opacity currently applied to one rendered vehicle body. */
-  tramOpacity: (id: string) => number | null
+  vehicleOpacity: (id: string) => number | null
   /** Finds a deterministic real trip that crosses a tunnel portal. */
   tunnelTransition: () => {
     id: string
@@ -120,7 +120,7 @@ export default function App() {
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const followingRef = useRef(false)
-  const snapshotsRef = useRef<TramSnapshot[]>([])
+  const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
 
@@ -130,9 +130,9 @@ export default function App() {
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
-  const [tramCount, setTramCount] = useState(0)
+  const [vehicleCount, setVehicleCount] = useState(0)
   const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
-  const [selected, setSelected] = useState<TramSnapshot | null>(null)
+  const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
   const [following, setFollowing] = useState(false)
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
@@ -153,7 +153,7 @@ export default function App() {
     }
   }, [network])
 
-  const selectTram = useCallback((id: string | null) => {
+  const selectVehicle = useCallback((id: string | null) => {
     selectedIdRef.current = id
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
@@ -282,7 +282,7 @@ export default function App() {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
-      onSelectTram: selectTram,
+      onSelectVehicle: selectVehicle,
       onTilesetStatus: setTilesetStatus,
       onCameraChanged: scheduleHashWrite,
     })
@@ -315,7 +315,7 @@ export default function App() {
     let lastSimTick = 0
     let lastRender = 0
     let lastLightingMs = -Infinity
-    let lastAnyTramInView = true
+    let lastAnyVehicleInView = true
     let loopTicks = 0
     let lastLoopError: string | null = null
     const renderTimes: number[] = []
@@ -328,7 +328,7 @@ export default function App() {
         if (!document.hidden) {
           // Tick the simulation at ~30 fps max; when paused or with no
           // vehicle in view, 2 fps is plenty.
-          const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
+          const tickInterval = clock.paused || !lastAnyVehicleInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
 
@@ -344,15 +344,15 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
-            const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
-            lastAnyTramInView = viewInfo?.anyTramInView ?? false
+            const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
+            lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
 
-            // After syncTrams, so the selection highlight and the follow
-            // camera find the tram record (setSelected/setFollow only act
+            // After syncVehicles, so the selection highlight and the follow
+            // camera find the vehicle record (setSelected/setFollow only act
             // on records that already exist).
             if (pendingSharedVehicle) {
               if (snapshots.some((s) => s.id === pendingSharedVehicle)) {
-                selectTram(pendingSharedVehicle)
+                selectVehicle(pendingSharedVehicle)
                 followingRef.current = true
                 setFollowing(true)
                 map.setFollow(pendingSharedVehicle)
@@ -367,7 +367,7 @@ export default function App() {
               lastUiUpdate = now
               setClockText(clock.formatted())
               setCameraIs2D(map.getCameraView().pitch < -85)
-              setTramCount(
+              setVehicleCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
               const selId = selectedIdRef.current
@@ -375,7 +375,7 @@ export default function App() {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
                 if (!snap) {
                   // Trip ended → clear the selection
-                  selectTram(null)
+                  selectVehicle(null)
                 } else {
                   setSelected(snap)
                 }
@@ -402,7 +402,7 @@ export default function App() {
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
           const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-          const animating = lastAnyTramInView && !clock.paused
+          const animating = lastAnyVehicleInView && !clock.paused
           const renderInterval = hints.interacting
             ? 15
             : animating || hints.tilesLoading
@@ -431,10 +431,10 @@ export default function App() {
     // Test/debug API
     const api: MrtTestApi = {
       ready: true,
-      tramCount: () => snapshotsRef.current.length,
-      visibleTramCount: () =>
+      vehicleCount: () => snapshotsRef.current.length,
+      visibleVehicleCount: () =>
         snapshotsRef.current.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
-      trams: () => snapshotsRef.current,
+      vehicles: () => snapshotsRef.current,
       setTime: (hhmm: string) => {
         const sec = parseTimeOfDay(hhmm)
         if (sec !== null) clock.setSecondsOfDay(sec)
@@ -445,7 +445,7 @@ export default function App() {
         pausedRef.current = p
         setPaused(p)
       },
-      selectTram,
+      selectVehicle,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
@@ -453,10 +453,10 @@ export default function App() {
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
-      anyTramInView: () => lastAnyTramInView,
+      anyVehicleInView: () => lastAnyVehicleInView,
       renderRate: () => renderTimes.length / 5,
-      tramBoxDriftMeters: () => map.getTramBoxDriftMeters(),
-      tramOpacity: (id: string) => map.getTramOpacity(id),
+      vehicleBoxDriftMeters: () => map.getVehicleBoxDriftMeters(),
+      vehicleOpacity: (id: string) => map.getVehicleOpacity(id),
       tunnelTransition: () => {
         // Debug-only probe for E2E: step through service time until the same
         // active trip is found once inside and once outside a tunnel.
@@ -672,7 +672,7 @@ export default function App() {
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}
           onToggleStops={handleToggleStops}
-          tramCount={tramCount}
+          vehicleCount={vehicleCount}
           tilesetStatus={tilesetStatus}
           dataSource={dataSource}
           realtimeStatus={realtimeStatus}
@@ -682,10 +682,10 @@ export default function App() {
       {selected && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VehicleCard
-            tram={selected}
+            vehicle={selected}
             following={following}
             onToggleFollow={handleToggleFollow}
-            onClose={() => selectTram(null)}
+            onClose={() => selectVehicle(null)}
           />
         </div>
       )}

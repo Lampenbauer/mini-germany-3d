@@ -164,7 +164,7 @@ describe('stop height refinement', () => {
   })
 
   it('paces passes on the wall clock, not on the simulation tick rate', () => {
-    // With the clock paused the app ticks syncTrams at 2 Hz – a frame-based
+    // With the clock paused the app ticks syncVehicles at 2 Hz – a frame-based
     // throttle stretched a pass to 7.5 s and left visible stops on the
     // fallback height for minutes.
     const h = harness()

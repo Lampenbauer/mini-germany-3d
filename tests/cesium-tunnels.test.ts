@@ -12,7 +12,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
-import type { TramSnapshot } from '@/engine/simulation'
+import type { VehicleSnapshot } from '@/engine/simulation'
 import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
@@ -61,7 +61,7 @@ const routeOpacities = (added: AddedRoute[]): number[] =>
     return (property?.getValue(JulianDate.now()) as Color).alpha
   })
 
-/** Fake record for applyTramAppearance (label as a plain property bag). */
+/** Fake record for applyVehicleAppearance (label as a plain property bag). */
 function fakeRecord(overrides: Record<string, unknown> = {}) {
   const attributes = { color: ColorGeometryInstanceAttribute.toValue(Color.RED) }
   return {
@@ -81,10 +81,10 @@ function fakeRecord(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const applyTramAppearance = (map: CesiumMap, tramId: string): boolean =>
+const applyVehicleAppearance = (map: CesiumMap, vehicleId: string): boolean =>
   (
-    map as unknown as { applyTramAppearance: (tramId: string) => boolean }
-  ).applyTramAppearance(tramId)
+    map as unknown as { applyVehicleAppearance: (vehicleId: string) => boolean }
+  ).applyVehicleAppearance(vehicleId)
 
 describe('Cesium tunnel rendering', () => {
   it('renders route pieces at full / tunnel-dimmed / full opacity (mirrored line drawn once)', () => {
@@ -137,9 +137,9 @@ describe('Cesium tunnel rendering', () => {
     const record = fakeRecord()
     const { attributes } = record
     const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { selectedId: null, trams: new Map([['vehicle', record]]) })
+    Object.assign(map, { selectedId: null, vehicles: new Map([['vehicle', record]]) })
 
-    expect(applyTramAppearance(map, 'vehicle')).toBe(true)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(record.appearance.translucent).toBe(true)
     expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
     expect(record.labelEntity.label.fillColor?.getValue().alpha).toBeCloseTo(TUNNEL_VISIBILITY)
@@ -170,7 +170,7 @@ describe('Cesium tunnel rendering', () => {
         },
       },
     })
-    const snapshot: TramSnapshot = {
+    const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
       lineName: 'Tunnellinie',
@@ -192,12 +192,12 @@ describe('Cesium tunnel rendering', () => {
 
     const record = (
       map as unknown as {
-        createTramEntity: (snap: TramSnapshot) => {
+        createVehicleEntity: (snap: VehicleSnapshot) => {
           primitive: Primitive
           appearance: PerInstanceColorAppearance
         }
       }
-    ).createTramEntity(snapshot)
+    ).createVehicleEntity(snapshot)
     const instance = record.primitive.geometryInstances as GeometryInstance
     const color = instance.attributes?.color as ColorGeometryInstanceAttribute
 
@@ -221,14 +221,14 @@ describe('Cesium tunnel rendering', () => {
       },
     })
     const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { trams: new Map([['vehicle', record]]) })
+    Object.assign(map, { vehicles: new Map([['vehicle', record]]) })
 
-    expect(applyTramAppearance(map, 'vehicle')).toBe(false)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(false)
     // The translucent flag is applied even before the first render.
     expect(record.appearance.translucent).toBe(true)
 
     ready = true
-    expect(applyTramAppearance(map, 'vehicle')).toBe(true)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
   })
 })
