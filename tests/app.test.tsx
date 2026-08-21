@@ -37,6 +37,7 @@ vi.mock('@/map/CesiumMap', () => {
     setRoutesVisible() {}
     setStopsVisible() {}
     setLineRouteVisible() {}
+    setVisibleLines() {}
     setSelected() {}
     setFollow() {}
     setCameraHome() {}
