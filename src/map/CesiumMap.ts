@@ -69,6 +69,13 @@ export interface CesiumMapOptions {
   maximumScreenSpaceError?: number
   onSelectTram?: (tramId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
+  /**
+   * Fired while the camera pose changes (per rendered frame, threshold
+   * camera.percentageChanged, settled=false) and once when movement ends
+   * (camera.moveEnd, settled=true). Basis for the event-driven URL
+   * persistence – no polling.
+   */
+  onCameraChanged?: (settled: boolean) => void
 }
 
 interface TramEntityRecord {
@@ -562,6 +569,16 @@ export class CesiumMap {
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       if (e.buttons !== 0) this.noteInteraction()
     })
+
+    // Camera change events for the URL persistence. The default
+    // percentageChanged (0.5) only fires on huge jumps – 1 % keeps every
+    // user-visible pose change reported while sub-pixel jitter stays quiet.
+    if (opts.onCameraChanged) {
+      const onCameraChanged = opts.onCameraChanged
+      this.viewer.camera.percentageChanged = 0.01
+      this.viewer.camera.changed.addEventListener(() => onCameraChanged(false))
+      this.viewer.camera.moveEnd.addEventListener(() => onCameraChanged(true))
+    }
 
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
