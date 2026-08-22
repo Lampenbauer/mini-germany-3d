@@ -39,7 +39,8 @@ describe('WeatherClient', () => {
 
   it('polls the endpoint and reports the current precipitation', async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ current: { precipitation: 1.4 } })),
+      async (_url: string | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ current: { precipitation: 1.4 } })),
     )
     vi.stubGlobal('fetch', fetchMock)
 
