@@ -99,6 +99,8 @@ interface VehicleRecord {
   /** Entity for the number label (billboard path, updates without rebuild). */
   labelEntity: Entity
   labelPosition: ConstantPositionProperty
+  /** GTFS-RT delay suffix currently baked into the badge ('' = on time). */
+  delaySuffix: string
   baseColor: Color
   /**
    * Shared appearance of the body primitive. Tunnel transitions only toggle
@@ -459,6 +461,17 @@ function directionsAreMirrored(
       Math.abs(start - reverse.tunnels[i][0]) < 0.01 &&
       Math.abs(end - reverse.tunnels[i][1]) < 0.01,
   )
+}
+
+/**
+ * Delay suffix shown on the map badge after the line number ("+2" / "-1").
+ * Mirrors the VehicleCard threshold: under a minute counts as on time, and
+ * only vehicles with a GTFS-RT match show a delay at all.
+ */
+export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delaySeconds'>): string {
+  if (!snap.realtime || Math.abs(snap.delaySeconds) < 60) return ''
+  const minutes = Math.round(snap.delaySeconds / 60)
+  return `${minutes > 0 ? '+' : ''}${minutes}`
 }
 
 export class CesiumMap {
@@ -1514,6 +1527,26 @@ export class CesiumMap {
         if (!record.appearanceDirty) this.renderRequested = true
       }
 
+      // GTFS-RT delay on the badge ("+2" after the line number): swap the
+      // badge image whenever the rounded minute value changes. The canvases
+      // are cached per line+suffix, so steady delays cost nothing per tick.
+      const delaySuffix = delayBadgeSuffix(snap)
+      if (delaySuffix !== record.delaySuffix) {
+        record.delaySuffix = delaySuffix
+        const badge = this.lineBadge(snap.lineId, record.baseColor, delaySuffix)
+        const billboard = record.labelEntity.billboard
+        if (badge && billboard) {
+          billboard.image = new ConstantProperty(badge.canvas)
+          billboard.width = new ConstantProperty(badge.width)
+          billboard.height = new ConstantProperty(badge.height)
+        } else if (record.labelEntity.label) {
+          record.labelEntity.label.text = new ConstantProperty(
+            delaySuffix ? `${snap.lineId} ${delaySuffix}` : snap.lineId,
+          )
+        }
+        this.renderRequested = true
+      }
+
       const show = visibleLines.has(snap.lineId)
 
       // Vehicle height: terrain profile of the route (NHN + calibrated
@@ -1847,10 +1880,12 @@ export class CesiumMap {
   private lineBadge(
     lineId: string,
     color: Color,
+    delaySuffix = '',
   ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
     // ??= : prototype-based test instances skip the class field initializers
     this.badgeCache ??= new Map()
-    const cached = this.badgeCache.get(lineId)
+    const cacheKey = delaySuffix ? `${lineId}|${delaySuffix}` : lineId
+    const cached = this.badgeCache.get(cacheKey)
     if (cached) return cached
     if (typeof document === 'undefined') return undefined
     const canvas = document.createElement('canvas')
@@ -1859,11 +1894,16 @@ export class CesiumMap {
 
     const ratio = this.effectivePixelRatio
     const font = `bold ${Math.round(14 * ratio)}px "Inter Variable", system-ui, sans-serif`
+    const suffixFont = `bold ${Math.round(10 * ratio)}px "Inter Variable", system-ui, sans-serif`
     ctx.font = font
     const textWidth = ctx.measureText(lineId).width
+    // GTFS-RT delay in small print after the line number ("+2")
+    const suffixGap = delaySuffix ? 3 * ratio : 0
+    ctx.font = suffixFont
+    const suffixWidth = delaySuffix ? ctx.measureText(delaySuffix).width : 0
     const padX = 5 * ratio
     const height = Math.round(22 * ratio)
-    const width = Math.max(height, Math.round(textWidth + 2 * padX))
+    const width = Math.max(height, Math.round(textWidth + suffixGap + suffixWidth + 2 * padX))
     canvas.width = width
     canvas.height = height
 
@@ -1876,14 +1916,21 @@ export class CesiumMap {
     }
     ctx.fillStyle = color.toCssColorString()
     ctx.fill()
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    const textX = (width - (textWidth + suffixGap + suffixWidth)) / 2
+    const textY = height / 2 + 0.5 * ratio
     ctx.font = font
     ctx.fillStyle = '#ffffff'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(lineId, width / 2, height / 2 + 0.5 * ratio)
+    ctx.fillText(lineId, textX, textY)
+    if (delaySuffix) {
+      ctx.font = suffixFont
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)'
+      ctx.fillText(delaySuffix, textX + textWidth + suffixGap, textY)
+    }
 
     const entry = { canvas, width: width / ratio, height: height / ratio }
-    this.badgeCache.set(lineId, entry)
+    this.badgeCache.set(cacheKey, entry)
     return entry
   }
 
@@ -1938,7 +1985,8 @@ export class CesiumMap {
     // the line color (pre-rendered per line, see lineBadge) – far easier
     // to spot against the photo tiles than outlined text alone. Tunnel
     // ghosting dims the whole badge via the billboard color multiplier.
-    const badge = this.lineBadge(snap.lineId, color)
+    const delaySuffix = delayBadgeSuffix(snap)
+    const badge = this.lineBadge(snap.lineId, color, delaySuffix)
     const labelEntity = this.viewer.entities.add({
       id: `vehicle:${snap.id}`,
       position: labelPosition,
@@ -1957,7 +2005,7 @@ export class CesiumMap {
         : {
             // No 2D canvas (jsdom): plain outlined text label
             label: {
-              text: snap.lineId,
+              text: delaySuffix ? `${snap.lineId} ${delaySuffix}` : snap.lineId,
               font: 'bold 14px "Inter Variable", system-ui, sans-serif',
               fillColor: Color.WHITE.withAlpha(alpha),
               outlineColor: color.withAlpha(alpha),
@@ -1999,6 +2047,7 @@ export class CesiumMap {
       matrix: liveMatrix,
       labelEntity,
       labelPosition,
+      delaySuffix,
       baseColor: color,
       appearance,
       inTunnel: snap.inTunnel,
