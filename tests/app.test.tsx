@@ -52,9 +52,11 @@ vi.mock('@/map/CesiumMap', () => {
 import App from '@/App'
 import { loadBundledNetwork } from '@/data/network'
 import { berlinSecondsOfDay } from '@/lib/clock'
+import { setLanguage } from '@/lib/i18n'
 
 afterEach(() => {
   cleanup()
+  setLanguage('en')
   window.__mrt = undefined
 })
 
@@ -144,5 +146,20 @@ describe('App (UI shell)', () => {
     expect(
       within(panel).getByRole('switch', { name: 'Show stops' }),
     ).toBeInTheDocument()
+  })
+
+  it('renders the interface in German when the browser prefers German', () => {
+    setLanguage('de')
+    render(<App />)
+    expect(screen.getByText('Linien')).toBeInTheDocument()
+    expect(screen.getByText('Ebenen')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()
+    // Line names from the (English) dataset are localized for display
+    const firstLine = loadBundledNetwork().lines[0]
+    if (firstLine.name.startsWith('Line ')) {
+      const germanName = firstLine.name.replace(/^Line /, 'Linie ')
+      expect(screen.getByRole('switch', { name: `${germanName} anzeigen` })).toBeInTheDocument()
+    }
   })
 })

@@ -87,6 +87,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?time=08:30` | Set the simulation time (Europe/Berlin) |
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
+| `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `…&routes=0&stops=0&paused=1` | Layer toggles and pause state (only present when off/paused) |

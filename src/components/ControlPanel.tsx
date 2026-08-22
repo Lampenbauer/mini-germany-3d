@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import type { TransitMode } from '@/data/network-types'
+import { t, type MessageKey } from '@/lib/i18n'
 import type { RealtimeStatus } from '@/lib/realtime'
 import type { TilesetStatus } from '@/map/CesiumMap'
 
@@ -63,19 +64,19 @@ export interface ControlPanelProps {
 
 // The healthy state (google-3d-tiles) shows no badge – only loading and
 // degraded states are called out in the panel.
-const TILESET_LABEL: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, string> = {
-  loading: 'Loading 3D tiles…',
-  offline: 'Offline mode',
-  failed: '3D tiles unavailable',
+const TILESET_KEY: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, MessageKey> = {
+  loading: 'status.loadingTiles',
+  offline: 'status.offline',
+  failed: 'status.tilesFailed',
 }
 
-/** Display order and labels of the transit-mode groups. */
+/** Display order and label keys of the transit-mode groups. */
 const MODE_ORDER: TransitMode[] = ['tram', 'train', 'bus', 'ferry']
-const MODE_LABEL: Record<TransitMode, string> = {
-  tram: 'Tram',
-  train: 'S-Bahn',
-  bus: 'Bus',
-  ferry: 'Ferry',
+const MODE_KEY: Record<TransitMode, MessageKey> = {
+  tram: 'mode.tram',
+  train: 'mode.train',
+  bus: 'mode.bus',
+  ferry: 'mode.ferry',
 }
 const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   tram: TramFront,
@@ -106,10 +107,10 @@ const LineGroup = memo(function LineGroup(props: {
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Icon className="size-3.5" aria-hidden />
-            {MODE_LABEL[props.mode]}
+            {t(MODE_KEY[props.mode])}
           </span>
           <Switch
-            aria-label={`Show all ${MODE_LABEL[props.mode].toLowerCase()} lines`}
+            aria-label={t('lines.showAll', { mode: t(MODE_KEY[props.mode]) })}
             checked={allVisible}
             onCheckedChange={(checked) =>
               props.onSetLinesVisible(
@@ -126,8 +127,8 @@ const LineGroup = memo(function LineGroup(props: {
             <button
               type="button"
               className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
-              title={`Zoom to ${line.name}`}
-              aria-label={`Zoom to ${line.name}`}
+              title={t('lines.zoomTo', { name: line.name })}
+              aria-label={t('lines.zoomTo', { name: line.name })}
               onClick={() => props.onFocusLine(line.id)}
             >
               <span
@@ -145,7 +146,7 @@ const LineGroup = memo(function LineGroup(props: {
               </div>
             </button>
             <Switch
-              aria-label={`Show ${line.name}`}
+              aria-label={t('lines.show', { name: line.name })}
               checked={line.visible}
               onCheckedChange={() => props.onToggleLine(line.id)}
             />
@@ -179,7 +180,7 @@ export function ControlPanel(props: ControlPanelProps) {
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
+          aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
           onClick={() => setCollapsed((c) => !c)}
         >
           {collapsed ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
@@ -198,7 +199,7 @@ export function ControlPanel(props: ControlPanelProps) {
           <Button
             variant="secondary"
             size="icon-sm"
-            aria-label={props.paused ? 'Resume simulation' : 'Pause simulation'}
+            aria-label={props.paused ? t('sim.resume') : t('sim.pause')}
             onClick={props.onTogglePause}
           >
             {props.paused ? <Play aria-hidden /> : <Pause aria-hidden />}
@@ -213,7 +214,7 @@ export function ControlPanel(props: ControlPanelProps) {
             <div className="flex items-center gap-2">
               <Input
                 type="time"
-                aria-label="Set simulation time"
+                aria-label={t('sim.setTime')}
                 className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                 inputMode="none"
                 onKeyDown={(e) => {
@@ -242,7 +243,7 @@ export function ControlPanel(props: ControlPanelProps) {
               />
               <Button variant="outline" size="sm" onClick={props.onResetTime}>
                 <TimerReset aria-hidden />
-                Now
+                {t('sim.now')}
               </Button>
             </div>
 
@@ -250,14 +251,14 @@ export function ControlPanel(props: ControlPanelProps) {
               <div className="flex items-center justify-between text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Gauge className="size-4" aria-hidden />
-                  Time-lapse
+                  {t('sim.timeLapse')}
                 </span>
                 <span className="font-mono tabular-nums" data-testid="speed-value">
                   ×{props.speed}
                 </span>
               </div>
               <Slider
-                aria-label="Time-lapse"
+                aria-label={t('sim.timeLapse')}
                 min={1}
                 max={120}
                 step={1}
@@ -272,20 +273,20 @@ export function ControlPanel(props: ControlPanelProps) {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-1.5 text-sm font-medium">
                 <Layers className="size-4" aria-hidden />
-                Layers
+                {t('layers.title')}
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Routes</span>
+                <span className="text-sm">{t('layers.routes')}</span>
                 <Switch
-                  aria-label="Show routes"
+                  aria-label={t('layers.showRoutes')}
                   checked={props.showRoutes}
                   onCheckedChange={props.onToggleRoutes}
                 />
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Stops</span>
+                <span className="text-sm">{t('layers.stops')}</span>
                 <Switch
-                  aria-label="Show stops"
+                  aria-label={t('layers.showStops')}
                   checked={props.showStops}
                   onCheckedChange={props.onToggleStops}
                 />
@@ -296,7 +297,7 @@ export function ControlPanel(props: ControlPanelProps) {
 
             {/* Lines, grouped by transit mode (headers only when >1 group) */}
             <div className="flex flex-col gap-2">
-              <div className="text-sm font-medium">Lines</div>
+              <div className="text-sm font-medium">{t('lines.title')}</div>
               {lineGroups.map((g) => (
                 <LineGroup
                   key={g.mode}
@@ -315,19 +316,17 @@ export function ControlPanel(props: ControlPanelProps) {
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="secondary" data-testid="vehicle-count">
                 <TramFront aria-hidden />
-                {props.vehicleCount}{' '}
                 {new Set(props.lines.map((l) => l.mode)).size > 1
-                  ? props.vehicleCount === 1
-                    ? 'vehicle'
-                    : 'vehicles'
-                  : props.vehicleCount === 1
-                    ? 'tram'
-                    : 'trams'}{' '}
-                in service
+                  ? t(props.vehicleCount === 1 ? 'count.vehicle' : 'count.vehicles', {
+                      count: props.vehicleCount,
+                    })
+                  : t(props.vehicleCount === 1 ? 'count.tram' : 'count.trams', {
+                      count: props.vehicleCount,
+                    })}
               </Badge>
               {props.tilesetStatus !== 'google-3d-tiles' && (
                 <Badge variant="outline" data-testid="tileset-status">
-                  {TILESET_LABEL[props.tilesetStatus]}
+                  {t(TILESET_KEY[props.tilesetStatus])}
                 </Badge>
               )}
               {props.dataSource !== null && (
@@ -338,7 +337,7 @@ export function ControlPanel(props: ControlPanelProps) {
               {props.realtimeStatus?.state === 'live' && (
                 <Badge variant="secondary" data-testid="rt-status">
                   <RadioTower aria-hidden />
-                  GTFS-RT · {props.realtimeStatus.matchedCount} live
+                  {t('rt.live', { count: props.realtimeStatus.matchedCount })}
                 </Badge>
               )}
             </div>
