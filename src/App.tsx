@@ -30,6 +30,8 @@ export interface MrtTestApi {
   setTime: (hhmm: string) => void
   setSpeed: (speed: number) => void
   setPaused: (paused: boolean) => void
+  /** Injects GTFS-RT delays for tests (sim trip id → seconds). */
+  setRealtimeDelays: (delays: Record<string, number>) => void
   selectVehicle: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
@@ -444,6 +446,9 @@ export default function App() {
         clock.setPaused(p)
         pausedRef.current = p
         setPaused(p)
+      },
+      setRealtimeDelays: (delays: Record<string, number>) => {
+        sim.setRealtimeDelays(new Map(Object.entries(delays)))
       },
       selectVehicle,
       dataSource: network.meta.source,
