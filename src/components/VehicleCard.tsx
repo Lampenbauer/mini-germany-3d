@@ -120,7 +120,7 @@ export function VehicleCard({
             // the destination dot is filled in the line color.
             <ol
               ref={listRef}
-              className="flex max-h-52 flex-col overflow-y-auto text-sm"
+              className="scroll-fade-y flex max-h-52 flex-col overflow-y-auto text-sm"
               data-testid="vehicle-trip-stops"
             >
               {stops.map((stop, index) => {
