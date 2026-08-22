@@ -51,6 +51,12 @@ export const config = {
     },
     /** Dwell time at a stop in seconds. */
     dwellSeconds: 25,
+    /**
+     * Turnaround time at the terminus in seconds: the vehicle stays
+     * visible at its final stop this long after arrival instead of
+     * vanishing the moment the trip ends.
+     */
+    terminalLingerSeconds: 180,
   },
 
   /**

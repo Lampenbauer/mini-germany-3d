@@ -170,6 +170,47 @@ describe('trip progress (all stops + vehicle position)', () => {
   })
 })
 
+describe('terminal layover', () => {
+  const network = loadBundledNetwork()
+  const sim = new Simulation(network, new SimClock())
+
+  it('keeps the vehicle standing at its terminus for the turnaround time', () => {
+    const t = 8.5 * 3600
+    const snap = sim.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const { stops } = sim.tripProgress(snap.id, t)!
+    const terminus = stops[stops.length - 1]
+
+    // One minute after the final arrival the vehicle still stands there
+    const lingering = sim.snapshotsAt(terminus.arrivalSec + 60).find((s) => s.id === snap.id)
+    expect(lingering).toBeDefined()
+    expect(lingering!.status).toBe('dwell')
+    expect(lingering!.nextStopName).toBe(terminus.name)
+    expect(lingering!.lon).toBeCloseTo(terminus.lon, 2)
+    expect(lingering!.lat).toBeCloseTo(terminus.lat, 2)
+
+    // The card marker sits on the destination row during the layover
+    const progress = sim.tripProgress(snap.id, terminus.arrivalSec + 60)!
+    expect(progress.position).toBe(progress.stops.length - 1)
+
+    // After the turnaround time (config: 180 s) the vehicle is gone
+    expect(
+      sim.snapshotsAt(terminus.arrivalSec + 200).find((s) => s.id === snap.id),
+    ).toBeUndefined()
+    expect(sim.tripProgress(snap.id, terminus.arrivalSec + 200)).toBeNull()
+  })
+
+  it('can be disabled via the simulation options', () => {
+    const bare = new Simulation(network, new SimClock(), undefined, {
+      terminalLingerSeconds: 0,
+    })
+    const t = 8.5 * 3600
+    const snap = bare.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const { stops } = bare.tripProgress(snap.id, t)!
+    const lastArrival = stops[stops.length - 1].arrivalSec
+    expect(bare.snapshotsAt(lastArrival + 30).find((s) => s.id === snap.id)).toBeUndefined()
+  })
+})
+
 describe('terrain heights in snapshots', () => {
   const network = loadBundledNetwork()
   const sim = new Simulation(network, new SimClock())

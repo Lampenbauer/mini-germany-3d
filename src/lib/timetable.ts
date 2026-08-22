@@ -80,6 +80,12 @@ export interface TimetableOptions {
   service?: HeadwaySpan[]
   /** Mode-specific travel speed (m/s); missing = cruiseSpeedMps. */
   cruiseSpeedByMode?: Partial<Record<TransitMode, number>>
+  /**
+   * Turnaround time at the terminus in seconds (vehicle stays at its final
+   * stop this long after arrival). Runtime-only – does not affect the
+   * generated stop times. Missing = 0.
+   */
+  terminalLingerSeconds?: number
 }
 
 /** Departure times (seconds since midnight) from a headway scheme. */
@@ -337,25 +343,49 @@ export interface VehicleState {
   nextStopIndex: number
 }
 
-const DAY_SECONDS = 24 * 3600
+export const DAY_SECONDS = 24 * 3600
 
-/** State of a trip at time tSec, or null if not underway. */
+/**
+ * State of a trip at time tSec, or null if not underway.
+ * terminalLingerSec keeps the vehicle standing at its final stop that long
+ * after the trip's last arrival (turnaround time at the terminus).
+ */
 export function tripStateAt(
   trip: Trip,
   dir: PreparedDirection,
   tSec: number,
+  terminalLingerSec = 0,
 ): VehicleState | null {
   const st = trip.stopTimes
   const first = st[0]
   const last = st[st.length - 1]
-  if (tSec < first.departure || tSec > last.arrival) {
+  const tripEnd = last.arrival + terminalLingerSec
+  if (tSec < first.departure || tSec > tripEnd) {
     // GTFS encodes after-midnight service as times past 24:00 (the Fledermaus
     // night buses depart at up to ~28:00). The clock only ever yields 0–24 h,
     // so probe the same time of day on the following service day.
-    if (tSec + DAY_SECONDS >= first.departure && tSec + DAY_SECONDS <= last.arrival) {
+    if (tSec + DAY_SECONDS >= first.departure && tSec + DAY_SECONDS <= tripEnd) {
       tSec += DAY_SECONDS
     } else {
       return null
+    }
+  }
+
+  // Terminal layover: standing at the final stop after the last arrival
+  // (the next stop is the terminus itself – the trip goes nowhere else).
+  if (tSec >= last.arrival) {
+    const dist = dir.stops[last.stopIndex].dist
+    const sample = sampleAtDistance(dir.path, dir.cum, dist)
+    return {
+      tripId: trip.id,
+      lineId: trip.lineId,
+      direction: trip.direction,
+      distance: dist,
+      lon: sample.lon,
+      lat: sample.lat,
+      bearing: sample.bearing,
+      status: 'dwell',
+      nextStopIndex: last.stopIndex,
     }
   }
 
