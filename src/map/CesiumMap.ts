@@ -369,6 +369,10 @@ const FERRY_ROUTE_EXTRA_LIFT = 1.25
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
 
+/** Camera pose after "fly to stop": distance in meters, pitch in degrees. */
+const STOP_FOCUS_RANGE = 400
+const STOP_FOCUS_PITCH = -55
+
 /**
  * Attention pulse on a line's route after "zoom to line": the opacity
  * swings smoothly from full to zero and back (cosine), several dips over
@@ -932,6 +936,31 @@ export class CesiumMap {
         this.viewer.camera.heading,
         CesiumMath.toRadians(LINE_FOCUS_PITCH),
         0,
+      ),
+    })
+  }
+
+  /**
+   * Flies the camera to a single stop (click on an upcoming stop in the
+   * vehicle card). Keeps the compass heading, like focusLine.
+   */
+  flyToStop(lon: number, lat: number, nhn?: number): void {
+    // Same height source as the vehicles: the calibrated route-profile
+    // height where the dataset has one, the measured ground otherwise.
+    const groundHeight =
+      this.opts.fixedGroundHeight === undefined && !this.opts.offline && nhn !== undefined
+        ? nhn + this.routeHeightOffset
+        : this.defaultGroundHeight
+    const center = Cartesian3.fromDegrees(lon, lat, groundHeight)
+    // Render at full rate during the flight (see getRenderHints)
+    this.flyingUntil = performance.now() + 1800
+    this.requestRender()
+    this.viewer.camera.flyToBoundingSphere(new BoundingSphere(center, 0), {
+      duration: 1.5,
+      offset: new HeadingPitchRange(
+        this.viewer.camera.heading,
+        CesiumMath.toRadians(STOP_FOCUS_PITCH),
+        STOP_FOCUS_RANGE,
       ),
     })
   }

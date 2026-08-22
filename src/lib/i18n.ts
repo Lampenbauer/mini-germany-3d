@@ -41,6 +41,8 @@ const en = {
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
+  'vehicle.stops': 'Stops',
+  'vehicle.flyToStop': 'Fly to {name}',
   'vehicle.trip': 'Trip',
   'vehicle.close': 'Close selection',
   'vehicle.moving': 'Moving',
@@ -95,6 +97,8 @@ const de: Record<MessageKey, string> = {
   'rt.live': 'GTFS-RT · {count} live',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
+  'vehicle.stops': 'Haltestellen',
+  'vehicle.flyToStop': 'Zu {name} fliegen',
   'vehicle.trip': 'Fahrt',
   'vehicle.close': 'Auswahl schließen',
   'vehicle.moving': 'In Fahrt',

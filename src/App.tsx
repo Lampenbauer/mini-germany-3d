@@ -8,7 +8,7 @@ import { config } from '@/config'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
-import { Simulation, type VehicleSnapshot } from '@/engine/simulation'
+import { Simulation, type TripStop, type VehicleSnapshot } from '@/engine/simulation'
 import {
   formatCameraHash,
   formatUiStateHash,
@@ -617,6 +617,19 @@ export default function App() {
     map.setCameraOrientation({ headingDeg: 0 })
   }, [])
 
+  /** Fly the camera to a stop of the selected vehicle's trip. */
+  const handleFlyToStop = useCallback((stop: TripStop) => {
+    const map = mapRef.current
+    if (!map) return
+    // A camera flight and the follow chase would fight – stop following
+    if (followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      map.setFollow(null)
+    }
+    map.flyToStop(stop.lon, stop.lat, stop.nhn)
+  }, [])
+
   /** Fly the camera to a line's route (keeps the compass heading). */
   const handleFocusLine = useCallback(
     (lineId: string) => {
@@ -654,6 +667,14 @@ export default function App() {
   // Badge only as a warning for approximated geometry; real OSM data (the
   // normal case) needs no callout in the panel.
   const dataSource = network.meta.source === 'osm' ? null : t('status.demoData')
+
+  // All stops of the selected trip plus the vehicle's position among them.
+  // `selected` is refreshed on every UI tick, so the position marker and
+  // the passed-stop dimming track the vehicle.
+  const tripProgress = useMemo(
+    () => (selected ? (simRef.current?.tripProgress(selected.id) ?? null) : null),
+    [selected],
+  )
 
   const offlineMode =
     typeof window !== 'undefined' &&
@@ -693,6 +714,8 @@ export default function App() {
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VehicleCard
             vehicle={selected}
+            tripProgress={tripProgress}
+            onFlyToStop={handleFlyToStop}
             following={following}
             onToggleFollow={handleToggleFollow}
             onClose={() => selectVehicle(null)}
