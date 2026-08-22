@@ -18,6 +18,7 @@ declare global {
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
       setRealtimeDelays: (delays: Record<string, number>) => void
+      setRain: (precipitationMm: number) => void
       selectVehicle: (id: string | null) => void
       dataSource: string
       lineIds: () => string[]

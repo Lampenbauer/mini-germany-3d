@@ -17,9 +17,10 @@ import {
   parseUiStateHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
-import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
+import { rainIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
@@ -34,6 +35,8 @@ export interface MrtTestApi {
   setPaused: (paused: boolean) => void
   /** Injects GTFS-RT delays for tests (sim trip id → seconds). */
   setRealtimeDelays: (delays: Record<string, number>) => void
+  /** Forces the rain overlay for tests/previews (mm; 0 = dry again). */
+  setRain: (precipitationMm: number) => void
   selectVehicle: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
@@ -81,6 +84,8 @@ interface UrlOptions {
   groundHeight: number | undefined
   /** Force GTFS-Realtime (?rt=1) or disable it (?rt=0); null = auto. */
   realtime: boolean | null
+  /** Live-weather rain overlay (?rain=0 disables it). */
+  rain: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
 }
@@ -112,6 +117,7 @@ function readUrlOptions(): UrlOptions {
         ? groundHeight
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
+    rain: params.get('rain') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
   }
 }
@@ -127,6 +133,10 @@ export default function App() {
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
+  /** Live precipitation in mm; forced = set via the test API (skips gating). */
+  const rainRef = useRef({ mm: 0, forced: false })
+  /** Rain currently visible – keeps the render loop at animation rate. */
+  const rainActiveRef = useRef(false)
 
   const [visibleLines, setVisibleLines] = useState<Set<string>>(new Set())
   const [showRoutes, setShowRoutes] = useState(true)
@@ -303,6 +313,29 @@ export default function App() {
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
 
+    // Rain overlay: live precipitation for the city center (Open-Meteo).
+    // Offline mode stays dry (no network, deterministic E2E tests) and
+    // ?rain=0 opts out. Whether the rain is actually drawn is decided per
+    // UI tick (sim time must be near the real clock).
+    let weatherClient: WeatherClient | null = null
+    const weatherEnabled =
+      config.weather.url !== '' &&
+      import.meta.env.MODE !== 'test' &&
+      !urlOpts.offline &&
+      urlOpts.rain
+    if (weatherEnabled) {
+      map.addWeatherCredit()
+      weatherClient = new WeatherClient(
+        config.weather.url,
+        config.weather.longitude,
+        config.weather.latitude,
+        (status) => {
+          rainRef.current = { mm: status.precipitationMm, forced: false }
+        },
+      )
+      weatherClient.start(config.weather.pollIntervalMs)
+    }
+
     // A vehicle shared via the URL (#vehicle=…) is restored as soon as its
     // trip shows up in the snapshots – it may take a moment for the
     // simulation to have it, and it may never appear (link opened while
@@ -374,6 +407,21 @@ export default function App() {
               lastUiUpdate = now
               setClockText(clock.formatted())
               setCameraIs2D(map.getCameraView().pitch < -85)
+              // Rain: only with live precipitation AND a sim clock near the
+              // real time – time travel must not show today's weather.
+              const rain = rainRef.current
+              const rainNow =
+                rain.mm > 0 &&
+                (rain.forced ||
+                  rainIsCurrent(
+                    clock.secondsOfDay(),
+                    berlinSecondsOfDay(Date.now()),
+                    config.weather.maxSimTimeDriftSeconds,
+                  ))
+                  ? rain.mm
+                  : 0
+              map.setRain(rainNow)
+              rainActiveRef.current = rainNow > 0
               setVehicleCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
@@ -409,7 +457,8 @@ export default function App() {
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
           const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-          const animating = lastAnyVehicleInView && !clock.paused
+          // Falling rain is an animation too – even with the sim paused
+          const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
           const renderInterval = hints.interacting
             ? 15
             : animating || hints.tilesLoading
@@ -455,6 +504,9 @@ export default function App() {
       setRealtimeDelays: (delays: Record<string, number>) => {
         sim.setRealtimeDelays(new Map(Object.entries(delays)))
       },
+      setRain: (precipitationMm: number) => {
+        rainRef.current = { mm: precipitationMm, forced: precipitationMm > 0 }
+      },
       selectVehicle,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
@@ -492,6 +544,7 @@ export default function App() {
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
+      weatherClient?.stop()
       window.__mrt = undefined
       map.destroy()
       mapRef.current = null

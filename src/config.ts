@@ -25,6 +25,28 @@ export const config = {
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
   /**
+   * Live precipitation for the rain overlay: the Open-Meteo forecast API
+   * (CC-BY 4.0, free, no key). An empty string disables the rain layer.
+   * The weather is queried for a single city-center point – Rostock is
+   * small enough that one value covers the visible map.
+   */
+  weather: {
+    url:
+      (import.meta.env?.VITE_WEATHER_URL as string | undefined) ??
+      'https://api.open-meteo.com/v1/forecast',
+    longitude: 12.14,
+    latitude: 54.09,
+    /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
+    pollIntervalMs: 600_000,
+    /**
+     * Rain is only drawn while the simulation time is within this many
+     * seconds of the real clock – the live weather knows only "now", and
+     * time-traveled views must not show today's rain.
+     */
+    maxSimTimeDriftSeconds: 600,
+  },
+
+  /**
    * Initial camera position (also the "Reset camera" home view). A URL hash
    * (#lat=…&lon=…) still takes precedence when present.
    */

@@ -1,0 +1,99 @@
+/**
+ * Live precipitation client for the rain overlay: polls the Open-Meteo
+ * current-weather API (CC-BY 4.0, free, no key) for the city-center point
+ * and reports the current precipitation in mm. Errors report 0 mm – the
+ * map must never keep raining on stale data.
+ */
+
+export interface WeatherStatus {
+  state: 'connecting' | 'live' | 'error'
+  /** Current precipitation in mm (Open-Meteo 15-minutely current value). */
+  precipitationMm: number
+  lastSuccessAt: number | null
+  lastError: string | null
+}
+
+export type WeatherUpdateHandler = (status: WeatherStatus) => void
+
+/**
+ * The rain overlay only makes sense near real time: the live weather knows
+ * nothing about time-traveled simulation clocks. Both times are seconds of
+ * day; the comparison wraps across midnight.
+ */
+export function rainIsCurrent(
+  simSecondsOfDay: number,
+  realSecondsOfDay: number,
+  maxDriftSeconds: number,
+): boolean {
+  const diff = Math.abs(simSecondsOfDay - realSecondsOfDay)
+  return Math.min(diff, 86400 - diff) <= maxDriftSeconds
+}
+
+export class WeatherClient {
+  private timer: number | null = null
+  private stopped = false
+  private status: WeatherStatus = {
+    state: 'connecting',
+    precipitationMm: 0,
+    lastSuccessAt: null,
+    lastError: null,
+  }
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly longitude: number,
+    private readonly latitude: number,
+    private readonly onUpdate: WeatherUpdateHandler,
+  ) {}
+
+  start(intervalMs = 600_000): void {
+    this.stopped = false
+    const tick = async () => {
+      if (this.stopped) return
+      await this.poll()
+      if (!this.stopped) {
+        this.timer = window.setTimeout(tick, intervalMs)
+      }
+    }
+    void tick()
+  }
+
+  stop(): void {
+    this.stopped = true
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer)
+      this.timer = null
+    }
+  }
+
+  private async poll(): Promise<void> {
+    try {
+      const url =
+        `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
+        `&current=precipitation`
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = (await response.json()) as { current?: { precipitation?: unknown } }
+      const precipitation = Number(data?.current?.precipitation)
+      if (!Number.isFinite(precipitation) || precipitation < 0) {
+        throw new Error('Unexpected response format from the weather endpoint')
+      }
+      this.status = {
+        state: 'live',
+        precipitationMm: precipitation,
+        lastSuccessAt: Date.now(),
+        lastError: null,
+      }
+      this.onUpdate(this.status)
+    } catch (error) {
+      // On errors the map goes dry instead of raining on stale data
+      this.status = {
+        ...this.status,
+        state: 'error',
+        precipitationMm: 0,
+        lastError: String(error),
+      }
+      this.onUpdate(this.status)
+    }
+  }
+}
