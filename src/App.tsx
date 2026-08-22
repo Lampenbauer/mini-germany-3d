@@ -17,6 +17,7 @@ import {
   parseVehicleHash,
 } from '@/lib/camera-hash'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
@@ -179,6 +180,9 @@ export default function App() {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+
+    // Mirror the detected UI language for screen readers/translators
+    document.documentElement.lang = getLanguage()
 
     const urlOpts = readUrlOptions()
     // Layer/pause state restored from a shared URL. The ?paused search
@@ -636,7 +640,7 @@ export default function App() {
     () =>
       network.lines.map((line) => ({
         id: line.id,
-        name: line.name,
+        name: localizeLineName(line.name),
         color: line.color,
         mode: line.mode,
         from: line.directions[0].from,
@@ -648,7 +652,7 @@ export default function App() {
 
   // Badge only as a warning for approximated geometry; real OSM data (the
   // normal case) needs no callout in the panel.
-  const dataSource = network.meta.source === 'osm' ? null : 'Demo data (approximated)'
+  const dataSource = network.meta.source === 'osm' ? null : t('status.demoData')
 
   const offlineMode =
     typeof window !== 'undefined' &&
@@ -702,8 +706,8 @@ export default function App() {
           variant="secondary"
           size="icon"
           className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-          title={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
-          aria-label={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
+          title={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+          aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
           onClick={handleToggleViewMode}
         >
           {cameraIs2D ? '3D' : '2D'}
@@ -712,8 +716,8 @@ export default function App() {
           variant="secondary"
           size="icon"
           className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title="Face north"
-          aria-label="Face north"
+          title={t('camera.faceNorth')}
+          aria-label={t('camera.faceNorth')}
           onClick={handleFaceNorth}
         >
           <Compass aria-hidden />
@@ -722,8 +726,8 @@ export default function App() {
           variant="secondary"
           size="icon"
           className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title="Reset camera"
-          aria-label="Reset camera"
+          title={t('camera.reset')}
+          aria-label={t('camera.reset')}
           onClick={handleResetCamera}
         >
           <Home aria-hidden />

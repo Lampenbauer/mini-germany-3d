@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { VehicleSnapshot } from '@/engine/simulation'
+import { t, type MessageKey } from '@/lib/i18n'
 
 export interface VehicleCardProps {
   vehicle: VehicleSnapshot
@@ -13,25 +14,29 @@ export interface VehicleCardProps {
 
 /** "+3 min" / "-1 min" / "on time" */
 function formatDelay(delaySeconds: number): string {
-  if (Math.abs(delaySeconds) < 60) return 'on time'
+  if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
 }
 
-/** Mode-appropriate label for the follow button. */
-const FOLLOW_LABEL: Record<VehicleSnapshot['mode'], string> = {
-  tram: 'Follow tram',
-  train: 'Follow train',
-  bus: 'Follow bus',
-  ferry: 'Follow ferry',
+/** Mode-appropriate label key for the follow button. */
+const FOLLOW_KEY: Record<VehicleSnapshot['mode'], MessageKey> = {
+  tram: 'follow.tram',
+  train: 'follow.train',
+  bus: 'follow.bus',
+  ferry: 'follow.ferry',
 }
 
 /** Status text; ferries dock at a pier, not at a stop. */
 function statusText(vehicle: VehicleSnapshot): string {
   const base =
-    vehicle.status === 'moving' ? 'Moving' : vehicle.mode === 'ferry' ? 'At pier' : 'At stop'
+    vehicle.status === 'moving'
+      ? t('vehicle.moving')
+      : vehicle.mode === 'ferry'
+        ? t('vehicle.atPier')
+        : t('vehicle.atStop')
   // Explains why the vehicle is rendered as a 40 % ghost on the map
-  return vehicle.inTunnel ? `${base} · in tunnel` : base
+  return vehicle.inTunnel ? `${base} · ${t('vehicle.inTunnel')}` : base
 }
 
 export function VehicleCard({ vehicle, following, onToggleFollow, onClose }: VehicleCardProps) {
@@ -54,17 +59,17 @@ export function VehicleCard({ vehicle, following, onToggleFollow, onClose }: Veh
             {vehicle.destination}
           </span>
         </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label="Close selection" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label={t('vehicle.close')} onClick={onClose}>
           <X aria-hidden />
         </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          <span className="text-muted-foreground">Status</span>
+          <span className="text-muted-foreground">{t('vehicle.status')}</span>
           <span data-testid="vehicle-status">{statusText(vehicle)}</span>
-          <span className="text-muted-foreground">Next stop</span>
+          <span className="text-muted-foreground">{t('vehicle.nextStop')}</span>
           <span data-testid="vehicle-next-stop">{vehicle.nextStopName}</span>
-          <span className="text-muted-foreground">Trip</span>
+          <span className="text-muted-foreground">{t('vehicle.trip')}</span>
           <span className="font-mono text-xs">{vehicle.id}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -74,14 +79,14 @@ export function VehicleCard({ vehicle, following, onToggleFollow, onClose }: Veh
             onClick={onToggleFollow}
           >
             <Crosshair aria-hidden />
-            {following ? 'Stop following' : FOLLOW_LABEL[vehicle.mode]}
+            {following ? t('follow.stop') : t(FOLLOW_KEY[vehicle.mode])}
           </Button>
           {vehicle.realtime ? (
             <Badge variant="secondary" data-testid="vehicle-delay">
               GTFS-RT · {formatDelay(vehicle.delaySeconds)}
             </Badge>
           ) : (
-            <Badge variant="secondary">Schedule simulation</Badge>
+            <Badge variant="secondary">{t('vehicle.onSchedule')}</Badge>
           )}
         </div>
       </CardContent>
