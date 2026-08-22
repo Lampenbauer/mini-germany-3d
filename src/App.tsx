@@ -3,6 +3,7 @@ import { Compass, Home } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { VehicleCard } from '@/components/VehicleCard'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
@@ -702,36 +703,50 @@ export default function App() {
       {/* Map controls: 2D/3D, face north, camera reset. bottom-8 keeps them
           clear of the Cesium attribution line at the lower screen edge. */}
       <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-          title={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-          aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-          onClick={handleToggleViewMode}
-        >
-          {cameraIs2D ? '3D' : '2D'}
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title={t('camera.faceNorth')}
-          aria-label={t('camera.faceNorth')}
-          onClick={handleFaceNorth}
-        >
-          <Compass aria-hidden />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title={t('camera.reset')}
-          aria-label={t('camera.reset')}
-          onClick={handleResetCamera}
-        >
-          <Home aria-hidden />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
+              aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+              onClick={handleToggleViewMode}
+            >
+              {cameraIs2D ? '3D' : '2D'}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+              aria-label={t('camera.faceNorth')}
+              onClick={handleFaceNorth}
+            >
+              <Compass aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+              aria-label={t('camera.reset')}
+              onClick={handleResetCamera}
+            >
+              <Home aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

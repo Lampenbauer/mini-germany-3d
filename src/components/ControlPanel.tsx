@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TransitMode } from '@/data/network-types'
 import { t, type MessageKey } from '@/lib/i18n'
 import type { RealtimeStatus } from '@/lib/realtime'
@@ -124,27 +125,34 @@ const LineGroup = memo(function LineGroup(props: {
       <ul className="flex flex-col gap-1.5">
         {props.lines.map((line) => (
           <li key={line.id} className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
-              title={t('lines.zoomTo', { name: line.name })}
-              aria-label={t('lines.zoomTo', { name: line.name })}
-              onClick={() => props.onFocusLine(line.id)}
-            >
-              <span
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-                style={{ backgroundColor: line.color }}
-                aria-hidden
-              >
-                {line.id}
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-sm leading-tight">{line.name}</div>
-                <div className="truncate text-xs leading-tight text-muted-foreground">
-                  {line.from} ↔ {line.to}
-                </div>
-              </div>
-            </button>
+            {/* Delayed so scanning the list does not pop a tooltip per row */}
+            <Tooltip delayDuration={500}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+                  aria-label={t('lines.zoomTo', { name: line.name })}
+                  onClick={() => props.onFocusLine(line.id)}
+                >
+                  <span
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+                    style={{ backgroundColor: line.color }}
+                    aria-hidden
+                  >
+                    {line.id}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm leading-tight">{line.name}</div>
+                    <div className="truncate text-xs leading-tight text-muted-foreground">
+                      {line.from} ↔ {line.to}
+                    </div>
+                  </div>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {t('lines.zoomTo', { name: line.name })}
+              </TooltipContent>
+            </Tooltip>
             <Switch
               aria-label={t('lines.show', { name: line.name })}
               checked={line.visible}
@@ -212,35 +220,40 @@ export function ControlPanel(props: ControlPanelProps) {
                 picker-only: typing is blocked and a click anywhere on it opens
                 the native time dropdown, so no invalid input can be entered. */}
             <div className="flex items-center gap-2">
-              <Input
-                type="time"
-                aria-label={t('sim.setTime')}
-                className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                inputMode="none"
-                onKeyDown={(e) => {
-                  // Only block typing where the picker can take over
-                  if (
-                    'showPicker' in e.currentTarget &&
-                    e.key !== 'Tab' &&
-                    e.key !== 'Escape' &&
-                    e.key !== 'Enter'
-                  ) {
-                    e.preventDefault()
-                  }
-                }}
-                onClick={(e) => {
-                  // Not supported by every browser (Safari < 16) – typing
-                  // into the field parts still works as the fallback there.
-                  try {
-                    e.currentTarget.showPicker()
-                  } catch {
-                    /* picker already open or unsupported */
-                  }
-                }}
-                onChange={(e) => {
-                  if (e.target.value) props.onSetTime(e.target.value)
-                }}
-              />
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <Input
+                    type="time"
+                    aria-label={t('sim.setTime')}
+                    className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    inputMode="none"
+                    onKeyDown={(e) => {
+                      // Only block typing where the picker can take over
+                      if (
+                        'showPicker' in e.currentTarget &&
+                        e.key !== 'Tab' &&
+                        e.key !== 'Escape' &&
+                        e.key !== 'Enter'
+                      ) {
+                        e.preventDefault()
+                      }
+                    }}
+                    onClick={(e) => {
+                      // Not supported by every browser (Safari < 16) – typing
+                      // into the field parts still works as the fallback there.
+                      try {
+                        e.currentTarget.showPicker()
+                      } catch {
+                        /* picker already open or unsupported */
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.value) props.onSetTime(e.target.value)
+                    }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top">{t('sim.setTime')}</TooltipContent>
+              </Tooltip>
               <Button variant="outline" size="sm" onClick={props.onResetTime}>
                 <TimerReset aria-hidden />
                 {t('sim.now')}
