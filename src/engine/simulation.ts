@@ -78,6 +78,8 @@ export class Simulation {
   private trips: Trip[]
   private tripById: Map<string, Trip>
   private realtimeDelays = new Map<string, number>()
+  /** Turnaround time at the terminus in seconds (see config.simulation). */
+  private terminalLinger: number
 
   constructor(
     network: PreparedNetwork,
@@ -91,12 +93,15 @@ export class Simulation {
       cruiseSpeedMps: options?.cruiseSpeedMps ?? config.simulation.cruiseSpeedMps,
       dwellSeconds: options?.dwellSeconds ?? config.simulation.dwellSeconds,
       service: options?.service,
+      terminalLingerSeconds:
+        options?.terminalLingerSeconds ?? config.simulation.terminalLingerSeconds,
       // An explicitly set speed applies to all modes (tests); otherwise
       // buses/ferries travel at their more realistic default speeds.
       cruiseSpeedByMode:
         options?.cruiseSpeedByMode ??
         (options?.cruiseSpeedMps != null ? undefined : config.simulation.cruiseSpeedByMode),
     }
+    this.terminalLinger = opts.terminalLingerSeconds ?? 0
     this.trips = buildAllTrips(network, opts, schedule)
     this.tripById = new Map(this.trips.map((trip) => [trip.id, trip]))
     this.realtimeTripIdMap = buildRealtimeTripIdMap(schedule)
@@ -139,14 +144,17 @@ export class Simulation {
     let effective = tSec - delay
     const first = trip.stopTimes[0]
     const last = trip.stopTimes[trip.stopTimes.length - 1]
+    // Terminal layover included – the card stays up while the vehicle
+    // stands at its final stop (matching tripStateAt).
+    const tripEnd = last.arrival + this.terminalLinger
     if (
-      (effective < first.departure || effective > last.arrival) &&
+      (effective < first.departure || effective > tripEnd) &&
       effective + DAY_SECONDS >= first.departure &&
-      effective + DAY_SECONDS <= last.arrival
+      effective + DAY_SECONDS <= tripEnd
     ) {
       effective += DAY_SECONDS
     }
-    if (effective < first.departure || effective > last.arrival) return null
+    if (effective < first.departure || effective > tripEnd) return null
 
     // Parallel arrays keep the position index aligned with the stop list
     const entries = trip.stopTimes
@@ -162,18 +170,23 @@ export class Simulation {
     }))
 
     let position = 0
-    for (let i = 0; i < entries.length; i++) {
-      const cur = entries[i].stopTime
-      // Dwelling at stop i
-      if (effective >= cur.arrival && effective <= cur.departure) {
-        position = i
-        break
-      }
-      // Traveling between stop i and stop i+1
-      const next = entries[i + 1]?.stopTime
-      if (next && effective > cur.departure && effective < next.arrival) {
-        position = i + (effective - cur.departure) / (next.arrival - cur.departure)
-        break
+    if (effective >= last.arrival) {
+      // Terminal layover: standing at the final stop
+      position = entries.length - 1
+    } else {
+      for (let i = 0; i < entries.length; i++) {
+        const cur = entries[i].stopTime
+        // Dwelling at stop i
+        if (effective >= cur.arrival && effective <= cur.departure) {
+          position = i
+          break
+        }
+        // Traveling between stop i and stop i+1
+        const next = entries[i + 1]?.stopTime
+        if (next && effective > cur.departure && effective < next.arrival) {
+          position = i + (effective - cur.departure) / (next.arrival - cur.departure)
+          break
+        }
       }
     }
     return { stops, position }
@@ -189,7 +202,7 @@ export class Simulation {
       // Delayed trips run time-shifted by the delay: the tram is where it
       // would have been on schedule `delay` seconds ago.
       const delay = this.realtimeDelays.get(trip.id) ?? 0
-      const state = tripStateAt(trip, dir, tSec - delay)
+      const state = tripStateAt(trip, dir, tSec - delay, this.terminalLinger)
       if (!state) continue
 
       snapshots.push({
