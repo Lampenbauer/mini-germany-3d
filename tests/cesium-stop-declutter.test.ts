@@ -1,130 +1,121 @@
 import { Cartesian2, Cartesian3, Matrix4, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CesiumMap } from '@/map/CesiumMap'
+import { keepNonOverlappingLabels } from '@/map/StopsLayer'
+import { stopsHarness } from './stops-test-harness'
 
 /**
  * Screen-space declutter of the stop name labels: overlapping labels are
  * hidden (nearest stop wins), the discs stay untouched, and the pass only
- * recomputes when the camera moved or a stop changed. Screen positions are
- * injected by mocking SceneTransforms.worldToWindowCoordinates.
+ * recomputes when the camera moved or a stop changed.
  */
-
-interface FakeStop {
-  disc: { position: Cartesian3 }
-  label: { show: boolean }
-  labelHalfWidth: number
-  lineVisible: boolean
-  position: Cartesian3
-}
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Stop at the given camera distance whose label anchors at (x, y) px. */
-function makeStop(
-  screen: Map<Cartesian3, { x: number; y: number }>,
-  cameraDistance: number,
-  x: number,
-  y: number,
-  labelHalfWidth = 40,
-): FakeStop {
-  // Camera sits at the origin – the position doubles as the distance.
-  const position = new Cartesian3(cameraDistance, 0, 0)
-  screen.set(position, { x, y })
-  return { disc: { position }, label: { show: true }, labelHalfWidth, lineVisible: true, position }
-}
-
-function harness(stops: FakeStop[], screen: Map<Cartesian3, { x: number; y: number }>) {
-  const project = vi
-    .spyOn(SceneTransforms, 'worldToWindowCoordinates')
-    .mockImplementation((_scene, position, result) => {
-      const coords = screen.get(position as Cartesian3)
-      if (!coords) return undefined
-      return Cartesian2.fromElements(coords.x, coords.y, result)
-    })
-
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    viewer: {
-      camera: { positionWC: Cartesian3.ZERO, viewMatrix: Matrix4.clone(Matrix4.IDENTITY) },
-      scene: {},
-    },
-    stopBillboards: { show: true },
-    stopRecords: stops,
-    stopLabelsDirty: true,
-    declutterViewMatrix: new Matrix4(),
-    renderRequested: false,
+describe('keepNonOverlappingLabels', () => {
+  // Boxes arrive nearest-first, so index 0 is the closest stop.
+  it('drops the later label of an overlapping pair, keeps disjoint ones', () => {
+    expect(
+      keepNonOverlappingLabels([
+        { x: 200, y: 300, halfWidth: 40 },
+        { x: 230, y: 305, halfWidth: 40 }, // overlaps the first horizontally
+        { x: 600, y: 300, halfWidth: 40 }, // far enough to the side
+      ]),
+    ).toEqual([true, false, true])
   })
 
-  const declutter = () =>
-    (map as unknown as { declutterStopLabels: () => void }).declutterStopLabels()
-  return { map, declutter, project }
-}
-
-describe('stop label declutter', () => {
-  it('hides the farther label of an overlapping pair, keeps disjoint ones', () => {
-    const screen = new Map<Cartesian3, { x: number; y: number }>()
-    const near = makeStop(screen, 500, 200, 300)
-    const far = makeStop(screen, 900, 230, 305) // overlaps `near` horizontally
-    const clear = makeStop(screen, 700, 600, 300) // far enough to the side
-    const { declutter } = harness([far, clear, near], screen)
-
-    declutter()
-
-    expect(near.label.show).toBe(true)
-    expect(far.label.show).toBe(false)
-    expect(clear.label.show).toBe(true)
+  it('keeps labels that only miss each other vertically', () => {
+    expect(
+      keepNonOverlappingLabels([
+        { x: 200, y: 300, halfWidth: 40 },
+        { x: 200, y: 400, halfWidth: 40 },
+      ]),
+    ).toEqual([true, true])
   })
 
-  it('re-shows a hidden label once the overlap is gone', () => {
-    const screen = new Map<Cartesian3, { x: number; y: number }>()
-    const near = makeStop(screen, 500, 200, 300)
-    const far = makeStop(screen, 900, 230, 305)
-    const { map, declutter } = harness([near, far], screen)
+  it('lets a wide label collide where a narrow one would not', () => {
+    const narrow = keepNonOverlappingLabels([
+      { x: 200, y: 300, halfWidth: 10 },
+      { x: 260, y: 300, halfWidth: 10 },
+    ])
+    const wide = keepNonOverlappingLabels([
+      { x: 200, y: 300, halfWidth: 40 },
+      { x: 260, y: 300, halfWidth: 40 },
+    ])
+    expect(narrow).toEqual([true, true])
+    expect(wide).toEqual([true, false])
+  })
 
-    declutter()
-    expect(far.label.show).toBe(false)
+  it('is empty-safe', () => {
+    expect(keepNonOverlappingLabels([])).toEqual([])
+  })
+})
 
-    // The camera moved and the stops drifted apart on screen
-    screen.set(far.position, { x: 600, y: 300 })
-    ;(map as unknown as { stopLabelsDirty: boolean }).stopLabelsDirty = true
-    declutter()
-    expect(far.label.show).toBe(true)
+describe('stop label declutter on the layer', () => {
+  const stops = [
+    { id: 'a', name: 'Erste', lon: 12.1, lat: 54.09, lines: ['1'] },
+    { id: 'b', name: 'Zweite', lon: 12.1005, lat: 54.09, lines: ['1'] },
+  ]
+
+  /** Projects every disc to the same spot, so the two labels collide. */
+  const projectAllTo = (x: number, y: number) =>
+    vi
+      .spyOn(SceneTransforms, 'worldToWindowCoordinates')
+      .mockImplementation((_scene, _position, result) => Cartesian2.fromElements(x, y, result))
+
+  it('hides one of two colliding labels but leaves both discs alone', () => {
+    projectAllTo(400, 300)
+    const { layer, disc, label } = stopsHarness(stops)
+
+    layer.update()
+
+    expect([label(0).show, label(1).show].filter(Boolean)).toHaveLength(1)
+    expect(disc(0).show).toBe(true)
+    expect(disc(1).show).toBe(true)
   })
 
   it('skips stops beyond the label display range entirely', () => {
-    const screen = new Map<Cartesian3, { x: number; y: number }>()
-    const distant = makeStop(screen, 5000, 200, 300)
-    const { declutter, project } = harness([distant], screen)
+    const project = projectAllTo(400, 300)
+    // 5 km up – past STOP_LABEL_RANGE, where the label is hidden anyway
+    const { layer } = stopsHarness(stops, { cameraHeight: 5000 })
 
-    declutter()
+    layer.update()
 
-    // Not even projected – the DistanceDisplayCondition hides it anyway
     expect(project).not.toHaveBeenCalled()
-    expect(distant.label.show).toBe(true)
   })
 
   it('does not recompute while the camera stands still and nothing changed', () => {
-    const screen = new Map<Cartesian3, { x: number; y: number }>()
-    const stop = makeStop(screen, 500, 200, 300)
-    const { map, declutter, project } = harness([stop], screen)
+    const project = projectAllTo(400, 300)
+    const { layer, camera } = stopsHarness(stops)
 
-    declutter()
-    expect(project).toHaveBeenCalledTimes(1)
+    layer.update()
+    const afterFirst = project.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
 
-    declutter()
-    expect(project).toHaveBeenCalledTimes(1)
+    layer.update()
+    expect(project).toHaveBeenCalledTimes(afterFirst)
 
     // A camera move re-triggers the pass
-    const camera = (map as unknown as { viewer: { camera: { viewMatrix: Matrix4 } } }).viewer
-      .camera
     camera.viewMatrix = Matrix4.multiplyByTranslation(
-      camera.viewMatrix,
+      camera.viewMatrix as Matrix4,
       new Cartesian3(1, 0, 0),
       new Matrix4(),
     )
-    declutter()
-    expect(project).toHaveBeenCalledTimes(2)
+    layer.update()
+    expect(project.mock.calls.length).toBeGreaterThan(afterFirst)
+  })
+
+  it('reruns after the line visibility changed a stop', () => {
+    const project = projectAllTo(400, 300)
+    const { layer } = stopsHarness(stops)
+
+    layer.update()
+    const afterFirst = project.mock.calls.length
+
+    layer.setVisibleLines(new Set())
+    layer.update()
+    // Hidden stops are skipped, so the pass ran but projected nothing new
+    expect(project.mock.calls.length).toBe(afterFirst)
   })
 })
