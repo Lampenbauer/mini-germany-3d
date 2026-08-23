@@ -8,61 +8,49 @@
  */
 
 import {
-  BillboardCollection,
-  BlendOption,
   BoundingSphere,
-  BoxGeometry,
-  CallbackProperty,
   Cartesian2,
   Cartesian3,
   Cartographic,
-  ClassificationType,
   Color,
-  ColorGeometryInstanceAttribute,
-  ColorMaterialProperty,
-  ConstantPositionProperty,
-  ConstantProperty,
-  Credit,
   CustomShader,
-  DistanceDisplayCondition,
   Entity,
-  GeometryInstance,
   GridImageryProvider,
   HeadingPitchRange,
-  HeadingPitchRoll,
-  HorizontalOrigin,
-  Intersect,
   Ion,
   JulianDate,
-  LabelStyle,
-  Material,
-  MaterialAppearance,
   Math as CesiumMath,
   Matrix3,
-  Matrix4,
-  PerInstanceColorAppearance,
-  PlaneGeometry,
-  Primitive,
-  SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Simon1994PlanetaryPositions,
   Transforms,
   UniformType,
-  VertexFormat,
-  VerticalOrigin,
   Viewer,
   createGooglePhotorealistic3DTileset,
-  type Billboard,
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import type { LonLat } from '@/lib/geo'
-import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
+import {
+  ROUTE_HEIGHT_OFFSET_FALLBACK,
+  ROUTE_PULSE_DURATION_MS,
+  RoutesLayer,
+  TUNNEL_VISIBILITY,
+} from './RoutesLayer'
+import { StopsLayer } from './StopsLayer'
+import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
+import {
+  CLOUD_UNIFORM,
+  RAIN_UNIFORM,
+  WeatherOverlay,
+} from './WeatherOverlay'
+import type { PreparedNetwork } from '@/data/network-types'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
+
+export { TUNNEL_VISIBILITY }
+export { delayBadgeSuffix }
 
 export interface CesiumMapOptions {
   /** Offline mode: no Ion/Google requests (for tests/development without network). */
@@ -86,97 +74,7 @@ export interface CesiumMapOptions {
   onCameraChanged?: (settled: boolean) => void
 }
 
-interface VehicleRecord {
-  /**
-   * The vehicle body as a Primitive with a direct modelMatrix: position
-   * updates take effect immediately. (Entity boxes rebuild their geometry
-   * asynchronously on every position change – under continuous movement this
-   * rebuild starves as soon as the render rate drops to tick level, and the
-   * boxes visibly freeze.)
-   */
-  primitive: Primitive
-  /** Reused modelMatrix of the primitive (updated in place). */
-  matrix: Matrix4
-  /** Entity for the number label (billboard path, updates without rebuild). */
-  labelEntity: Entity
-  labelPosition: ConstantPositionProperty
-  /** GTFS-RT delay suffix currently baked into the badge ('' = on time). */
-  delaySuffix: string
-  baseColor: Color
-  /**
-   * Shared appearance of the body primitive. Tunnel transitions only toggle
-   * its `translucent` flag – the primitive picks that up per frame
-   * (isTranslucent()) and rebuilds just its render state, no new
-   * appearance/shader per transition.
-   */
-  appearance: PerInstanceColorAppearance
-  /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
-  inTunnel: boolean
-  /** Vehicle is the current selection (body brightened). */
-  highlighted: boolean
-  /**
-   * Body color still needs to be (re)applied: geometry attributes are only
-   * writable once the primitive has rendered, so a tunnel transition on a
-   * not-yet-rendered vehicle is retried on the following ticks.
-   */
-  appearanceDirty: boolean
-  /** Half the vehicle height in meters (box center above ground). */
-  halfHeight: number
-  /** Current direction of travel in degrees (0° = north, clockwise). */
-  bearing: number
-  /** Smoothed ground height (ellipsoidal) below the tram in meters. */
-  groundHeight: number
-  /** Frame counter of the last height query (sampling is staggered). */
-  lastSampleFrame: number
-  /** Position of the last tick – detects movement for render requests. */
-  lastPosition: Cartesian3
-  /** Night-time light pool under the vehicle (null without 2D canvas). */
-  glow: Primitive | null
-  /** Live modelMatrix of the glow quad (updated in place). */
-  glowMatrix: Matrix4 | null
-  /** Ground extent of the pool (vehicle footprint plus spill). */
-  glowScale: Cartesian3
-}
 
-interface StopEntityRecord {
-  /** Disc marker – a billboard in stopBillboards, added before all names. */
-  disc: Billboard
-  /** Name plate – a billboard in stopBillboards, added after all discs. */
-  label: Billboard
-  /**
-   * Half the rendered name plate width in CSS px – the screen-space
-   * rectangle for the label declutter.
-   */
-  labelHalfWidth: number
-  /** Ids of all lines serving this stop (stops are shared across lines). */
-  lines: string[]
-  /**
-   * At least one serving line is currently shown – drives disc/label
-   * visibility together with the global stops layer toggle.
-   */
-  lineVisible: boolean
-  lon: number
-  lat: number
-  /** Fixed world position of the stop – basis for the camera distance check. */
-  position: Cartesian3
-  /**
-   * Camera distance in meters at which the currently applied height was
-   * measured. Infinity = not measured yet, 0 = measured most-detailed
-   * (final, no camera-dependent measurement may override it).
-   */
-  sampledFrom: number
-  /**
-   * Timestamp before which no new attempt is made – set when a measurement
-   * found no queryable tile, so a handful of unreachable stops right in
-   * front of the camera cannot monopolize the per-pass budget.
-   */
-  retryAfter: number
-  /**
-   * Terrain height in meters NHN from network.json (DGM) – paired with the
-   * sampled tile height to calibrate the route height offset.
-   */
-  nhn?: number
-}
 
 /**
  * Ellipsoidal height of Rostock's streets while no tile height has been
@@ -185,61 +83,7 @@ interface StopEntityRecord {
  */
 const FALLBACK_GROUND_HEIGHT = 45
 
-/**
- * Every how many frames the ground height is re-sampled per tram – only
- * for vehicles WITHOUT route terrain heights (approximated dataset); with
- * heights present the height comes from the route profile instead.
- */
-const HEIGHT_SAMPLE_INTERVAL = 12
 
-/**
- * A stop height is re-measured once the camera has come this much closer
- * than at the previous measurement (0.7 = 30 % closer). Tile heights are
- * LOD-dependent, so a closer camera yields a measurably better value.
- */
-const STOP_RESAMPLE_RATIO = 0.7
-
-/** Stop heights measured per pass (one ray intersection each). */
-const STOP_HEIGHT_BUDGET = 4
-
-/**
- * Minimum spacing between two sampling passes in ms. Deliberately wall-clock
- * based rather than a frame count: the app throttles the simulation tick to
- * 2 Hz whenever the clock is paused or no vehicle is in view, which would
- * otherwise stretch a pass to 7.5 s and leave stops the user is looking at
- * on the fallback height for minutes.
- */
-const STOP_SAMPLE_INTERVAL_MS = 500
-
-/** How long a stop is skipped for after a measurement found no loaded tile. */
-const STOP_RETRY_MS = 1500
-
-/** Camera distance in meters up to which the stop discs are drawn. */
-const STOP_DISC_RANGE = 20000
-
-/** Camera distance in meters up to which stop name labels are drawn. */
-const STOP_LABEL_RANGE = 2600
-
-/** Rendered size of a stop disc in CSS px (fill + outline). */
-const STOP_DISC_SIZE = 10
-
-/** Font size of the stop name plates in CSS px. */
-const STOP_LABEL_FONT_SIZE = 13
-/** Font size of the serving-lines suffix, e.g. "(1, 5, 25)". */
-const STOP_LABEL_LINES_FONT_SIZE = 11
-const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
-
-/** Canvas height of a stop name plate in CSS px (font + outline). */
-const STOP_LABEL_HEIGHT = 20
-
-/** Vertical anchor offset of a stop label above its disc in CSS px. */
-const STOP_LABEL_OFFSET_Y = -16
-
-/**
- * Minimum screen-space gap between two stop labels in CSS px – labels whose
- * padded rectangles intersect an already accepted one are hidden.
- */
-const STOP_LABEL_GAP = 4
 
 /**
  * Number of stops per sampleHeightMostDetailed() call during bootstrapping.
@@ -258,40 +102,11 @@ const STOP_HEIGHT_CHUNK = 100
  */
 const STOP_BOOTSTRAP_SAMPLES = 40
 
-/**
- * Camera distance in meters up to which a vehicle counts as visible: the
- * number label fades out here (see the label's DistanceDisplayCondition),
- * and beyond it the body is only a few pixels. Vehicles farther away must
- * neither hold the 30 fps render pacing nor get tile-height samples –
- * without this cap a camera dozens of kilometers away still "sees" the
- * whole fleet as soon as it faces the network.
- */
-const VEHICLE_VISIBLE_RANGE = 20_000
 
-/**
- * Camera distance in meters up to which the vehicle BODY (the 3D box) is
- * drawn. Beyond this the box is sub-pixel noise while the number label
- * still reads fine, so only the label stays up to VEHICLE_VISIBLE_RANGE.
- */
-const VEHICLE_BODY_VISIBLE_RANGE = 3_000
 
-/**
- * Night-time cabin glow: a soft, warm light pool under every vehicle, as
- * if the interior lighting spilled onto the road. Drawn as a flat,
- * radial-gradient quad; its opacity follows the real sun elevation with
- * the same ramp the tiles' time-of-day shader uses, so the pools fade in
- * exactly while the city grades into night.
- */
-const GLOW_COLOR = Color.fromCssColorString('#ffd9a0')
-/** Pool opacity in full night (scaled by the sun ramp in between). */
-const GLOW_MAX_ALPHA = 0.95
 /** Sine of the sun elevation where the glow starts (dusk) / is fully on. */
 const GLOW_SUN_START = -0.05
 const GLOW_SUN_FULL = -0.17
-/** Meters above the sampled ground – below routes, above the road mesh. */
-const GLOW_LIFT = 0.15
-/** Camera distance in meters up to which the pools are drawn. */
-const GLOW_VISIBLE_RANGE = 2_000
 
 /**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
@@ -311,6 +126,10 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   // sin of the sun elevation at this fragment (up = away from Earth center)
   float sunUp = dot(czm_sunDirectionWC, normalize(fsInput.attributes.positionWC));
 
+  // Closed sky, 0..1: cloud cover grades the city on its own, and rain
+  // always implies an overcast sky – whichever is stronger wins.
+  float overcast = max(u_cloudFactor, u_rainFactor);
+
   vec3 goldenTint = vec3(1.0, 0.84, 0.66);
   vec3 duskTint = vec3(0.40, 0.35, 0.37);
   vec3 nightTint = vec3(0.06, 0.08, 0.15);
@@ -318,7 +137,9 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   // Blend regions by sun height: full day above +8 deg, golden hour down
   // to sunset, dusk while the sun sinks to -5 deg, night below about
   // -10 deg (matches how dark a real nautical dusk already feels).
-  float golden = 1.0 - smoothstep(0.0, 0.14, sunUp);
+  // A closed sky swallows the low sun, so the golden hour fades with it –
+  // dusk and night still fall, they only lose their warm edge.
+  float golden = (1.0 - smoothstep(0.0, 0.14, sunUp)) * (1.0 - 0.8 * overcast);
   float dusk = 1.0 - smoothstep(-0.09, 0.0, sunUp);
   float night = 1.0 - smoothstep(-0.17, -0.07, sunUp);
 
@@ -330,51 +151,21 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   vec3 color = mix(material.diffuse, vec3(luminance), 0.45 * night);
   material.diffuse = color * tint;
 
-  // Overcast grade while it rains (u_rainFactor 0..1, faded in softly):
-  // flatter (desaturated), dimmer, and slightly cool – the leaden sky the
-  // sunny photogrammetry cannot show.
-  float rainLum = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
-  vec3 overcast = mix(material.diffuse, vec3(rainLum), 0.5 * u_rainFactor);
-  overcast *= mix(1.0, 0.65, u_rainFactor);
-  overcast *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), u_rainFactor);
-  material.diffuse = overcast;
+  // Overcast grade (faded in softly): flatter (desaturated), dimmer, and
+  // slightly cool – overcast daylight really is bluer than direct sun, and
+  // it is the leaden sky the sunny photogrammetry cannot show.
+  float overcastLum = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
+  vec3 graded = mix(material.diffuse, vec3(overcastLum), 0.5 * overcast);
+  graded *= mix(1.0, 0.65, overcast);
+  graded *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), overcast);
+  material.diffuse = graded;
 }
 `
 
-/** Base alpha of the route polylines. */
-const ROUTE_ALPHA = 0.85
 
-/**
- * Initial offset in meters between NHN heights (DHHN2016, the reference of
- * the DGM route heights in network.json) and the ellipsoidal heights the
- * scene works in: the geoid undulation around Rostock is ~36 m. Only a
- * first guess so the routes appear at roughly the right height immediately;
- * the height bootstrap calibrates the real offset against the Google tiles
- * (which carry their own bias of a few meters) within seconds.
- */
-const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
 
-/**
- * Base lift of the route polylines above the terrain height in meters –
- * keeps them clear of road surfaces that sit slightly above the DGM (curbs,
- * rails) and of z-fighting with the tile mesh.
- */
-const ROUTE_BASE_LIFT = 0.8
 
-/**
- * Additional per-line lift stagger. Lines sharing a street would otherwise
- * be exactly coplanar and flicker; a few decimeters are invisible from any
- * distance at which routes are readable, but separate the depth values.
- */
-const ROUTE_LIFT_STEP = 0.15
-const ROUTE_LIFT_SLOTS = 8
 
-/**
- * Additional lift for ferry route lines in meters: their NHN height is 0,
- * but the Google mesh's water surface undulates up to ~1 m around the
- * geoid, which the land-calibrated height offset cannot capture.
- */
-const FERRY_ROUTE_EXTRA_LIFT = 1.25
 
 /** Camera pitch of the "zoom to line" flight in degrees (heading is kept). */
 const LINE_FOCUS_PITCH = -55
@@ -383,248 +174,50 @@ const LINE_FOCUS_PITCH = -55
 const STOP_FOCUS_RANGE = 400
 const STOP_FOCUS_PITCH = -55
 
-// --- Rain overlay --------------------------------------------------------
-// A hand-rolled drop field instead of Cesium's ParticleSystem: the particle
-// system is driven by the viewer clock, which this app pins to the
-// simulated time (setSceneTime) – its frame delta is 0 between the
-// throttled updates, so it never emits. The drop field runs on the wall
-// clock and is immune to sim pauses, time-lapse, and time jumps.
-/** Horizontal radius of the rain volume around the camera in meters. */
-const RAIN_RADIUS = 450
-/** Half-height of the rain volume (drops wrap within ±this) in meters. */
-const RAIN_VOLUME_HALF_HEIGHT = 350
-/**
- * Fall speed in m/s. Deliberately far above real terminal velocity (~9 m/s):
- * at typical viewing distances of hundreds of meters, physically correct
- * drops would crawl – this reads as rain streaks at 30 fps.
- */
-const RAIN_FALL_MPS = 260
-/** Visible drop count: base + per-mm scale, capped (GPU/CPU budget). */
-const RAIN_DROPS_BASE = 800
-const RAIN_DROPS_PER_MM = 1000
-const RAIN_MAX_DROPS = 4000
-/**
- * Overcast grade strength: even drizzle overcasts clearly, heavy rain
- * saturates at 1. Faded in/out over a few seconds (updateRain).
- */
-const RAIN_TINT_BASE = 0.55
-const RAIN_TINT_PER_MM = 0.15
-const RAIN_TINT_FADE_SECONDS = 2.5
 
-/** Near-white so the streaks read against the bright daylight tiles too. */
-const RAIN_COLOR = Color.fromCssColorString('#e4edf7')
-const RAIN_MAX_ALPHA = 0.9
-/** Rendered streak size in CSS px. */
-const RAIN_STREAK_WIDTH = 2.5
-const RAIN_STREAK_HEIGHT = 24
 
-// Scratches for the per-frame drop placement (see updateRain).
-const rainFrameScratch = new Matrix4()
-const rainLocalScratch = new Cartesian3()
-const rainWorldScratch = new Cartesian3()
 
-/** One raindrop: fixed horizontal offset, falling phase in the wrap window. */
-interface RainDrop {
-  billboard: Billboard
-  east: number
-  north: number
-  /** Initial height in the wrap window (meters). */
-  phase: number
-  /** Per-drop fall-speed multiplier (visual variety). */
-  speed: number
-}
 
-/**
- * Attention pulse on a line's route after "zoom to line": the opacity
- * swings smoothly from full to zero and back (cosine), several dips over
- * the total duration. Smooth instead of hard on/off blinking – the route
- * stays readable while clearly calling attention to itself. All OTHER
- * lines fade out for the duration (ROUTE_PULSE_FADE_MS ramps at both
- * ends), so the pulsing line stands out even on shared corridors.
- */
-const ROUTE_PULSE_DURATION_MS = 3000
-const ROUTE_PULSE_PERIOD_MS = 750
-const ROUTE_PULSE_FADE_MS = 250
 
-/** Follow camera: initial offset behind/above the vehicle. */
-const FOLLOW_PITCH_DEG = -14
-const FOLLOW_RANGE = 150
 
-/** Duration of the approach flight when following starts, in seconds. */
-const FOLLOW_FLIGHT_SECONDS = 1.4
-
-/**
- * Per-update easing of the chase heading toward the travel bearing
- * (~0.25 s time constant at the 30 fps tick). The bearing jumps at path
- * segment boundaries – applying it directly would visibly snap the view.
- */
-const FOLLOW_CHASE_EASE = 0.12
-
-/**
- * Deviations beyond these thresholds between the camera pose and the pose
- * the chase applied last frame mean the user moved the camera by hand.
- * Rotating (heading/pitch) disengages the chase; a pure range change is
- * zooming and is adopted into the chase instead. Radians for angles,
- * relative for the range; generous against floating-point noise, far
- * below any real mouse input.
- */
-const CHASE_BREAK_ANGLE = 0.003
-const CHASE_BREAK_RANGE_RATIO = 0.01
-
-/**
- * Visibility of tunnel/underground sections: route pieces and vehicles on
- * them are rendered at this fraction of their normal opacity. Exported for
- * the tests, which pin the ghosting behaviour against it.
- */
-export const TUNNEL_VISIBILITY = 0.2
-
-// Scratch objects for the per-tick hot path in syncVehicles: Cesium clones all
-// values it retains (ConstantProperty, modelMatrix), so reusing these avoids
-// ~2 allocations per tram per tick.
-const positionScratch = new Cartesian3()
 
 // Scratches for the sun-elevation night factor (see updateNightFactor).
 const sunPositionScratch = new Cartesian3()
 const sunTransformScratch = new Matrix3()
 
-// Scratch for the per-tick glow pool pose (see syncVehicles).
-const glowPositionScratch = new Cartesian3()
-const hprScratch = new HeadingPitchRoll()
 
-// Scratch for the stop label declutter's screen projections.
-const windowScratch = new Cartesian2()
 
-// Scratch for the per-pass selection of the stops nearest to the camera,
-// kept as an ascending top-N list (see resolveStopHeights).
-const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).fill(null)
-const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
 
-/**
- * True when the reverse direction is an exact mirror of the forward one
- * (path reversed point for point, tunnel ranges mirrored) – then a single
- * set of polylines covers both directions. Directions that merely share
- * length and endpoints (e.g. loops, or asymmetric tunnel tagging) are
- * drawn separately.
- */
-function directionsAreMirrored(
-  forward: PreparedDirection,
-  reverse: PreparedDirection,
-): boolean {
-  if (forward.path.length !== reverse.path.length) return false
-  const lastPoint = forward.path.length - 1
-  for (let i = 0; i <= lastPoint; i++) {
-    const a = forward.path[lastPoint - i]
-    const b = reverse.path[i]
-    if (a[0] !== b[0] || a[1] !== b[1]) return false
-  }
-  const mirrored = mirrorTunnelRanges(forward.tunnels, forward.totalLength)
-  if (mirrored.length !== reverse.tunnels.length) return false
-  // Mirrored meter ranges are recomputed floats – compare with a tolerance
-  // far below visibility instead of bit-exact.
-  return mirrored.every(
-    ([start, end], i) =>
-      Math.abs(start - reverse.tunnels[i][0]) < 0.01 &&
-      Math.abs(end - reverse.tunnels[i][1]) < 0.01,
-  )
-}
-
-/**
- * Delay suffix shown on the map badge after the line number ("+2" / "-1").
- * Mirrors the VehicleCard threshold: under a minute counts as on time, and
- * only vehicles with a GTFS-RT match show a delay at all.
- */
-export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delaySeconds'>): string {
-  if (!snap.realtime || Math.abs(snap.delaySeconds) < 60) return ''
-  const minutes = Math.round(snap.delaySeconds / 60)
-  return `${minutes > 0 ? '+' : ''}${minutes}`
-}
 
 export class CesiumMap {
   readonly viewer: Viewer
   private readonly opts: CesiumMapOptions
-  private vehicles = new Map<string, VehicleRecord>()
-  /** Rendered line badges (rounded rectangle + line number), one per line. */
-  private badgeCache = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>()
-  private routeEntities = new Map<string, Entity[]>()
-  /**
-   * Route pieces drawn at absolute heights (NHN + routeHeightOffset) –
-   * kept so the calibration can rewrite their positions once the real
-   * NHN→ellipsoid offset has been measured against the loaded tiles.
-   */
-  private heightRoutePieces: { entity: Entity; path: LonLat[]; heights: number[]; lift: number }[] =
-    []
-  /** Current NHN→ellipsoidal offset for route heights (calibrated later). */
-  private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
 
-  /** Rain overlay (null while dry or without a 2D canvas). */
-  private rainBillboards: BillboardCollection | null = null
-  private rainDrops: RainDrop[] = []
-  /** Currently applied precipitation in mm (0 = dry). */
-  private rainIntensity = 0
-  /** Accumulated fall distance in meters (wall-clock driven). */
-  private rainFallDistance = 0
-  private lastRainUpdateMs = 0
-  private removeRainListener: (() => void) | null = null
   /** Time-of-day shader of the Google tiles (null offline/fallback). */
   private tileShader: CustomShader | null = null
-  /** Current overcast grade 0..1 (eased toward the rain target). */
-  private rainTint = 0
-  /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
-  private linePaths = new Map<string, number[]>()
-  /**
-   * Discs AND name plates of all stops in one purely translucent billboard
-   * collection. Both are depth-clamped to the near plane
-   * (disableDepthTestDistance), where opaque passes write depth and the
-   * per-frame command sort – not the primitive list – decides what covers
-   * what, which left discs over neighboring stop names. Within a single
-   * translucent command, fragments instead blend strictly in add order:
-   * all discs first, every name after them, so names always draw on top.
-   * (Vehicle badges stay above both: their opaque entity billboards write
-   * near-plane depth this depth-tested collection cannot pass.)
-   */
-  private stopBillboards: BillboardCollection | null = null
-  private stopRecords: StopEntityRecord[] = []
-  /** A stop changed (position, visibility) – the label declutter must rerun. */
-  private stopLabelsDirty = true
-  /** Camera view matrix of the last declutter pass (all zeros = never ran). */
-  private declutterViewMatrix = new Matrix4()
+  /** Rain field and overcast grade – owns its own state (see WeatherOverlay). */
+  private readonly weather: WeatherOverlay
+  /** Discs, name plates, declutter and stop heights (see StopsLayer). */
+  private readonly stops: StopsLayer
+  /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
+  private readonly routes: RoutesLayer
+  /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
+  private readonly vehicleLayer: VehicleLayer
   private handler: ScreenSpaceEventHandler
-  private selectedId: string | null = null
   private destroyed = false
-  private followId: string | null = null
-  private followOffset: HeadingPitchRange | null = null
-  /** Until this time the approach flight runs and lookAt stays disengaged. */
-  private followFlightUntil = 0
-  /**
-   * Chase mode: the camera stays exactly behind the vehicle (heading
-   * follows the travel bearing) until the user moves the camera by hand –
-   * from then on manual orbit/zoom is adopted as before.
-   */
-  private followChase = false
   private googleTileset: Cesium3DTileset | null = null
   /** Most recently measured plausible ground height – initial value for new vehicles. */
   private defaultGroundHeight: number
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
   private readonly effectivePixelRatio: number
-  private frameCounter = 0
-  /** Timestamp of the last stop height sampling pass (see resolveStopHeights). */
-  private lastStopSampleAt = 0
-  private frustumSphere = new BoundingSphere()
   /** 0 = day … 1 = full night; drives the cabin-glow opacity. */
   private nightFactor = 0
-  /** Radial gradient sprite of the glow pools (null: no 2D canvas). */
-  private glowSpriteCanvas?: HTMLCanvasElement | null
-  /** Material/appearance shared by ALL pools – one uniform sets the alpha. */
-  private glowMaterial: Material | null = null
-  private glowAppearance: MaterialAppearance | null = null
   /** Unit up vector at the city center (sun elevation reference). */
   private cityUp: Cartesian3 | null = null
   /** Time of the last user interaction (mouse/touch/wheel) in ms. */
   private lastInteractionAt = 0
   /** A camera animation (flyTo) is running until this point in time. */
   private flyingUntil = 0
-  /** Running route attention pulse (see startRoutePulse), null = none. */
-  private routePulse: { lineId: string; start: number; until: number } | null = null
   /**
    * A one-off scene change (selection, visibility toggle, stop height,
    * resize, …) needs a frame. Consumed by the app's render loop – outside
@@ -681,6 +274,50 @@ export class CesiumMap {
     ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
 
     const scene = this.viewer.scene
+    // Live view of the map for the layer host below: its getters must see
+    // the current values, not a snapshot taken at construction time.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const map = this
+    // Before loadGoogleTiles(): that hands the overlay its tile shader.
+    this.weather = new WeatherOverlay(this.viewer, () => this.requestRender())
+    this.routes = new RoutesLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      offline: opts.offline === true,
+    })
+    this.vehicleLayer = new VehicleLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+      get routeHeightOffset() {
+        return map.routes.heightOffset
+      },
+      get nightFactor() {
+        return map.nightFactor
+      },
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
+      offline: opts.offline === true,
+      fixedGroundHeight: opts.fixedGroundHeight,
+      noteCameraFlight: (durationMs) => {
+        this.flyingUntil = performance.now() + durationMs
+      },
+    })
+    this.stops = new StopsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+      get hasTileset() {
+        return map.googleTileset !== null
+      },
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
+    })
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
@@ -797,12 +434,17 @@ export class CesiumMap {
       const deviceMemoryGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 4
       tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
       tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
-      // Day/night ambience following the simulated time (see setSceneTime);
-      // u_rainFactor adds the overcast grade while it rains (updateRain).
+      // Day/night ambience following the simulated time (see setSceneTime).
+      // The two overcast uniforms are driven by the weather overlay, which
+      // pushes its current grades as soon as it gets the shader.
       this.tileShader = new CustomShader({
         fragmentShaderText: TIME_OF_DAY_SHADER,
-        uniforms: { u_rainFactor: { type: UniformType.FLOAT, value: 0 } },
+        uniforms: {
+          [RAIN_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
+          [CLOUD_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
+        },
       })
+      this.weather.attachTileShader(this.tileShader)
       tileset.customShader = this.tileShader
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
@@ -884,106 +526,6 @@ export class CesiumMap {
     })
   }
 
-  /**
-   * Draws the route polylines of all lines. With per-vertex terrain heights
-   * from network.json (DGM © GeoBasis-DE/M-V) the routes are ordinary
-   * polylines at absolute heights – Cesium's ground-clamping classification
-   * passes cost measurable GPU time on EVERY rendered frame, so they are
-   * reserved as a fallback for directions without height data (and for the
-   * offline mode, whose ellipsoid ground sits at 0 m where NHN heights
-   * would float mid-air). Tunnel/underground sections become their own
-   * polyline pieces at 40 % of the normal opacity.
-   */
-  addRoutes(network: PreparedNetwork): void {
-    // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a
-    // visible attribution – Cesium's credit display ("Data attribution")
-    // is the canonical place for data-source credits.
-    this.viewer.creditDisplay.addStaticCredit(new Credit(network.meta.attribution, false))
-
-    network.lines.forEach((line, index) => {
-      const color = Color.fromCssColorString(line.color)
-      const entities: Entity[] = []
-      // Ferry lines get extra clearance: their heights are 0 m NHN, but
-      // the water surface in the Google mesh undulates (waves, wakes,
-      // reconstruction noise) up to ~1 m around the geoid, and the
-      // land-calibrated offset does not account for it – without the
-      // extra lift the lines visibly dip into the water tiles.
-      const modeLift = line.mode === 'ferry' ? FERRY_ROUTE_EXTRA_LIFT : 0
-      const lift =
-        ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
-
-      const dirs = [line.directions[0]]
-      // Only draw the second direction if it has its own geometry or its
-      // own tunnel layout (with mirrored directions both are identical)
-      const d1 = line.directions[1]
-      const d0 = line.directions[0]
-      if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
-
-      for (const dir of dirs) {
-        const heights = this.opts.offline ? undefined : dir.heights
-        const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
-        pieces.forEach((piece, pieceIndex) => {
-          const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
-          // Non-constant color: routes stay in Cesium's static polyline
-          // batch (isDynamic only looks at geometry properties), but the
-          // batch refreshes the per-instance color attribute in place on
-          // every rendered frame – the supported path for animating the
-          // attention pulse without primitive rebuilds. Replacing the
-          // color property per frame instead re-batches asynchronously
-          // and never becomes visible.
-          const baseColor = color.withAlpha(alpha)
-          const scratchColor = new Color()
-          const material = new ColorMaterialProperty(
-            new CallbackProperty(
-              () => this.routePieceColor(line.id, baseColor, scratchColor),
-              false,
-            ),
-          )
-          const id = `route:${line.id}:${dir.direction}:${pieceIndex}`
-          let entity: Entity
-          if (piece.heights && piece.heights.length === piece.path.length) {
-            entity = this.viewer.entities.add({
-              id,
-              polyline: {
-                positions: this.routePiecePositions(piece.path, piece.heights, lift),
-                width: 5,
-                material,
-              },
-            })
-            this.heightRoutePieces.push({
-              entity,
-              path: piece.path,
-              heights: piece.heights,
-              lift,
-            })
-          } else {
-            entity = this.viewer.entities.add({
-              id,
-              polyline: {
-                positions: Cartesian3.fromDegreesArray(piece.path.flat()),
-                width: 5,
-                clampToGround: true,
-                material,
-                classificationType: ClassificationType.BOTH,
-                zIndex: 10 + index,
-              },
-            })
-          }
-          entities.push(entity)
-        })
-      }
-      this.routeEntities.set(line.id, entities)
-
-      // Union of both directions – basis for the "zoom to line" camera fit
-      // (duplicate points of mirrored directions do not hurt the sphere).
-      const flat: number[] = []
-      for (const dir of line.directions) {
-        for (const [lon, lat] of dir.path) flat.push(lon, lat)
-      }
-      this.linePaths.set(line.id, flat)
-    })
-    this.requestRender()
-  }
 
   /**
    * Flies the camera so the entire route of a line is in view. The current
@@ -991,7 +533,7 @@ export class CesiumMap {
    * distance is computed by Cesium from the route's bounding sphere.
    */
   focusLine(lineId: string): void {
-    const flat = this.linePaths.get(lineId)
+    const flat = this.routes.linePoints(lineId)
     if (!flat || flat.length < 4) return
     const sphere = BoundingSphere.fromPoints(Cartesian3.fromDegreesArray(flat))
     // The route coordinates carry no heights (ellipsoid 0 m) – lift the
@@ -1007,7 +549,7 @@ export class CesiumMap {
     )
     // Render at full rate during flight AND pulse (see getRenderHints)
     this.flyingUntil = performance.now() + Math.max(2100, ROUTE_PULSE_DURATION_MS + 200)
-    this.startRoutePulse(lineId)
+    this.routes.startPulse(lineId)
     this.requestRender()
     this.viewer.camera.flyToBoundingSphere(sphere, {
       duration: 1.5,
@@ -1029,7 +571,7 @@ export class CesiumMap {
     // height where the dataset has one, the measured ground otherwise.
     const groundHeight =
       this.opts.fixedGroundHeight === undefined && !this.opts.offline && nhn !== undefined
-        ? nhn + this.routeHeightOffset
+        ? nhn + this.routes.heightOffset
         : this.defaultGroundHeight
     const center = Cartesian3.fromDegrees(lon, lat, groundHeight)
     // Render at full rate during the flight (see getRenderHints)
@@ -1046,575 +588,88 @@ export class CesiumMap {
   }
 
   /**
-   * Rain overlay driven by live precipitation (mm). 0 removes the rain,
-   * anything above scales the visible drop count. The drop volume follows
-   * the camera (see updateRain); while rain is visible the app must render
-   * continuously (the App's render loop treats it as animation).
+   * Live weather (see WeatherOverlay): rain in mm and cloud cover in
+   * percent. Both are applied per UI tick, unchanged values cost nothing.
    */
   setRain(precipitationMm: number): void {
-    const intensity = Math.max(0, precipitationMm)
-    if (intensity === this.rainIntensity) return
-    this.rainIntensity = intensity
-    if (intensity <= 0) {
-      // Drops stop immediately; the overcast grade fades out in updateRain,
-      // which then tears the collection and its frame listener down.
-      if (this.rainBillboards) {
-        for (const drop of this.rainDrops) drop.billboard.show = false
-        this.requestRender()
-      }
-      return
-    }
-    if (!this.rainBillboards && !this.createRainDrops()) return
-    const visible = Math.min(
-      RAIN_MAX_DROPS,
-      Math.round(RAIN_DROPS_BASE + intensity * RAIN_DROPS_PER_MM),
-    )
-    this.rainDrops.forEach((drop, index) => {
-      drop.billboard.show = index < visible
-    })
-    this.requestRender()
+    this.weather.setRain(precipitationMm)
   }
 
-  /** Soft vertical streak sprite for the raindrops (undefined in jsdom). */
-  private rainSprite(): HTMLCanvasElement | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    canvas.width = 4
-    canvas.height = 32
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height)
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0)')
-    gradient.addColorStop(0.35, 'rgba(255, 255, 255, 0.9)')
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
-    ctx.fillStyle = gradient
-    ctx.fillRect(1, 0, 2, canvas.height)
-    return canvas
+  setCloudCover(cloudCoverPercent: number): void {
+    this.weather.setCloudCover(cloudCoverPercent)
   }
 
-  /** Builds the (initially hidden) drop pool and hooks the per-frame update. */
-  private createRainDrops(): boolean {
-    const sprite = this.rainSprite()
-    if (!sprite) return false
-    const collection = new BillboardCollection()
-    // World-up at the city – constant enough across the visible area. The
-    // aligned axis keeps streaks vertical in world space, so they foreshorten
-    // correctly when looking down.
-    const up = Cartesian3.normalize(this.viewer.camera.positionWC, new Cartesian3())
-    const drops: RainDrop[] = []
-    for (let i = 0; i < RAIN_MAX_DROPS; i++) {
-      // Uniform in a disc; far drops fade so the volume edge stays invisible
-      const angle = Math.random() * 2 * Math.PI
-      const radius = RAIN_RADIUS * Math.sqrt(Math.random())
-      const fade = 1 - (0.6 * radius) / RAIN_RADIUS
-      drops.push({
-        billboard: collection.add({
-          image: sprite,
-          position: this.viewer.camera.positionWC,
-          color: RAIN_COLOR.withAlpha(RAIN_MAX_ALPHA * fade),
-          width: RAIN_STREAK_WIDTH,
-          height: RAIN_STREAK_HEIGHT,
-          alignedAxis: up,
-          show: false,
-        }),
-        east: radius * Math.cos(angle),
-        north: radius * Math.sin(angle),
-        phase: Math.random() * 2 * RAIN_VOLUME_HALF_HEIGHT,
-        speed: 0.85 + Math.random() * 0.3,
-      })
-    }
-    this.viewer.scene.primitives.add(collection)
-    this.rainBillboards = collection
-    this.rainDrops = drops
-    this.rainFallDistance = 0
-    this.lastRainUpdateMs = performance.now()
-    const listener = () => this.updateRain()
-    this.viewer.scene.preUpdate.addEventListener(listener)
-    this.removeRainListener = () =>
-      this.viewer.scene.preUpdate.removeEventListener(listener)
-    return true
-  }
-
-  /**
-   * Advances the drop field once per rendered frame (scene.preUpdate),
-   * paced by the wall clock. Drops keep a fixed horizontal offset in the
-   * camera's east-north-up frame and wrap vertically within the volume –
-   * the rain follows the camera without any respawn bookkeeping.
-   */
-  private updateRain(): void {
-    if (!this.rainBillboards) return
-    const now = performance.now()
-    // Capped: a background tab must not fast-forward the fall distance
-    const dt = Math.min(0.1, Math.max(0, (now - this.lastRainUpdateMs) / 1000))
-    this.lastRainUpdateMs = now
-    this.rainFallDistance += RAIN_FALL_MPS * dt
-
-    // Overcast grade: ease toward the rain target; requestRender keeps the
-    // frames coming during the transition even after the drops are gone.
-    const tintTarget =
-      this.rainIntensity > 0
-        ? Math.min(1, RAIN_TINT_BASE + this.rainIntensity * RAIN_TINT_PER_MM)
-        : 0
-    if (this.rainTint !== tintTarget) {
-      const step = dt / RAIN_TINT_FADE_SECONDS
-      this.rainTint =
-        this.rainTint < tintTarget
-          ? Math.min(tintTarget, this.rainTint + step)
-          : Math.max(tintTarget, this.rainTint - step)
-      this.tileShader?.setUniform('u_rainFactor', this.rainTint)
-      this.requestRender()
-    }
-
-    // Rain over and the grade faded out → tear the drop field down
-    if (this.rainIntensity <= 0 && this.rainTint <= 0.005) {
-      this.rainTint = 0
-      this.tileShader?.setUniform('u_rainFactor', 0)
-      this.removeRainListener?.()
-      this.removeRainListener = null
-      this.viewer.scene.primitives.remove(this.rainBillboards)
-      this.rainBillboards = null
-      this.rainDrops = []
-      this.requestRender()
-      return
-    }
-
-    Transforms.eastNorthUpToFixedFrame(
-      this.viewer.camera.positionWC,
-      undefined,
-      rainFrameScratch,
-    )
-    const window = 2 * RAIN_VOLUME_HALF_HEIGHT
-    for (const drop of this.rainDrops) {
-      if (!drop.billboard.show) continue
-      const fallen = drop.phase - this.rainFallDistance * drop.speed
-      const up = ((fallen % window) + window) % window - RAIN_VOLUME_HALF_HEIGHT
-      rainLocalScratch.x = drop.east
-      rainLocalScratch.y = drop.north
-      rainLocalScratch.z = up
-      drop.billboard.position = Matrix4.multiplyByPoint(
-        rainFrameScratch,
-        rainLocalScratch,
-        rainWorldScratch,
-      )
-    }
-  }
-
-  /** Open-Meteo attribution (CC-BY 4.0) – call once when rain is enabled. */
+  /** Open-Meteo attribution (CC-BY 4.0) – call once when weather is enabled. */
   addWeatherCredit(): void {
-    this.viewer.creditDisplay.addStaticCredit(
-      new Credit('Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>', false),
-    )
+    this.weather.addCredit()
   }
 
-  /** Starts the attention pulse on a line's route (replaces any running one). */
-  private startRoutePulse(lineId: string): void {
-    const now = performance.now()
-    this.routePulse = { lineId, start: now, until: now + ROUTE_PULSE_DURATION_MS }
-    this.requestRender()
-  }
+
+
 
   /**
-   * Current color of a route piece – the CallbackProperty behind every
-   * piece's material, evaluated per rendered frame by Cesium's color
-   * batch. Without a pulse it is the base color, so ending a pulse
-   * restores the exact originals by construction. (Offline mode draws
-   * ground-clamped routes in Cesium's per-material batch, which does not
-   * re-evaluate colors per frame – the pulse is only visible on the
-   * height-based routes of the normal online mode.)
+   * Vehicle layer (see VehicleLayer). The stops upkeep rides on the same
+   * tick – both are per-frame work the app drives through one call.
    */
-  private routePieceColor(lineId: string, base: Color, result: Color): Color {
-    const pulse = this.routePulse
-    if (!pulse) return Color.clone(base, result)
-    const now = performance.now()
-    if (now >= pulse.until) return Color.clone(base, result)
-    if (pulse.lineId !== lineId) {
-      // Every other line clears the stage while the pulse runs – faded
-      // out at the start and back in at the end instead of popping.
-      const fadeOut = Math.min(1, (now - pulse.start) / ROUTE_PULSE_FADE_MS)
-      const fadeIn = Math.min(1, (pulse.until - now) / ROUTE_PULSE_FADE_MS)
-      const hidden = Math.min(fadeOut, fadeIn)
-      return Color.fromAlpha(base, base.alpha * (1 - hidden), result)
-    }
-    const phase = ((now - pulse.start) % ROUTE_PULSE_PERIOD_MS) / ROUTE_PULSE_PERIOD_MS
-    // Cosine: starts at full opacity, dips to 0, comes back – per period
-    const factor = 0.5 + 0.5 * Math.cos(2 * Math.PI * phase)
-    return Color.fromAlpha(base, base.alpha * factor, result)
+  syncVehicles(
+    snapshots: VehicleSnapshot[],
+    visibleLines: ReadonlySet<string>,
+  ): { anyVehicleInView: boolean } {
+    this.stops.update()
+    return this.vehicleLayer.sync(snapshots, visibleLines)
   }
 
-  /**
-   * Drives the pulse from render(): keeps frames coming while it runs
-   * (regardless of the simulation tick rate) and clears it once over –
-   * the final requestRender repaints the base colors.
-   */
-  private updateRoutePulse(): void {
-    if (!this.routePulse) return
-    if (performance.now() >= this.routePulse.until) {
-      this.routePulse = null
-    }
-    this.requestRender()
+  setSelected(id: string | null): void {
+    this.vehicleLayer.setSelected(id)
   }
 
-  /**
-   * Draws all stops (deduplicated across lines).
-   * Heights are – as with the vehicles – set explicitly and adjusted as soon
-   * as the 3D tiles are loaded at the respective location.
-   */
-  addStops(network: PreparedNetwork): void {
-    // One shared billboard collection for discs AND name plates, rendered
-    // purely translucent – see stopBillboards for why the add order inside
-    // a single collection is the only reliable overlap order. The names
-    // are pre-rendered to canvases (like the tram badges); Cesium's Label
-    // primitives would live in their own collection again and lose the
-    // ordering guarantee.
-    const billboards = new BillboardCollection({ blendOption: BlendOption.TRANSLUCENT })
-    this.viewer.scene.primitives.add(billboards)
-    this.stopBillboards = billboards
-
-    const unique: {
-      id: string
-      name: string
-      lon: number
-      lat: number
-      nhn?: number
-      lines: string[]
-    }[] = []
-    // Stops are shared across lines – collect every serving line per stop,
-    // so hiding lines can hide exactly the stops no shown line serves.
-    const byId = new Map<string, string[]>()
-    for (const line of network.lines) {
-      for (const dir of line.directions) {
-        for (const stop of dir.stops) {
-          const lines = byId.get(stop.id)
-          if (lines) {
-            if (!lines.includes(line.id)) lines.push(line.id)
-            continue
-          }
-          const [lon, lat] = stop.coord
-          const entry = { id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn, lines: [line.id] }
-          byId.set(stop.id, entry.lines)
-          unique.push(entry)
-        }
-      }
-    }
-
-    const positions = unique.map((stop) =>
-      Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight + 0.5),
-    )
-
-    // First pass: all discs (one shared image via a fixed imageId).
-    // In environments without a 2D canvas (jsdom) the billboards simply
-    // carry no image – nothing renders there anyway.
-    const discImage = this.stopDiscImage()
-    const discs = unique.map((stop, i) => {
-      const disc = billboards.add({
-        id: `stop:${stop.id}`,
-        position: positions[i],
-        width: STOP_DISC_SIZE,
-        height: STOP_DISC_SIZE,
-        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
-        disableDepthTestDistance: 3000,
-      })
-      if (discImage) disc.setImage('mrt:stop-disc', discImage)
-      return disc
-    })
-
-    // Second pass: every name plate after every disc
-    unique.forEach((stop, i) => {
-      const plate = this.stopNameplate(stop.name, stop.lines)
-      const label = billboards.add({
-        id: `stop:${stop.id}`,
-        position: positions[i],
-        image: plate?.canvas,
-        width: plate?.width,
-        height: plate?.height,
-        horizontalOrigin: HorizontalOrigin.CENTER,
-        verticalOrigin: VerticalOrigin.BOTTOM,
-        pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
-        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
-        disableDepthTestDistance: 3000,
-      })
-      this.stopRecords.push({
-        disc: discs[i],
-        label,
-        labelHalfWidth: plate
-          ? plate.width / 2
-          : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
-        lines: stop.lines,
-        lineVisible: true,
-        lon: stop.lon,
-        lat: stop.lat,
-        position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight),
-        sampledFrom: Number.POSITIVE_INFINITY,
-        retryAfter: 0,
-        nhn: stop.nhn,
-      })
-    })
-    this.stopLabelsDirty = true
-    this.requestRender()
+  setFollow(id: string | null): void {
+    this.vehicleLayer.setFollow(id)
   }
 
-  /**
-   * Applies the line visibility to the stops: a stop stays on the map as
-   * long as at least one line serving it is shown. Composes with the
-   * global stops layer toggle (collection show) and with the label
-   * declutter, which skips hidden stops and re-runs after a change.
-   */
-  setVisibleLines(visibleLines: ReadonlySet<string>): void {
-    let changed = false
-    for (const record of this.stopRecords) {
-      const visible = record.lines.some((id) => visibleLines.has(id))
-      if (visible === record.lineVisible) continue
-      record.lineVisible = visible
-      record.disc.show = visible
-      // Re-shown labels start visible; the declutter prunes overlaps on
-      // its next pass (stopLabelsDirty below).
-      record.label.show = visible
-      changed = true
-    }
-    if (changed) {
-      this.stopLabelsDirty = true
-      this.requestRender()
-    }
+  hasVehicle(id: string): boolean {
+    return this.vehicleLayer.hasVehicle(id)
   }
 
-  /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
-  private stopDiscImage(): HTMLCanvasElement | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const ratio = this.effectivePixelRatio
-    const size = Math.round(STOP_DISC_SIZE * ratio)
-    canvas.width = size
-    canvas.height = size
-    const center = size / 2
-    ctx.beginPath()
-    // Stroke is centered on the arc – pull the radius in by half of it
-    ctx.arc(center, center, center - ratio, 0, 2 * Math.PI)
-    ctx.fillStyle = '#f8fafc'
-    ctx.fill()
-    ctx.lineWidth = 2 * ratio
-    ctx.strokeStyle = '#334155'
-    ctx.stroke()
-    return canvas
+  getVehicleBoxDriftMeters(): number {
+    return this.vehicleLayer.getVehicleBoxDriftMeters()
   }
 
-  /**
-   * Renders a stop name plus the serving lines in parentheses (outlined
-   * text, the lines slightly smaller and dimmer) to a canvas at the
-   * drawing-buffer pixel ratio. Returns undefined where no 2D canvas is
-   * available (jsdom).
-   */
-  private stopNameplate(
-    name: string,
-    lines: string[],
-  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const ratio = this.effectivePixelRatio
-    const nameFont = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
-    const linesFont = `${Math.round(STOP_LABEL_LINES_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
-    const suffix = lines.length > 0 ? `(${lines.join(', ')})` : ''
-    ctx.font = nameFont
-    const nameWidth = ctx.measureText(name).width
-    ctx.font = linesFont
-    const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
-    const gap = suffix ? 5 * ratio : 0
-    const padX = 4 * ratio
-    const height = Math.round(STOP_LABEL_HEIGHT * ratio)
-    const width = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
-    canvas.width = width
-    canvas.height = height
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'middle'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 3 * ratio
-    ctx.strokeStyle = '#0f172a'
-    ctx.font = nameFont
-    ctx.strokeText(name, padX, height / 2)
-    ctx.fillStyle = '#e2e8f0'
-    ctx.fillText(name, padX, height / 2)
-    if (suffix) {
-      ctx.font = linesFont
-      ctx.strokeText(suffix, padX + nameWidth + gap, height / 2)
-      // Dimmer than the name, so long line lists stay secondary
-      ctx.fillStyle = '#b7c2d0'
-      ctx.fillText(suffix, padX + nameWidth + gap, height / 2)
-    }
-    return { canvas, width: width / ratio, height: height / ratio }
+  getVehicleOpacity(id: string): number | null {
+    return this.vehicleLayer.getVehicleOpacity(id)
   }
 
-  /**
-   * Hides stop labels that would overlap an already accepted one. Cesium
-   * draws every label unconditionally, so dense sections (downtown, shared
-   * corridors) turned into unreadable text piles. The stop nearest to the
-   * camera wins; a hidden label keeps its disc, so the stop itself stays
-   * on the map. Only recomputed when the camera actually moved or a stop
-   * changed (stopLabelsDirty) – an idle scene pays nothing.
-   */
-  private declutterStopLabels(): void {
-    if (!this.stopBillboards || !this.stopBillboards.show || this.stopRecords.length === 0) return
-    const camera = this.viewer.camera
-    if (
-      !this.stopLabelsDirty &&
-      Matrix4.equals(this.declutterViewMatrix, camera.viewMatrix)
-    ) {
-      return
-    }
-    this.stopLabelsDirty = false
-    Matrix4.clone(camera.viewMatrix, this.declutterViewMatrix)
-
-    const scene = this.viewer.scene
-    const cameraPosition = camera.positionWC
-    // Candidates: stops whose label the DistanceDisplayCondition draws at
-    // all. Behind-camera stops project to undefined and are skipped – their
-    // label is off screen either way, its show flag does not matter.
-    const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
-    for (const record of this.stopRecords) {
-      if (!record.lineVisible) continue
-      const distance = Cartesian3.distance(cameraPosition, record.position)
-      if (distance > STOP_LABEL_RANGE) continue
-      const windowPosition = SceneTransforms.worldToWindowCoordinates(
-        scene,
-        record.disc.position,
-        windowScratch,
-      )
-      if (!windowPosition) continue
-      candidates.push({ record, distance, x: windowPosition.x, y: windowPosition.y })
-    }
-    candidates.sort((a, b) => a.distance - b.distance)
-
-    const kept: { left: number; right: number; top: number; bottom: number }[] = []
-    let changed = false
-    for (const candidate of candidates) {
-      const halfWidth = candidate.record.labelHalfWidth + STOP_LABEL_GAP
-      // Window y grows downward; the label is anchored bottom-center at
-      // pixelOffset above the disc.
-      const bottom = candidate.y + STOP_LABEL_OFFSET_Y
-      const top = bottom - STOP_LABEL_HEIGHT - STOP_LABEL_GAP
-      const left = candidate.x - halfWidth
-      const right = candidate.x + halfWidth
-      let free = true
-      for (const rect of kept) {
-        if (left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top) {
-          free = false
-          break
-        }
-      }
-      if (free) kept.push({ left, right, top, bottom })
-      if (candidate.record.label.show !== free) {
-        candidate.record.label.show = free
-        changed = true
-      }
-    }
-    if (changed) this.requestRender()
-  }
-
-  /**
-   * Resolves the stop heights bit by bit (a few per pass).
-   *
-   * A measured height is NOT final: tileset.getHeight() only sees the tile
-   * level currently loaded, and the coarse LOD of a far-away area sits up to
-   * ~10 m above the real surface. Freezing the first measurement therefore
-   * left every stop that was far from the camera at startup floating in
-   * mid-air as soon as the camera came closer. Each stop hence remembers the
-   * camera distance its height was measured at and is re-measured once the
-   * camera has come substantially closer.
-   */
-  private resolveStopHeights(): void {
-    if (!this.googleTileset || this.stopRecords.length === 0) return
-    const now = performance.now()
-    if (now - this.lastStopSampleAt < STOP_SAMPLE_INTERVAL_MS) return
-    this.lastStopSampleAt = now
-    const cameraPosition = this.viewer.camera.positionWC
-
-    // Of all stops a measurement would improve, take the ones nearest to
-    // the camera: those are what the user is looking at, and their tiles are
-    // loaded in the finest detail right now. The distance check is far
-    // cheaper than the ray intersection in sampleGroundHeight(), so scanning
-    // every stop to spend the small budget well is worth it.
-    let count = 0
-    for (const stop of this.stopRecords) {
-      if (now < stop.retryAfter) continue
-      const distance = Cartesian3.distance(cameraPosition, stop.position)
-      if (distance > stop.sampledFrom * STOP_RESAMPLE_RATIO) continue
-      if (count === STOP_HEIGHT_BUDGET && distance >= nearestDistances[count - 1]) continue
-      // Insertion into the ascending list – at four entries a linear shift
-      // beats any heap.
-      let slot = Math.min(count, STOP_HEIGHT_BUDGET - 1)
-      while (slot > 0 && nearestDistances[slot - 1] > distance) {
-        nearestDistances[slot] = nearestDistances[slot - 1]
-        nearestStops[slot] = nearestStops[slot - 1]
-        slot--
-      }
-      nearestDistances[slot] = distance
-      nearestStops[slot] = stop
-      if (count < STOP_HEIGHT_BUDGET) count++
-    }
-
-    for (let i = 0; i < count; i++) {
-      const stop = nearestStops[i] as StopEntityRecord
-      // Release the scratch slot – it would otherwise keep entities (and
-      // through them the viewer) alive past destroy().
-      nearestStops[i] = null
-      const height = this.sampleGroundHeight(stop.lon, stop.lat)
-      if (height === undefined) {
-        // No tile queryable there (yet) – keep the current height and let
-        // other stops have the budget for a while.
-        stop.retryAfter = now + STOP_RETRY_MS
-        continue
-      }
-      stop.sampledFrom = nearestDistances[i]
-      const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
-      stop.disc.position = lifted
-      stop.label.position = lifted
-      this.stopLabelsDirty = true
-      this.requestRender()
-    }
+  /** Routes layer (see RoutesLayer) – the map only forwards. */
+  addRoutes(network: PreparedNetwork): void {
+    this.routes.add(network)
   }
 
   setRoutesVisible(visible: boolean): void {
-    for (const entities of this.routeEntities.values()) {
-      for (const e of entities) e.show = visible
-    }
-    this.requestRender()
-  }
-
-  /** World positions of a height-based route piece at the current offset. */
-  private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
-    return path.map(([lon, lat], i) =>
-      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + lift),
-    )
-  }
-
-  /**
-   * Re-anchors all height-based route pieces after the NHN→ellipsoid
-   * offset has been calibrated against the loaded Google tiles. One-off
-   * work (a few hundred polylines) – not a per-frame cost.
-   */
-  private applyRouteHeightOffset(): void {
-    for (const piece of this.heightRoutePieces) {
-      const polyline = piece.entity.polyline
-      if (!polyline) continue
-      polyline.positions = new ConstantProperty(
-        this.routePiecePositions(piece.path, piece.heights, piece.lift),
-      )
-    }
-    this.requestRender()
-  }
-
-  setStopsVisible(visible: boolean): void {
-    if (this.stopBillboards) this.stopBillboards.show = visible
-    this.stopLabelsDirty = true
-    this.requestRender()
+    this.routes.setVisible(visible)
   }
 
   setLineRouteVisible(lineId: string, visible: boolean): void {
-    for (const e of this.routeEntities.get(lineId) ?? []) e.show = visible
-    this.requestRender()
+    this.routes.setLineVisible(lineId, visible)
   }
+
+  /** Stops layer (see StopsLayer) – the map only forwards. */
+  addStops(network: PreparedNetwork): void {
+    this.stops.add(network)
+  }
+
+  setStopsVisible(visible: boolean): void {
+    this.stops.setVisible(visible)
+  }
+
+  /** Line visibility drives which stops stay on the map. */
+  setVisibleLines(visibleLines: ReadonlySet<string>): void {
+    this.stops.setVisibleLines(visibleLines)
+  }
+
+
+
+
+
 
   /**
    * One-time height bootstrapping: measures the tile heights at a small,
@@ -1632,7 +687,7 @@ export class CesiumMap {
    */
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
-    if (this.stopRecords.length === 0) {
+    if (this.stops.count === 0) {
       window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
       return
     }
@@ -1642,8 +697,7 @@ export class CesiumMap {
       return
     }
 
-    const stride = Math.max(1, Math.ceil(this.stopRecords.length / STOP_BOOTSTRAP_SAMPLES))
-    const sampleStops = this.stopRecords.filter((_, index) => index % stride === 0)
+    const sampleStops = this.stops.bootstrapSamples(STOP_BOOTSTRAP_SAMPLES)
 
     const heights: number[] = []
     // Differences between sampled tile height and the stop's DGM height –
@@ -1662,22 +716,14 @@ export class CesiumMap {
           heights.push(h)
           const stop = chunk[i]
           if (stop.nhn !== undefined) nhnOffsets.push(h - stop.nhn)
-          // Most detailed measurement available – mark as final so the
-          // camera-dependent sampling in resolveStopHeights() leaves it alone.
-          stop.sampledFrom = 0
-          const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5)
-          stop.disc.position = lifted
-          stop.label.position = lifted
-          this.stopLabelsDirty = true
+          stop.apply(h)
         })
         if (heights.length > 0) {
           // Raise the base for all vehicles already running (the ongoing
           // per-tram sampling does the fine-tuning afterwards)
           const median = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)]
           this.defaultGroundHeight = median
-          for (const record of this.vehicles.values()) {
-            record.groundHeight = median
-          }
+          this.vehicleLayer.setGroundHeight(median)
         }
         this.render()
       }
@@ -1705,12 +751,11 @@ export class CesiumMap {
     // over the sampled stops. Robust against single outliers (a stop under
     // a tree crown baked into the mesh); the plausibility window catches a
     // systematically broken dataset.
-    if (nhnOffsets.length >= 5 && this.heightRoutePieces.length > 0) {
+    if (nhnOffsets.length >= 5 && this.routes.hasHeightPieces) {
       nhnOffsets.sort((a, b) => a - b)
       const offset = nhnOffsets[Math.floor(nhnOffsets.length / 2)]
       if (offset > 20 && offset < 60) {
-        this.routeHeightOffset = offset
-        this.applyRouteHeightOffset()
+        this.routes.calibrateHeightOffset(offset)
         console.info(
           `[MiniRostock3D] Route heights calibrated: NHN→ellipsoid offset ` +
             `${offset.toFixed(1)} m (${nhnOffsets.length} stop samples)`,
@@ -1745,230 +790,11 @@ export class CesiumMap {
     return undefined
   }
 
-  /**
-   * Reconciles the tram entities with the current snapshots.
-   * Called every frame: updates positions in place, creates new entities,
-   * and removes finished trips.
-   *
-   * The vehicles' height is set EXPLICITLY instead of via HeightReference
-   * clamping (clamping entity geometries onto 3D tiles is unreliable in
-   * practice, which left boxes below the photorealistic surface). The
-   * height source is the direction's DGM terrain profile (snapshot `nhn` +
-   * the calibrated NHN→ellipsoid offset) – the same numbers the route
-   * polylines use, so vehicles and lines are congruent by construction and
-   * no tileset.getHeight ray casts are needed. Vehicles without route
-   * heights (approximated dataset) fall back to sampling the 3D tiles.
-   */
-  syncVehicles(
-    snapshots: VehicleSnapshot[],
-    visibleLines: ReadonlySet<string>,
-  ): { anyVehicleInView: boolean } {
-    this.frameCounter++
-    this.resolveStopHeights()
-    this.declutterStopLabels()
-    const alive = new Set<string>()
-
-    // Visibility test: is at least one tram inside the camera frustum?
-    // (Controls whether a re-render is needed at all.)
-    const camera = this.viewer.camera
-    const cullingVolume = camera.frustum.computeCullingVolume(
-      camera.positionWC,
-      camera.directionWC,
-      camera.upWC,
-    )
-    let anyVehicleInView = false
-
-    for (const snap of snapshots) {
-      alive.add(snap.id)
-      let record = this.vehicles.get(snap.id)
-      if (!record) {
-        record = this.createVehicleEntity(snap)
-        this.vehicles.set(snap.id, record)
-        this.renderRequested = true
-      }
-
-      // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
-      if (snap.inTunnel !== record.inTunnel) {
-        record.inTunnel = snap.inTunnel
-        record.appearanceDirty = true
-      }
-      if (record.appearanceDirty) {
-        record.appearanceDirty = !this.applyVehicleAppearance(snap.id)
-        if (!record.appearanceDirty) this.renderRequested = true
-      }
-
-      // GTFS-RT delay on the badge ("+2" after the line number): swap the
-      // badge image whenever the rounded minute value changes. The canvases
-      // are cached per line+suffix, so steady delays cost nothing per tick.
-      const delaySuffix = delayBadgeSuffix(snap)
-      if (delaySuffix !== record.delaySuffix) {
-        record.delaySuffix = delaySuffix
-        const badge = this.lineBadge(snap.lineId, record.baseColor, delaySuffix)
-        const billboard = record.labelEntity.billboard
-        if (badge && billboard) {
-          billboard.image = new ConstantProperty(badge.canvas)
-          billboard.width = new ConstantProperty(badge.width)
-          billboard.height = new ConstantProperty(badge.height)
-        } else if (record.labelEntity.label) {
-          record.labelEntity.label.text = new ConstantProperty(
-            delaySuffix ? `${snap.lineId} ${delaySuffix}` : snap.lineId,
-          )
-        }
-        this.renderRequested = true
-      }
-
-      const show = visibleLines.has(snap.lineId)
-
-      // Vehicle height: terrain profile of the route (NHN + calibrated
-      // offset) whenever the direction carries DGM heights – deterministic,
-      // congruent with the route polylines, and free of ray casts. In
-      // offline mode the ground is the bare ellipsoid, where NHN heights
-      // would float mid-air, so the fallback below applies there too.
-      const routeGroundHeight =
-        this.opts.fixedGroundHeight === undefined && !this.opts.offline && snap.nhn !== undefined
-          ? snap.nhn + this.routeHeightOffset
-          : undefined
-      if (routeGroundHeight !== undefined) {
-        record.groundHeight = routeGroundHeight
-      }
-
-      let position = Cartesian3.fromDegrees(
-        snap.lon,
-        snap.lat,
-        record.groundHeight + record.halfHeight + 0.3,
-        undefined,
-        positionScratch,
-      )
-
-      // Visibility test per shown tram: inside the camera frustum AND within
-      // label range (beyond that the vehicle is only a few pixels). The
-      // result drives the render pacing (anyVehicleInView) and whether the
-      // fallback tile-height sampling below is worth doing at all.
-      let inView = false
-      const cameraDistance = Cartesian3.distance(camera.positionWC, position)
-      if (show && cameraDistance < VEHICLE_VISIBLE_RANGE) {
-        Cartesian3.clone(position, this.frustumSphere.center)
-        this.frustumSphere.radius = 80
-        inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
-        if (inView) anyVehicleInView = true
-      }
-
-      // Fallback for vehicles WITHOUT route heights (approximated dataset):
-      // sample the tile height in a staggered fashion (not every tram in
-      // every frame) and only where visible – tileset.getHeight does a ray
-      // intersection against the loaded tiles and would dominate the tick.
-      const followed = snap.id === this.followId
-      if (
-        routeGroundHeight === undefined &&
-        this.opts.fixedGroundHeight === undefined &&
-        (inView || followed) &&
-        this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL
-      ) {
-        // A large gap means the tram was off-screen and unsampled: snap to
-        // the measured height right at the screen edge instead of visibly
-        // gliding to it in mid-view.
-        const snapToHeight =
-          this.frameCounter - record.lastSampleFrame >= HEIGHT_SAMPLE_INTERVAL * 4
-        record.lastSampleFrame = this.frameCounter
-        const sampled = this.sampleGroundHeight(snap.lon, snap.lat)
-        if (sampled !== undefined) {
-          // Smooth so the tram follows inclines gently
-          record.groundHeight += (sampled - record.groundHeight) * (snapToHeight ? 1 : 0.35)
-          position = Cartesian3.fromDegrees(
-            snap.lon,
-            snap.lat,
-            record.groundHeight + record.halfHeight + 0.3,
-            undefined,
-            positionScratch,
-          )
-        }
-      }
-
-      // Movement of an on-screen vehicle (sim tick, time jump, height
-      // adjustment) must reach the screen even outside the 30 fps state.
-      if (!Cartesian3.equalsEpsilon(position, record.lastPosition, 0, 0.01)) {
-        Cartesian3.clone(position, record.lastPosition)
-        if (inView) this.renderRequested = true
-      }
-
-      record.labelPosition.setValue(position)
-      // Update modelMatrix in place – takes effect immediately on the next render
-      record.bearing = snap.bearing
-      hprScratch.heading = CesiumMath.toRadians(snap.bearing - 90)
-      Transforms.headingPitchRollToFixedFrame(
-        position,
-        hprScratch,
-        undefined,
-        undefined,
-        record.matrix,
-      )
-      // The body box is only drawn close up; the number label carries the
-      // vehicle out to VEHICLE_VISIBLE_RANGE. (Checked here on the CPU – a
-      // DistanceDisplayCondition attribute on the Primitive measures from
-      // the instance matrix, which is identity for these boxes since the
-      // position lives in the primitive's own modelMatrix.)
-      const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
-      if (record.primitive.show !== showBody || record.labelEntity.show !== show) {
-        record.primitive.show = showBody
-        record.labelEntity.show = show
-        this.renderRequested = true
-      }
-
-      // Night-time cabin glow: only at night, never in tunnels, and only
-      // where the pool is more than a couple of pixels.
-      if (record.glow && record.glowMatrix) {
-        const showGlow =
-          showBody &&
-          !record.inTunnel &&
-          this.nightFactor > 0.02 &&
-          cameraDistance < GLOW_VISIBLE_RANGE
-        if (record.glow.show !== showGlow) {
-          record.glow.show = showGlow
-          this.renderRequested = true
-        }
-        if (showGlow) {
-          // Same heading as the body (hprScratch above), anchored on the
-          // ground instead of the vehicle center.
-          Transforms.headingPitchRollToFixedFrame(
-            Cartesian3.fromDegrees(
-              snap.lon,
-              snap.lat,
-              record.groundHeight + GLOW_LIFT,
-              undefined,
-              glowPositionScratch,
-            ),
-            hprScratch,
-            undefined,
-            undefined,
-            record.glowMatrix,
-          )
-          Matrix4.multiplyByScale(record.glowMatrix, record.glowScale, record.glowMatrix)
-        }
-      }
-
-      if (followed) {
-        this.updateFollowCamera(snap.lon, snap.lat)
-      }
-    }
-
-    for (const [id, record] of this.vehicles) {
-      if (!alive.has(id)) {
-        if (id === this.followId) this.setFollow(null)
-        this.viewer.entities.remove(record.labelEntity)
-        this.viewer.scene.primitives.remove(record.primitive)
-        if (record.glow) this.viewer.scene.primitives.remove(record.glow)
-        this.vehicles.delete(id)
-        this.renderRequested = true
-      }
-    }
-
-    return { anyVehicleInView }
-  }
 
   /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
-    this.updateRoutePulse()
+    this.routes.updatePulse()
     this.viewer.render()
   }
 
@@ -2016,63 +842,10 @@ export class CesiumMap {
     const night = 1 - t * t * (3 - 2 * t) // smoothstep
     if (Math.abs(night - this.nightFactor) < 0.01 && night !== 0) return
     this.nightFactor = night
-    if (this.glowMaterial) {
-      const uniforms = this.glowMaterial.uniforms as { color: Color }
-      uniforms.color.alpha = GLOW_MAX_ALPHA * night
-    }
+    this.vehicleLayer.applyNightFactor(night)
   }
 
-  /** Shared radial-gradient sprite of the glow pools (null: no 2D canvas). */
-  private glowSprite(): HTMLCanvasElement | null {
-    // ??=-style caching that also survives prototype-based test instances
-    if (this.glowSpriteCanvas !== undefined) return this.glowSpriteCanvas
-    this.glowSpriteCanvas = null
-    if (typeof document !== 'undefined') {
-      const canvas = document.createElement('canvas')
-      canvas.width = 256
-      canvas.height = 256
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128)
-        gradient.addColorStop(0, 'rgba(255,255,255,0.9)')
-        gradient.addColorStop(0.35, 'rgba(255,255,255,0.4)')
-        gradient.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.fillStyle = gradient
-        ctx.fillRect(0, 0, 256, 256)
-        this.glowSpriteCanvas = canvas
-      }
-    }
-    return this.glowSpriteCanvas
-  }
 
-  /** Appearance shared by all glow pools (lazy; null without 2D canvas). */
-  private glowPoolAppearance(): MaterialAppearance | null {
-    if (this.glowAppearance) return this.glowAppearance
-    const sprite = this.glowSprite()
-    if (!sprite) return null
-    // One material for every pool: a single uniform write dims all pools
-    // with the night factor. The sprite carries the falloff, the color
-    // uniform carries warmth and the ramped alpha.
-    this.glowMaterial = new Material({
-      fabric: {
-        type: 'VehicleGlow',
-        uniforms: {
-          image: sprite,
-          color: GLOW_COLOR.withAlpha(GLOW_MAX_ALPHA * this.nightFactor),
-        },
-        components: {
-          diffuse: 'color.rgb',
-          alpha: 'texture(image, materialInput.st).a * color.a',
-        },
-      },
-    })
-    this.glowAppearance = new MaterialAppearance({
-      flat: true,
-      translucent: true,
-      material: this.glowMaterial,
-    })
-    return this.glowAppearance
-  }
 
   /** Marks the scene as changed – the app loop then renders a frame promptly. */
   requestRender(): void {
@@ -2139,430 +912,14 @@ export class CesiumMap {
     this.requestRender()
   }
 
-  /**
-   * Draws (and caches) the badge for a line: the line number in white on a
-   * rounded rectangle filled with the line color – the same look as the
-   * badges in the line panel. Rendered at the drawing-buffer pixel ratio so
-   * it stays sharp on HiDPI screens; the billboard shows it at CSS size.
-   * Returns undefined where no 2D canvas is available (jsdom) – the caller
-   * then falls back to a plain text label.
-   */
-  private lineBadge(
-    lineId: string,
-    color: Color,
-    delaySuffix = '',
-  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
-    // ??= : prototype-based test instances skip the class field initializers
-    this.badgeCache ??= new Map()
-    const cacheKey = delaySuffix ? `${lineId}|${delaySuffix}` : lineId
-    const cached = this.badgeCache.get(cacheKey)
-    if (cached) return cached
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
 
-    const ratio = this.effectivePixelRatio
-    const font = `bold ${Math.round(14 * ratio)}px "Inter Variable", system-ui, sans-serif`
-    const suffixFont = `bold ${Math.round(10 * ratio)}px "Inter Variable", system-ui, sans-serif`
-    ctx.font = font
-    const textWidth = ctx.measureText(lineId).width
-    // GTFS-RT delay in small print after the line number ("+2")
-    const suffixGap = delaySuffix ? 3 * ratio : 0
-    ctx.font = suffixFont
-    const suffixWidth = delaySuffix ? ctx.measureText(delaySuffix).width : 0
-    const padX = 5 * ratio
-    const height = Math.round(22 * ratio)
-    const width = Math.max(height, Math.round(textWidth + suffixGap + suffixWidth + 2 * padX))
-    canvas.width = width
-    canvas.height = height
 
-    const radius = 5 * ratio
-    ctx.beginPath()
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(0, 0, width, height, radius)
-    } else {
-      ctx.rect(0, 0, width, height)
-    }
-    ctx.fillStyle = color.toCssColorString()
-    ctx.fill()
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'middle'
-    const textX = (width - (textWidth + suffixGap + suffixWidth)) / 2
-    const textY = height / 2 + 0.5 * ratio
-    ctx.font = font
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText(lineId, textX, textY)
-    if (delaySuffix) {
-      ctx.font = suffixFont
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)'
-      ctx.fillText(delaySuffix, textX + textWidth + suffixGap, textY)
-    }
 
-    const entry = { canvas, width: width / ratio, height: height / ratio }
-    this.badgeCache.set(cacheKey, entry)
-    return entry
-  }
 
-  private createVehicleEntity(snap: VehicleSnapshot): VehicleRecord {
-    const color = Color.fromCssColorString(snap.color)
-    const halfHeight = snap.vehicle.height / 2
-    // Vehicles on a tunnel section start as 40 % ghosts right away.
-    const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
-    const initialPosition = Cartesian3.fromDegrees(
-      snap.lon,
-      snap.lat,
-      this.defaultGroundHeight + halfHeight + 0.3,
-    )
 
-    const matrix = Transforms.headingPitchRollToFixedFrame(
-      initialPosition,
-      new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
-    )
-    // The base render state stays opaque; only the mutable `translucent`
-    // flag switches blending on/off. (A base state built as translucent
-    // would keep its blending even after toggling the flag back off.)
-    const appearance = new PerInstanceColorAppearance({ closed: true, translucent: false })
-    appearance.translucent = snap.inTunnel
-    const primitive = new Primitive({
-      geometryInstances: new GeometryInstance({
-        geometry: BoxGeometry.fromDimensions({
-          vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
-          // Vehicle dimensions per line: tram/bus/ferry differ noticeably
-          dimensions: new Cartesian3(
-            snap.vehicle.length,
-            snap.vehicle.width,
-            snap.vehicle.height,
-          ),
-        }),
-        attributes: {
-          color: ColorGeometryInstanceAttribute.fromColor(color.withAlpha(alpha)),
-        },
-        id: `vehicle:${snap.id}`,
-      }),
-      appearance,
-      asynchronous: false,
-      modelMatrix: matrix,
-    })
-    this.viewer.scene.primitives.add(primitive)
-    // IMPORTANT: Primitive CLONES the modelMatrix passed in – for the
-    // in-place updates in syncVehicles, the primitive's own instance must be
-    // referenced, otherwise the vehicle bodies never move.
-    const liveMatrix = primitive.modelMatrix
 
-    const labelPosition = new ConstantPositionProperty(initialPosition)
-    // Badge like in the line panel: line number on a rounded rectangle in
-    // the line color (pre-rendered per line, see lineBadge) – far easier
-    // to spot against the photo tiles than outlined text alone. Tunnel
-    // ghosting dims the whole badge via the billboard color multiplier.
-    const delaySuffix = delayBadgeSuffix(snap)
-    const badge = this.lineBadge(snap.lineId, color, delaySuffix)
-    const labelEntity = this.viewer.entities.add({
-      id: `vehicle:${snap.id}`,
-      position: labelPosition,
-      ...(badge
-        ? {
-            billboard: {
-              image: badge.canvas,
-              width: badge.width,
-              height: badge.height,
-              color: Color.WHITE.withAlpha(alpha),
-              pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            },
-          }
-        : {
-            // No 2D canvas (jsdom): plain outlined text label
-            label: {
-              text: delaySuffix ? `${snap.lineId} ${delaySuffix}` : snap.lineId,
-              font: 'bold 14px "Inter Variable", system-ui, sans-serif',
-              fillColor: Color.WHITE.withAlpha(alpha),
-              outlineColor: color.withAlpha(alpha),
-              outlineWidth: 4,
-              style: LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            },
-          }),
-    })
 
-    // Night-time cabin glow: pool extent = footprint plus sideways spill
-    const glowScale = new Cartesian3(
-      snap.vehicle.length * 1.5 + 4,
-      snap.vehicle.width * 3.9,
-      1,
-    )
-    let glow: Primitive | null = null
-    let glowMatrix: Matrix4 | null = null
-    const glowAppearance = this.glowPoolAppearance()
-    if (glowAppearance) {
-      glow = new Primitive({
-        geometryInstances: new GeometryInstance({
-          geometry: new PlaneGeometry({ vertexFormat: VertexFormat.POSITION_AND_ST }),
-        }),
-        appearance: glowAppearance,
-        asynchronous: false,
-        allowPicking: false,
-        modelMatrix: Matrix4.multiplyByScale(Matrix4.clone(matrix), glowScale, new Matrix4()),
-        show: false, // syncVehicles turns it on at night
-      })
-      this.viewer.scene.primitives.add(glow)
-      glowMatrix = glow.modelMatrix
-    }
 
-    return {
-      primitive,
-      matrix: liveMatrix,
-      labelEntity,
-      labelPosition,
-      delaySuffix,
-      baseColor: color,
-      appearance,
-      inTunnel: snap.inTunnel,
-      highlighted: false,
-      appearanceDirty: false,
-      halfHeight,
-      bearing: snap.bearing,
-      groundHeight: this.defaultGroundHeight,
-      lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
-      lastPosition: Cartesian3.clone(initialPosition),
-      glow,
-      glowMatrix,
-      glowScale,
-    }
-  }
-
-  /**
-   * Applies the current visual state of a vehicle: selection highlight
-   * (body brightened) combined with tunnel ghosting (body and label at
-   * 40 % opacity while on an underground section). Returns false while the
-   * primitive has not rendered yet and the body color could not be written.
-   */
-  private applyVehicleAppearance(vehicleId: string): boolean {
-    const record = this.vehicles.get(vehicleId)
-    if (!record) return true
-    record.appearance.translucent = record.inTunnel
-    const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
-    // Badge billboard: dim the whole badge via the color multiplier; the
-    // text-label fallback (no canvas) dims fill and outline instead.
-    const billboard = record.labelEntity.billboard
-    if (billboard) {
-      billboard.color = new ConstantProperty(Color.WHITE.withAlpha(alpha))
-    }
-    const label = record.labelEntity.label
-    if (label) {
-      label.fillColor = new ConstantProperty(Color.WHITE.withAlpha(alpha))
-      label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
-    }
-    try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`vehicle:${vehicleId}`)
-      if (!attributes) return false
-      const color = record.highlighted
-        ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
-        : record.baseColor
-      attributes.color = ColorGeometryInstanceAttribute.toValue(
-        color.withAlpha(alpha),
-        attributes.color,
-      )
-      return true
-    } catch {
-      // Primitive not rendered yet – retried via appearanceDirty
-      return false
-    }
-  }
-
-  setSelected(vehicleId: string | null): void {
-    if (this.selectedId) {
-      const record = this.vehicles.get(this.selectedId)
-      if (record) {
-        record.highlighted = false
-        // Not-yet-rendered primitives are retried via appearanceDirty in
-        // syncVehicles – same as tunnel transitions.
-        record.appearanceDirty = !this.applyVehicleAppearance(this.selectedId)
-      }
-    }
-    this.selectedId = vehicleId
-    if (vehicleId) {
-      const record = this.vehicles.get(vehicleId)
-      if (record) {
-        record.highlighted = true
-        record.appearanceDirty = !this.applyVehicleAppearance(vehicleId)
-      }
-    }
-    this.requestRender()
-  }
-
-  /**
-   * Attach the camera to a tram (null = detach).
-   *
-   * Deliberately NOT implemented via viewer.trackedEntity: Cesium aborts
-   * tracking as soon as the bounding sphere of an entity with
-   * HeightReference cannot be computed. Instead, updateFollowCamera()
-   * repositions the camera each frame via camera.lookAt – mouse orbit and
-   * zoom remain possible.
-   */
-  setFollow(vehicleId: string | null): void {
-    this.followId = vehicleId
-    this.followOffset = null
-    this.followChase = vehicleId !== null
-    if (!vehicleId) {
-      // Also abort a still-running approach flight (e.g. "Stop following"
-      // clicked mid-flight), otherwise it lands on the abandoned vehicle.
-      if (performance.now() < this.followFlightUntil) this.viewer.camera.cancelFlight()
-      this.followFlightUntil = 0
-      this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
-      this.requestRender()
-      return
-    }
-    // Approach with a camera flight instead of teleporting: fly to the
-    // vehicle's current position with the same offset the follow camera
-    // starts from, and only engage the per-frame lookAt once the flight is
-    // done (updateFollowCamera skips until followFlightUntil). The flight
-    // ends BEHIND the vehicle looking along its direction of travel
-    // (heading = bearing); afterwards the user can orbit freely as before.
-    // The vehicle moves a few meters during the flight.
-    const record = this.vehicles.get(vehicleId)
-    if (record) {
-      this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
-      const carto = Cartographic.fromCartesian(record.lastPosition)
-      const center = Cartesian3.fromRadians(
-        carto.longitude,
-        carto.latitude,
-        record.groundHeight + record.halfHeight * 2 + 2,
-      )
-      // The tween only ends with its complete/cancel callback – under slow
-      // rendering that can be well after the nominal duration, and a tween
-      // frame landing after the lookAt hand-over would move the camera and
-      // trip the chase's manual-input detection. The timestamp is only a
-      // safety cap for a tween whose callbacks never fire.
-      this.followFlightUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000 + 2000
-      const endFlight = () => {
-        this.followFlightUntil = 0
-      }
-      // Render at full rate during the flight (see getRenderHints)
-      this.flyingUntil = performance.now() + FOLLOW_FLIGHT_SECONDS * 1000 + 200
-      this.viewer.camera.flyToBoundingSphere(new BoundingSphere(center, 0), {
-        duration: FOLLOW_FLIGHT_SECONDS,
-        offset: new HeadingPitchRange(
-          CesiumMath.toRadians(record.bearing),
-          CesiumMath.toRadians(FOLLOW_PITCH_DEG),
-          FOLLOW_RANGE,
-        ),
-        complete: endFlight,
-        cancel: endFlight,
-      })
-    }
-    this.requestRender()
-  }
-
-  private updateFollowCamera(lon: number, lat: number): void {
-    // The approach flight is still running – lookAt would cut it short.
-    if (performance.now() < this.followFlightUntil) return
-    const camera = this.viewer.camera
-
-    // Camera center at the height of the followed tram (its ground height
-    // is already sampled on the 3D tiles and smoothed in syncVehicles).
-    const record = this.followId ? this.vehicles.get(this.followId) : undefined
-    const groundHeight = record?.groundHeight ?? this.defaultGroundHeight
-    const vehicleHeight = (record?.halfHeight ?? config.vehicles.tram.height / 2) * 2
-
-    const center = Cartesian3.fromDegrees(lon, lat, groundHeight + vehicleHeight + 2)
-
-    if (!this.followOffset) {
-      // First frame: the approach flight ends in exactly this pose, so the
-      // lookAt hand-over continues seamlessly from it. A tween that hit the
-      // safety cap without completing must not keep animating into the
-      // engaged lookAt.
-      camera.cancelFlight()
-      this.followOffset = new HeadingPitchRange(
-        camera.heading,
-        CesiumMath.toRadians(FOLLOW_PITCH_DEG),
-        FOLLOW_RANGE,
-      )
-    } else if (this.followChase) {
-      // Chase: any camera pose that deviates from what the chase applied
-      // last frame must come from the user (drag/zoom between our ticks) –
-      // hand control over to manual orbit for the rest of this follow.
-      const headingMoved =
-        Math.abs(CesiumMath.negativePiToPi(camera.heading - this.followOffset.heading)) >
-        CHASE_BREAK_ANGLE
-      const pitchMoved = Math.abs(camera.pitch - this.followOffset.pitch) > CHASE_BREAK_ANGLE
-      const rangeMoved =
-        Math.abs(Cartesian3.magnitude(camera.position) - this.followOffset.range) >
-        this.followOffset.range * CHASE_BREAK_RANGE_RATIO
-      if (headingMoved || pitchMoved) {
-        this.followChase = false
-        this.followOffset.heading = camera.heading
-        this.followOffset.pitch = camera.pitch
-        this.followOffset.range = Cartesian3.magnitude(camera.position)
-      } else {
-        // Zooming (range change only) does not break the chase: adopt the
-        // new distance and keep trailing the vehicle.
-        if (rangeMoved) {
-          this.followOffset.range = Cartesian3.magnitude(camera.position)
-        }
-        if (record) {
-          // Stay behind the vehicle: ease the heading toward the travel
-          // bearing (it jumps at path segment boundaries).
-          const turn = CesiumMath.negativePiToPi(
-            CesiumMath.toRadians(record.bearing) - this.followOffset.heading,
-          )
-          this.followOffset.heading = CesiumMath.zeroToTwoPi(
-            this.followOffset.heading + turn * FOLLOW_CHASE_EASE,
-          )
-        }
-      }
-    } else {
-      // Adopt user orbit/zoom: in the lookAt reference frame heading/pitch
-      // are relative and the tram sits at the origin.
-      this.followOffset.heading = camera.heading
-      this.followOffset.pitch = camera.pitch
-      this.followOffset.range = Cartesian3.magnitude(camera.position)
-    }
-    camera.lookAt(center, this.followOffset)
-    // The camera moved with the tram – must reach the screen even when the
-    // render pacing is otherwise idle.
-    this.requestRender()
-  }
-
-  hasVehicle(vehicleId: string): boolean {
-    return this.vehicles.has(vehicleId)
-  }
-
-  /**
-   * Debug/tests: maximum distance between vehicle body (primitive matrix)
-   * and number label across all vehicles in meters. Must be ~0 – a larger
-   * value means the vehicle bodies no longer follow the simulation.
-   */
-  getVehicleBoxDriftMeters(): number {
-    let maxDrift = 0
-    for (const record of this.vehicles.values()) {
-      const labelPos = record.labelPosition.getValue(this.viewer.clock.currentTime)
-      if (!labelPos) continue
-      const dx = record.primitive.modelMatrix[12] - labelPos.x
-      const dy = record.primitive.modelMatrix[13] - labelPos.y
-      const dz = record.primitive.modelMatrix[14] - labelPos.z
-      const drift = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (drift > maxDrift) maxDrift = drift
-    }
-    return maxDrift
-  }
-
-  /** Debug/tests: color-attribute opacity currently applied to a vehicle body. */
-  getVehicleOpacity(vehicleId: string): number | null {
-    const record = this.vehicles.get(vehicleId)
-    if (!record) return null
-    try {
-      const attributes = record.primitive.getGeometryInstanceAttributes(`vehicle:${vehicleId}`)
-      const alpha = attributes?.color?.[3]
-      return typeof alpha === 'number' ? alpha / 255 : null
-    } catch {
-      // The primitive has not completed its first render yet.
-      return null
-    }
-  }
 
   /**
    * Debug: tile memory usage vs. budget and the LOD budget actually in
@@ -2591,17 +948,14 @@ export class CesiumMap {
 
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
-    return [...this.vehicles.entries()].map(([id, record]) => ({
-      id,
-      groundHeight: Math.round(record.groundHeight * 10) / 10,
-    }))
+    return this.vehicleLayer.getGroundHeights()
   }
 
   destroy(): void {
     this.destroyed = true
     this.resizeObserver?.disconnect()
     this.handler.destroy()
-    this.heightRoutePieces = []
+    this.weather.destroy()
     this.viewer.destroy()
   }
 }

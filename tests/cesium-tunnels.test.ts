@@ -8,12 +8,14 @@ import {
   JulianDate,
   PerInstanceColorAppearance,
   Primitive,
+  type Viewer,
 } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
+import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
+import { VehicleLayer } from '@/map/VehicleLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -32,27 +34,42 @@ interface AddedRoute {
   }
 }
 
-/** CesiumMap with a stubbed viewer that records added route entities. */
-function mapWithFakeRouteViewer(added: AddedRoute[]): CesiumMap {
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    viewer: {
-      entities: {
-        add: (options: Omit<AddedRoute, 'show'>) => {
-          const entity = { ...options, show: true }
-          added.push(entity)
-          return entity
-        },
+/** Routes layer on a stubbed viewer that records added route entities. */
+function routesWithFakeViewer(added: AddedRoute[]): RoutesLayer {
+  const viewer = {
+    entities: {
+      add: (options: Omit<AddedRoute, 'show'>) => {
+        const entity = { ...options, show: true }
+        added.push(entity)
+        return entity
       },
-      creditDisplay: { addStaticCredit: vi.fn() },
     },
-    routeEntities: new Map(),
-    linePaths: new Map(),
-    heightRoutePieces: [],
-    // offline: keeps the ground-clamped route branch these tests inspect
-    opts: { offline: true },
+    creditDisplay: { addStaticCredit: vi.fn() },
+  } as unknown as Viewer
+  // offline: keeps the ground-clamped route branch these tests inspect
+  return new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
+}
+
+/** Real VehicleLayer on a stub viewer for the appearance/tunnel checks. */
+function vehicleLayer(): VehicleLayer {
+  const viewer = {
+    scene: { primitives: { add: (primitive: Primitive) => primitive } },
+    entities: {
+      add: (options: Entity.ConstructorOptions) => new Entity(options),
+      remove: () => {},
+    },
+  } as unknown as Viewer
+  return new VehicleLayer(viewer, {
+    requestRender: () => {},
+    sampleGroundHeight: () => undefined,
+    defaultGroundHeight: 0,
+    routeHeightOffset: 36.5,
+    nightFactor: 0,
+    pixelRatio: 1,
+    offline: true,
+    fixedGroundHeight: undefined,
+    noteCameraFlight: () => {},
   })
-  return map
 }
 
 const routeOpacities = (added: AddedRoute[]): number[] =>
@@ -81,7 +98,7 @@ function fakeRecord(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const applyVehicleAppearance = (map: CesiumMap, vehicleId: string): boolean =>
+const applyVehicleAppearance = (map: VehicleLayer, vehicleId: string): boolean =>
   (
     map as unknown as { applyVehicleAppearance: (vehicleId: string) => boolean }
   ).applyVehicleAppearance(vehicleId)
@@ -89,9 +106,9 @@ const applyVehicleAppearance = (map: CesiumMap, vehicleId: string): boolean =>
 describe('Cesium tunnel rendering', () => {
   it('renders route pieces at full / tunnel-dimmed / full opacity (mirrored line drawn once)', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testTunnelNetworkJson))
+    routes.add(prepareNetwork(testTunnelNetworkJson))
 
     // Direction 1 is an exact mirror (path and tunnel ranges) → only
     // direction 0 is drawn, split at the tunnel portals.
@@ -106,15 +123,15 @@ describe('Cesium tunnel rendering', () => {
     expect(opacities[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY)
     expect(opacities[2]).toBeCloseTo(0.85)
 
-    map.setLineRouteVisible('U', false)
+    routes.setLineVisible('U', false)
     expect(added.every((entity) => !entity.show)).toBe(true)
   })
 
   it('draws both directions when their tunnel layouts differ', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testAsymmetricTunnelNetworkJson))
+    routes.add(prepareNetwork(testAsymmetricTunnelNetworkJson))
 
     // Identical (reversed) geometry, but asymmetric tunnel tagging: the old
     // length/endpoint heuristic collapsed this into one direction and lost
@@ -136,8 +153,8 @@ describe('Cesium tunnel rendering', () => {
   it('keeps the tunnel alpha on body and label while selecting and deselecting in a tunnel', () => {
     const record = fakeRecord()
     const { attributes } = record
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { selectedId: null, vehicles: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
     expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(record.appearance.translucent).toBe(true)
@@ -157,19 +174,7 @@ describe('Cesium tunnel rendering', () => {
   })
 
   it('uses an opaque base render state when a vehicle spawns inside a tunnel', () => {
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, {
-      defaultGroundHeight: 0,
-      selectedId: null,
-      viewer: {
-        scene: {
-          primitives: { add: (primitive: Primitive) => primitive },
-        },
-        entities: {
-          add: (options: Entity.ConstructorOptions) => new Entity(options),
-        },
-      },
-    })
+    const map = vehicleLayer()
     const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
@@ -220,8 +225,8 @@ describe('Cesium tunnel rendering', () => {
         }),
       },
     })
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { vehicles: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
     expect(applyVehicleAppearance(map, 'vehicle')).toBe(false)
     // The translucent flag is applied even before the first render.
