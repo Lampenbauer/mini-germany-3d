@@ -1,14 +1,21 @@
 /**
- * Live precipitation client for the rain overlay: polls the Open-Meteo
- * current-weather API (CC-BY 4.0, free, no key) for the city-center point
- * and reports the current precipitation in mm. Errors report 0 mm – the
- * map must never keep raining on stale data.
+ * Live weather client for the rain and overcast overlays: polls the
+ * Open-Meteo current-weather API (CC-BY 4.0, free, no key) for the
+ * city-center point and reports the current precipitation in mm plus the
+ * cloud cover in percent. Errors report 0 mm – the map must never keep
+ * raining on stale data.
  */
 
 export interface WeatherStatus {
   state: 'connecting' | 'live' | 'error'
   /** Current precipitation in mm (Open-Meteo 15-minutely current value). */
   precipitationMm: number
+  /**
+   * Current total cloud cover in percent (0–100). A response without a
+   * usable value reports 0 – an open sky is the harmless fallback, and
+   * unlike the rain it must not fail the whole poll.
+   */
+  cloudCoverPercent: number
   lastSuccessAt: number | null
   lastError: string | null
 }
@@ -16,11 +23,11 @@ export interface WeatherStatus {
 export type WeatherUpdateHandler = (status: WeatherStatus) => void
 
 /**
- * The rain overlay only makes sense near real time: the live weather knows
- * nothing about time-traveled simulation clocks. Both times are seconds of
- * day; the comparison wraps across midnight.
+ * The live overlays only make sense near real time: the current weather
+ * knows nothing about time-traveled simulation clocks. Both times are
+ * seconds of day; the comparison wraps across midnight.
  */
-export function rainIsCurrent(
+export function weatherIsCurrent(
   simSecondsOfDay: number,
   realSecondsOfDay: number,
   maxDriftSeconds: number,
@@ -35,6 +42,7 @@ export class WeatherClient {
   private status: WeatherStatus = {
     state: 'connecting',
     precipitationMm: 0,
+    cloudCoverPercent: 0,
     lastSuccessAt: null,
     lastError: null,
   }
@@ -70,27 +78,35 @@ export class WeatherClient {
     try {
       const url =
         `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
-        `&current=precipitation`
+        `&current=precipitation,cloud_cover`
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data = (await response.json()) as { current?: { precipitation?: unknown } }
+      const data = (await response.json()) as {
+        current?: { precipitation?: unknown; cloud_cover?: unknown }
+      }
       const precipitation = Number(data?.current?.precipitation)
       if (!Number.isFinite(precipitation) || precipitation < 0) {
         throw new Error('Unexpected response format from the weather endpoint')
       }
+      // Cloud cover is graceful: a feed that ever drops the field leaves the
+      // city under an open sky instead of failing the rain overlay with it.
+      const cloudCover = Number(data?.current?.cloud_cover)
       this.status = {
         state: 'live',
         precipitationMm: precipitation,
+        cloudCoverPercent:
+          Number.isFinite(cloudCover) && cloudCover >= 0 ? Math.min(100, cloudCover) : 0,
         lastSuccessAt: Date.now(),
         lastError: null,
       }
       this.onUpdate(this.status)
     } catch (error) {
-      // On errors the map goes dry instead of raining on stale data
+      // On errors the map goes dry and clear instead of grading stale data
       this.status = {
         ...this.status,
         state: 'error',
         precipitationMm: 0,
+        cloudCoverPercent: 0,
         lastError: String(error),
       }
       this.onUpdate(this.status)

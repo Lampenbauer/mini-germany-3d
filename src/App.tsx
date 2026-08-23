@@ -20,7 +20,7 @@ import {
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
-import { rainIsCurrent, WeatherClient } from '@/lib/weather'
+import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
@@ -37,6 +37,8 @@ export interface MrtTestApi {
   setRealtimeDelays: (delays: Record<string, number>) => void
   /** Forces the rain overlay for tests/previews (mm; 0 = dry again). */
   setRain: (precipitationMm: number) => void
+  /** Forces the overcast grade for tests/previews (percent; 0 = clear again). */
+  setCloudCover: (cloudCoverPercent: number) => void
   selectVehicle: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
@@ -149,6 +151,8 @@ export default function App() {
   const writeHashRef = useRef<() => void>(() => {})
   /** Live precipitation in mm; forced = set via the test API (skips gating). */
   const rainRef = useRef({ mm: 0, forced: false })
+  /** Live cloud cover in percent; forced works like the rain's. */
+  const cloudRef = useRef({ percent: 0, forced: false })
   /** Rain currently visible – keeps the render loop at animation rate. */
   const rainActiveRef = useRef(false)
 
@@ -345,6 +349,7 @@ export default function App() {
         config.weather.latitude,
         (status) => {
           rainRef.current = { mm: status.precipitationMm, forced: false }
+          cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
         },
       )
       weatherClient.start(config.weather.pollIntervalMs)
@@ -435,19 +440,19 @@ export default function App() {
               setCameraIs2D(map.getCameraView().pitch < -85)
               // Rain: only with live precipitation AND a sim clock near the
               // real time – time travel must not show today's weather.
+              const nearRealTime = weatherIsCurrent(
+                clock.secondsOfDay(),
+                berlinSecondsOfDay(Date.now()),
+                config.weather.maxSimTimeDriftSeconds,
+              )
               const rain = rainRef.current
-              const rainNow =
-                rain.mm > 0 &&
-                (rain.forced ||
-                  rainIsCurrent(
-                    clock.secondsOfDay(),
-                    berlinSecondsOfDay(Date.now()),
-                    config.weather.maxSimTimeDriftSeconds,
-                  ))
-                  ? rain.mm
-                  : 0
+              const rainNow = rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
               map.setRain(rainNow)
               rainActiveRef.current = rainNow > 0
+              // Same gate for the overcast grade – a grey sky is as much
+              // "now" as the rain is.
+              const cloud = cloudRef.current
+              map.setCloudCover(cloud.forced || nearRealTime ? cloud.percent : 0)
               setVehicleCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
@@ -550,6 +555,9 @@ export default function App() {
       },
       setRain: (precipitationMm: number) => {
         rainRef.current = { mm: precipitationMm, forced: precipitationMm > 0 }
+      },
+      setCloudCover: (cloudCoverPercent: number) => {
+        cloudRef.current = { percent: cloudCoverPercent, forced: cloudCoverPercent > 0 }
       },
       selectVehicle,
       dataSource: network.meta.source,

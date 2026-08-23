@@ -25,8 +25,9 @@ export const config = {
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
   /**
-   * Live precipitation for the rain overlay: the Open-Meteo forecast API
-   * (CC-BY 4.0, free, no key). An empty string disables the rain layer.
+   * Live precipitation and cloud cover for the rain and overcast overlays:
+   * the Open-Meteo forecast API (CC-BY 4.0, free, no key) – both values
+   * come from one request. An empty string disables the live weather.
    * The weather is queried for a single city-center point – Rostock is
    * small enough that one value covers the visible map.
    */
@@ -39,9 +40,9 @@ export const config = {
     /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
     pollIntervalMs: 600_000,
     /**
-     * Rain is only drawn while the simulation time is within this many
-     * seconds of the real clock – the live weather knows only "now", and
-     * time-traveled views must not show today's rain.
+     * Rain and the overcast grade are only drawn while the simulation time
+     * is within this many seconds of the real clock – the live weather
+     * knows only "now", and time-traveled views must not show today's sky.
      */
     maxSimTimeDriftSeconds: 600,
   },
