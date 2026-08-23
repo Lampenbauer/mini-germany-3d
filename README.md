@@ -41,18 +41,22 @@ npm install        # also copies the Cesium assets to public/cesium (postinstall
 npm run dev        # → http://localhost:5173
 ```
 
-**Cesium ion token:** A default token ships in `src/config.ts` and can be overridden
-via `.env` without touching the code (see `.env.example`):
+**Cesium ion token:** No token lives in the source. A local checkout takes it
+from `.env` (see `.env.example`); without one the map falls back to the
+wireframe globe:
 
 ```bash
 VITE_CESIUM_ION_TOKEN=your-token
 ```
 
 > Ion tokens are client-side, publishable tokens – they inevitably end up in the
-> browser bundle. It is still a good idea to restrict the token to your own domains
-> in the [Cesium ion dashboard](https://ion.cesium.com/tokens). For the Google 3D
-> Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must be enabled
-> in the ion account.
+> browser bundle. That is exactly why the deployed site is built with a token
+> restricted to `minirostock3d.lampenbauer.com` in the
+> [Cesium ion dashboard](https://ion.cesium.com/tokens), which makes it useless
+> anywhere else; it sits in `.github/workflows/ci.yml`. Every other CI build uses
+> the unrestricted token from the `CESIUM_ION_TOKEN` repository secret. For the
+> Google 3D Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must
+> be enabled in the ion account.
 
 ### Usage
 
@@ -233,11 +237,13 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
 rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 `https://minirostock3d.lampenbauer.com`:
 
-1. **One-time setup:** Create four secrets in the repository settings
+1. **One-time setup:** Create five secrets in the repository settings
    (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH
    password), **`KAS_SSH_HOST`** (the SSH host), **`KAS_SSH_USER`** (the SSH
-   user), and **`KAS_TARGET_DIR`** (the document root on the webspace, with a
-   trailing slash).
+   user), **`KAS_TARGET_DIR`** (the document root on the webspace, with a
+   trailing slash), and **`CESIUM_ION_TOKEN`** (the unrestricted ion token every
+   build that does not go to the webspace uses – the deploy build takes the
+   domain-restricted one from the workflow instead).
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and

@@ -1,19 +1,20 @@
 /**
  * Central configuration of Mini Rostock 3D.
- *
- * Note on the Cesium Ion token: Ion tokens are client-side, publishable
- * tokens (they end up in the browser bundle either way). Still, it is
- * advisable to restrict the token to your own domains in the Cesium Ion
- * dashboard. The default token can be overridden without a code change via
- * the VITE_CESIUM_ION_TOKEN environment variable (.env file).
  */
 
-const DEFAULT_ION_TOKEN =
-  'CESIUM_ION_TOKEN_REMOVED'
-
 export const config = {
-  cesiumIonToken:
-    (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) || DEFAULT_ION_TOKEN,
+  /**
+   * Cesium Ion token, always from the environment – no token lives in the
+   * source. Ion tokens are client-side and end up in the browser bundle
+   * either way, which is why the deployed site is built with one that is
+   * restricted to its own domain (see .github/workflows/ci.yml); every
+   * other build takes the unrestricted one from the CESIUM_ION_TOKEN
+   * secret, and a local checkout from .env (see .env.example).
+   *
+   * Empty means no Ion access: the map falls back to the wireframe globe
+   * and the panel shows the fallback badge.
+   */
+  cesiumIonToken: (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) ?? '',
 
   /**
    * Filtered GTFS-Realtime endpoint (JSON, a few KB). Served by the Vite
