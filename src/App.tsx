@@ -54,6 +54,18 @@ export interface MrtTestApi {
   anyVehicleInView: () => boolean
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
+  /**
+   * Why the render loop is (not) idling – the four inputs of the pacing
+   * gate. Diagnosing "the GPU stays busy" is guesswork without them.
+   */
+  renderPacing: () => {
+    animating: boolean
+    rainActive: boolean
+    vehicleInView: boolean
+    interacting: boolean
+    tilesLoading: boolean
+    intervalMs: number
+  }
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
   vehicleBoxDriftMeters: () => number
   /** Color-attribute opacity currently applied to one rendered vehicle body. */
@@ -588,7 +600,26 @@ export default function App() {
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
       anyVehicleInView: () => lastAnyVehicleInView,
-      renderRate: () => renderTimes.length / 5,
+      renderRate: () => {
+        // Prune on read, not only when a frame is drawn: otherwise the
+        // value freezes at its last level the moment rendering stops, and
+        // an idle loop keeps reporting the rate it had while it was busy.
+        const cutoff = performance.now() - 5000
+        while (renderTimes.length > 0 && renderTimes[0] < cutoff) renderTimes.shift()
+        return renderTimes.length / 5
+      },
+      renderPacing: () => {
+        const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+        const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+        return {
+          animating,
+          rainActive: rainActiveRef.current,
+          vehicleInView: lastAnyVehicleInView,
+          interacting: hints.interacting,
+          tilesLoading: hints.tilesLoading,
+          intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
+        }
+      },
       vehicleBoxDriftMeters: () => map.getVehicleBoxDriftMeters(),
       vehicleOpacity: (id: string) => map.getVehicleOpacity(id),
       tunnelTransition: () => {

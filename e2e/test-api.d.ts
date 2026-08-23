@@ -32,6 +32,16 @@ declare global {
       lastLoopError: () => string | null
       vehicleBoxDriftMeters: () => number
       vehicleOpacity: (id: string) => number | null
+      renderRate: () => number
+      anyVehicleInView: () => boolean
+      renderPacing: () => {
+        animating: boolean
+        rainActive: boolean
+        vehicleInView: boolean
+        interacting: boolean
+        tilesLoading: boolean
+        intervalMs: number
+      }
       tunnelTransition: () => {
         id: string
         tunnelTime: number
