@@ -93,6 +93,124 @@ describe('Simulation with the Rostock network', () => {
   )
 })
 
+describe('trip progress (all stops + vehicle position)', () => {
+  const network = loadBundledNetwork()
+  const sim = new Simulation(network, new SimClock())
+  const t = 8.5 * 3600
+
+  it('lists every stop of the trip with increasing arrival times', () => {
+    const snap = sim.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const progress = sim.tripProgress(snap.id, t)!
+    expect(progress).not.toBeNull()
+    const { stops, position } = progress
+    expect(stops.length).toBeGreaterThanOrEqual(2)
+    expect(position).toBeGreaterThanOrEqual(0)
+    expect(position).toBeLessThanOrEqual(stops.length - 1)
+    for (const stop of stops) {
+      // Stop coordinates (fly-to target) lie inside the city area
+      expect(stop.lon).toBeGreaterThan(11.95)
+      expect(stop.lon).toBeLessThan(12.3)
+      expect(stop.lat).toBeGreaterThan(53.99)
+      expect(stop.lat).toBeLessThan(54.22)
+    }
+    for (let i = 1; i < stops.length; i++) {
+      expect(stops[i].arrivalSec).toBeGreaterThanOrEqual(stops[i - 1].arrivalSec)
+    }
+  })
+
+  it('marks the served stops and points at the snapshot next stop', () => {
+    const snap = sim.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const { stops, position } = sim.tripProgress(snap.id, t)!
+    // Moving between floor(position) and floor(position)+1
+    const lastReached = Math.floor(position)
+    expect(position).toBeGreaterThan(lastReached)
+    expect(stops[lastReached + 1].name).toBe(snap.nextStopName)
+    stops.forEach((stop, i) => {
+      expect(stop.passed).toBe(i <= lastReached)
+    })
+  })
+
+  it('reports an integer position while dwelling at a stop', () => {
+    const snap = sim.snapshotsAt(t).find((s) => s.status === 'dwell')
+    if (!snap) return // no vehicle dwelling at this exact second
+    const { stops, position } = sim.tripProgress(snap.id, t)!
+    expect(Number.isInteger(position)).toBe(true)
+    // The dwelling stop itself is not yet passed
+    expect(stops[position].passed).toBe(false)
+    expect(stops[position + 1].name).toBe(snap.nextStopName)
+  })
+
+  it('shifts the predicted arrivals and the position by the GTFS-RT delay', () => {
+    const delaySec = 120
+    // Pick a trip that stays inside its timetable window under the delay
+    // (a trip that departed less than 120 s ago would vanish time-shifted)
+    let base: ReturnType<typeof sim.tripProgress> = null
+    let delayed: ReturnType<typeof sim.tripProgress> = null
+    for (const snap of sim.snapshotsAt(t)) {
+      base = sim.tripProgress(snap.id, t)
+      sim.setRealtimeDelays(new Map([[snap.id, delaySec]]))
+      delayed = sim.tripProgress(snap.id, t)
+      sim.setRealtimeDelays(new Map())
+      if (base && delayed) break
+    }
+    expect(base).not.toBeNull()
+    expect(delayed).not.toBeNull()
+    // Same stop list, every arrival two minutes later, vehicle further back
+    expect(delayed!.stops.map((s) => s.name)).toEqual(base!.stops.map((s) => s.name))
+    base!.stops.forEach((stop, i) => {
+      expect(delayed!.stops[i].arrivalSec).toBe(stop.arrivalSec + delaySec)
+    })
+    expect(delayed!.position).toBeLessThanOrEqual(base!.position)
+  })
+
+  it('returns null for unknown or inactive trips', () => {
+    expect(sim.tripProgress('no-such-trip', t)).toBeNull()
+    const snap = sim.snapshotsAt(12 * 3600)[0]
+    expect(sim.tripProgress(snap.id, 3 * 3600)).toBeNull()
+  })
+})
+
+describe('terminal layover', () => {
+  const network = loadBundledNetwork()
+  const sim = new Simulation(network, new SimClock())
+
+  it('keeps the vehicle standing at its terminus for the turnaround time', () => {
+    const t = 8.5 * 3600
+    const snap = sim.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const { stops } = sim.tripProgress(snap.id, t)!
+    const terminus = stops[stops.length - 1]
+
+    // One minute after the final arrival the vehicle still stands there
+    const lingering = sim.snapshotsAt(terminus.arrivalSec + 60).find((s) => s.id === snap.id)
+    expect(lingering).toBeDefined()
+    expect(lingering!.status).toBe('dwell')
+    expect(lingering!.nextStopName).toBe(terminus.name)
+    expect(lingering!.lon).toBeCloseTo(terminus.lon, 2)
+    expect(lingering!.lat).toBeCloseTo(terminus.lat, 2)
+
+    // The card marker sits on the destination row during the layover
+    const progress = sim.tripProgress(snap.id, terminus.arrivalSec + 60)!
+    expect(progress.position).toBe(progress.stops.length - 1)
+
+    // After the turnaround time (config: 180 s) the vehicle is gone
+    expect(
+      sim.snapshotsAt(terminus.arrivalSec + 200).find((s) => s.id === snap.id),
+    ).toBeUndefined()
+    expect(sim.tripProgress(snap.id, terminus.arrivalSec + 200)).toBeNull()
+  })
+
+  it('can be disabled via the simulation options', () => {
+    const bare = new Simulation(network, new SimClock(), undefined, {
+      terminalLingerSeconds: 0,
+    })
+    const t = 8.5 * 3600
+    const snap = bare.snapshotsAt(t).find((s) => s.status === 'moving')!
+    const { stops } = bare.tripProgress(snap.id, t)!
+    const lastArrival = stops[stops.length - 1].arrivalSec
+    expect(bare.snapshotsAt(lastArrival + 30).find((s) => s.id === snap.id)).toBeUndefined()
+  })
+})
+
 describe('terrain heights in snapshots', () => {
   const network = loadBundledNetwork()
   const sim = new Simulation(network, new SimClock())

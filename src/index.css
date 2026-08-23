@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+/* shadcn CSS utilities (scroll-fade on the vehicle card's stop list) */
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 

@@ -18,10 +18,10 @@ vi.mock('@/map/CesiumMap', () => {
     getGroundHeights() {
       return []
     }
-    getTramBoxDriftMeters() {
+    getVehicleBoxDriftMeters() {
       return 0
     }
-    getTramOpacity() {
+    getVehicleOpacity() {
       return null
     }
     render() {}
@@ -31,8 +31,8 @@ vi.mock('@/map/CesiumMap', () => {
     consumeRenderRequest() {
       return false
     }
-    syncTrams() {
-      return { anyTramInView: true }
+    syncVehicles() {
+      return { anyVehicleInView: true }
     }
     setRoutesVisible() {}
     setStopsVisible() {}
@@ -41,7 +41,7 @@ vi.mock('@/map/CesiumMap', () => {
     setSelected() {}
     setFollow() {}
     setCameraHome() {}
-    hasTram() {
+    hasVehicle() {
       return false
     }
     destroy() {}
@@ -52,9 +52,11 @@ vi.mock('@/map/CesiumMap', () => {
 import App from '@/App'
 import { loadBundledNetwork } from '@/data/network'
 import { berlinSecondsOfDay } from '@/lib/clock'
+import { setLanguage } from '@/lib/i18n'
 
 afterEach(() => {
   cleanup()
+  setLanguage('en')
   window.__mrt = undefined
 })
 
@@ -121,7 +123,7 @@ describe('App (UI shell)', () => {
     render(<App />)
     expect(window.__mrt).toBeDefined()
     expect(window.__mrt!.ready).toBe(true)
-    expect(typeof window.__mrt!.tramCount()).toBe('number')
+    expect(typeof window.__mrt!.vehicleCount()).toBe('number')
   })
 
   it('sets the simulation time via the time input and restores real time', () => {
@@ -135,6 +137,21 @@ describe('App (UI shell)', () => {
     const realNow = berlinSecondsOfDay(Date.now())
     const diff = Math.abs(window.__mrt!.secondsOfDay() - realNow)
     expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
+    // The field goes back to its default: it must not keep showing 08:00
+    expect(input).toHaveValue('')
+  })
+
+  it('scrolls only the line list, not the whole panel', () => {
+    render(<App />)
+    // The panel itself must not scroll – the clock and the layer switches
+    // stay put however long the line list gets.
+    const list = screen.getByTestId('line-list')
+    expect(list.className).toContain('overflow-y-auto')
+    // Same fade the vehicle card's stop list uses
+    expect(list.className).toContain('scroll-fade-y')
+    const panel = screen.getByText('Mini Rostock 3D').closest('[data-slot="card"]')!
+    expect(panel.className).toContain('overflow-hidden')
+    expect(panel.className).not.toContain('overflow-y-auto')
   })
 
   it('shows layer switches for routes and stops', () => {
@@ -144,5 +161,20 @@ describe('App (UI shell)', () => {
     expect(
       within(panel).getByRole('switch', { name: 'Show stops' }),
     ).toBeInTheDocument()
+  })
+
+  it('renders the interface in German when the browser prefers German', () => {
+    setLanguage('de')
+    render(<App />)
+    expect(screen.getByText('Linien')).toBeInTheDocument()
+    expect(screen.getByText('Ebenen')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()
+    // Line names from the (English) dataset are localized for display
+    const firstLine = loadBundledNetwork().lines[0]
+    if (firstLine.name.startsWith('Line ')) {
+      const germanName = firstLine.name.replace(/^Line /, 'Linie ')
+      expect(screen.getByRole('switch', { name: `${germanName} anzeigen` })).toBeInTheDocument()
+    }
   })
 })

@@ -16,7 +16,7 @@ let snapshotsAt0830 = ''
 const tramSnapshotSignature = () =>
   page.evaluate(() =>
     JSON.stringify(
-      window.__mrt!.trams().map(({ id, lineId, nextStopName, lat, lon }) => [
+      window.__mrt!.vehicles().map(({ id, lineId, nextStopName, lat, lon }) => [
         id,
         lineId,
         nextStopName,
@@ -30,7 +30,7 @@ test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto('/?offline=1&time=08:30&paused=1')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.tramCount() > 0,
+    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
     { timeout: 60_000 },
   )
@@ -44,7 +44,7 @@ test.afterAll(async () => {
 test.beforeEach(async () => {
   // Normalize the simulation state
   await page.evaluate(() => {
-    window.__mrt!.selectTram(null)
+    window.__mrt!.selectVehicle(null)
     window.__mrt!.setPaused(true)
     window.__mrt!.setSpeed(1)
     window.__mrt!.setTime('08:30')
@@ -83,7 +83,7 @@ test('shows the frozen simulation time 08:30', async () => {
 test('shows active vehicles on the network lines', async () => {
   const expected = await page.evaluate(() => window.__mrt!.lineIds())
   const activeLineIds = await page.evaluate(() => [
-    ...new Set(window.__mrt!.trams().map((t) => t.lineId)),
+    ...new Set(window.__mrt!.vehicles().map((t) => t.lineId)),
   ])
   // Active lines must be known lines; individual bus lines may have genuine
   // GTFS service gaps at the probe time, night-only lines (F1–F4) rest during
@@ -95,11 +95,11 @@ test('shows active vehicles on the network lines', async () => {
   )
 
   // "trams" for a tram-only network, "vehicles" once buses/ferries join
-  await expect(page.getByTestId('tram-count')).toContainText(
+  await expect(page.getByTestId('vehicle-count')).toContainText(
     /\d+ (trams|vehicles) in service/,
   )
-  const count = await page.evaluate(() => window.__mrt!.visibleTramCount())
-  await expect(page.getByTestId('tram-count')).toContainText(
+  const count = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
+  await expect(page.getByTestId('vehicle-count')).toContainText(
     new RegExp(`${count} (trams|vehicles) in service`),
   )
 })
@@ -145,8 +145,8 @@ test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', 
     .poll(
       () =>
         page.evaluate((id) => {
-          const snap = window.__mrt!.trams().find((tram) => tram.id === id)
-          return snap?.inTunnel ? window.__mrt!.tramOpacity(id) : null
+          const snap = window.__mrt!.vehicles().find((tram) => tram.id === id)
+          return snap?.inTunnel ? window.__mrt!.vehicleOpacity(id) : null
         }, transition!.id),
       { timeout: 30_000 },
     )
@@ -157,33 +157,93 @@ test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', 
     .poll(
       () =>
         page.evaluate((id) => {
-          const snap = window.__mrt!.trams().find((tram) => tram.id === id)
-          return snap && !snap.inTunnel ? window.__mrt!.tramOpacity(id) : null
+          const snap = window.__mrt!.vehicles().find((tram) => tram.id === id)
+          return snap && !snap.inTunnel ? window.__mrt!.vehicleOpacity(id) : null
         }, transition!.id),
       { timeout: 30_000 },
     )
     .toBeCloseTo(1)
 })
 
+test('the underground view swaps ghosted and solid vehicles', async () => {
+  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
+
+  const transition = await page.evaluate(() => window.__mrt!.tunnelTransition())
+  expect(transition).not.toBeNull()
+
+  // Park a vehicle inside a tunnel and check both views on it
+  const hours = String(Math.floor(transition!.tunnelTime / 3600)).padStart(2, '0')
+  const minutes = String(Math.floor((transition!.tunnelTime % 3600) / 60)).padStart(2, '0')
+  const secs = String(transition!.tunnelTime % 60).padStart(2, '0')
+  await page.evaluate((time) => window.__mrt!.setTime(time), `${hours}:${minutes}:${secs}`)
+
+  const opacity = () =>
+    page.evaluate((id) => {
+      const snap = window.__mrt!.vehicles().find((tram) => tram.id === id)
+      return snap?.inTunnel ? window.__mrt!.vehicleOpacity(id) : null
+    }, transition!.id)
+
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
+
+  const button = page.getByRole('button', { name: 'Show underground view' })
+  await button.click()
+  await expect(page.getByRole('button', { name: 'Back to the surface view' })).toBeVisible()
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(1)
+
+  await page.getByRole('button', { name: 'Back to the surface view' }).click()
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
+})
+
+test('the underground view stops the rain', async () => {
+  // The rain gate lives in the app's UI tick, which rides on the render
+  // loop – and a loaded CI runner spends seconds on a single SwiftShader
+  // frame, so a tick can be tens of seconds apart. Generous budgets, same
+  // as the snapshot poll in beforeEach; a real regression still fails, just
+  // later. (Measured on CI: 6 s locally, 2.8 min on a bad runner.)
+  test.setTimeout(300_000)
+  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
+  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
+  // Light drizzle on purpose: 0.2 mm is 1000 drops instead of the 4000 a
+  // downpour spawns. Visible rain holds the render loop at animation rate,
+  // and under SwiftShader every one of those frames costs seconds – enough
+  // of them and the test spends its whole budget rendering water.
+  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await expect.poll(drops, slowPoll).toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Show underground view' }).click()
+  // No drops falling around a camera that is below ground
+  await expect.poll(drops, slowPoll).toBe(0)
+
+  // Dry before leaving again, so the second click lands on an idle scene
+  await page.evaluate(() => window.__mrt!.setRain(0))
+  await page.getByRole('button', { name: 'Back to the surface view' }).click()
+
+  // The gate opens both ways: rain set on the surface shows up again
+  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await expect.poll(drops, slowPoll).toBeGreaterThan(0)
+  await page.evaluate(() => window.__mrt!.setRain(0))
+})
+
 test('line switch hides the vehicles of that line', async () => {
-  const before = await page.evaluate(() => window.__mrt!.visibleTramCount())
+  const before = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
   await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.visibleTramCount()))
+    .poll(() => page.evaluate(() => window.__mrt!.visibleVehicleCount()))
     .toBeLessThan(before)
   await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.visibleTramCount()))
+    .poll(() => page.evaluate(() => window.__mrt!.visibleVehicleCount()))
     .toBe(before)
 })
 
 test('selecting a vehicle opens the info card', async () => {
-  const tram = await page.evaluate(() => window.__mrt!.trams()[0])
-  await page.evaluate((id) => window.__mrt!.selectTram(id), tram.id)
+  const tram = await page.evaluate(() => window.__mrt!.vehicles()[0])
+  await page.evaluate((id) => window.__mrt!.selectVehicle(id), tram.id)
 
   const card = page.getByTestId('vehicle-card')
   await expect(card).toBeVisible()
-  await expect(card.getByTestId('tram-next-stop')).toHaveText(tram.nextStopName)
+  await expect(card.getByTestId('vehicle-next-stop')).toHaveText(tram.nextStopName)
   await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
 
   await card.getByRole('button', { name: 'Close selection' }).click()
@@ -200,16 +260,16 @@ test('night services keep running after midnight, daytime service resumes in the
   // gone: night buses and ferries are the only lines with an F-prefixed id.
   await expect
     .poll(() =>
-      page.evaluate(() => window.__mrt!.trams().every((tram) => tram.lineId.startsWith('F'))),
+      page.evaluate(() => window.__mrt!.vehicles().every((tram) => tram.lineId.startsWith('F'))),
     )
     .toBe(true)
-  const nightCount = await page.evaluate(() => window.__mrt!.tramCount())
+  const nightCount = await page.evaluate(() => window.__mrt!.vehicleCount())
   expect(nightCount).toBeGreaterThan(0)
 
   // 08:30: far more vehicles out than the handful of night services
   await page.evaluate(() => window.__mrt!.setTime('08:30'))
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.tramCount()))
+    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()))
     .toBeGreaterThan(nightCount)
 })
 
@@ -227,13 +287,13 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
   })
 
   const movedOnceWithBoxesAttached = async () => {
-    const before = await page.evaluate(() => window.__mrt!.trams()[0])
+    const before = await page.evaluate(() => window.__mrt!.vehicles()[0])
     await expect
       .poll(
         () =>
           page.evaluate(
             ({ id, lat, lon }) => {
-              const t = window.__mrt!.trams().find((x) => x.id === id)
+              const t = window.__mrt!.vehicles().find((x) => x.id === id)
               // At ×120 a trip can reach its terminus within seconds and
               // vanish from the list – that also proves movement.
               return t == null || t.lat !== lat || t.lon !== lon
@@ -243,7 +303,7 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
         { timeout: 30_000, intervals: [250, 500, 1000] },
       )
       .toBe(true)
-    expect(await page.evaluate(() => window.__mrt!.tramBoxDriftMeters())).toBeLessThan(5)
+    expect(await page.evaluate(() => window.__mrt!.vehicleBoxDriftMeters())).toBeLessThan(5)
   }
 
   await movedOnceWithBoxesAttached()
@@ -252,7 +312,7 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
 
 test('time-lapse moves the vehicles', async () => {
   const before = await page.evaluate(() =>
-    JSON.stringify(window.__mrt!.trams().map((x) => x.id)),
+    JSON.stringify(window.__mrt!.vehicles().map((x) => x.id)),
   )
   await page.evaluate(() => {
     window.__mrt!.setPaused(false)
@@ -263,7 +323,7 @@ test('time-lapse moves the vehicles', async () => {
     .poll(
       () =>
         page.evaluate(
-          (prev) => JSON.stringify(window.__mrt!.trams().map((x) => x.id)) !== prev,
+          (prev) => JSON.stringify(window.__mrt!.vehicles().map((x) => x.id)) !== prev,
           before,
         ),
       { timeout: 20_000 },
@@ -286,9 +346,11 @@ test('the clock can be set and restored to real time', async () => {
       { timeout: 45_000, intervals: [500, 1000] },
     )
     .toMatch(/^08:00/)
-  await expect.poll(() => page.evaluate(() => window.__mrt!.tramCount())).toBeGreaterThan(0)
+  await expect.poll(() => page.evaluate(() => window.__mrt!.vehicleCount())).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'Now' }).click()
+  // The field must not keep advertising a time the simulation left behind
+  await expect(timeInput).toHaveValue('')
   const diff = await page.evaluate(() => {
     const fmt = new Intl.DateTimeFormat('de-DE', {
       timeZone: 'Europe/Berlin',

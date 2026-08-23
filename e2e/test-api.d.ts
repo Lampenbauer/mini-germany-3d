@@ -2,11 +2,13 @@ export {}
 
 declare global {
   interface Window {
+    /** Test hook of raf-stall.spec.ts: freezes requestAnimationFrame. */
+    __stopRaf?: boolean
     __mrt?: {
       ready: boolean
-      tramCount: () => number
-      visibleTramCount: () => number
-      trams: () => {
+      vehicleCount: () => number
+      visibleVehicleCount: () => number
+      vehicles: () => {
         id: string
         lineId: string
         nextStopName: string
@@ -17,14 +19,30 @@ declare global {
       setTime: (hhmm: string) => void
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
-      selectTram: (id: string | null) => void
+      setRealtimeDelays: (delays: Record<string, number>) => void
+      setRain: (precipitationMm: number) => void
+      setCloudCover: (cloudCoverPercent: number) => void
+      rainDropsVisible: () => number
+      selectVehicle: (id: string | null) => void
+      selectedVehicleId: () => string | null
+      vehicleScreenPosition: (id: string) => { x: number; y: number } | null
       dataSource: string
       lineIds: () => string[]
       secondsOfDay: () => number
       loopTicks: () => number
       lastLoopError: () => string | null
-      tramBoxDriftMeters: () => number
-      tramOpacity: (id: string) => number | null
+      vehicleBoxDriftMeters: () => number
+      vehicleOpacity: (id: string) => number | null
+      renderRate: () => number
+      anyVehicleInView: () => boolean
+      renderPacing: () => {
+        animating: boolean
+        rainActive: boolean
+        vehicleInView: boolean
+        interacting: boolean
+        tilesLoading: boolean
+        intervalMs: number
+      }
       tunnelTransition: () => {
         id: string
         tunnelTime: number

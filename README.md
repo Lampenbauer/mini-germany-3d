@@ -1,6 +1,6 @@
 # 🚋 Mini Rostock 3D
 
-**Rostock's tram network, live on a photorealistic 3D map** – inspired by
+**Rostock's public transport network, live on a photorealistic 3D map** – inspired by
 [mini-tokyo-3d](https://github.com/nagix/mini-tokyo-3d), built with
 [CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
@@ -8,8 +8,10 @@
 The six RSAG tram lines, some 25 RSAG bus lines, the three S-Bahn lines on the
 Warnemünde–Rostock Hbf corridor, and the two Rostock ferries run schedule-based
 along their real routes through the city – with time-lapse, line filters, a
-stops layer, day/night lighting that follows the simulated time, and a UI
-styled after [shadcn/ui](https://ui.shadcn.com/).
+stops layer, a chase camera that follows vehicles, shareable view and vehicle
+links, day/night lighting that follows the simulated time (including a
+night-time cabin glow under the vehicles), and a UI styled after
+[shadcn/ui](https://ui.shadcn.com/).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -23,9 +25,12 @@ styled after [shadcn/ui](https://ui.shadcn.com/).
 |---------|---------|
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
 | Vehicles as simple boxes on real routes | 3D boxes with line labels and per-mode dimensions (tram 32 m, S-Bahn 57 m Talent 2, bus 12 m, ferries their real vessel sizes), schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
-| Routes/lines on the map | Polylines draped onto the ground/3D tiles in line colors + stops layer; tunnel sections at reduced opacity |
-| Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock |
+| Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
+| Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
+| Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
+| Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
+| Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
 | Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
 
@@ -36,34 +41,47 @@ npm install        # also copies the Cesium assets to public/cesium (postinstall
 npm run dev        # → http://localhost:5173
 ```
 
-**Cesium ion token:** A default token ships in `src/config.ts` and can be overridden
-via `.env` without touching the code (see `.env.example`):
+**Cesium ion token:** No token lives in the source. A local checkout takes it
+from `.env` (see `.env.example`); without one the map falls back to the
+wireframe globe:
 
 ```bash
 VITE_CESIUM_ION_TOKEN=your-token
 ```
 
 > Ion tokens are client-side, publishable tokens – they inevitably end up in the
-> browser bundle. It is still a good idea to restrict the token to your own domains
-> in the [Cesium ion dashboard](https://ion.cesium.com/tokens). For the Google 3D
-> Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must be enabled
-> in the ion account.
+> browser bundle. That is exactly why the deployed site is built with a token
+> restricted to `minirostock3d.lampenbauer.com` in the
+> [Cesium ion dashboard](https://ion.cesium.com/tokens), which makes it useless
+> anywhere else; it sits in `.github/workflows/ci.yml`. Every other CI build uses
+> the unrestricted token from the `CESIUM_ION_TOKEN` repository secret. For the
+> Google 3D Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must
+> be enabled in the ion account.
 
 ### Usage
 
-- **Simulation time:** The panel lets you set the clock directly (e.g. jump to rush
-  hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any time.
+- **Simulation time:** The panel's time field opens the native picker (e.g. jump to
+  rush hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any
+  time, and the collapsed panel keeps showing the clock and the pause button.
   The scene lighting follows the simulated clock, so the time input doubles as a
   day/night switch – and the ×120 time-lapse shows a full day/night cycle.
 - **Zoom to a line:** Clicking a line's name in the panel flies the camera so the
-  whole route fits into view (the compass heading is kept).
-- **Selecting a tram:** Clicking a box opens the info card (line, destination, next
-  stop). "Follow" pins the camera to the vehicle and rides along – orbiting/zooming
-  with the mouse remains possible; clicking empty map, "Stop following", or a camera
-  reset ends the follow mode.
-- **Camera sharing:** The camera pose is saved to the URL hash every 1.5 s
-  (`#lat=…&lon=…&height=…&heading=…&pitch=…`) and restored on load – views survive
-  a reload and can be shared as a link.
+  whole route fits into view (the compass heading is kept); the route pulses for
+  three seconds while every other line fades out. Clicking a hidden line switches
+  it back on first.
+- **Selecting a vehicle:** Clicking a box opens the info card (line, destination,
+  next stop) at the top right. "Follow" flies the camera in behind the vehicle and
+  chases it facing the direction of travel; rotating the camera hands control back
+  to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
+  a camera reset ends the follow mode.
+- **Map controls:** 2D/3D pitch toggle, face north, and camera reset sit at the
+  lower right edge of the map.
+- **Sharing links:** The URL hash always mirrors the current view, written
+  event-driven when the camera settles (no polling). Without a selection it carries
+  the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
+  opening such a link re-selects the vehicle and starts following it. The
+  Routes/Stops layer toggles and the pause state ride along as `routes=0`,
+  `stops=0`, `paused=1` whenever they deviate from the defaults.
 
 ### Useful URL parameters
 
@@ -74,7 +92,11 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?time=08:30` | Set the simulation time (Europe/Berlin) |
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
+| `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
+| `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
+| `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
+| `…&routes=0&stops=0&paused=1` | Layer toggles and pause state (only present when off/paused) |
 
 ## Tests
 
@@ -116,8 +138,8 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
   tunnel ranges from the OSM tags of each route's member ways (`tunnel=*`,
   `location=underground`, or a negative `layer` – e.g. the tram tunnel under
   Rostock Hauptbahnhof) and stores them as meter ranges (`tunnels`) in
-  `network.json`. The map renders those route sections at **40 % opacity**,
-  and while a vehicle travels through one, its 3D box and label fade to 40 %
+  `network.json`. The map renders those route sections at **20 % opacity**,
+  and while a vehicle travels through one, its 3D box and label fade to 20 %
   as well; the info card of a selected vehicle then shows "in tunnel".
 - **Timetable:** `src/data/schedule.json` contains real GTFS departure times per
   line/direction (typical weekday). Lines/directions without GTFS data stay off
@@ -143,6 +165,9 @@ npm test               # validates the new datasets
   tram, S-Bahn (truncated at Rostock Hbf), RSAG bus, and the two ferries
   (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)),
   including tunnel and bridge sections as meter ranges along each path.
+  Stop-position nodes without a `name` tag are resolved via their OSM
+  `stop_area` relation, then via the nearest named stop within 60 m; only
+  after that does the "Stop" placeholder remain.
 - `data:heights` samples the official digital terrain model of
   Mecklenburg-Vorpommern (open WCS at geodaten-mv.de, © GeoBasis-DE/M-V,
   5 m grid) at every route vertex and stop. Bridge sections get a straight
@@ -182,7 +207,7 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
 (`https://realtime.gtfs.de/realtime-free.pb`, DELFI-based):
 
 - The feed provides **TripUpdates (delays)** – not vehicle positions. The app
-  overlays them on the schedule simulation: a tram running +3 min is drawn where it
+  overlays them on the schedule simulation: a vehicle running +3 min is drawn where it
   would have been on schedule 3 minutes ago. The panel badge "GTFS-RT · n live"
   shows the number of currently matched trips, and a vehicle's info card shows
   its delay.
@@ -212,11 +237,13 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
 rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 `https://minirostock3d.lampenbauer.com`:
 
-1. **One-time setup:** Create four secrets in the repository settings
+1. **One-time setup:** Create five secrets in the repository settings
    (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH
    password), **`KAS_SSH_HOST`** (the SSH host), **`KAS_SSH_USER`** (the SSH
-   user), and **`KAS_TARGET_DIR`** (the document root on the webspace, with a
-   trailing slash).
+   user), **`KAS_TARGET_DIR`** (the document root on the webspace, with a
+   trailing slash), and **`CESIUM_ION_TOKEN`** (the unrestricted ion token every
+   build that does not go to the webspace uses – the deploy build takes the
+   domain-restricted one from the workflow instead).
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and
@@ -261,10 +288,11 @@ src/
 │   ├── camera-hash.ts      # Camera pose ↔ URL hash
 │   ├── realtime.ts         # GTFS-RT client (polls /api/realtime)
 │   └── rt-extract.ts       # Shared realtime feed → delay-map extraction
-├── engine/simulation.ts    # Clock + timetable → tram snapshots per frame
+├── engine/simulation.ts    # Clock + timetable → vehicle snapshots per frame
 ├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, routes, stops, vehicle boxes,
-│                           # day/night lighting, event-driven render requests
-├── components/             # shadcn-style UI (ControlPanel, TramCard, ui/*)
+│                           # follow/chase cam, day/night lighting + cabin glow,
+│                           # event-driven render requests
+├── components/             # shadcn-style UI (ControlPanel, VehicleCard, ui/*)
 └── App.tsx                 # Wiring, render loop pacing, test API (window.__mrt)
 
 scripts/
@@ -282,7 +310,8 @@ span and start/end mid-route); lines without GTFS data do not run. Only a missin
 schedule.json activates the synthetic headway for the whole network, whose return
 direction departs offset by half the headway so shuttle
 services like the Warnow ferries run as the single vessel they are. The travel time
-between two stops follows from the real track distance (~30 km/h + 25 s dwell time). Every frame, the distance along the route is
+between two stops follows from the real track distance with mode-specific cruise
+speeds (tram ~30, S-Bahn ~40, bus ~25 km/h, ferries ~6 kn) plus 25 s dwell time. Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
 (heading of the 3D box). Vehicles and stops do not use Cesium's `HeightReference`
 clamping (unreliable on 3D tiles); their height is set explicitly from tile heights
@@ -293,7 +322,8 @@ overview would keep floating several meters above the roofs up close.
 ## Roadmap
 
 - GTFS-RT with VehiclePositions (full gtfs.de or VVW feed) instead of TripUpdates only
-- More detailed vehicles (low-poly 6N2 instead of boxes), acceleration/braking profiles
+- More detailed vehicles (low-poly models instead of boxes – prototyped on the
+  `low-poly-vehicle-models` branch), acceleration/braking profiles
 - Stop popups with departure boards
 
 ## Attribution

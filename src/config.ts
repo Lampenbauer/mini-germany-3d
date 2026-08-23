@@ -1,19 +1,20 @@
 /**
  * Central configuration of Mini Rostock 3D.
- *
- * Note on the Cesium Ion token: Ion tokens are client-side, publishable
- * tokens (they end up in the browser bundle either way). Still, it is
- * advisable to restrict the token to your own domains in the Cesium Ion
- * dashboard. The default token can be overridden without a code change via
- * the VITE_CESIUM_ION_TOKEN environment variable (.env file).
  */
 
-const DEFAULT_ION_TOKEN =
-  'CESIUM_ION_TOKEN_REMOVED'
-
 export const config = {
-  cesiumIonToken:
-    (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) || DEFAULT_ION_TOKEN,
+  /**
+   * Cesium Ion token, always from the environment – no token lives in the
+   * source. Ion tokens are client-side and end up in the browser bundle
+   * either way, which is why the deployed site is built with one that is
+   * restricted to its own domain (see .github/workflows/ci.yml); every
+   * other build takes the unrestricted one from the CESIUM_ION_TOKEN
+   * secret, and a local checkout from .env (see .env.example).
+   *
+   * Empty means no Ion access: the map falls back to the wireframe globe
+   * and the panel shows the fallback badge.
+   */
+  cesiumIonToken: (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) ?? '',
 
   /**
    * Filtered GTFS-Realtime endpoint (JSON, a few KB). Served by the Vite
@@ -23,6 +24,29 @@ export const config = {
    */
   gtfsRealtimeUrl:
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
+
+  /**
+   * Live precipitation and cloud cover for the rain and overcast overlays:
+   * the Open-Meteo forecast API (CC-BY 4.0, free, no key) – both values
+   * come from one request. An empty string disables the live weather.
+   * The weather is queried for a single city-center point – Rostock is
+   * small enough that one value covers the visible map.
+   */
+  weather: {
+    url:
+      (import.meta.env?.VITE_WEATHER_URL as string | undefined) ??
+      'https://api.open-meteo.com/v1/forecast',
+    longitude: 12.14,
+    latitude: 54.09,
+    /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
+    pollIntervalMs: 600_000,
+    /**
+     * Rain and the overcast grade are only drawn while the simulation time
+     * is within this many seconds of the real clock – the live weather
+     * knows only "now", and time-traveled views must not show today's sky.
+     */
+    maxSimTimeDriftSeconds: 600,
+  },
 
   /**
    * Initial camera position (also the "Reset camera" home view). A URL hash
@@ -51,6 +75,12 @@ export const config = {
     },
     /** Dwell time at a stop in seconds. */
     dwellSeconds: 25,
+    /**
+     * Turnaround time at the terminus in seconds: the vehicle stays
+     * visible at its final stop this long after arrival instead of
+     * vanishing the moment the trip ends.
+     */
+    terminalLingerSeconds: 180,
   },
 
   /**

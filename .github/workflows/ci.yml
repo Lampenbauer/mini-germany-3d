@@ -14,6 +14,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # Cesium Ion token of the deployed site. Restricted to
+  # minirostock3d.lampenbauer.com in the Ion dashboard, so it is useless
+  # anywhere else and does not need to be a secret – it ships inside the
+  # browser bundle regardless. Every build that is NOT the deploy build
+  # uses the unrestricted token from the CESIUM_ION_TOKEN secret instead.
+  ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlUxakJsUm82d3hUT0FVZkMiLCJqdGkiOiI2ZDY5OWM3Ny04Mjk5LTQ3ZDktYWQxZS1kZWIyNThiNTcxNGMiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIFJvc3RvY2sgM0QiLCJpYXQiOjE3ODc0ODc5MzZ9.8Fpf1_WzG6N_GT9UiNCOPaSJSmZr01iMI5Wu9r4FP80
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -76,7 +84,27 @@ jobs:
         run: node scripts/test-php-parser.mjs
 
       - name: Production build
-        run: npm run build
+        env:
+          # Same condition the deploy job below runs under: only a build
+          # that actually goes to the webspace gets the domain-restricted
+          # token, everything else the unrestricted one.
+          DEPLOY_BUILD: >-
+            ${{ github.ref == 'refs/heads/main' &&
+                (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+                 github.event_name == 'schedule') }}
+          ION_TOKEN_FALLBACK: ${{ secrets.CESIUM_ION_TOKEN }}
+        run: |
+          if [ "$DEPLOY_BUILD" = "true" ]; then
+            echo "Building with the domain-restricted Ion token."
+            export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_DEPLOY"
+          else
+            echo "Building with the Ion token from the CESIUM_ION_TOKEN secret."
+            export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_FALLBACK"
+          fi
+          if [ -z "$VITE_CESIUM_ION_TOKEN" ]; then
+            echo "::warning::No Cesium Ion token for this build – the map falls back to the wireframe globe."
+          fi
+          npm run build
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

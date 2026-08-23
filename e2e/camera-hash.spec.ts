@@ -12,10 +12,11 @@ test('camera pose is saved to and restored from the URL hash', async ({
   await page.goto('/?offline=1&time=08:30&paused=1')
   await page.waitForFunction(() => window.__mrt?.ready === true)
 
-  // The hash is updated at most every 1500 ms.
+  // The clock was booted paused (?paused=1), so the pause state rides
+  // along in the hash.
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
-    .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+$/)
+    .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&paused=1$/)
 
   // Changing only the hash of the same URL would be a same-document
   // navigation. The stop-over destroys the first Cesium instance and forces
@@ -45,25 +46,25 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
 
   await page.goto('/?offline=1&time=08:30&paused=1')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.tramCount() > 0,
+    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
 
-  // Select a vehicle – the periodic hash writer must pick it up
-  const tramId = await page.evaluate(() => {
-    const id = window.__mrt!.trams()[0].id
-    window.__mrt!.selectTram(id)
+  // Select a vehicle – the URL must switch to the vehicle-only hash
+  const vehicleId = await page.evaluate(() => {
+    const id = window.__mrt!.vehicles()[0].id
+    window.__mrt!.selectVehicle(id)
     return id
   })
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toContain(`vehicle=${encodeURIComponent(tramId)}`)
+    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&paused=1`)
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   // Fresh app boot from the shared link (about:blank tears down the first
-  // WebGL context, see above) – the same trip is selected again and the
-  // vehicle card opens.
+  // WebGL context, see above) – the same trip is selected again, the
+  // vehicle card opens, and follow mode engages.
   await page.goto('about:blank')
   await page.goto(sharedUrl)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
@@ -71,5 +72,44 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   const card = page.getByTestId('vehicle-card')
   await expect(card).toBeVisible({ timeout: 60_000 })
-  await expect(card).toContainText(tramId)
+  // The trip id is no longer printed on the card, so ask the app which
+  // vehicle it restored – that is what this test is actually about.
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.selectedVehicleId()), { timeout: 30_000 })
+    .toBe(vehicleId)
+  await expect(card.getByRole('button', { name: 'Stop following' })).toBeVisible({
+    timeout: 30_000,
+  })
+})
+
+test('layer toggles travel in the URL and are restored', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+
+  await page.getByRole('switch', { name: 'Show routes' }).click()
+  await page.getByRole('switch', { name: 'Show stops' }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
+    .toContain('routes=0&stops=0&paused=1')
+  const sharedUrl = await page.evaluate(() => window.location.href)
+
+  await page.goto('about:blank')
+  await page.goto(sharedUrl)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+  await expect(page.getByRole('switch', { name: 'Show routes' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  await expect(page.getByRole('switch', { name: 'Show stops' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  // The boot flag ?paused=1 was in the URL anyway – the button shows Resume
+  await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
 })

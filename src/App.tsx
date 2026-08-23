@@ -1,42 +1,77 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, Home } from 'lucide-react'
+import { Compass, Home, Layers2, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { VehicleCard } from '@/components/VehicleCard'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
+import { cn } from '@/lib/utils'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
-import { Simulation, type TramSnapshot } from '@/engine/simulation'
-import { formatCameraHash, parseCameraHash, parseVehicleHash } from '@/lib/camera-hash'
-import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { Simulation, type TripStop, type VehicleSnapshot } from '@/engine/simulation'
+import {
+  formatCameraHash,
+  formatUiStateHash,
+  formatVehicleHash,
+  parseCameraHash,
+  parseUiStateHash,
+  parseVehicleHash,
+} from '@/lib/camera-hash'
+import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
+import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
+import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
 /** Debug/test API that the E2E tests use under window.__mrt. */
 export interface MrtTestApi {
   ready: boolean
-  tramCount: () => number
-  visibleTramCount: () => number
-  trams: () => TramSnapshot[]
+  vehicleCount: () => number
+  visibleVehicleCount: () => number
+  vehicles: () => VehicleSnapshot[]
   setTime: (hhmm: string) => void
   setSpeed: (speed: number) => void
   setPaused: (paused: boolean) => void
-  selectTram: (id: string | null) => void
+  /** Injects GTFS-RT delays for tests (sim trip id → seconds). */
+  setRealtimeDelays: (delays: Record<string, number>) => void
+  /** Forces the rain overlay for tests/previews (mm; 0 = dry again). */
+  setRain: (precipitationMm: number) => void
+  /** Forces the overcast grade for tests/previews (percent; 0 = clear again). */
+  setCloudCover: (cloudCoverPercent: number) => void
+  /** Raindrops currently drawn (0 = dry or below ground). */
+  rainDropsVisible: () => number
+  selectVehicle: (id: string | null) => void
+  /** Trip id of the current selection, null when nothing is selected. */
+  selectedVehicleId: () => string | null
+  /** Screen position of a vehicle in CSS px (null = off screen/unknown). */
+  vehicleScreenPosition: (id: string) => { x: number; y: number } | null
   dataSource: string
   lineIds: () => string[]
   secondsOfDay: () => number
   loopTicks: () => number
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
-  anyTramInView: () => boolean
+  anyVehicleInView: () => boolean
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
+  /**
+   * Why the render loop is (not) idling – the four inputs of the pacing
+   * gate. Diagnosing "the GPU stays busy" is guesswork without them.
+   */
+  renderPacing: () => {
+    animating: boolean
+    rainActive: boolean
+    vehicleInView: boolean
+    interacting: boolean
+    tilesLoading: boolean
+    intervalMs: number
+  }
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
-  tramBoxDriftMeters: () => number
+  vehicleBoxDriftMeters: () => number
   /** Color-attribute opacity currently applied to one rendered vehicle body. */
-  tramOpacity: (id: string) => number | null
+  vehicleOpacity: (id: string) => number | null
   /** Finds a deterministic real trip that crosses a tunnel portal. */
   tunnelTransition: () => {
     id: string
@@ -70,6 +105,8 @@ interface UrlOptions {
   groundHeight: number | undefined
   /** Force GTFS-Realtime (?rt=1) or disable it (?rt=0); null = auto. */
   realtime: boolean | null
+  /** Live-weather rain overlay (?rain=0 disables it). */
+  rain: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
 }
@@ -83,6 +120,20 @@ const HASH_DEBOUNCE_MS = 300
  * (~100 calls per 30 s) far away.
  */
 const HASH_MAX_WAIT_MS = 2000
+
+/**
+ * requestAnimationFrame is driven by the compositor: when it stops sending
+ * frames – heavy software rendering (SwiftShader on CI), a weak GPU, an
+ * occluded window – the callbacks simply stop arriving while the page itself
+ * stays responsive. The simulation would then freeze at its last tick even
+ * though the (wall-clock based) SimClock keeps running, so vehicles jump the
+ * moment frames resume. The watchdog below runs a frame from a timer whenever
+ * rAF has not delivered one for this long.
+ */
+const RAF_STALL_MS = 500
+
+/** Poll interval of that watchdog (a timestamp comparison while rAF is healthy). */
+const RAF_WATCHDOG_INTERVAL_MS = 250
 
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
@@ -101,6 +152,7 @@ function readUrlOptions(): UrlOptions {
         ? groundHeight
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
+    rain: params.get('rain') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
   }
 }
@@ -113,9 +165,15 @@ export default function App() {
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const followingRef = useRef(false)
-  const snapshotsRef = useRef<TramSnapshot[]>([])
+  const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
+  /** Live precipitation in mm; forced = set via the test API (skips gating). */
+  const rainRef = useRef({ mm: 0, forced: false })
+  /** Live cloud cover in percent; forced works like the rain's. */
+  const cloudRef = useRef({ percent: 0, forced: false })
+  /** Rain currently visible – keeps the render loop at animation rate. */
+  const rainActiveRef = useRef(false)
 
   const [visibleLines, setVisibleLines] = useState<Set<string>>(new Set())
   const [showRoutes, setShowRoutes] = useState(true)
@@ -123,16 +181,26 @@ export default function App() {
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
-  const [tramCount, setTramCount] = useState(0)
+  const [vehicleCount, setVehicleCount] = useState(0)
   const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
-  const [selected, setSelected] = useState<TramSnapshot | null>(null)
+  const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
   const [following, setFollowing] = useState(false)
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
   const [cameraIs2D, setCameraIs2D] = useState(false)
+  /** Sim clock in seconds of day – drives the vehicle card's countdown. */
+  const [simSeconds, setSimSeconds] = useState(0)
+  /** Underground view: tunnels solid, the surface ghosted (see CesiumMap). */
+  const [underground, setUnderground] = useState(false)
+  /** Same value for the render loop, which never sees the state updates. */
+  const undergroundRef = useRef(false)
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
   const showRoutesRef = useRef(showRoutes)
+  // Mirrors for the hash writer (closures in the init effect must not see
+  // stale React state): layer toggles and pause travel in the URL.
+  const showStopsRef = useRef(showStops)
+  const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
     const map = mapRef.current
@@ -142,7 +210,7 @@ export default function App() {
     }
   }, [network])
 
-  const selectTram = useCallback((id: string | null) => {
+  const selectVehicle = useCallback((id: string | null) => {
     selectedIdRef.current = id
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
@@ -167,12 +235,28 @@ export default function App() {
     const container = containerRef.current
     if (!container) return
 
+    // Mirror the detected UI language for screen readers/translators
+    document.documentElement.lang = getLanguage()
+
     const urlOpts = readUrlOptions()
+    // Layer/pause state restored from a shared URL. The ?paused search
+    // param stays the boot flag (tests); the hash marks a user pause.
+    const uiState = parseUiStateHash(window.location.hash)
+    const startPaused = urlOpts.paused || uiState.paused
     const clock = new SimClock(Date.now(), urlOpts.speed)
     if (urlOpts.timeSec !== null) clock.setSecondsOfDay(urlOpts.timeSec)
-    if (urlOpts.paused) clock.setPaused(true)
+    if (startPaused) clock.setPaused(true)
     setSpeed(urlOpts.speed)
-    setPaused(urlOpts.paused)
+    setPaused(startPaused)
+    pausedRef.current = startPaused
+    if (uiState.routesHidden) {
+      showRoutesRef.current = false
+      setShowRoutes(false)
+    }
+    if (uiState.stopsHidden) {
+      showStopsRef.current = false
+      setShowStops(false)
+    }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
@@ -215,7 +299,19 @@ export default function App() {
       const m = mapRef.current
       if (!m) return
       lastHashWriteAt = performance.now()
-      const hash = formatCameraHash(m.getCameraView(), selectedIdRef.current)
+      // While a vehicle is selected the URL carries ONLY its trip id – a
+      // shared link then re-selects and follows the vehicle, no camera
+      // pose needed. Without a selection the camera pose is the URL state.
+      // Layer toggles and pause ride along in either form.
+      const hash =
+        (selectedIdRef.current
+          ? formatVehicleHash(selectedIdRef.current)
+          : formatCameraHash(m.getCameraView())) +
+        formatUiStateHash({
+          routesHidden: !showRoutesRef.current,
+          stopsHidden: !showStopsRef.current,
+          paused: pausedRef.current,
+        })
       if (hash !== window.location.hash) {
         window.history.replaceState(null, '', hash)
       }
@@ -246,7 +342,7 @@ export default function App() {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
-      onSelectTram: selectTram,
+      onSelectVehicle: selectVehicle,
       onTilesetStatus: setTilesetStatus,
       onCameraChanged: scheduleHashWrite,
     })
@@ -256,11 +352,40 @@ export default function App() {
     if (hashView) map.setView(hashView)
     map.addRoutes(network)
     map.addStops(network)
+    // Apply the layer visibility restored from the hash to the fresh map
+    if (uiState.routesHidden) applyRouteVisibility()
+    if (uiState.stopsHidden) map.setStopsVisible(false)
 
-    // A vehicle selection shared via the URL (&vehicle=…) is restored as
-    // soon as its trip shows up in the snapshots – it may take a moment
-    // for the simulation to have it, and it may never appear (link opened
-    // while the trip is not active), so the attempt expires silently.
+    // Rain overlay: live precipitation for the city center (Open-Meteo).
+    // Offline mode stays dry (no network, deterministic E2E tests) and
+    // ?rain=0 opts out. Whether the rain is actually drawn is decided per
+    // UI tick (sim time must be near the real clock).
+    let weatherClient: WeatherClient | null = null
+    const weatherEnabled =
+      config.weather.url !== '' &&
+      import.meta.env.MODE !== 'test' &&
+      !urlOpts.offline &&
+      urlOpts.rain
+    if (weatherEnabled) {
+      map.addWeatherCredit()
+      weatherClient = new WeatherClient(
+        config.weather.url,
+        config.weather.longitude,
+        config.weather.latitude,
+        (status) => {
+          rainRef.current = { mm: status.precipitationMm, forced: false }
+          cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
+        },
+      )
+      weatherClient.start(config.weather.pollIntervalMs)
+    }
+
+    // A vehicle shared via the URL (#vehicle=…) is restored as soon as its
+    // trip shows up in the snapshots – it may take a moment for the
+    // simulation to have it, and it may never appear (link opened while
+    // the trip is not active), so the attempt expires silently. The
+    // restored vehicle starts in follow mode: the link carries no camera
+    // pose, the approach flight brings the viewer to the vehicle.
     let pendingSharedVehicle = parseVehicleHash(window.location.hash)
     const sharedVehicleDeadline = performance.now() + 20_000
 
@@ -274,11 +399,23 @@ export default function App() {
     let lastSimTick = 0
     let lastRender = 0
     let lastLightingMs = -Infinity
-    let lastAnyTramInView = true
+    let lastAnyVehicleInView = true
     let loopTicks = 0
     let lastLoopError: string | null = null
     const renderTimes: number[] = []
-    const loop = (now: number) => {
+    let lastFrameAt = performance.now()
+    /**
+     * One frame of work: simulation tick, UI state, render pacing. Driven by
+     * requestAnimationFrame – and by the watchdog below whenever rAF stalls.
+     *
+     * The watchdog passes render: false. A stalled compositor is not showing
+     * frames anyway, so rendering into the canvas would be wasted work – and
+     * under software rendering it would keep the machine busy while it is
+     * trying to catch up. Pending render requests survive (consumeRenderRequest
+     * is not called), so the next real frame draws the current state.
+     */
+    const runFrame = (now: number, render = true) => {
+      lastFrameAt = now
       // The loop must not die permanently on a transient error (e.g. Cesium
       // internals while bulk-removing entities) – otherwise the entire
       // simulation freezes.
@@ -287,7 +424,7 @@ export default function App() {
         if (!document.hidden) {
           // Tick the simulation at ~30 fps max; when paused or with no
           // vehicle in view, 2 fps is plenty.
-          const tickInterval = clock.paused || !lastAnyTramInView ? 500 : 33
+          const tickInterval = clock.paused || !lastAnyVehicleInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
 
@@ -303,14 +440,18 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
-            const viewInfo = map.syncTrams(snapshots, visibleLinesRef.current)
-            lastAnyTramInView = viewInfo?.anyTramInView ?? false
+            const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
+            lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
 
-            // After syncTrams, so the selection highlight finds the tram
-            // record (setSelected only marks records that already exist).
+            // After syncVehicles, so the selection highlight and the follow
+            // camera find the vehicle record (setSelected/setFollow only act
+            // on records that already exist).
             if (pendingSharedVehicle) {
               if (snapshots.some((s) => s.id === pendingSharedVehicle)) {
-                selectTram(pendingSharedVehicle)
+                selectVehicle(pendingSharedVehicle)
+                followingRef.current = true
+                setFollowing(true)
+                map.setFollow(pendingSharedVehicle)
                 pendingSharedVehicle = null
               } else if (now > sharedVehicleDeadline) {
                 pendingSharedVehicle = null
@@ -321,8 +462,30 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
+              setSimSeconds(clock.secondsOfDay())
               setCameraIs2D(map.getCameraView().pitch < -85)
-              setTramCount(
+              // Rain: only with live precipitation AND a sim clock near the
+              // real time – time travel must not show today's weather.
+              const nearRealTime = weatherIsCurrent(
+                clock.secondsOfDay(),
+                berlinSecondsOfDay(Date.now()),
+                config.weather.maxSimTimeDriftSeconds,
+              )
+              // Below ground there is no weather: no drops falling around the
+              // camera, and no overcast grade on a city seen from underneath.
+              const weatherVisible = !undergroundRef.current
+              const rain = rainRef.current
+              const rainNow =
+                weatherVisible && rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
+              map.setRain(rainNow)
+              rainActiveRef.current = rainNow > 0
+              // Same gate for the overcast grade – a grey sky is as much
+              // "now" as the rain is.
+              const cloud = cloudRef.current
+              map.setCloudCover(
+                weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
+              )
+              setVehicleCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
               const selId = selectedIdRef.current
@@ -330,7 +493,7 @@ export default function App() {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
                 if (!snap) {
                   // Trip ended → clear the selection
-                  selectTram(null)
+                  selectVehicle(null)
                 } else {
                   setSelected(snap)
                 }
@@ -356,14 +519,19 @@ export default function App() {
           //   slow heartbeat runs. A truly idle map renders nothing – even
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
-          const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-          const animating = lastAnyTramInView && !clock.paused
-          const renderInterval = hints.interacting
-            ? 15
-            : animating || hints.tilesLoading
-              ? 33
-              : 15000
-          if (map.consumeRenderRequest() || now - lastRender >= renderInterval) {
+          const hints = render
+            ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+            : null
+          // Falling rain is an animation too – even with the sim paused
+          const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+          const renderInterval = !hints
+            ? Number.POSITIVE_INFINITY
+            : hints.interacting
+              ? 15
+              : animating || hints.tilesLoading
+                ? 33
+                : 15000
+          if (hints && (map.consumeRenderRequest() || now - lastRender >= renderInterval)) {
             lastRender = now
             map.render()
             renderTimes.push(now)
@@ -379,24 +547,54 @@ export default function App() {
           console.error('Render loop error:', error)
         }
       }
+    }
+
+    const loop = (now: number) => {
+      runFrame(now)
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
 
+    // Timers keep firing when the compositor stops handing out frames, so a
+    // stalled rAF no longer freezes the simulation (see RAF_STALL_MS). While
+    // rAF is healthy this only compares two timestamps – no tick, no render,
+    // and therefore no periodic GPU load on an idle map.
+    const rafWatchdog = window.setInterval(() => {
+      if (document.hidden) return
+      const now = performance.now()
+      if (now - lastFrameAt >= RAF_STALL_MS) runFrame(now, false)
+    }, RAF_WATCHDOG_INTERVAL_MS)
+
     // Test/debug API
     const api: MrtTestApi = {
       ready: true,
-      tramCount: () => snapshotsRef.current.length,
-      visibleTramCount: () =>
+      vehicleCount: () => snapshotsRef.current.length,
+      visibleVehicleCount: () =>
         snapshotsRef.current.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
-      trams: () => snapshotsRef.current,
+      vehicles: () => snapshotsRef.current,
       setTime: (hhmm: string) => {
         const sec = parseTimeOfDay(hhmm)
         if (sec !== null) clock.setSecondsOfDay(sec)
       },
       setSpeed: (s: number) => clock.setSpeed(s),
-      setPaused: (p: boolean) => clock.setPaused(p),
-      selectTram,
+      setPaused: (p: boolean) => {
+        clock.setPaused(p)
+        pausedRef.current = p
+        setPaused(p)
+      },
+      setRealtimeDelays: (delays: Record<string, number>) => {
+        sim.setRealtimeDelays(new Map(Object.entries(delays)))
+      },
+      setRain: (precipitationMm: number) => {
+        rainRef.current = { mm: precipitationMm, forced: precipitationMm > 0 }
+      },
+      setCloudCover: (cloudCoverPercent: number) => {
+        cloudRef.current = { percent: cloudCoverPercent, forced: cloudCoverPercent > 0 }
+      },
+      rainDropsVisible: () => map.getRainDropsVisible(),
+      selectVehicle,
+      selectedVehicleId: () => selectedIdRef.current,
+      vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
@@ -404,10 +602,29 @@ export default function App() {
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
-      anyTramInView: () => lastAnyTramInView,
-      renderRate: () => renderTimes.length / 5,
-      tramBoxDriftMeters: () => map.getTramBoxDriftMeters(),
-      tramOpacity: (id: string) => map.getTramOpacity(id),
+      anyVehicleInView: () => lastAnyVehicleInView,
+      renderRate: () => {
+        // Prune on read, not only when a frame is drawn: otherwise the
+        // value freezes at its last level the moment rendering stops, and
+        // an idle loop keeps reporting the rate it had while it was busy.
+        const cutoff = performance.now() - 5000
+        while (renderTimes.length > 0 && renderTimes[0] < cutoff) renderTimes.shift()
+        return renderTimes.length / 5
+      },
+      renderPacing: () => {
+        const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+        const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+        return {
+          animating,
+          rainActive: rainActiveRef.current,
+          vehicleInView: lastAnyVehicleInView,
+          interacting: hints.interacting,
+          tilesLoading: hints.tilesLoading,
+          intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
+        }
+      },
+      vehicleBoxDriftMeters: () => map.getVehicleBoxDriftMeters(),
+      vehicleOpacity: (id: string) => map.getVehicleOpacity(id),
       tunnelTransition: () => {
         // Debug-only probe for E2E: step through service time until the same
         // active trip is found once inside and once outside a tunnel.
@@ -429,10 +646,12 @@ export default function App() {
 
     return () => {
       cancelAnimationFrame(rafId)
+      window.clearInterval(rafWatchdog)
       window.removeEventListener('pagehide', writeHash)
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
+      weatherClient?.stop()
       window.__mrt = undefined
       map.destroy()
       mapRef.current = null
@@ -479,13 +698,17 @@ export default function App() {
       showRoutesRef.current = visible
       setShowRoutes(visible)
       applyRouteVisibility()
+      // Discrete event – the shareable URL updates immediately
+      writeHashRef.current()
     },
     [applyRouteVisibility],
   )
 
   const handleToggleStops = useCallback((visible: boolean) => {
+    showStopsRef.current = visible
     setShowStops(visible)
     mapRef.current?.setStopsVisible(visible)
+    writeHashRef.current()
   }, [])
 
   const handleSpeedChange = useCallback((value: number) => {
@@ -496,6 +719,8 @@ export default function App() {
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
       simRef.current?.clock.setPaused(!prev)
+      pausedRef.current = !prev
+      writeHashRef.current()
       return !prev
     })
   }, [])
@@ -527,6 +752,16 @@ export default function App() {
     mapRef.current?.setCameraHome(true)
   }, [])
 
+  /** Toggle between the normal view and the underground one. */
+  const handleToggleUnderground = useCallback(() => {
+    setUnderground((wasUnderground) => {
+      const next = !wasUnderground
+      undergroundRef.current = next
+      mapRef.current?.setUnderground(next)
+      return next
+    })
+  }, [])
+
   /** Toggle between the tilted 3D view (pitch -60°) and top-down 2D (-90°). */
   const handleToggleViewMode = useCallback(() => {
     const map = mapRef.current
@@ -552,6 +787,19 @@ export default function App() {
     map.setCameraOrientation({ headingDeg: 0 })
   }, [])
 
+  /** Fly the camera to a stop of the selected vehicle's trip. */
+  const handleFlyToStop = useCallback((stop: TripStop) => {
+    const map = mapRef.current
+    if (!map) return
+    // A camera flight and the follow chase would fight – stop following
+    if (followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      map.setFollow(null)
+    }
+    map.flyToStop(stop.lon, stop.lat, stop.nhn)
+  }, [])
+
   /** Fly the camera to a line's route (keeps the compass heading). */
   const handleFocusLine = useCallback(
     (lineId: string) => {
@@ -570,13 +818,34 @@ export default function App() {
     [handleSetLinesVisible],
   )
 
+  /**
+   * Which lines serve a stop – the same relation the stop name plates on the
+   * map show ("Kröpeliner Tor (1, 4, 5, 6)"). The vehicle card reads the
+   * interchange options for the next stop out of it.
+   */
+  const stopLines = useMemo(() => {
+    const byStop = new Map<string, { id: string; color: string }[]>()
+    for (const line of network.lines) {
+      for (const dir of line.directions) {
+        for (const stop of dir.stops) {
+          const serving = byStop.get(stop.id)
+          if (!serving) byStop.set(stop.id, [{ id: line.id, color: line.color }])
+          else if (!serving.some((l) => l.id === line.id)) {
+            serving.push({ id: line.id, color: line.color })
+          }
+        }
+      }
+    }
+    return byStop
+  }, [network])
+
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
     () =>
       network.lines.map((line) => ({
         id: line.id,
-        name: line.name,
+        name: localizeLineName(line.name),
         color: line.color,
         mode: line.mode,
         from: line.directions[0].from,
@@ -588,7 +857,15 @@ export default function App() {
 
   // Badge only as a warning for approximated geometry; real OSM data (the
   // normal case) needs no callout in the panel.
-  const dataSource = network.meta.source === 'osm' ? null : 'Demo data (approximated)'
+  const dataSource = network.meta.source === 'osm' ? null : t('status.demoData')
+
+  // All stops of the selected trip plus the vehicle's position among them.
+  // `selected` is refreshed on every UI tick, so the position marker and
+  // the passed-stop dimming track the vehicle.
+  const tripProgress = useMemo(
+    () => (selected ? (simRef.current?.tripProgress(selected.id) ?? null) : null),
+    [selected],
+  )
 
   const offlineMode =
     typeof window !== 'undefined' &&
@@ -617,7 +894,7 @@ export default function App() {
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}
           onToggleStops={handleToggleStops}
-          tramCount={tramCount}
+          vehicleCount={vehicleCount}
           tilesetStatus={tilesetStatus}
           dataSource={dataSource}
           realtimeStatus={realtimeStatus}
@@ -627,47 +904,89 @@ export default function App() {
       {selected && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VehicleCard
-            tram={selected}
+            vehicle={selected}
+            tripProgress={tripProgress}
+            simSeconds={simSeconds}
+            stopLines={stopLines}
+            onFlyToStop={handleFlyToStop}
             following={following}
             onToggleFollow={handleToggleFollow}
-            onClose={() => selectTram(null)}
+            onClose={() => selectVehicle(null)}
           />
         </div>
       )}
 
-      {/* Map controls: 2D/3D, face north, camera reset. bottom-8 keeps them
-          clear of the Cesium attribution line at the lower screen edge. */}
+      {/* Map controls: underground, 2D/3D, face north, camera reset. bottom-8
+          keeps them clear of the Cesium attribution line at the lower edge. */}
       <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-          title={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
-          aria-label={cameraIs2D ? 'Switch to 3D view' : 'Switch to 2D view'}
-          onClick={handleToggleViewMode}
-        >
-          {cameraIs2D ? '3D' : '2D'}
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title="Face north"
-          aria-label="Face north"
-          onClick={handleFaceNorth}
-        >
-          <Compass aria-hidden />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-          title="Reset camera"
-          aria-label="Reset camera"
-          onClick={handleResetCamera}
-        >
-          <Home aria-hidden />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              // The active state has to beat the shared bg-card/85 below,
+              // which tailwind-merge would otherwise let win over a variant.
+              className={cn(
+                'pointer-events-auto border border-border/60 backdrop-blur-md',
+                underground
+                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+                  : 'bg-card/85',
+              )}
+              aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
+              aria-pressed={underground}
+              onClick={handleToggleUnderground}
+            >
+              {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
+              aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+              onClick={handleToggleViewMode}
+            >
+              {cameraIs2D ? '3D' : '2D'}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+              aria-label={t('camera.faceNorth')}
+              onClick={handleFaceNorth}
+            >
+              <Compass aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+              aria-label={t('camera.reset')}
+              onClick={handleResetCamera}
+            >
+              <Home aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

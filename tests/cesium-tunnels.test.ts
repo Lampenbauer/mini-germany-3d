@@ -8,12 +8,15 @@ import {
   JulianDate,
   PerInstanceColorAppearance,
   Primitive,
+  type Viewer,
 } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
-import type { TramSnapshot } from '@/engine/simulation'
-import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
+import type { VehicleSnapshot } from '@/engine/simulation'
+import { RoutesLayer } from '@/map/RoutesLayer'
+import { routeTunnelOpacity, TUNNEL_VISIBILITY } from '@/map/tunnel-view'
+import { VehicleLayer } from '@/map/VehicleLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -32,27 +35,42 @@ interface AddedRoute {
   }
 }
 
-/** CesiumMap with a stubbed viewer that records added route entities. */
-function mapWithFakeRouteViewer(added: AddedRoute[]): CesiumMap {
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    viewer: {
-      entities: {
-        add: (options: Omit<AddedRoute, 'show'>) => {
-          const entity = { ...options, show: true }
-          added.push(entity)
-          return entity
-        },
+/** Routes layer on a stubbed viewer that records added route entities. */
+function routesWithFakeViewer(added: AddedRoute[]): RoutesLayer {
+  const viewer = {
+    entities: {
+      add: (options: Omit<AddedRoute, 'show'>) => {
+        const entity = { ...options, show: true }
+        added.push(entity)
+        return entity
       },
-      creditDisplay: { addStaticCredit: vi.fn() },
     },
-    routeEntities: new Map(),
-    linePaths: new Map(),
-    heightRoutePieces: [],
-    // offline: keeps the ground-clamped route branch these tests inspect
-    opts: { offline: true },
+    creditDisplay: { addStaticCredit: vi.fn() },
+  } as unknown as Viewer
+  // offline: keeps the ground-clamped route branch these tests inspect
+  return new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
+}
+
+/** Real VehicleLayer on a stub viewer for the appearance/tunnel checks. */
+function vehicleLayer(): VehicleLayer {
+  const viewer = {
+    scene: { primitives: { add: (primitive: Primitive) => primitive } },
+    entities: {
+      add: (options: Entity.ConstructorOptions) => new Entity(options),
+      remove: () => {},
+    },
+  } as unknown as Viewer
+  return new VehicleLayer(viewer, {
+    requestRender: () => {},
+    sampleGroundHeight: () => undefined,
+    defaultGroundHeight: 0,
+    routeHeightOffset: 36.5,
+    nightFactor: 0,
+    pixelRatio: 1,
+    offline: true,
+    fixedGroundHeight: undefined,
+    noteCameraFlight: () => {},
   })
-  return map
 }
 
 const routeOpacities = (added: AddedRoute[]): number[] =>
@@ -61,7 +79,7 @@ const routeOpacities = (added: AddedRoute[]): number[] =>
     return (property?.getValue(JulianDate.now()) as Color).alpha
   })
 
-/** Fake record for applyTramAppearance (label as a plain property bag). */
+/** Fake record for applyVehicleAppearance (label as a plain property bag). */
 function fakeRecord(overrides: Record<string, unknown> = {}) {
   const attributes = { color: ColorGeometryInstanceAttribute.toValue(Color.RED) }
   return {
@@ -81,17 +99,17 @@ function fakeRecord(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const applyTramAppearance = (map: CesiumMap, tramId: string): boolean =>
+const applyVehicleAppearance = (map: VehicleLayer, vehicleId: string): boolean =>
   (
-    map as unknown as { applyTramAppearance: (tramId: string) => boolean }
-  ).applyTramAppearance(tramId)
+    map as unknown as { applyVehicleAppearance: (vehicleId: string) => boolean }
+  ).applyVehicleAppearance(vehicleId)
 
 describe('Cesium tunnel rendering', () => {
   it('renders route pieces at full / tunnel-dimmed / full opacity (mirrored line drawn once)', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testTunnelNetworkJson))
+    routes.add(prepareNetwork(testTunnelNetworkJson))
 
     // Direction 1 is an exact mirror (path and tunnel ranges) → only
     // direction 0 is drawn, split at the tunnel portals.
@@ -106,15 +124,15 @@ describe('Cesium tunnel rendering', () => {
     expect(opacities[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY)
     expect(opacities[2]).toBeCloseTo(0.85)
 
-    map.setLineRouteVisible('U', false)
+    routes.setLineVisible('U', false)
     expect(added.every((entity) => !entity.show)).toBe(true)
   })
 
   it('draws both directions when their tunnel layouts differ', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testAsymmetricTunnelNetworkJson))
+    routes.add(prepareNetwork(testAsymmetricTunnelNetworkJson))
 
     // Identical (reversed) geometry, but asymmetric tunnel tagging: the old
     // length/endpoint heuristic collapsed this into one direction and lost
@@ -136,10 +154,10 @@ describe('Cesium tunnel rendering', () => {
   it('keeps the tunnel alpha on body and label while selecting and deselecting in a tunnel', () => {
     const record = fakeRecord()
     const { attributes } = record
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { selectedId: null, trams: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
-    expect(applyTramAppearance(map, 'vehicle')).toBe(true)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(record.appearance.translucent).toBe(true)
     expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
     expect(record.labelEntity.label.fillColor?.getValue().alpha).toBeCloseTo(TUNNEL_VISIBILITY)
@@ -157,22 +175,10 @@ describe('Cesium tunnel rendering', () => {
   })
 
   it('uses an opaque base render state when a vehicle spawns inside a tunnel', () => {
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, {
-      defaultGroundHeight: 0,
-      selectedId: null,
-      viewer: {
-        scene: {
-          primitives: { add: (primitive: Primitive) => primitive },
-        },
-        entities: {
-          add: (options: Entity.ConstructorOptions) => new Entity(options),
-        },
-      },
-    })
+    const map = vehicleLayer()
     // A box-body mode: tram/train use glTF models, whose appearance path
     // has no appearance/render state (covered by the model branch).
-    const snapshot: TramSnapshot = {
+    const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
       lineName: 'Tunnellinie',
@@ -194,12 +200,12 @@ describe('Cesium tunnel rendering', () => {
 
     const record = (
       map as unknown as {
-        createTramEntity: (snap: TramSnapshot) => {
+        createVehicleEntity: (snap: VehicleSnapshot) => {
           primitive: Primitive
           appearance: PerInstanceColorAppearance
         }
       }
-    ).createTramEntity(snapshot)
+    ).createVehicleEntity(snapshot)
     const instance = record.primitive.geometryInstances as GeometryInstance
     const color = instance.attributes?.color as ColorGeometryInstanceAttribute
 
@@ -222,15 +228,72 @@ describe('Cesium tunnel rendering', () => {
         }),
       },
     })
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { trams: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
-    expect(applyTramAppearance(map, 'vehicle')).toBe(false)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(false)
     // The translucent flag is applied even before the first render.
     expect(record.appearance.translucent).toBe(true)
 
     ready = true
-    expect(applyTramAppearance(map, 'vehicle')).toBe(true)
+    expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+  })
+})
+
+describe('underground view', () => {
+  it('swaps ghosted and solid route pieces', () => {
+    const added: AddedRoute[] = []
+    const routes = routesWithFakeViewer(added)
+    routes.add(prepareNetwork(testTunnelNetworkJson))
+
+    // Normal: surface solid, the tunnel piece in the middle ghosted
+    expect(routeOpacities(added)).toEqual([
+      expect.closeTo(0.85, 5),
+      expect.closeTo(0.85 * TUNNEL_VISIBILITY, 5),
+      expect.closeTo(0.85, 5),
+    ])
+
+    routes.setUnderground(true)
+    // Underground: the other way round – and the ghosted surface goes
+    // fainter than a ghosted tunnel does, because it now lies on a
+    // darkened city instead of a bright one.
+    const ghost = 0.85 * routeTunnelOpacity(false, true)
+    expect(ghost).toBeLessThan(0.85 * TUNNEL_VISIBILITY)
+    expect(routeOpacities(added)).toEqual([
+      expect.closeTo(ghost, 5),
+      expect.closeTo(0.85, 5),
+      expect.closeTo(ghost, 5),
+    ])
+
+    routes.setUnderground(false)
+    expect(routeOpacities(added)[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY, 5)
+  })
+
+  it('swaps the vehicle opacity and marks the records for repaint', () => {
+    const map = vehicleLayer()
+    const surface = fakeRecord({ inTunnel: false, appearanceDirty: false })
+    const tunnel = fakeRecord({ inTunnel: true, appearanceDirty: false })
+    const vehicles = (map as unknown as { vehicles: Map<string, unknown> }).vehicles
+    vehicles.set('surface', surface)
+    vehicles.set('tunnel', tunnel)
+
+    applyVehicleAppearance(map, 'surface')
+    applyVehicleAppearance(map, 'tunnel')
+    expect(surface.attributes.color[3]).toBe(255)
+    expect(tunnel.attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+
+    map.setUnderground(true)
+    // Every record needs repainting – sync() picks that up
+    expect(surface.appearanceDirty).toBe(true)
+    expect(tunnel.appearanceDirty).toBe(true)
+
+    applyVehicleAppearance(map, 'surface')
+    applyVehicleAppearance(map, 'tunnel')
+    expect(surface.attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+    expect(tunnel.attributes.color[3]).toBe(255)
+    // The ghosted half is the translucent one, whichever side that is
+    expect(surface.appearance.translucent).toBe(true)
+    expect(tunnel.appearance.translucent).toBe(false)
   })
 })

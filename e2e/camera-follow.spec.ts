@@ -11,7 +11,7 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
 
   await page.goto('/?offline=1&time=08:30&paused=1')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.tramCount() > 0,
+    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
@@ -32,8 +32,8 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
     )
     .toBeGreaterThan(ticksBefore)
 
-  const tram = await page.evaluate(() => window.__mrt!.trams()[0])
-  await page.evaluate((id) => window.__mrt!.selectTram(id), tram.id)
+  const tram = await page.evaluate(() => window.__mrt!.vehicles()[0])
+  await page.evaluate((id) => window.__mrt!.selectVehicle(id), tram.id)
   // force: Playwright's actionability retry can land on the canvas under
   // SwiftShader load and thereby close the selection (click on empty map).
   await page.getByRole('button', { name: 'Follow tram' }).click({ force: true })
@@ -45,13 +45,13 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
   await expect
     .poll(
       async () => {
-        const state = await page.evaluate((tramId) => {
+        const state = await page.evaluate((vehicleId) => {
           const camera = window.__cesiumViewer!.camera.positionCartographic
-          const tramNow = window.__mrt!.trams().find(({ id }) => id === tramId)
+          const tramNow = window.__mrt!.vehicles().find(({ id }) => id === vehicleId)
           if (!tramNow) {
             return {
               dist: Number.POSITIVE_INFINITY,
-              loopError: `Selected vehicle ${tramId} is no longer active`,
+              loopError: `Selected vehicle ${vehicleId} is no longer active`,
             }
           }
           const camLat = (camera.latitude * 180) / Math.PI
@@ -72,6 +72,14 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
       { timeout: 45_000, intervals: [500, 1000] },
     )
     .toBeLessThan(1500)
+
+  // NOTE: the pointer-on-hover cursor is deliberately not asserted here.
+  // It is decided by scene.pick(), and under SwiftShader on CI that pick
+  // does not reliably report the vehicle at the pixel the same frame
+  // projects it to - two attempts at stabilising this cost two red runs
+  // (a pick-grid search that never finished, then a fresh-mousemove theory
+  // that measurement disproved). The behaviour is verified by hand; a
+  // headless assertion for it needs a different angle than a real cursor.
 
   await page.getByRole('button', { name: 'Stop following' }).click({ force: true })
   await page.getByRole('button', { name: 'Close selection' }).click({ force: true })
