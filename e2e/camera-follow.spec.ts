@@ -73,6 +73,49 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
     )
     .toBeLessThan(1500)
 
+  // Hover cursor: with the camera right behind the vehicle it is large on
+  // screen, which makes this the cheap place to check the pointer without
+  // booting another Cesium instance. The chase camera keeps easing, so the
+  // vehicle drifts a few pixels between locating it and moving the mouse –
+  // hence locate and move in one poll instead of once up front.
+  const cursor = () =>
+    page.evaluate(
+      () => (document.querySelector('canvas') as HTMLCanvasElement).style.cursor || '',
+    )
+  const vehiclePixel = () =>
+    page.evaluate(() => {
+      const viewer = window.__cesiumViewer as unknown as {
+        scene: { pick: (p: { x: number; y: number }) => unknown }
+      }
+      for (let y = 250; y < 650; y += 12) {
+        for (let x = 450; x < 1100; x += 12) {
+          const picked = viewer.scene.pick({ x, y }) as { id?: unknown } | undefined
+          const id = picked?.id
+          const asString =
+            typeof id === 'string' ? id : ((id as { id?: string } | undefined)?.id ?? '')
+          if (asString.startsWith('vehicle:')) return { x, y }
+        }
+      }
+      return null
+    })
+
+  await expect
+    .poll(
+      async () => {
+        const spot = await vehiclePixel()
+        if (!spot) return 'kein Fahrzeug im Blick'
+        await page.mouse.move(spot.x, spot.y)
+        await page.waitForTimeout(200)
+        return cursor()
+      },
+      { timeout: 45_000, intervals: [500, 1000] },
+    )
+    .toBe('pointer')
+
+  // Off the vehicle it goes back to the default cursor
+  await page.mouse.move(640, 60)
+  await expect.poll(cursor, { timeout: 15_000 }).toBe('')
+
   await page.getByRole('button', { name: 'Stop following' }).click({ force: true })
   await page.getByRole('button', { name: 'Close selection' }).click({ force: true })
   await expect(page.getByTestId('vehicle-card')).not.toBeVisible()

@@ -117,6 +117,13 @@ const GLOW_SUN_FULL = -0.17
 const UNDERGROUND_DIM = 0.02
 
 /**
+ * Minimum gap between two hover picks in ms. A pick is an offscreen render
+ * of a small region, so one per mouse-move event would put a real cost on a
+ * cursor change; ~20/s is far more than the eye needs.
+ */
+const HOVER_PICK_INTERVAL_MS = 50
+
+/**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
  * (KHR_materials_unlit – daylight is baked into the photo textures), so the
  * scene's sun cannot shade them; instead the baked color is blended toward
@@ -225,6 +232,11 @@ export class CesiumMap {
   private readonly vehicleLayer: VehicleLayer
   /** Underground view (see setUnderground). */
   private underground = false
+  /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
+  private lastHoverPickAt = 0
+  private hoverPickTimer: number | null = null
+  private hoverPosition: Cartesian2 | null = null
+  private hoveringVehicle = false
   private handler: ScreenSpaceEventHandler
   private destroyed = false
   private googleTileset: Cesium3DTileset | null = null
@@ -404,18 +416,51 @@ export class CesiumMap {
 
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
-      const picked = scene.pick(movement.position) as { id?: unknown } | undefined
-      const pickedId = picked?.id
-      // Vehicle-body primitives return the instance id as a string, the
-      // number label an Entity – both carry the "tram:" prefix.
-      let vehicleId: string | null = null
-      if (pickedId instanceof Entity && pickedId.id.startsWith('vehicle:')) {
-        vehicleId = pickedId.id.slice('vehicle:'.length)
-      } else if (typeof pickedId === 'string' && pickedId.startsWith('vehicle:')) {
-        vehicleId = pickedId.slice('vehicle:'.length)
-      }
-      this.opts.onSelectVehicle?.(vehicleId)
+      this.opts.onSelectVehicle?.(this.pickVehicleId(movement.position))
     }, ScreenSpaceEventType.LEFT_CLICK)
+
+    // Hover: turn the cursor into a pointer over a vehicle, so it reads as
+    // clickable. scene.pick() renders a small offscreen region, which is
+    // not free under software rendering, so the picks are rate-limited –
+    // but with a trailing evaluation, never by dropping events: the last
+    // move before the mouse comes to rest is exactly the one that decides
+    // the cursor, and a plain throttle would swallow it.
+    this.handler.setInputAction((movement: { endPosition: Cartesian2 }) => {
+      this.hoverPosition = Cartesian2.clone(movement.endPosition, this.hoverPosition ?? undefined)
+      if (this.hoverPickTimer !== null) return
+      const wait = Math.max(0, HOVER_PICK_INTERVAL_MS - (performance.now() - this.lastHoverPickAt))
+      this.hoverPickTimer = window.setTimeout(() => {
+        this.hoverPickTimer = null
+        this.applyHoverCursor()
+      }, wait)
+    }, ScreenSpaceEventType.MOUSE_MOVE)
+  }
+
+  /** Pointer over a vehicle, default cursor otherwise (see the MOUSE_MOVE hook). */
+  private applyHoverCursor(): void {
+    if (this.destroyed || !this.hoverPosition) return
+    this.lastHoverPickAt = performance.now()
+    const overVehicle = this.pickVehicleId(this.hoverPosition) !== null
+    if (overVehicle === this.hoveringVehicle) return
+    this.hoveringVehicle = overVehicle
+    this.viewer.scene.canvas.style.cursor = overVehicle ? 'pointer' : ''
+  }
+
+  /**
+   * Vehicle id under a screen position, or null. Body primitives return
+   * their instance id as a string, the number label an Entity – both carry
+   * the "vehicle:" prefix.
+   */
+  private pickVehicleId(position: Cartesian2): string | null {
+    const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
+    const pickedId = picked?.id
+    if (pickedId instanceof Entity && pickedId.id.startsWith('vehicle:')) {
+      return pickedId.id.slice('vehicle:'.length)
+    }
+    if (typeof pickedId === 'string' && pickedId.startsWith('vehicle:')) {
+      return pickedId.slice('vehicle:'.length)
+    }
+    return null
   }
 
   private async loadGoogleTiles(): Promise<void> {
@@ -1003,6 +1048,7 @@ export class CesiumMap {
 
   destroy(): void {
     this.destroyed = true
+    if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()
