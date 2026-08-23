@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CesiumMap, cloudOvercastGrade } from '@/map/CesiumMap'
+import type { Viewer } from 'cesium'
+import { cloudOvercastGrade, WeatherOverlay } from '@/map/WeatherOverlay'
 
 let clockMs = 0
 
@@ -12,39 +13,41 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** CesiumMap stub instance for the cloud grade (no WebGL, no canvas). */
+/**
+ * The overlay only needs a scene to hook frame listeners into, so it goes
+ * through its real constructor here – no prototype surgery, no private
+ * fields to keep in sync.
+ */
 function cloudHarness() {
   const setUniform = vi.fn()
   const listeners: (() => void)[] = []
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    cloudTint: 0,
-    cloudTintTarget: 0,
-    lastCloudUpdateMs: 0,
-    removeCloudListener: null,
-    tileShader: { setUniform },
-    renderRequested: false,
-    viewer: {
-      scene: {
-        preUpdate: {
-          addEventListener: (l: () => void) => listeners.push(l),
-          removeEventListener: (l: () => void) => {
-            const i = listeners.indexOf(l)
-            if (i >= 0) listeners.splice(i, 1)
-          },
+  const viewer = {
+    scene: {
+      preUpdate: {
+        addEventListener: (l: () => void) => listeners.push(l),
+        removeEventListener: (l: () => void) => {
+          const i = listeners.indexOf(l)
+          if (i >= 0) listeners.splice(i, 1)
         },
       },
     },
-  })
+  } as unknown as Viewer
+  const requestRender = vi.fn()
+  const overlay = new WeatherOverlay(viewer, requestRender)
+  overlay.attachTileShader({ setUniform } as never)
+
   /** Runs the frame listeners the way scene.preUpdate would. */
   const frame = (ms: number) => {
     clockMs += ms
     for (const listener of [...listeners]) listener()
   }
-  return { map, setUniform, listeners, frame }
+  /** Grade currently pushed into the shader. */
+  const graded = () => {
+    const call = [...setUniform.mock.calls].reverse().find((c) => c[0] === 'u_cloudFactor')
+    return call?.[1] as number | undefined
+  }
+  return { overlay, setUniform, listeners, frame, graded, requestRender }
 }
-
-const tintOf = (map: CesiumMap) => (map as unknown as { cloudTint: number }).cloudTint
 
 describe('cloudOvercastGrade', () => {
   it('keeps an open sky ungraded up to the threshold', () => {
@@ -69,14 +72,14 @@ describe('cloudOvercastGrade', () => {
 
 describe('cloud overcast grade on the tiles', () => {
   it('eases the grade in and stops at the target', () => {
-    const { map, setUniform, frame } = cloudHarness()
+    const { overlay, setUniform, frame, graded } = cloudHarness()
 
-    map.setCloudCover(100)
+    overlay.setCloudCover(100)
     let previous = 0
     // 6 s fade at 100 ms per frame
     for (let i = 0; i < 80; i++) {
       frame(100)
-      const tint = setUniform.mock.lastCall?.[1] as number
+      const tint = graded() as number
       expect(tint).toBeGreaterThanOrEqual(previous)
       previous = tint
     }
@@ -85,59 +88,69 @@ describe('cloud overcast grade on the tiles', () => {
   })
 
   it('unhooks its frame listener once the sky has settled', () => {
-    const { map, listeners, frame } = cloudHarness()
+    const { overlay, listeners, frame, graded } = cloudHarness()
 
-    map.setCloudCover(80)
+    overlay.setCloudCover(80)
     expect(listeners).toHaveLength(1)
     for (let i = 0; i < 80; i++) frame(100)
     // A settled sky must not keep requesting frames
     expect(listeners).toHaveLength(0)
-    expect(tintOf(map)).toBeCloseTo(cloudOvercastGrade(80), 5)
+    expect(graded()).toBeCloseTo(cloudOvercastGrade(80), 5)
   })
 
   it('fades back out when the sky clears', () => {
-    const { map, frame } = cloudHarness()
+    const { overlay, frame, graded } = cloudHarness()
 
-    map.setCloudCover(100)
+    overlay.setCloudCover(100)
     for (let i = 0; i < 80; i++) frame(100)
-    expect(tintOf(map)).toBeGreaterThan(0)
+    expect(graded()).toBeGreaterThan(0)
 
-    map.setCloudCover(0)
+    overlay.setCloudCover(0)
     for (let i = 0; i < 80; i++) frame(100)
-    expect(tintOf(map)).toBe(0)
+    expect(graded()).toBe(0)
   })
 
   it('retargets a fade in flight instead of hooking a second listener', () => {
-    const { map, listeners, frame } = cloudHarness()
+    const { overlay, listeners, frame, graded } = cloudHarness()
 
-    map.setCloudCover(100)
+    overlay.setCloudCover(100)
     frame(100)
-    map.setCloudCover(60)
+    overlay.setCloudCover(60)
     expect(listeners).toHaveLength(1)
     for (let i = 0; i < 80; i++) frame(100)
-    expect(tintOf(map)).toBeCloseTo(cloudOvercastGrade(60), 5)
+    expect(graded()).toBeCloseTo(cloudOvercastGrade(60), 5)
   })
 
   it('is a no-op for unchanged cover (called 4x/s from the UI tick)', () => {
-    const { map, listeners, frame } = cloudHarness()
+    const { overlay, listeners, frame } = cloudHarness()
 
-    map.setCloudCover(90)
+    overlay.setCloudCover(90)
     for (let i = 0; i < 80; i++) frame(100)
     expect(listeners).toHaveLength(0)
 
-    map.setCloudCover(90)
-    expect(listeners).toHaveLength(0)
-    // Values below the threshold all mean the same open sky
-    map.setCloudCover(90.0)
+    overlay.setCloudCover(90)
     expect(listeners).toHaveLength(0)
   })
 
   it('treats every cover below the threshold as the same open sky', () => {
-    const { map, listeners } = cloudHarness()
+    const { overlay, listeners } = cloudHarness()
 
-    map.setCloudCover(10)
+    overlay.setCloudCover(10)
     expect(listeners).toHaveLength(0)
-    map.setCloudCover(35)
+    overlay.setCloudCover(35)
     expect(listeners).toHaveLength(0)
+  })
+
+  it('pushes a grade that arrived before the tiles into the fresh shader', () => {
+    const { overlay, frame } = cloudHarness()
+
+    overlay.setCloudCover(100)
+    for (let i = 0; i < 80; i++) frame(100)
+
+    // Tiles reloaded → new shader, and it must not start clear again
+    const setUniform = vi.fn()
+    overlay.attachTileShader({ setUniform } as never)
+    expect(setUniform).toHaveBeenCalledWith('u_cloudFactor', expect.closeTo(0.5, 5))
+    expect(setUniform).toHaveBeenCalledWith('u_rainFactor', 0)
   })
 })
