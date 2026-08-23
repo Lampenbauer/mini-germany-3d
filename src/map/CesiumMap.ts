@@ -8,8 +8,6 @@
  */
 
 import {
-  BillboardCollection,
-  BlendOption,
   BoundingSphere,
   BoxGeometry,
   CallbackProperty,
@@ -30,7 +28,6 @@ import {
   GridImageryProvider,
   HeadingPitchRange,
   HeadingPitchRoll,
-  HorizontalOrigin,
   Intersect,
   Ion,
   JulianDate,
@@ -43,20 +40,18 @@ import {
   PerInstanceColorAppearance,
   PlaneGeometry,
   Primitive,
-  SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Simon1994PlanetaryPositions,
   Transforms,
   UniformType,
   VertexFormat,
-  VerticalOrigin,
   Viewer,
   createGooglePhotorealistic3DTileset,
-  type Billboard,
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
+import { StopsLayer } from './StopsLayer'
 import {
   CLOUD_UNIFORM,
   RAIN_UNIFORM,
@@ -143,45 +138,6 @@ interface VehicleRecord {
   glowScale: Cartesian3
 }
 
-interface StopEntityRecord {
-  /** Disc marker – a billboard in stopBillboards, added before all names. */
-  disc: Billboard
-  /** Name plate – a billboard in stopBillboards, added after all discs. */
-  label: Billboard
-  /**
-   * Half the rendered name plate width in CSS px – the screen-space
-   * rectangle for the label declutter.
-   */
-  labelHalfWidth: number
-  /** Ids of all lines serving this stop (stops are shared across lines). */
-  lines: string[]
-  /**
-   * At least one serving line is currently shown – drives disc/label
-   * visibility together with the global stops layer toggle.
-   */
-  lineVisible: boolean
-  lon: number
-  lat: number
-  /** Fixed world position of the stop – basis for the camera distance check. */
-  position: Cartesian3
-  /**
-   * Camera distance in meters at which the currently applied height was
-   * measured. Infinity = not measured yet, 0 = measured most-detailed
-   * (final, no camera-dependent measurement may override it).
-   */
-  sampledFrom: number
-  /**
-   * Timestamp before which no new attempt is made – set when a measurement
-   * found no queryable tile, so a handful of unreachable stops right in
-   * front of the camera cannot monopolize the per-pass budget.
-   */
-  retryAfter: number
-  /**
-   * Terrain height in meters NHN from network.json (DGM) – paired with the
-   * sampled tile height to calibrate the route height offset.
-   */
-  nhn?: number
-}
 
 /**
  * Ellipsoidal height of Rostock's streets while no tile height has been
@@ -197,54 +153,6 @@ const FALLBACK_GROUND_HEIGHT = 45
  */
 const HEIGHT_SAMPLE_INTERVAL = 12
 
-/**
- * A stop height is re-measured once the camera has come this much closer
- * than at the previous measurement (0.7 = 30 % closer). Tile heights are
- * LOD-dependent, so a closer camera yields a measurably better value.
- */
-const STOP_RESAMPLE_RATIO = 0.7
-
-/** Stop heights measured per pass (one ray intersection each). */
-const STOP_HEIGHT_BUDGET = 4
-
-/**
- * Minimum spacing between two sampling passes in ms. Deliberately wall-clock
- * based rather than a frame count: the app throttles the simulation tick to
- * 2 Hz whenever the clock is paused or no vehicle is in view, which would
- * otherwise stretch a pass to 7.5 s and leave stops the user is looking at
- * on the fallback height for minutes.
- */
-const STOP_SAMPLE_INTERVAL_MS = 500
-
-/** How long a stop is skipped for after a measurement found no loaded tile. */
-const STOP_RETRY_MS = 1500
-
-/** Camera distance in meters up to which the stop discs are drawn. */
-const STOP_DISC_RANGE = 20000
-
-/** Camera distance in meters up to which stop name labels are drawn. */
-const STOP_LABEL_RANGE = 2600
-
-/** Rendered size of a stop disc in CSS px (fill + outline). */
-const STOP_DISC_SIZE = 10
-
-/** Font size of the stop name plates in CSS px. */
-const STOP_LABEL_FONT_SIZE = 13
-/** Font size of the serving-lines suffix, e.g. "(1, 5, 25)". */
-const STOP_LABEL_LINES_FONT_SIZE = 11
-const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
-
-/** Canvas height of a stop name plate in CSS px (font + outline). */
-const STOP_LABEL_HEIGHT = 20
-
-/** Vertical anchor offset of a stop label above its disc in CSS px. */
-const STOP_LABEL_OFFSET_Y = -16
-
-/**
- * Minimum screen-space gap between two stop labels in CSS px – labels whose
- * padded rectangles intersect an already accepted one are hidden.
- */
-const STOP_LABEL_GAP = 4
 
 /**
  * Number of stops per sampleHeightMostDetailed() call during bootstrapping.
@@ -451,13 +359,6 @@ const sunTransformScratch = new Matrix3()
 const glowPositionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
 
-// Scratch for the stop label declutter's screen projections.
-const windowScratch = new Cartesian2()
-
-// Scratch for the per-pass selection of the stops nearest to the camera,
-// kept as an ascending top-N list (see resolveStopHeights).
-const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).fill(null)
-const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
 
 /**
  * True when the reverse direction is an exact mirror of the forward one
@@ -520,25 +421,10 @@ export class CesiumMap {
   private tileShader: CustomShader | null = null
   /** Rain field and overcast grade – owns its own state (see WeatherOverlay). */
   private readonly weather: WeatherOverlay
+  /** Discs, name plates, declutter and stop heights (see StopsLayer). */
+  private readonly stops: StopsLayer
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
-  /**
-   * Discs AND name plates of all stops in one purely translucent billboard
-   * collection. Both are depth-clamped to the near plane
-   * (disableDepthTestDistance), where opaque passes write depth and the
-   * per-frame command sort – not the primitive list – decides what covers
-   * what, which left discs over neighboring stop names. Within a single
-   * translucent command, fragments instead blend strictly in add order:
-   * all discs first, every name after them, so names always draw on top.
-   * (Vehicle badges stay above both: their opaque entity billboards write
-   * near-plane depth this depth-tested collection cannot pass.)
-   */
-  private stopBillboards: BillboardCollection | null = null
-  private stopRecords: StopEntityRecord[] = []
-  /** A stop changed (position, visibility) – the label declutter must rerun. */
-  private stopLabelsDirty = true
-  /** Camera view matrix of the last declutter pass (all zeros = never ran). */
-  private declutterViewMatrix = new Matrix4()
   private handler: ScreenSpaceEventHandler
   private selectedId: string | null = null
   private destroyed = false
@@ -558,8 +444,6 @@ export class CesiumMap {
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
   private readonly effectivePixelRatio: number
   private frameCounter = 0
-  /** Timestamp of the last stop height sampling pass (see resolveStopHeights). */
-  private lastStopSampleAt = 0
   private frustumSphere = new BoundingSphere()
   /** 0 = day … 1 = full night; drives the cabin-glow opacity. */
   private nightFactor = 0
@@ -632,8 +516,25 @@ export class CesiumMap {
     ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
 
     const scene = this.viewer.scene
+    // Live view of the map for the layer host below: its getters must see
+    // the current values, not a snapshot taken at construction time.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const map = this
     // Before loadGoogleTiles(): that hands the overlay its tile shader.
     this.weather = new WeatherOverlay(this.viewer, () => this.requestRender())
+    this.stops = new StopsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+      get hasTileset() {
+        return map.googleTileset !== null
+      },
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
+    })
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
@@ -1068,325 +969,18 @@ export class CesiumMap {
     this.requestRender()
   }
 
-  /**
-   * Draws all stops (deduplicated across lines).
-   * Heights are – as with the vehicles – set explicitly and adjusted as soon
-   * as the 3D tiles are loaded at the respective location.
-   */
+  /** Stops layer (see StopsLayer) – the map only forwards. */
   addStops(network: PreparedNetwork): void {
-    // One shared billboard collection for discs AND name plates, rendered
-    // purely translucent – see stopBillboards for why the add order inside
-    // a single collection is the only reliable overlap order. The names
-    // are pre-rendered to canvases (like the tram badges); Cesium's Label
-    // primitives would live in their own collection again and lose the
-    // ordering guarantee.
-    const billboards = new BillboardCollection({ blendOption: BlendOption.TRANSLUCENT })
-    this.viewer.scene.primitives.add(billboards)
-    this.stopBillboards = billboards
-
-    const unique: {
-      id: string
-      name: string
-      lon: number
-      lat: number
-      nhn?: number
-      lines: string[]
-    }[] = []
-    // Stops are shared across lines – collect every serving line per stop,
-    // so hiding lines can hide exactly the stops no shown line serves.
-    const byId = new Map<string, string[]>()
-    for (const line of network.lines) {
-      for (const dir of line.directions) {
-        for (const stop of dir.stops) {
-          const lines = byId.get(stop.id)
-          if (lines) {
-            if (!lines.includes(line.id)) lines.push(line.id)
-            continue
-          }
-          const [lon, lat] = stop.coord
-          const entry = { id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn, lines: [line.id] }
-          byId.set(stop.id, entry.lines)
-          unique.push(entry)
-        }
-      }
-    }
-
-    const positions = unique.map((stop) =>
-      Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight + 0.5),
-    )
-
-    // First pass: all discs (one shared image via a fixed imageId).
-    // In environments without a 2D canvas (jsdom) the billboards simply
-    // carry no image – nothing renders there anyway.
-    const discImage = this.stopDiscImage()
-    const discs = unique.map((stop, i) => {
-      const disc = billboards.add({
-        id: `stop:${stop.id}`,
-        position: positions[i],
-        width: STOP_DISC_SIZE,
-        height: STOP_DISC_SIZE,
-        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
-        disableDepthTestDistance: 3000,
-      })
-      if (discImage) disc.setImage('mrt:stop-disc', discImage)
-      return disc
-    })
-
-    // Second pass: every name plate after every disc
-    unique.forEach((stop, i) => {
-      const plate = this.stopNameplate(stop.name, stop.lines)
-      const label = billboards.add({
-        id: `stop:${stop.id}`,
-        position: positions[i],
-        image: plate?.canvas,
-        width: plate?.width,
-        height: plate?.height,
-        horizontalOrigin: HorizontalOrigin.CENTER,
-        verticalOrigin: VerticalOrigin.BOTTOM,
-        pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
-        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
-        disableDepthTestDistance: 3000,
-      })
-      this.stopRecords.push({
-        disc: discs[i],
-        label,
-        labelHalfWidth: plate
-          ? plate.width / 2
-          : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
-        lines: stop.lines,
-        lineVisible: true,
-        lon: stop.lon,
-        lat: stop.lat,
-        position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.defaultGroundHeight),
-        sampledFrom: Number.POSITIVE_INFINITY,
-        retryAfter: 0,
-        nhn: stop.nhn,
-      })
-    })
-    this.stopLabelsDirty = true
-    this.requestRender()
+    this.stops.add(network)
   }
 
-  /**
-   * Applies the line visibility to the stops: a stop stays on the map as
-   * long as at least one line serving it is shown. Composes with the
-   * global stops layer toggle (collection show) and with the label
-   * declutter, which skips hidden stops and re-runs after a change.
-   */
+  setStopsVisible(visible: boolean): void {
+    this.stops.setVisible(visible)
+  }
+
+  /** Line visibility drives which stops stay on the map. */
   setVisibleLines(visibleLines: ReadonlySet<string>): void {
-    let changed = false
-    for (const record of this.stopRecords) {
-      const visible = record.lines.some((id) => visibleLines.has(id))
-      if (visible === record.lineVisible) continue
-      record.lineVisible = visible
-      record.disc.show = visible
-      // Re-shown labels start visible; the declutter prunes overlaps on
-      // its next pass (stopLabelsDirty below).
-      record.label.show = visible
-      changed = true
-    }
-    if (changed) {
-      this.stopLabelsDirty = true
-      this.requestRender()
-    }
-  }
-
-  /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
-  private stopDiscImage(): HTMLCanvasElement | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const ratio = this.effectivePixelRatio
-    const size = Math.round(STOP_DISC_SIZE * ratio)
-    canvas.width = size
-    canvas.height = size
-    const center = size / 2
-    ctx.beginPath()
-    // Stroke is centered on the arc – pull the radius in by half of it
-    ctx.arc(center, center, center - ratio, 0, 2 * Math.PI)
-    ctx.fillStyle = '#f8fafc'
-    ctx.fill()
-    ctx.lineWidth = 2 * ratio
-    ctx.strokeStyle = '#334155'
-    ctx.stroke()
-    return canvas
-  }
-
-  /**
-   * Renders a stop name plus the serving lines in parentheses (outlined
-   * text, the lines slightly smaller and dimmer) to a canvas at the
-   * drawing-buffer pixel ratio. Returns undefined where no 2D canvas is
-   * available (jsdom).
-   */
-  private stopNameplate(
-    name: string,
-    lines: string[],
-  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const ratio = this.effectivePixelRatio
-    const nameFont = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
-    const linesFont = `${Math.round(STOP_LABEL_LINES_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
-    const suffix = lines.length > 0 ? `(${lines.join(', ')})` : ''
-    ctx.font = nameFont
-    const nameWidth = ctx.measureText(name).width
-    ctx.font = linesFont
-    const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
-    const gap = suffix ? 5 * ratio : 0
-    const padX = 4 * ratio
-    const height = Math.round(STOP_LABEL_HEIGHT * ratio)
-    const width = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
-    canvas.width = width
-    canvas.height = height
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'middle'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 3 * ratio
-    ctx.strokeStyle = '#0f172a'
-    ctx.font = nameFont
-    ctx.strokeText(name, padX, height / 2)
-    ctx.fillStyle = '#e2e8f0'
-    ctx.fillText(name, padX, height / 2)
-    if (suffix) {
-      ctx.font = linesFont
-      ctx.strokeText(suffix, padX + nameWidth + gap, height / 2)
-      // Dimmer than the name, so long line lists stay secondary
-      ctx.fillStyle = '#b7c2d0'
-      ctx.fillText(suffix, padX + nameWidth + gap, height / 2)
-    }
-    return { canvas, width: width / ratio, height: height / ratio }
-  }
-
-  /**
-   * Hides stop labels that would overlap an already accepted one. Cesium
-   * draws every label unconditionally, so dense sections (downtown, shared
-   * corridors) turned into unreadable text piles. The stop nearest to the
-   * camera wins; a hidden label keeps its disc, so the stop itself stays
-   * on the map. Only recomputed when the camera actually moved or a stop
-   * changed (stopLabelsDirty) – an idle scene pays nothing.
-   */
-  private declutterStopLabels(): void {
-    if (!this.stopBillboards || !this.stopBillboards.show || this.stopRecords.length === 0) return
-    const camera = this.viewer.camera
-    if (
-      !this.stopLabelsDirty &&
-      Matrix4.equals(this.declutterViewMatrix, camera.viewMatrix)
-    ) {
-      return
-    }
-    this.stopLabelsDirty = false
-    Matrix4.clone(camera.viewMatrix, this.declutterViewMatrix)
-
-    const scene = this.viewer.scene
-    const cameraPosition = camera.positionWC
-    // Candidates: stops whose label the DistanceDisplayCondition draws at
-    // all. Behind-camera stops project to undefined and are skipped – their
-    // label is off screen either way, its show flag does not matter.
-    const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
-    for (const record of this.stopRecords) {
-      if (!record.lineVisible) continue
-      const distance = Cartesian3.distance(cameraPosition, record.position)
-      if (distance > STOP_LABEL_RANGE) continue
-      const windowPosition = SceneTransforms.worldToWindowCoordinates(
-        scene,
-        record.disc.position,
-        windowScratch,
-      )
-      if (!windowPosition) continue
-      candidates.push({ record, distance, x: windowPosition.x, y: windowPosition.y })
-    }
-    candidates.sort((a, b) => a.distance - b.distance)
-
-    const kept: { left: number; right: number; top: number; bottom: number }[] = []
-    let changed = false
-    for (const candidate of candidates) {
-      const halfWidth = candidate.record.labelHalfWidth + STOP_LABEL_GAP
-      // Window y grows downward; the label is anchored bottom-center at
-      // pixelOffset above the disc.
-      const bottom = candidate.y + STOP_LABEL_OFFSET_Y
-      const top = bottom - STOP_LABEL_HEIGHT - STOP_LABEL_GAP
-      const left = candidate.x - halfWidth
-      const right = candidate.x + halfWidth
-      let free = true
-      for (const rect of kept) {
-        if (left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top) {
-          free = false
-          break
-        }
-      }
-      if (free) kept.push({ left, right, top, bottom })
-      if (candidate.record.label.show !== free) {
-        candidate.record.label.show = free
-        changed = true
-      }
-    }
-    if (changed) this.requestRender()
-  }
-
-  /**
-   * Resolves the stop heights bit by bit (a few per pass).
-   *
-   * A measured height is NOT final: tileset.getHeight() only sees the tile
-   * level currently loaded, and the coarse LOD of a far-away area sits up to
-   * ~10 m above the real surface. Freezing the first measurement therefore
-   * left every stop that was far from the camera at startup floating in
-   * mid-air as soon as the camera came closer. Each stop hence remembers the
-   * camera distance its height was measured at and is re-measured once the
-   * camera has come substantially closer.
-   */
-  private resolveStopHeights(): void {
-    if (!this.googleTileset || this.stopRecords.length === 0) return
-    const now = performance.now()
-    if (now - this.lastStopSampleAt < STOP_SAMPLE_INTERVAL_MS) return
-    this.lastStopSampleAt = now
-    const cameraPosition = this.viewer.camera.positionWC
-
-    // Of all stops a measurement would improve, take the ones nearest to
-    // the camera: those are what the user is looking at, and their tiles are
-    // loaded in the finest detail right now. The distance check is far
-    // cheaper than the ray intersection in sampleGroundHeight(), so scanning
-    // every stop to spend the small budget well is worth it.
-    let count = 0
-    for (const stop of this.stopRecords) {
-      if (now < stop.retryAfter) continue
-      const distance = Cartesian3.distance(cameraPosition, stop.position)
-      if (distance > stop.sampledFrom * STOP_RESAMPLE_RATIO) continue
-      if (count === STOP_HEIGHT_BUDGET && distance >= nearestDistances[count - 1]) continue
-      // Insertion into the ascending list – at four entries a linear shift
-      // beats any heap.
-      let slot = Math.min(count, STOP_HEIGHT_BUDGET - 1)
-      while (slot > 0 && nearestDistances[slot - 1] > distance) {
-        nearestDistances[slot] = nearestDistances[slot - 1]
-        nearestStops[slot] = nearestStops[slot - 1]
-        slot--
-      }
-      nearestDistances[slot] = distance
-      nearestStops[slot] = stop
-      if (count < STOP_HEIGHT_BUDGET) count++
-    }
-
-    for (let i = 0; i < count; i++) {
-      const stop = nearestStops[i] as StopEntityRecord
-      // Release the scratch slot – it would otherwise keep entities (and
-      // through them the viewer) alive past destroy().
-      nearestStops[i] = null
-      const height = this.sampleGroundHeight(stop.lon, stop.lat)
-      if (height === undefined) {
-        // No tile queryable there (yet) – keep the current height and let
-        // other stops have the budget for a while.
-        stop.retryAfter = now + STOP_RETRY_MS
-        continue
-      }
-      stop.sampledFrom = nearestDistances[i]
-      const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
-      stop.disc.position = lifted
-      stop.label.position = lifted
-      this.stopLabelsDirty = true
-      this.requestRender()
-    }
+    this.stops.setVisibleLines(visibleLines)
   }
 
   setRoutesVisible(visible: boolean): void {
@@ -1419,11 +1013,6 @@ export class CesiumMap {
     this.requestRender()
   }
 
-  setStopsVisible(visible: boolean): void {
-    if (this.stopBillboards) this.stopBillboards.show = visible
-    this.stopLabelsDirty = true
-    this.requestRender()
-  }
 
   setLineRouteVisible(lineId: string, visible: boolean): void {
     for (const e of this.routeEntities.get(lineId) ?? []) e.show = visible
@@ -1446,7 +1035,7 @@ export class CesiumMap {
    */
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
-    if (this.stopRecords.length === 0) {
+    if (this.stops.count === 0) {
       window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
       return
     }
@@ -1456,8 +1045,7 @@ export class CesiumMap {
       return
     }
 
-    const stride = Math.max(1, Math.ceil(this.stopRecords.length / STOP_BOOTSTRAP_SAMPLES))
-    const sampleStops = this.stopRecords.filter((_, index) => index % stride === 0)
+    const sampleStops = this.stops.bootstrapSamples(STOP_BOOTSTRAP_SAMPLES)
 
     const heights: number[] = []
     // Differences between sampled tile height and the stop's DGM height –
@@ -1476,13 +1064,7 @@ export class CesiumMap {
           heights.push(h)
           const stop = chunk[i]
           if (stop.nhn !== undefined) nhnOffsets.push(h - stop.nhn)
-          // Most detailed measurement available – mark as final so the
-          // camera-dependent sampling in resolveStopHeights() leaves it alone.
-          stop.sampledFrom = 0
-          const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, h + 0.5)
-          stop.disc.position = lifted
-          stop.label.position = lifted
-          this.stopLabelsDirty = true
+          stop.apply(h)
         })
         if (heights.length > 0) {
           // Raise the base for all vehicles already running (the ongoing
@@ -1578,8 +1160,7 @@ export class CesiumMap {
     visibleLines: ReadonlySet<string>,
   ): { anyVehicleInView: boolean } {
     this.frameCounter++
-    this.resolveStopHeights()
-    this.declutterStopLabels()
+    this.stops.update()
     const alive = new Set<string>()
 
     // Visibility test: is at least one tram inside the camera frustum?

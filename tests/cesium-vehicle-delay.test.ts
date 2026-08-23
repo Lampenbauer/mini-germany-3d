@@ -46,9 +46,8 @@ function mapWithFakeViewer(): CesiumMap {
     followId: null,
     nightFactor: 0,
     renderRequested: false,
-    // Stop bookkeeping is exercised by its own test files
-    resolveStopHeights: () => {},
-    declutterStopLabels: () => {},
+    // The stops layer has its own test files (see StopsLayer)
+    stops: { update: () => {} },
     viewer: {
       scene: { primitives: { add: (primitive: Primitive) => primitive } },
       entities: {
