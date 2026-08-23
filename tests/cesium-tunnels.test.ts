@@ -14,8 +14,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { CesiumMap } from '@/map/CesiumMap'
 import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
+import { VehicleLayer } from '@/map/VehicleLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -50,6 +50,28 @@ function routesWithFakeViewer(added: AddedRoute[]): RoutesLayer {
   return new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
 }
 
+/** Real VehicleLayer on a stub viewer for the appearance/tunnel checks. */
+function vehicleLayer(): VehicleLayer {
+  const viewer = {
+    scene: { primitives: { add: (primitive: Primitive) => primitive } },
+    entities: {
+      add: (options: Entity.ConstructorOptions) => new Entity(options),
+      remove: () => {},
+    },
+  } as unknown as Viewer
+  return new VehicleLayer(viewer, {
+    requestRender: () => {},
+    sampleGroundHeight: () => undefined,
+    defaultGroundHeight: 0,
+    routeHeightOffset: 36.5,
+    nightFactor: 0,
+    pixelRatio: 1,
+    offline: true,
+    fixedGroundHeight: undefined,
+    noteCameraFlight: () => {},
+  })
+}
+
 const routeOpacities = (added: AddedRoute[]): number[] =>
   added.map((entity) => {
     const property = entity.polyline?.material?.color
@@ -76,7 +98,7 @@ function fakeRecord(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const applyVehicleAppearance = (map: CesiumMap, vehicleId: string): boolean =>
+const applyVehicleAppearance = (map: VehicleLayer, vehicleId: string): boolean =>
   (
     map as unknown as { applyVehicleAppearance: (vehicleId: string) => boolean }
   ).applyVehicleAppearance(vehicleId)
@@ -131,8 +153,8 @@ describe('Cesium tunnel rendering', () => {
   it('keeps the tunnel alpha on body and label while selecting and deselecting in a tunnel', () => {
     const record = fakeRecord()
     const { attributes } = record
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { selectedId: null, vehicles: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
     expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(record.appearance.translucent).toBe(true)
@@ -152,19 +174,7 @@ describe('Cesium tunnel rendering', () => {
   })
 
   it('uses an opaque base render state when a vehicle spawns inside a tunnel', () => {
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, {
-      defaultGroundHeight: 0,
-      selectedId: null,
-      viewer: {
-        scene: {
-          primitives: { add: (primitive: Primitive) => primitive },
-        },
-        entities: {
-          add: (options: Entity.ConstructorOptions) => new Entity(options),
-        },
-      },
-    })
+    const map = vehicleLayer()
     const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
@@ -215,8 +225,8 @@ describe('Cesium tunnel rendering', () => {
         }),
       },
     })
-    const map = Object.create(CesiumMap.prototype) as CesiumMap
-    Object.assign(map, { vehicles: new Map([['vehicle', record]]) })
+    const map = vehicleLayer()
+    ;(map as unknown as { vehicles: Map<string, unknown> }).vehicles.set('vehicle', record)
 
     expect(applyVehicleAppearance(map, 'vehicle')).toBe(false)
     // The translucent flag is applied even before the first render.
