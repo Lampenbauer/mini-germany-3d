@@ -8,12 +8,14 @@ import {
   JulianDate,
   PerInstanceColorAppearance,
   Primitive,
+  type Viewer,
 } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
+import { CesiumMap } from '@/map/CesiumMap'
+import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -32,27 +34,20 @@ interface AddedRoute {
   }
 }
 
-/** CesiumMap with a stubbed viewer that records added route entities. */
-function mapWithFakeRouteViewer(added: AddedRoute[]): CesiumMap {
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    viewer: {
-      entities: {
-        add: (options: Omit<AddedRoute, 'show'>) => {
-          const entity = { ...options, show: true }
-          added.push(entity)
-          return entity
-        },
+/** Routes layer on a stubbed viewer that records added route entities. */
+function routesWithFakeViewer(added: AddedRoute[]): RoutesLayer {
+  const viewer = {
+    entities: {
+      add: (options: Omit<AddedRoute, 'show'>) => {
+        const entity = { ...options, show: true }
+        added.push(entity)
+        return entity
       },
-      creditDisplay: { addStaticCredit: vi.fn() },
     },
-    routeEntities: new Map(),
-    linePaths: new Map(),
-    heightRoutePieces: [],
-    // offline: keeps the ground-clamped route branch these tests inspect
-    opts: { offline: true },
-  })
-  return map
+    creditDisplay: { addStaticCredit: vi.fn() },
+  } as unknown as Viewer
+  // offline: keeps the ground-clamped route branch these tests inspect
+  return new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
 }
 
 const routeOpacities = (added: AddedRoute[]): number[] =>
@@ -89,9 +84,9 @@ const applyVehicleAppearance = (map: CesiumMap, vehicleId: string): boolean =>
 describe('Cesium tunnel rendering', () => {
   it('renders route pieces at full / tunnel-dimmed / full opacity (mirrored line drawn once)', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testTunnelNetworkJson))
+    routes.add(prepareNetwork(testTunnelNetworkJson))
 
     // Direction 1 is an exact mirror (path and tunnel ranges) → only
     // direction 0 is drawn, split at the tunnel portals.
@@ -106,15 +101,15 @@ describe('Cesium tunnel rendering', () => {
     expect(opacities[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY)
     expect(opacities[2]).toBeCloseTo(0.85)
 
-    map.setLineRouteVisible('U', false)
+    routes.setLineVisible('U', false)
     expect(added.every((entity) => !entity.show)).toBe(true)
   })
 
   it('draws both directions when their tunnel layouts differ', () => {
     const added: AddedRoute[] = []
-    const map = mapWithFakeRouteViewer(added)
+    const routes = routesWithFakeViewer(added)
 
-    map.addRoutes(prepareNetwork(testAsymmetricTunnelNetworkJson))
+    routes.add(prepareNetwork(testAsymmetricTunnelNetworkJson))
 
     // Identical (reversed) geometry, but asymmetric tunnel tagging: the old
     // length/endpoint heuristic collapsed this into one direction and lost

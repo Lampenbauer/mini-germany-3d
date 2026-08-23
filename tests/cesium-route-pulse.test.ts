@@ -1,7 +1,7 @@
-import { Color, ColorMaterialProperty, JulianDate } from 'cesium'
+import { Color, ColorMaterialProperty, JulianDate, type Viewer } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { prepareNetwork } from '@/data/network'
-import { CesiumMap, TUNNEL_VISIBILITY } from '@/map/CesiumMap'
+import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**
@@ -30,43 +30,32 @@ afterEach(() => {
 
 function harness() {
   const added: AddedRoute[] = []
-  const map = Object.create(CesiumMap.prototype) as CesiumMap
-  Object.assign(map, {
-    viewer: {
-      entities: {
-        add: (options: AddedRoute) => {
-          added.push(options)
-          return options
-        },
+  const viewer = {
+    entities: {
+      add: (options: AddedRoute) => {
+        added.push(options)
+        return options
       },
-      creditDisplay: { addStaticCredit: vi.fn() },
     },
-    routeEntities: new Map(),
-    linePaths: new Map(),
-    heightRoutePieces: [],
-    opts: { offline: true },
-    renderRequested: false,
-  })
+    creditDisplay: { addStaticCredit: vi.fn() },
+  } as unknown as Viewer
+  // offline: keeps the ground-clamped route branch these tests inspect
+  const layer = new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
   // Line U: surface / tunnel / surface pieces; line V: an unrelated line
-  map.addRoutes(prepareNetwork(testTunnelNetworkJson))
-  map.addRoutes(prepareNetwork(testAsymmetricTunnelNetworkJson))
+  layer.add(prepareNetwork(testTunnelNetworkJson))
+  layer.add(prepareNetwork(testAsymmetricTunnelNetworkJson))
 
-  const internals = map as unknown as {
-    startRoutePulse: (lineId: string) => void
-    updateRoutePulse: () => void
-    routePulse: unknown
-  }
   const alpha = (id: string): number => {
     const entity = added.find((e) => e.id === id)!
     return (entity.polyline!.material!.color!.getValue(JulianDate.now()) as Color).alpha
   }
-  return { internals, alpha }
+  return { layer, alpha }
 }
 
 describe('route attention pulse', () => {
   it('dips the opacity to ~0 mid-period and back to full at period ends', () => {
     const h = harness()
-    h.internals.startRoutePulse('U')
+    h.layer.startPulse('U')
 
     expect(h.alpha('route:U:0:0')).toBeCloseTo(0.85, 5)
 
@@ -82,7 +71,7 @@ describe('route attention pulse', () => {
 
   it('returns the exact base colors when the duration is over', () => {
     const h = harness()
-    h.internals.startRoutePulse('U')
+    h.layer.startPulse('U')
     clockMs += 375
     expect(h.alpha('route:U:0:0')).toBeCloseTo(0, 5)
 
@@ -90,13 +79,13 @@ describe('route attention pulse', () => {
     expect(h.alpha('route:U:0:0')).toBeCloseTo(0.85, 5)
     expect(h.alpha('route:U:0:1')).toBeCloseTo(0.85 * TUNNEL_VISIBILITY, 5)
     // The render()-driver clears the finished pulse
-    h.internals.updateRoutePulse()
-    expect(h.internals.routePulse).toBeNull()
+    h.layer.updatePulse()
+    expect((h.layer as unknown as { routePulse: unknown }).routePulse).toBeNull()
   })
 
   it('fades all other lines out during the pulse and back in at its end', () => {
     const h = harness()
-    h.internals.startRoutePulse('U')
+    h.layer.startPulse('U')
 
     // Mid-fade after 125 ms of the 250 ms ramp
     clockMs += 125
@@ -117,10 +106,10 @@ describe('route attention pulse', () => {
 
   it('switching the pulse to another line swaps the roles immediately', () => {
     const h = harness()
-    h.internals.startRoutePulse('U')
+    h.layer.startPulse('U')
     clockMs += 375
 
-    h.internals.startRoutePulse('V')
+    h.layer.startPulse('V')
     clockMs += 375
     // V now pulses (dip), U is faded out as "other" line
     expect(h.alpha('route:V:0:0')).toBeCloseTo(0, 5)
