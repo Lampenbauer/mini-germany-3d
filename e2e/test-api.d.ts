@@ -2,6 +2,8 @@ export {}
 
 declare global {
   interface Window {
+    /** Test hook of raf-stall.spec.ts: freezes requestAnimationFrame. */
+    __stopRaf?: boolean
     __mrt?: {
       ready: boolean
       vehicleCount: () => number
