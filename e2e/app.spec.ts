@@ -196,22 +196,25 @@ test('the underground view swaps ghosted and solid vehicles', async () => {
 })
 
 test('the underground view stops the rain', async () => {
-  await page.evaluate(() => window.__mrt!.setRain(3))
-  await expect
-    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
-    .toBeGreaterThan(0)
+  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
+  // Light drizzle on purpose: 0.2 mm is 1000 drops instead of the 4000 a
+  // downpour spawns. Visible rain holds the render loop at animation rate,
+  // and under SwiftShader every one of those frames costs seconds – enough
+  // of them and the test spends its whole budget rendering water.
+  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await expect.poll(drops, { timeout: 30_000 }).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'Show underground view' }).click()
   // No drops falling around a camera that is below ground
-  await expect
-    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
-    .toBe(0)
+  await expect.poll(drops, { timeout: 30_000 }).toBe(0)
 
+  // Dry before leaving again, so the second click lands on an idle scene
+  await page.evaluate(() => window.__mrt!.setRain(0))
   await page.getByRole('button', { name: 'Back to the surface view' }).click()
-  await expect
-    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
-    .toBeGreaterThan(0)
 
+  // The gate opens both ways: rain set on the surface shows up again
+  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await expect.poll(drops, { timeout: 30_000 }).toBeGreaterThan(0)
   await page.evaluate(() => window.__mrt!.setRain(0))
 })
 
