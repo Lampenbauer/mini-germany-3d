@@ -311,6 +311,10 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   // sin of the sun elevation at this fragment (up = away from Earth center)
   float sunUp = dot(czm_sunDirectionWC, normalize(fsInput.attributes.positionWC));
 
+  // Closed sky, 0..1: cloud cover grades the city on its own, and rain
+  // always implies an overcast sky – whichever is stronger wins.
+  float overcast = max(u_cloudFactor, u_rainFactor);
+
   vec3 goldenTint = vec3(1.0, 0.84, 0.66);
   vec3 duskTint = vec3(0.40, 0.35, 0.37);
   vec3 nightTint = vec3(0.06, 0.08, 0.15);
@@ -318,7 +322,9 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   // Blend regions by sun height: full day above +8 deg, golden hour down
   // to sunset, dusk while the sun sinks to -5 deg, night below about
   // -10 deg (matches how dark a real nautical dusk already feels).
-  float golden = 1.0 - smoothstep(0.0, 0.14, sunUp);
+  // A closed sky swallows the low sun, so the golden hour fades with it –
+  // dusk and night still fall, they only lose their warm edge.
+  float golden = (1.0 - smoothstep(0.0, 0.14, sunUp)) * (1.0 - 0.8 * overcast);
   float dusk = 1.0 - smoothstep(-0.09, 0.0, sunUp);
   float night = 1.0 - smoothstep(-0.17, -0.07, sunUp);
 
@@ -330,14 +336,14 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   vec3 color = mix(material.diffuse, vec3(luminance), 0.45 * night);
   material.diffuse = color * tint;
 
-  // Overcast grade while it rains (u_rainFactor 0..1, faded in softly):
-  // flatter (desaturated), dimmer, and slightly cool – the leaden sky the
-  // sunny photogrammetry cannot show.
-  float rainLum = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
-  vec3 overcast = mix(material.diffuse, vec3(rainLum), 0.5 * u_rainFactor);
-  overcast *= mix(1.0, 0.65, u_rainFactor);
-  overcast *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), u_rainFactor);
-  material.diffuse = overcast;
+  // Overcast grade (faded in softly): flatter (desaturated), dimmer, and
+  // slightly cool – overcast daylight really is bluer than direct sun, and
+  // it is the leaden sky the sunny photogrammetry cannot show.
+  float overcastLum = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
+  vec3 graded = mix(material.diffuse, vec3(overcastLum), 0.5 * overcast);
+  graded *= mix(1.0, 0.65, overcast);
+  graded *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), overcast);
+  material.diffuse = graded;
 }
 `
 
@@ -410,6 +416,27 @@ const RAIN_MAX_DROPS = 4000
 const RAIN_TINT_BASE = 0.55
 const RAIN_TINT_PER_MM = 0.15
 const RAIN_TINT_FADE_SECONDS = 2.5
+
+/**
+ * Overcast grade from cloud cover alone (no rain). Below the threshold the
+ * sky still reads as open – a few clouds must not tint the whole city –
+ * and a fully closed sky stays just under the lightest rain
+ * (RAIN_TINT_BASE), which is about half the grade of real rain.
+ */
+const CLOUD_TINT_THRESHOLD_PERCENT = 40
+const CLOUD_TINT_MAX = 0.5
+/**
+ * Slower than the rain fade: cloud cover arrives from a 10-minute poll and
+ * changes on that scale, so it must not visibly snap when a poll lands.
+ */
+const CLOUD_TINT_FADE_SECONDS = 6
+
+/** Cloud cover in percent → overcast grade 0..1 (see the constants above). */
+export function cloudOvercastGrade(cloudCoverPercent: number): number {
+  const cover = Math.min(100, Math.max(0, cloudCoverPercent))
+  const above = (cover - CLOUD_TINT_THRESHOLD_PERCENT) / (100 - CLOUD_TINT_THRESHOLD_PERCENT)
+  return Math.max(0, above) * CLOUD_TINT_MAX
+}
 
 /** Near-white so the streaks read against the bright daylight tiles too. */
 const RAIN_COLOR = Color.fromCssColorString('#e4edf7')
@@ -567,8 +594,14 @@ export class CesiumMap {
   private removeRainListener: (() => void) | null = null
   /** Time-of-day shader of the Google tiles (null offline/fallback). */
   private tileShader: CustomShader | null = null
-  /** Current overcast grade 0..1 (eased toward the rain target). */
+  /** Current rain-driven overcast grade 0..1 (eased toward the rain target). */
   private rainTint = 0
+  /** Current cloud-driven overcast grade 0..1 and the value it eases toward. */
+  private cloudTint = 0
+  private cloudTintTarget = 0
+  private lastCloudUpdateMs = 0
+  /** Frame listener of the cloud fade – only alive while it is fading. */
+  private removeCloudListener: (() => void) | null = null
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
   /**
@@ -798,10 +831,14 @@ export class CesiumMap {
       tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
       tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
       // Day/night ambience following the simulated time (see setSceneTime);
-      // u_rainFactor adds the overcast grade while it rains (updateRain).
+      // u_rainFactor adds the overcast grade while it rains (updateRain),
+      // u_cloudFactor the one from cloud cover alone (updateCloudGrade).
       this.tileShader = new CustomShader({
         fragmentShaderText: TIME_OF_DAY_SHADER,
-        uniforms: { u_rainFactor: { type: UniformType.FLOAT, value: 0 } },
+        uniforms: {
+          u_rainFactor: { type: UniformType.FLOAT, value: 0 },
+          u_cloudFactor: { type: UniformType.FLOAT, value: this.cloudTint },
+        },
       })
       tileset.customShader = this.tileShader
       this.googleTileset = tileset
@@ -1073,6 +1110,53 @@ export class CesiumMap {
       drop.billboard.show = index < visible
     })
     this.requestRender()
+  }
+
+  /**
+   * Applies the live cloud cover (percent) as an overcast grade on the
+   * photo tiles – the dry, grey day the sunny photogrammetry cannot show.
+   * Rain brings its own, stronger grade (see the shader), so this is only
+   * about a closed sky without precipitation. Called from the app's UI
+   * tick; unchanged values cost nothing.
+   */
+  setCloudCover(cloudCoverPercent: number): void {
+    const target = cloudOvercastGrade(cloudCoverPercent)
+    if (target === this.cloudTintTarget) return
+    this.cloudTintTarget = target
+    if (this.cloudTint === target || this.removeCloudListener) return
+    // Fade on the frames the app already renders; updateCloudGrade keeps
+    // requesting them until the target is reached and then unhooks itself.
+    this.lastCloudUpdateMs = performance.now()
+    const listener = () => this.updateCloudGrade()
+    this.viewer.scene.preUpdate.addEventListener(listener)
+    this.removeCloudListener = () =>
+      this.viewer.scene.preUpdate.removeEventListener(listener)
+    this.requestRender()
+  }
+
+  /**
+   * Eases the cloud grade toward its target, paced by the wall clock. Ends
+   * by removing its own frame listener, so a settled sky costs nothing –
+   * an idle map must not render periodically.
+   */
+  private updateCloudGrade(): void {
+    const now = performance.now()
+    // Capped: a background tab must not fast-forward the fade
+    const dt = Math.min(0.1, Math.max(0, (now - this.lastCloudUpdateMs) / 1000))
+    this.lastCloudUpdateMs = now
+
+    const step = dt / CLOUD_TINT_FADE_SECONDS
+    this.cloudTint =
+      this.cloudTint < this.cloudTintTarget
+        ? Math.min(this.cloudTintTarget, this.cloudTint + step)
+        : Math.max(this.cloudTintTarget, this.cloudTint - step)
+    this.tileShader?.setUniform('u_cloudFactor', this.cloudTint)
+    this.requestRender()
+
+    if (this.cloudTint === this.cloudTintTarget) {
+      this.removeCloudListener?.()
+      this.removeCloudListener = null
+    }
   }
 
   /** Soft vertical streak sprite for the raindrops (undefined in jsdom). */
@@ -2601,6 +2685,8 @@ export class CesiumMap {
     this.destroyed = true
     this.resizeObserver?.disconnect()
     this.handler.destroy()
+    this.removeCloudListener?.()
+    this.removeCloudListener = null
     this.heightRoutePieces = []
     this.viewer.destroy()
   }
