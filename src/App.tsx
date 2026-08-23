@@ -100,6 +100,20 @@ const HASH_DEBOUNCE_MS = 300
  */
 const HASH_MAX_WAIT_MS = 2000
 
+/**
+ * requestAnimationFrame is driven by the compositor: when it stops sending
+ * frames – heavy software rendering (SwiftShader on CI), a weak GPU, an
+ * occluded window – the callbacks simply stop arriving while the page itself
+ * stays responsive. The simulation would then freeze at its last tick even
+ * though the (wall-clock based) SimClock keeps running, so vehicles jump the
+ * moment frames resume. The watchdog below runs a frame from a timer whenever
+ * rAF has not delivered one for this long.
+ */
+const RAF_STALL_MS = 500
+
+/** Poll interval of that watchdog (a timestamp comparison while rAF is healthy). */
+const RAF_WATCHDOG_INTERVAL_MS = 250
+
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
   const speed = Number(params.get('speed') ?? config.simulation.initialSpeed)
@@ -359,7 +373,19 @@ export default function App() {
     let loopTicks = 0
     let lastLoopError: string | null = null
     const renderTimes: number[] = []
-    const loop = (now: number) => {
+    let lastFrameAt = performance.now()
+    /**
+     * One frame of work: simulation tick, UI state, render pacing. Driven by
+     * requestAnimationFrame – and by the watchdog below whenever rAF stalls.
+     *
+     * The watchdog passes render: false. A stalled compositor is not showing
+     * frames anyway, so rendering into the canvas would be wasted work – and
+     * under software rendering it would keep the machine busy while it is
+     * trying to catch up. Pending render requests survive (consumeRenderRequest
+     * is not called), so the next real frame draws the current state.
+     */
+    const runFrame = (now: number, render = true) => {
+      lastFrameAt = now
       // The loop must not die permanently on a transient error (e.g. Cesium
       // internals while bulk-removing entities) – otherwise the entire
       // simulation freezes.
@@ -456,15 +482,19 @@ export default function App() {
           //   slow heartbeat runs. A truly idle map renders nothing – even
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
-          const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+          const hints = render
+            ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+            : null
           // Falling rain is an animation too – even with the sim paused
           const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
-          const renderInterval = hints.interacting
-            ? 15
-            : animating || hints.tilesLoading
-              ? 33
-              : 15000
-          if (map.consumeRenderRequest() || now - lastRender >= renderInterval) {
+          const renderInterval = !hints
+            ? Number.POSITIVE_INFINITY
+            : hints.interacting
+              ? 15
+              : animating || hints.tilesLoading
+                ? 33
+                : 15000
+          if (hints && (map.consumeRenderRequest() || now - lastRender >= renderInterval)) {
             lastRender = now
             map.render()
             renderTimes.push(now)
@@ -480,9 +510,23 @@ export default function App() {
           console.error('Render loop error:', error)
         }
       }
+    }
+
+    const loop = (now: number) => {
+      runFrame(now)
       rafId = requestAnimationFrame(loop)
     }
     rafId = requestAnimationFrame(loop)
+
+    // Timers keep firing when the compositor stops handing out frames, so a
+    // stalled rAF no longer freezes the simulation (see RAF_STALL_MS). While
+    // rAF is healthy this only compares two timestamps – no tick, no render,
+    // and therefore no periodic GPU load on an idle map.
+    const rafWatchdog = window.setInterval(() => {
+      if (document.hidden) return
+      const now = performance.now()
+      if (now - lastFrameAt >= RAF_STALL_MS) runFrame(now, false)
+    }, RAF_WATCHDOG_INTERVAL_MS)
 
     // Test/debug API
     const api: MrtTestApi = {
@@ -540,6 +584,7 @@ export default function App() {
 
     return () => {
       cancelAnimationFrame(rafId)
+      window.clearInterval(rafWatchdog)
       window.removeEventListener('pagehide', writeHash)
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
