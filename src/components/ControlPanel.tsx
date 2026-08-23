@@ -184,8 +184,10 @@ export function ControlPanel(props: ControlPanelProps) {
 
   return (
     // max-h leaves ~2.5rem below the panel so it cannot cover the Cesium
-    // attribution line at the bottom edge of the map
-    <Card className="pointer-events-auto w-80 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-border/60 bg-card/85 backdrop-blur-md">
+    // attribution line at the bottom edge of the map. The panel itself does
+    // not scroll – only the line list inside it does, so the clock, the
+    // time-lapse and the layer switches stay put however long the list gets.
+    <Card className="pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden border-border/60 bg-card/85 backdrop-blur-md">
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <TramFront className="size-5 text-primary" aria-hidden />
@@ -201,7 +203,7 @@ export function ControlPanel(props: ControlPanelProps) {
         </Button>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
         {/* Clock + pause: also visible while the panel is collapsed */}
         <div className="flex items-center justify-between gap-2">
           <div
@@ -324,20 +326,28 @@ export function ControlPanel(props: ControlPanelProps) {
 
             <div className="h-px bg-border" role="separator" />
 
-            {/* Lines, grouped by transit mode (headers only when >1 group) */}
-            <div className="flex flex-col gap-2">
+            {/* Lines, grouped by transit mode (headers only when >1 group).
+                The only scrolling part of the panel: its heading stays, the
+                groups scroll under it, and scroll-fade-y (the same utility
+                the vehicle card's stop list uses) signals what is cut off. */}
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
               <div className="text-sm font-medium">{t('lines.title')}</div>
-              {lineGroups.map((g) => (
-                <LineGroup
-                  key={g.mode}
-                  mode={g.mode}
-                  lines={g.lines}
-                  showHeader={lineGroups.length > 1}
-                  onToggleLine={props.onToggleLine}
-                  onFocusLine={props.onFocusLine}
-                  onSetLinesVisible={props.onSetLinesVisible}
-                />
-              ))}
+              <div
+                className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+                data-testid="line-list"
+              >
+                {lineGroups.map((g) => (
+                  <LineGroup
+                    key={g.mode}
+                    mode={g.mode}
+                    lines={g.lines}
+                    showHeader={lineGroups.length > 1}
+                    onToggleLine={props.onToggleLine}
+                    onFocusLine={props.onFocusLine}
+                    onSetLinesVisible={props.onSetLinesVisible}
+                  />
+                ))}
+              </div>
             </div>
 
             <div className="h-px bg-border" role="separator" />

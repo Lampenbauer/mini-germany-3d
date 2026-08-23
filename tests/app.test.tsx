@@ -141,6 +141,19 @@ describe('App (UI shell)', () => {
     expect(input).toHaveValue('')
   })
 
+  it('scrolls only the line list, not the whole panel', () => {
+    render(<App />)
+    // The panel itself must not scroll – the clock and the layer switches
+    // stay put however long the line list gets.
+    const list = screen.getByTestId('line-list')
+    expect(list.className).toContain('overflow-y-auto')
+    // Same fade the vehicle card's stop list uses
+    expect(list.className).toContain('scroll-fade-y')
+    const panel = screen.getByText('Mini Rostock 3D').closest('[data-slot="card"]')!
+    expect(panel.className).toContain('overflow-hidden')
+    expect(panel.className).not.toContain('overflow-y-auto')
+  })
+
   it('shows layer switches for routes and stops', () => {
     render(<App />)
     const panel = screen.getByText('Layers').closest('div')!.parentElement!
