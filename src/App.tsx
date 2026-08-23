@@ -377,8 +377,14 @@ export default function App() {
     /**
      * One frame of work: simulation tick, UI state, render pacing. Driven by
      * requestAnimationFrame – and by the watchdog below whenever rAF stalls.
+     *
+     * The watchdog passes render: false. A stalled compositor is not showing
+     * frames anyway, so rendering into the canvas would be wasted work – and
+     * under software rendering it would keep the machine busy while it is
+     * trying to catch up. Pending render requests survive (consumeRenderRequest
+     * is not called), so the next real frame draws the current state.
      */
-    const runFrame = (now: number) => {
+    const runFrame = (now: number, render = true) => {
       lastFrameAt = now
       // The loop must not die permanently on a transient error (e.g. Cesium
       // internals while bulk-removing entities) – otherwise the entire
@@ -476,15 +482,19 @@ export default function App() {
           //   slow heartbeat runs. A truly idle map renders nothing – even
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
-          const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+          const hints = render
+            ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+            : null
           // Falling rain is an animation too – even with the sim paused
           const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
-          const renderInterval = hints.interacting
-            ? 15
-            : animating || hints.tilesLoading
-              ? 33
-              : 15000
-          if (map.consumeRenderRequest() || now - lastRender >= renderInterval) {
+          const renderInterval = !hints
+            ? Number.POSITIVE_INFINITY
+            : hints.interacting
+              ? 15
+              : animating || hints.tilesLoading
+                ? 33
+                : 15000
+          if (hints && (map.consumeRenderRequest() || now - lastRender >= renderInterval)) {
             lastRender = now
             map.render()
             renderTimes.push(now)
@@ -515,7 +525,7 @@ export default function App() {
     const rafWatchdog = window.setInterval(() => {
       if (document.hidden) return
       const now = performance.now()
-      if (now - lastFrameAt >= RAF_STALL_MS) runFrame(now)
+      if (now - lastFrameAt >= RAF_STALL_MS) runFrame(now, false)
     }, RAF_WATCHDOG_INTERVAL_MS)
 
     // Test/debug API
