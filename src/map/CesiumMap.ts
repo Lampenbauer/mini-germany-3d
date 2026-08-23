@@ -21,6 +21,7 @@ import {
   JulianDate,
   Math as CesiumMath,
   Matrix3,
+  SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Simon1994PlanetaryPositions,
@@ -1039,6 +1040,19 @@ export class CesiumMap {
       configuredSse: Math.round(tileset.maximumScreenSpaceError * 10) / 10,
       effectiveSse: Math.round(effectiveSse * 10) / 10,
     }
+  }
+
+  /**
+   * Screen position of a vehicle in CSS pixels, or null when it is off
+   * screen or unknown. Lets the E2E tests hover a vehicle without hunting
+   * for it with scene.pick(), which is an offscreen render per call and
+   * ruinous under software rendering.
+   */
+  getVehicleScreenPosition(id: string): { x: number; y: number } | null {
+    const position = this.vehicleLayer.getVehiclePosition(id)
+    if (!position) return null
+    const window = SceneTransforms.worldToWindowCoordinates(this.viewer.scene, position)
+    return window ? { x: window.x, y: window.y } : null
   }
 
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */

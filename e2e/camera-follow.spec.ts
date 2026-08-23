@@ -75,37 +75,25 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
 
   // Hover cursor: with the camera right behind the vehicle it is large on
   // screen, which makes this the cheap place to check the pointer without
-  // booting another Cesium instance. The chase camera keeps easing, so the
-  // vehicle drifts a few pixels between locating it and moving the mouse –
-  // hence locate and move in one poll instead of once up front.
+  // booting another Cesium instance. The position comes from the app – a
+  // scene.pick() search would be an offscreen render per probed pixel and
+  // is far too slow under software rendering.
   const cursor = () =>
     page.evaluate(
       () => (document.querySelector('canvas') as HTMLCanvasElement).style.cursor || '',
     )
-  const vehiclePixel = () =>
-    page.evaluate(() => {
-      const viewer = window.__cesiumViewer as unknown as {
-        scene: { pick: (p: { x: number; y: number }) => unknown }
-      }
-      for (let y = 250; y < 650; y += 12) {
-        for (let x = 450; x < 1100; x += 12) {
-          const picked = viewer.scene.pick({ x, y }) as { id?: unknown } | undefined
-          const id = picked?.id
-          const asString =
-            typeof id === 'string' ? id : ((id as { id?: string } | undefined)?.id ?? '')
-          if (asString.startsWith('vehicle:')) return { x, y }
-        }
-      }
-      return null
-    })
-
+  // The chase camera keeps easing, so ask for the position and hover it in
+  // one poll instead of once up front.
   await expect
     .poll(
       async () => {
-        const spot = await vehiclePixel()
-        if (!spot) return 'kein Fahrzeug im Blick'
-        await page.mouse.move(spot.x, spot.y)
-        await page.waitForTimeout(200)
+        const spot = await page.evaluate(
+          (id) => window.__mrt!.vehicleScreenPosition(id),
+          tram.id,
+        )
+        if (!spot) return 'vehicle off screen'
+        await page.mouse.move(Math.round(spot.x), Math.round(spot.y))
+        await page.waitForTimeout(250)
         return cursor()
       },
       { timeout: 45_000, intervals: [500, 1000] },

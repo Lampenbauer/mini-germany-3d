@@ -264,6 +264,11 @@ export class VehicleLayer {
     uniforms.color.alpha = GLOW_MAX_ALPHA * night
   }
 
+  /** World position of a vehicle's label, or null when it is not running. */
+  getVehiclePosition(id: string): Cartesian3 | null {
+    return this.vehicles.get(id)?.lastPosition ?? null
+  }
+
   /** Debug: current ground heights of the vehicles (see __mrt.groundHeights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.vehicles.entries()].map(([id, record]) => ({

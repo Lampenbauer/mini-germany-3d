@@ -45,6 +45,8 @@ export interface MrtTestApi {
   selectVehicle: (id: string | null) => void
   /** Trip id of the current selection, null when nothing is selected. */
   selectedVehicleId: () => string | null
+  /** Screen position of a vehicle in CSS px (null = off screen/unknown). */
+  vehicleScreenPosition: (id: string) => { x: number; y: number } | null
   dataSource: string
   lineIds: () => string[]
   secondsOfDay: () => number
@@ -592,6 +594,7 @@ export default function App() {
       rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
       selectedVehicleId: () => selectedIdRef.current,
+      vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
