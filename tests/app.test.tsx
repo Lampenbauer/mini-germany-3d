@@ -137,6 +137,8 @@ describe('App (UI shell)', () => {
     const realNow = berlinSecondsOfDay(Date.now())
     const diff = Math.abs(window.__mrt!.secondsOfDay() - realNow)
     expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
+    // The field goes back to its default: it must not keep showing 08:00
+    expect(input).toHaveValue('')
   })
 
   it('shows layer switches for routes and stops', () => {

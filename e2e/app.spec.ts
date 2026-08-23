@@ -289,6 +289,8 @@ test('the clock can be set and restored to real time', async () => {
   await expect.poll(() => page.evaluate(() => window.__mrt!.vehicleCount())).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'Now' }).click()
+  // The field must not keep advertising a time the simulation left behind
+  await expect(timeInput).toHaveValue('')
   const diff = await page.evaluate(() => {
     const fmt = new Intl.DateTimeFormat('de-DE', {
       timeZone: 'Europe/Berlin',

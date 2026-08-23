@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import {
   Bus,
   ChevronDown,
@@ -167,6 +167,12 @@ const LineGroup = memo(function LineGroup(props: {
 
 export function ControlPanel(props: ControlPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
+  /**
+   * The time field is uncontrolled – the native picker owns its value. "Now"
+   * therefore has to clear it explicitly, otherwise the field keeps showing a
+   * time the simulation left behind.
+   */
+  const timeInputRef = useRef<HTMLInputElement>(null)
 
   // Stable group arrays so the memoized LineGroups skip the clock re-renders
   const lineGroups = useMemo(() => {
@@ -223,6 +229,7 @@ export function ControlPanel(props: ControlPanelProps) {
               <Tooltip delayDuration={500}>
                 <TooltipTrigger asChild>
                   <Input
+                    ref={timeInputRef}
                     type="time"
                     aria-label={t('sim.setTime')}
                     className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
@@ -254,7 +261,16 @@ export function ControlPanel(props: ControlPanelProps) {
                 </TooltipTrigger>
                 <TooltipContent side="top">{t('sim.setTime')}</TooltipContent>
               </Tooltip>
-              <Button variant="outline" size="sm" onClick={props.onResetTime}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Back to the real clock – and back to an empty field, so it
+                  // does not keep advertising a time that is no longer set.
+                  if (timeInputRef.current) timeInputRef.current.value = ''
+                  props.onResetTime()
+                }}
+              >
                 <TimerReset aria-hidden />
                 {t('sim.now')}
               </Button>
