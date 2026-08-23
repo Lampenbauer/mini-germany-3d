@@ -23,6 +23,7 @@ import {
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
 import type { LonLat } from '@/lib/geo'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
+import { routeTunnelOpacity } from './tunnel-view'
 
 /** What the routes layer needs from the map around it. */
 export interface RoutesLayerHost {
@@ -78,12 +79,6 @@ export const ROUTE_PULSE_DURATION_MS = 3000
 const ROUTE_PULSE_PERIOD_MS = 750
 const ROUTE_PULSE_FADE_MS = 250
 
-/**
- * Visibility of tunnel/underground sections: route pieces and vehicles on
- * them are rendered at this fraction of their normal opacity. Exported for
- * the tests, which pin the ghosting behaviour against it.
- */
-export const TUNNEL_VISIBILITY = 0.2
 
 /**
  * True when the reverse direction is an exact mirror of the forward one
@@ -130,10 +125,23 @@ export class RoutesLayer {
   /** Running route attention pulse (see startRoutePulse), null = none. */
   private routePulse: { lineId: string; start: number; until: number } | null = null
 
+  /** Underground view (see setUnderground). */
+  private underground = false
+
   constructor(
     private readonly viewer: Viewer,
     private readonly host: RoutesLayerHost,
   ) {}
+
+  /**
+   * Underground view: tunnels solid, everything on the surface ghosted.
+   * The piece colors are evaluated per frame, so this needs no rebuild.
+   */
+  setUnderground(underground: boolean): void {
+    if (underground === this.underground) return
+    this.underground = underground
+    this.host.requestRender()
+  }
 
   /** Current NHN→ellipsoidal offset – the vehicles ride on it too. */
   get heightOffset(): number {
@@ -201,7 +209,7 @@ export class RoutesLayer {
         const heights = this.host.offline ? undefined : dir.heights
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
-          const alpha = piece.tunnel ? ROUTE_ALPHA * TUNNEL_VISIBILITY : ROUTE_ALPHA
+          const inTunnel = piece.tunnel
           // Non-constant color: routes stay in Cesium's static polyline
           // batch (isDynamic only looks at geometry properties), but the
           // batch refreshes the per-instance color attribute in place on
@@ -209,13 +217,21 @@ export class RoutesLayer {
           // attention pulse without primitive rebuilds. Replacing the
           // color property per frame instead re-batches asynchronously
           // and never becomes visible.
-          const baseColor = color.withAlpha(alpha)
+          //
+          // The base alpha is computed per call rather than baked in, so
+          // switching to the underground view swaps ghosted and solid
+          // pieces without touching a single primitive.
+          const baseColor = new Color()
           const scratchColor = new Color()
           const material = new ColorMaterialProperty(
-            new CallbackProperty(
-              () => this.routePieceColor(line.id, baseColor, scratchColor),
-              false,
-            ),
+            new CallbackProperty(() => {
+              Color.fromAlpha(
+                color,
+                ROUTE_ALPHA * routeTunnelOpacity(inTunnel, this.underground),
+                baseColor,
+              )
+              return this.routePieceColor(line.id, baseColor, scratchColor)
+            }, false),
           )
           const id = `route:${line.id}:${dir.direction}:${pieceIndex}`
           let entity: Entity

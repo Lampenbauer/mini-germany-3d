@@ -14,7 +14,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import { prepareNetwork } from '@/data/network'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
+import { RoutesLayer } from '@/map/RoutesLayer'
+import { routeTunnelOpacity, TUNNEL_VISIBILITY } from '@/map/tunnel-view'
 import { VehicleLayer } from '@/map/VehicleLayer'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
@@ -235,5 +236,62 @@ describe('Cesium tunnel rendering', () => {
     ready = true
     expect(applyVehicleAppearance(map, 'vehicle')).toBe(true)
     expect(attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+  })
+})
+
+describe('underground view', () => {
+  it('swaps ghosted and solid route pieces', () => {
+    const added: AddedRoute[] = []
+    const routes = routesWithFakeViewer(added)
+    routes.add(prepareNetwork(testTunnelNetworkJson))
+
+    // Normal: surface solid, the tunnel piece in the middle ghosted
+    expect(routeOpacities(added)).toEqual([
+      expect.closeTo(0.85, 5),
+      expect.closeTo(0.85 * TUNNEL_VISIBILITY, 5),
+      expect.closeTo(0.85, 5),
+    ])
+
+    routes.setUnderground(true)
+    // Underground: the other way round – and the ghosted surface goes
+    // fainter than a ghosted tunnel does, because it now lies on a
+    // darkened city instead of a bright one.
+    const ghost = 0.85 * routeTunnelOpacity(false, true)
+    expect(ghost).toBeLessThan(0.85 * TUNNEL_VISIBILITY)
+    expect(routeOpacities(added)).toEqual([
+      expect.closeTo(ghost, 5),
+      expect.closeTo(0.85, 5),
+      expect.closeTo(ghost, 5),
+    ])
+
+    routes.setUnderground(false)
+    expect(routeOpacities(added)[1]).toBeCloseTo(0.85 * TUNNEL_VISIBILITY, 5)
+  })
+
+  it('swaps the vehicle opacity and marks the records for repaint', () => {
+    const map = vehicleLayer()
+    const surface = fakeRecord({ inTunnel: false, appearanceDirty: false })
+    const tunnel = fakeRecord({ inTunnel: true, appearanceDirty: false })
+    const vehicles = (map as unknown as { vehicles: Map<string, unknown> }).vehicles
+    vehicles.set('surface', surface)
+    vehicles.set('tunnel', tunnel)
+
+    applyVehicleAppearance(map, 'surface')
+    applyVehicleAppearance(map, 'tunnel')
+    expect(surface.attributes.color[3]).toBe(255)
+    expect(tunnel.attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+
+    map.setUnderground(true)
+    // Every record needs repainting – sync() picks that up
+    expect(surface.appearanceDirty).toBe(true)
+    expect(tunnel.appearanceDirty).toBe(true)
+
+    applyVehicleAppearance(map, 'surface')
+    applyVehicleAppearance(map, 'tunnel')
+    expect(surface.attributes.color[3]).toBe(Math.round(TUNNEL_VISIBILITY * 255))
+    expect(tunnel.attributes.color[3]).toBe(255)
+    // The ghosted half is the translucent one, whichever side that is
+    expect(surface.appearance.translucent).toBe(true)
+    expect(tunnel.appearance.translucent).toBe(false)
   })
 })

@@ -1,7 +1,8 @@
 import { Color, ColorMaterialProperty, JulianDate, type Viewer } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { prepareNetwork } from '@/data/network'
-import { RoutesLayer, TUNNEL_VISIBILITY } from '@/map/RoutesLayer'
+import { RoutesLayer } from '@/map/RoutesLayer'
+import { TUNNEL_VISIBILITY } from '@/map/tunnel-view'
 import { testAsymmetricTunnelNetworkJson, testTunnelNetworkJson } from './fixtures'
 
 /**

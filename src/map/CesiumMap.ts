@@ -35,8 +35,8 @@ import {
   ROUTE_HEIGHT_OFFSET_FALLBACK,
   ROUTE_PULSE_DURATION_MS,
   RoutesLayer,
-  TUNNEL_VISIBILITY,
 } from './RoutesLayer'
+import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -109,6 +109,14 @@ const GLOW_SUN_START = -0.05
 const GLOW_SUN_FULL = -0.17
 
 /**
+ * How far the photo tiles are dimmed in the underground view. The value is
+ * applied in the renderer's linear light, so it sits far below the share it
+ * reads as on screen: measured over the map area, 0.02 lands at ~35 % of the
+ * normal view's luminance, 0.055 at ~41 %, 0.1 at ~47 %.
+ */
+const UNDERGROUND_DIM = 0.02
+
+/**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
  * (KHR_materials_unlit – daylight is baked into the photo textures), so the
  * scene's sun cannot shade them; instead the baked color is blended toward
@@ -127,8 +135,10 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   float sunUp = dot(czm_sunDirectionWC, normalize(fsInput.attributes.positionWC));
 
   // Closed sky, 0..1: cloud cover grades the city on its own, and rain
-  // always implies an overcast sky – whichever is stronger wins.
-  float overcast = max(u_cloudFactor, u_rainFactor);
+  // always implies an overcast sky – whichever is stronger wins. The
+  // underground view drops it: down there the weather is not the point,
+  // and a graded surface only muddies the tunnels showing through.
+  float overcast = max(u_cloudFactor, u_rainFactor) * (1.0 - u_underground);
 
   vec3 goldenTint = vec3(1.0, 0.84, 0.66);
   vec3 duskTint = vec3(0.40, 0.35, 0.37);
@@ -159,6 +169,16 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   graded *= mix(1.0, 0.65, overcast);
   graded *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), overcast);
   material.diffuse = graded;
+
+  // Underground view: the world recedes to a dark relief at the same 20 %
+  // the tunnels are drawn at otherwise. Deliberately NOT via material.alpha:
+  // translucent tiles write no depth, and without depth Cesium's camera
+  // cannot pick a point under the cursor – dragging then rotates the view
+  // instead of moving the map. Darkening keeps the tileset opaque.
+  float sunkenLum = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
+  vec3 sunken = mix(material.diffuse, vec3(sunkenLum), 0.6) * u_undergroundDim
+    + vec3(0.012, 0.016, 0.028);
+  material.diffuse = mix(material.diffuse, sunken, u_underground);
 }
 `
 
@@ -203,6 +223,8 @@ export class CesiumMap {
   private readonly routes: RoutesLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
+  /** Underground view (see setUnderground). */
+  private underground = false
   private handler: ScreenSpaceEventHandler
   private destroyed = false
   private googleTileset: Cesium3DTileset | null = null
@@ -442,6 +464,8 @@ export class CesiumMap {
         uniforms: {
           [RAIN_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
           [CLOUD_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
+          u_underground: { type: UniformType.FLOAT, value: this.underground ? 1 : 0 },
+          u_undergroundDim: { type: UniformType.FLOAT, value: UNDERGROUND_DIM },
         },
       })
       this.weather.attachTileShader(this.tileShader)
@@ -604,6 +628,11 @@ export class CesiumMap {
     this.weather.addCredit()
   }
 
+  /** Debug/test: raindrops currently on screen. */
+  getRainDropsVisible(): number {
+    return this.weather.visibleDropCount
+  }
+
 
 
 
@@ -638,6 +667,27 @@ export class CesiumMap {
   getVehicleOpacity(id: string): number | null {
     return this.vehicleLayer.getVehicleOpacity(id)
   }
+
+  /**
+   * Underground view: tunnel sections and the vehicles inside them become
+   * solid, while the surface – routes, vehicles and the photo tiles
+   * themselves – is ghosted instead.
+   */
+  setUnderground(underground: boolean): void {
+    if (underground === this.underground) return
+    this.underground = underground
+    this.routes.setUnderground(underground)
+    this.vehicleLayer.setUnderground(underground)
+    this.stops.setUnderground(underground)
+    this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
+    // The sky belongs to the surface: with the city sunk into a dark relief
+    // a bright daylight atmosphere above it reads as an eclipse.
+    const scene = this.viewer.scene
+    if (scene.skyAtmosphere) scene.skyAtmosphere.show = !underground
+    this.requestRender()
+  }
+
+
 
   /** Routes layer (see RoutesLayer) – the map only forwards. */
   addRoutes(network: PreparedNetwork): void {

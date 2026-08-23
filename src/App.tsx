@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, Home } from 'lucide-react'
+import { Compass, Home, Layers2, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { VehicleCard } from '@/components/VehicleCard'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
+import { cn } from '@/lib/utils'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
@@ -39,6 +40,8 @@ export interface MrtTestApi {
   setRain: (precipitationMm: number) => void
   /** Forces the overcast grade for tests/previews (percent; 0 = clear again). */
   setCloudCover: (cloudCoverPercent: number) => void
+  /** Raindrops currently drawn (0 = dry or below ground). */
+  rainDropsVisible: () => number
   selectVehicle: (id: string | null) => void
   dataSource: string
   lineIds: () => string[]
@@ -169,6 +172,10 @@ export default function App() {
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
   const [cameraIs2D, setCameraIs2D] = useState(false)
+  /** Underground view: tunnels solid, the surface ghosted (see CesiumMap). */
+  const [underground, setUnderground] = useState(false)
+  /** Same value for the render loop, which never sees the state updates. */
+  const undergroundRef = useRef(false)
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
   const showRoutesRef = useRef(showRoutes)
@@ -445,14 +452,20 @@ export default function App() {
                 berlinSecondsOfDay(Date.now()),
                 config.weather.maxSimTimeDriftSeconds,
               )
+              // Below ground there is no weather: no drops falling around the
+              // camera, and no overcast grade on a city seen from underneath.
+              const weatherVisible = !undergroundRef.current
               const rain = rainRef.current
-              const rainNow = rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
+              const rainNow =
+                weatherVisible && rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
               map.setRain(rainNow)
               rainActiveRef.current = rainNow > 0
               // Same gate for the overcast grade – a grey sky is as much
               // "now" as the rain is.
               const cloud = cloudRef.current
-              map.setCloudCover(cloud.forced || nearRealTime ? cloud.percent : 0)
+              map.setCloudCover(
+                weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
+              )
               setVehicleCount(
                 snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
               )
@@ -559,6 +572,7 @@ export default function App() {
       setCloudCover: (cloudCoverPercent: number) => {
         cloudRef.current = { percent: cloudCoverPercent, forced: cloudCoverPercent > 0 }
       },
+      rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
@@ -698,6 +712,16 @@ export default function App() {
     mapRef.current?.setCameraHome(true)
   }, [])
 
+  /** Toggle between the normal view and the underground one. */
+  const handleToggleUnderground = useCallback(() => {
+    setUnderground((wasUnderground) => {
+      const next = !wasUnderground
+      undergroundRef.current = next
+      mapRef.current?.setUnderground(next)
+      return next
+    })
+  }, [])
+
   /** Toggle between the tilted 3D view (pitch -60°) and top-down 2D (-90°). */
   const handleToggleViewMode = useCallback(() => {
     const map = mapRef.current
@@ -829,9 +853,33 @@ export default function App() {
         </div>
       )}
 
-      {/* Map controls: 2D/3D, face north, camera reset. bottom-8 keeps them
-          clear of the Cesium attribution line at the lower screen edge. */}
+      {/* Map controls: underground, 2D/3D, face north, camera reset. bottom-8
+          keeps them clear of the Cesium attribution line at the lower edge. */}
       <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              // The active state has to beat the shared bg-card/85 below,
+              // which tailwind-merge would otherwise let win over a variant.
+              className={cn(
+                'pointer-events-auto border border-border/60 backdrop-blur-md',
+                underground
+                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+                  : 'bg-card/85',
+              )}
+              aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
+              aria-pressed={underground}
+              onClick={handleToggleUnderground}
+            >
+              {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

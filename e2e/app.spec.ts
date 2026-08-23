@@ -165,6 +165,56 @@ test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', 
     .toBeCloseTo(1)
 })
 
+test('the underground view swaps ghosted and solid vehicles', async () => {
+  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
+
+  const transition = await page.evaluate(() => window.__mrt!.tunnelTransition())
+  expect(transition).not.toBeNull()
+
+  // Park a vehicle inside a tunnel and check both views on it
+  const hours = String(Math.floor(transition!.tunnelTime / 3600)).padStart(2, '0')
+  const minutes = String(Math.floor((transition!.tunnelTime % 3600) / 60)).padStart(2, '0')
+  const secs = String(transition!.tunnelTime % 60).padStart(2, '0')
+  await page.evaluate((time) => window.__mrt!.setTime(time), `${hours}:${minutes}:${secs}`)
+
+  const opacity = () =>
+    page.evaluate((id) => {
+      const snap = window.__mrt!.vehicles().find((tram) => tram.id === id)
+      return snap?.inTunnel ? window.__mrt!.vehicleOpacity(id) : null
+    }, transition!.id)
+
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
+
+  const button = page.getByRole('button', { name: 'Show underground view' })
+  await button.click()
+  await expect(page.getByRole('button', { name: 'Back to the surface view' })).toBeVisible()
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(1)
+
+  await page.getByRole('button', { name: 'Back to the surface view' }).click()
+  await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
+})
+
+test('the underground view stops the rain', async () => {
+  await page.evaluate(() => window.__mrt!.setRain(3))
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Show underground view' }).click()
+  // No drops falling around a camera that is below ground
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
+    .toBe(0)
+
+  await page.getByRole('button', { name: 'Back to the surface view' }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.rainDropsVisible()), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+
+  await page.evaluate(() => window.__mrt!.setRain(0))
+})
+
 test('line switch hides the vehicles of that line', async () => {
   const before = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
   await page.getByRole('switch', { name: 'Show Line 1' }).click()

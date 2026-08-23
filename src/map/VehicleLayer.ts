@@ -39,7 +39,7 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { TUNNEL_VISIBILITY } from './RoutesLayer'
+import { tunnelOpacity } from './tunnel-view'
 
 /** What the vehicle layer needs from the map around it. */
 export interface VehicleLayerHost {
@@ -221,10 +221,25 @@ export class VehicleLayer {
   private glowMaterial: Material | null = null
   private glowAppearance: MaterialAppearance | null = null
 
+  /** Underground view (see setUnderground). */
+  private underground = false
+
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VehicleLayerHost,
   ) {}
+
+  /**
+   * Underground view: vehicles in tunnels solid, those on the surface
+   * ghosted. Every record has to be repainted, so they are all marked
+   * dirty and picked up by the next sync().
+   */
+  setUnderground(underground: boolean): void {
+    if (underground === this.underground) return
+    this.underground = underground
+    for (const record of this.vehicles.values()) record.appearanceDirty = true
+    this.host.requestRender()
+  }
 
   /** Id of the vehicle the camera is chasing, null when free. */
   get followedId(): string | null {
@@ -430,6 +445,7 @@ export class VehicleLayer {
         const showGlow =
           showBody &&
           !record.inTunnel &&
+          !this.underground &&
           this.host.nightFactor > 0.02 &&
           cameraDistance < GLOW_VISIBLE_RANGE
         if (record.glow.show !== showGlow) {
@@ -595,8 +611,9 @@ export class VehicleLayer {
   private createVehicleEntity(snap: VehicleSnapshot): VehicleRecord {
     const color = Color.fromCssColorString(snap.color)
     const halfHeight = snap.vehicle.height / 2
-    // Vehicles on a tunnel section start as 40 % ghosts right away.
-    const alpha = snap.inTunnel ? TUNNEL_VISIBILITY : 1
+    // Ghosted right away when the view has this vehicle on its far side –
+    // in a tunnel normally, on the surface in the underground view.
+    const alpha = tunnelOpacity(snap.inTunnel, this.underground)
     const initialPosition = Cartesian3.fromDegrees(
       snap.lon,
       snap.lat,
@@ -731,8 +748,8 @@ export class VehicleLayer {
   private applyVehicleAppearance(vehicleId: string): boolean {
     const record = this.vehicles.get(vehicleId)
     if (!record) return true
-    record.appearance.translucent = record.inTunnel
-    const alpha = record.inTunnel ? TUNNEL_VISIBILITY : 1
+    const alpha = tunnelOpacity(record.inTunnel, this.underground)
+    record.appearance.translucent = alpha < 1
     // Badge billboard: dim the whole badge via the color multiplier; the
     // text-label fallback (no canvas) dims fill and outline instead.
     const billboard = record.labelEntity.billboard

@@ -11,6 +11,10 @@ export interface FakeStopSpec {
   /** Lines serving this stop – drives the line-visibility rules. */
   lines: string[]
   nhn?: number
+  /** Distance along the direction path – decides the tunnel classification. */
+  dist?: number
+  /** Tunnel ranges of the direction serving this stop. */
+  tunnels?: [number, number][]
 }
 
 /**
@@ -23,8 +27,15 @@ export function networkOf(stops: FakeStopSpec[]): PreparedNetwork {
   const lines = lineIds.map((id) => {
     const served = stops
       .filter((s) => s.lines.includes(id))
-      .map((s) => ({ id: s.id, name: s.name, coord: [s.lon, s.lat], dist: 0, nhn: s.nhn }))
-    const direction = { stops: served }
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        coord: [s.lon, s.lat],
+        dist: s.dist ?? 0,
+        nhn: s.nhn,
+      }))
+    const tunnels = stops.find((s) => s.lines.includes(id) && s.tunnels)?.tunnels ?? []
+    const direction = { stops: served, tunnels }
     return { id, directions: [direction, direction] }
   })
   return { lines } as unknown as PreparedNetwork

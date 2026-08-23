@@ -57,6 +57,8 @@ const en = {
   'follow.ferry': 'Follow ferry',
   'follow.stop': 'Stop following',
   // Map controls
+  'camera.toUnderground': 'Show underground view',
+  'camera.toSurface': 'Back to the surface view',
   'camera.to2d': 'Switch to 2D view',
   'camera.to3d': 'Switch to 3D view',
   'camera.faceNorth': 'Face north',
@@ -112,6 +114,8 @@ const de: Record<MessageKey, string> = {
   'follow.bus': 'Bus folgen',
   'follow.ferry': 'Fähre folgen',
   'follow.stop': 'Nicht mehr folgen',
+  'camera.toUnderground': 'Untergrund-Ansicht zeigen',
+  'camera.toSurface': 'Zurück zur normalen Ansicht',
   'camera.to2d': 'Zur 2D-Ansicht wechseln',
   'camera.to3d': 'Zur 3D-Ansicht wechseln',
   'camera.faceNorth': 'Nach Norden ausrichten',

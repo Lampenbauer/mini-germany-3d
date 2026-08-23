@@ -46,3 +46,36 @@ describe('line-driven stop visibility', () => {
     expect([disc(0).show, disc(1).show, disc(2).show]).toEqual([false, false, false])
   })
 })
+
+describe('underground view on the stops', () => {
+  // One platform inside the tunnel range, one outside it
+  const tunnels: [number, number][] = [[100, 300]]
+  const stops = [
+    { id: 'surface', name: 'Oben', lon: 12.1, lat: 54.09, lines: ['1'], dist: 50, tunnels },
+    { id: 'below', name: 'Unten', lon: 12.101, lat: 54.09, lines: ['1'], dist: 200, tunnels },
+  ]
+
+  it('ghosts the surface stops and keeps the underground ones solid', () => {
+    const { layer, disc, label } = stopsHarness(stops)
+
+    layer.setUnderground(true)
+    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
+    expect(label(0).color.alpha).toBeCloseTo(0.2, 5)
+    expect(disc(1).color.alpha).toBeCloseTo(1, 5)
+    expect(label(1).color.alpha).toBeCloseTo(1, 5)
+
+    layer.setUnderground(false)
+    expect(disc(0).color.alpha).toBeCloseTo(1, 5)
+    expect(disc(1).color.alpha).toBeCloseTo(0.2, 5)
+  })
+
+  it('counts a stop as underground when any serving line runs below', () => {
+    const shared = [
+      { id: 'shared', name: 'Geteilt', lon: 12.1, lat: 54.09, lines: ['1'], dist: 200, tunnels },
+      { id: 'shared2', name: 'Geteilt', lon: 12.1, lat: 54.09, lines: ['2'], dist: 50 },
+    ]
+    const { layer, disc } = stopsHarness(shared)
+    layer.setUnderground(true)
+    expect(disc(0).color.alpha).toBeCloseTo(1, 5)
+  })
+})

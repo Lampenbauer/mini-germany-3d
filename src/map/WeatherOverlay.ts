@@ -148,6 +148,13 @@ export class WeatherOverlay {
     return this.rainIntensity > 0
   }
 
+  /** Drops currently shown – the E2E tests read the rain through this. */
+  get visibleDropCount(): number {
+    let shown = 0
+    for (const drop of this.rainDrops) if (drop.billboard.show) shown++
+    return shown
+  }
+
   /**
    * Rain overlay driven by live precipitation (mm). 0 removes the rain,
    * anything above scales the visible drop count. The drop volume follows

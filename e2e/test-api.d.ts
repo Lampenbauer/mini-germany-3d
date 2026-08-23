@@ -22,6 +22,7 @@ declare global {
       setRealtimeDelays: (delays: Record<string, number>) => void
       setRain: (precipitationMm: number) => void
       setCloudCover: (cloudCoverPercent: number) => void
+      rainDropsVisible: () => number
       selectVehicle: (id: string | null) => void
       dataSource: string
       lineIds: () => string[]

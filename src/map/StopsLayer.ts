@@ -10,6 +10,7 @@
 
 import {
   type Billboard,
+  Color,
   BillboardCollection,
   BlendOption,
   Cartesian2,
@@ -22,6 +23,8 @@ import {
   type Viewer,
 } from 'cesium'
 import type { PreparedNetwork } from '@/data/network-types'
+import { isInTunnel } from '@/lib/tunnels'
+import { tunnelOpacity } from './tunnel-view'
 
 /** What the stops layer needs from the map around it. */
 export interface StopsLayerHost {
@@ -70,6 +73,8 @@ interface StopEntityRecord {
    * visibility together with the global stops layer toggle.
    */
   lineVisible: boolean
+  /** Platform lies on an underground section (drives the ghosting). */
+  inTunnel: boolean
   lon: number
   lat: number
   /** Fixed world position of the stop – basis for the camera distance check. */
@@ -193,6 +198,8 @@ export class StopsLayer {
   /** Camera view matrix of the last declutter pass (all zeros = never ran). */
   private declutterViewMatrix = new Matrix4()
   private lastStopSampleAt = 0
+  /** Underground view (see setUnderground). */
+  private underground = false
 
   constructor(
     private readonly viewer: Viewer,
@@ -202,6 +209,24 @@ export class StopsLayer {
   /** Number of stops on the map (0 before add()). */
   get count(): number {
     return this.stopRecords.length
+  }
+
+  /**
+   * Underground view: the stops on the surface are ghosted, the ones on an
+   * underground platform stay solid – the same swap the routes and vehicles
+   * make. Disc and name plate carry it via their color multiplier.
+   */
+  setUnderground(underground: boolean): void {
+    if (underground === this.underground) return
+    this.underground = underground
+    for (const record of this.stopRecords) this.applyStopOpacity(record)
+    this.host.requestRender()
+  }
+
+  private applyStopOpacity(record: StopEntityRecord): void {
+    const alpha = tunnelOpacity(record.inTunnel, this.underground)
+    record.disc.color = Color.WHITE.withAlpha(alpha)
+    record.label.color = Color.WHITE.withAlpha(alpha)
   }
 
   setVisible(visible: boolean): void {
@@ -261,21 +286,37 @@ export class StopsLayer {
       lat: number
       nhn?: number
       lines: string[]
+      /** Served underground by at least one line (drives the ghosting). */
+      inTunnel: boolean
     }[] = []
     // Stops are shared across lines – collect every serving line per stop,
     // so hiding lines can hide exactly the stops no shown line serves.
-    const byId = new Map<string, string[]>()
+    const byId = new Map<string, { entry: (typeof unique)[number] }>()
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const stop of dir.stops) {
-          const lines = byId.get(stop.id)
-          if (lines) {
-            if (!lines.includes(line.id)) lines.push(line.id)
+          // Underground platform: the stop's distance along this direction
+          // falls inside one of its tunnel sections. A stop shared with a
+          // surface line counts as underground all the same – its platform
+          // is down there either way.
+          const underground = isInTunnel(dir.tunnels, stop.dist)
+          const known = byId.get(stop.id)
+          if (known) {
+            if (!known.entry.lines.includes(line.id)) known.entry.lines.push(line.id)
+            if (underground) known.entry.inTunnel = true
             continue
           }
           const [lon, lat] = stop.coord
-          const entry = { id: stop.id, name: stop.name, lon, lat, nhn: stop.nhn, lines: [line.id] }
-          byId.set(stop.id, entry.lines)
+          const entry = {
+            id: stop.id,
+            name: stop.name,
+            lon,
+            lat,
+            nhn: stop.nhn,
+            lines: [line.id],
+            inTunnel: underground,
+          }
+          byId.set(stop.id, { entry })
           unique.push(entry)
         }
       }
@@ -325,6 +366,7 @@ export class StopsLayer {
           : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
         lines: stop.lines,
         lineVisible: true,
+        inTunnel: stop.inTunnel,
         lon: stop.lon,
         lat: stop.lat,
         position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.host.defaultGroundHeight),
