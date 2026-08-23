@@ -4,12 +4,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
-import { t, type MessageKey } from '@/lib/i18n'
+import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
 
 export interface VehicleCardProps {
   vehicle: VehicleSnapshot
   /** All stops of the trip plus the vehicle's position (null = inactive). */
   tripProgress: TripProgress | null
+  /** Simulation clock in seconds of day – basis for the arrival countdown. */
+  simSeconds: number
+  /** Stop id → every line serving it (drives the interchange badges). */
+  stopLines: ReadonlyMap<string, { id: string; color: string }[]>
   /** Click on a stop – the camera flies to it. */
   onFlyToStop: (stop: TripStop) => void
   following: boolean
@@ -30,6 +34,19 @@ function formatDelay(delaySeconds: number): string {
   if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
+}
+
+/**
+ * Minutes from now until an arrival, wrapping across midnight.
+ *
+ * Both values are floored to whole minutes first, so the countdown agrees
+ * with the clock time shown right next to it: an arrival at 08:33:40 seen
+ * at 08:30:00 reads as three minutes, not the four a rounded difference
+ * would give.
+ */
+function minutesUntil(arrivalSec: number, nowSec: number): number {
+  const diff = Math.floor(arrivalSec / 60) - Math.floor(nowSec / 60)
+  return diff < -720 ? diff + 1440 : diff > 720 ? diff - 1440 : diff
 }
 
 /** Mode-appropriate label key for the follow button. */
@@ -55,6 +72,8 @@ function statusText(vehicle: VehicleSnapshot): string {
 export function VehicleCard({
   vehicle,
   tripProgress,
+  simSeconds,
+  stopLines,
   onFlyToStop,
   following,
   onToggleFollow,
@@ -68,6 +87,16 @@ export function VehicleCard({
   const markerFraction = position - Math.floor(position)
   // The snapshot's "next stop" row (E2E contract for vehicle-next-stop)
   const nextIndex = Math.min(markerIndex + 1, Math.max(stops.length - 1, 0))
+
+  // Arrival at the destination: the value is already in the list (delay
+  // applied), just buried at its bottom – this lifts it into the summary.
+  const finalStop = stops.length > 0 ? stops[stops.length - 1] : null
+  const stopsLeft = Math.max(0, stops.length - 1 - markerIndex)
+  // Interchange at the stop the vehicle heads for, minus its own line
+  const nextStop = stops.length > 0 ? stops[nextIndex] : null
+  const interchange = nextStop
+    ? (stopLines.get(nextStop.id) ?? []).filter((line) => line.id !== vehicle.lineId)
+    : []
 
   // Bring the vehicle marker into view when a (new) vehicle is selected –
   // the list keeps the user's scroll position afterwards.
@@ -105,8 +134,34 @@ export function VehicleCard({
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <span className="text-muted-foreground">{t('vehicle.status')}</span>
           <span data-testid="vehicle-status">{statusText(vehicle)}</span>
-          <span className="text-muted-foreground">{t('vehicle.trip')}</span>
-          <span className="font-mono text-xs">{vehicle.id}</span>
+          {finalStop && (
+            <>
+              <span className="text-muted-foreground">{t('vehicle.arrival')}</span>
+              <span data-testid="vehicle-arrival">
+                {formatArrival(finalStop.arrivalSec)}
+                <span className="text-muted-foreground">
+                  {' · '}
+                  {stopsLeft === 0
+                    ? t('vehicle.lastStop')
+                    : `${
+                        minutesUntil(finalStop.arrivalSec, simSeconds) < 1
+                          ? t('vehicle.arriving')
+                          : t('vehicle.inMinutes', {
+                              count: minutesUntil(finalStop.arrivalSec, simSeconds),
+                            })
+                      } · ${t('vehicle.stopsLeft', { count: stopsLeft })}`}
+                </span>
+              </span>
+            </>
+          )}
+          <span className="text-muted-foreground">{t('vehicle.vehicle')}</span>
+          <span data-testid="vehicle-type">
+            {t(MODE_KEY[vehicle.mode])}
+            <span className="text-muted-foreground">
+              {' · '}
+              {Math.round(vehicle.vehicle.length)} m
+            </span>
+          </span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-sm text-muted-foreground">
@@ -190,6 +245,24 @@ export function VehicleCard({
             </span>
           )}
         </div>
+        {interchange.length > 0 && nextStop && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-muted-foreground">
+              {t('vehicle.interchange', { name: nextStop.name })}
+            </span>
+            <div className="flex flex-wrap gap-1" data-testid="vehicle-interchange">
+              {interchange.map((line) => (
+                <span
+                  key={line.id}
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 text-xs font-semibold text-white"
+                  style={{ backgroundColor: line.color }}
+                >
+                  {line.id}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Button
             variant={following ? 'default' : 'outline'}

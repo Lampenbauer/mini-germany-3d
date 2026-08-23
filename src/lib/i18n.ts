@@ -43,7 +43,6 @@ const en = {
   'vehicle.nextStop': 'Next stop',
   'vehicle.stops': 'Stops',
   'vehicle.flyToStop': 'Fly to {name}',
-  'vehicle.trip': 'Trip',
   'vehicle.close': 'Close selection',
   'vehicle.moving': 'Moving',
   'vehicle.atStop': 'At stop',
@@ -51,6 +50,13 @@ const en = {
   'vehicle.inTunnel': 'in tunnel',
   'vehicle.onTime': 'on time',
   'vehicle.onSchedule': 'On schedule',
+  'vehicle.arrival': 'Arrival',
+  'vehicle.inMinutes': 'in {count} min',
+  'vehicle.arriving': 'arriving',
+  'vehicle.stopsLeft': '{count} stops to go',
+  'vehicle.lastStop': 'final stop',
+  'vehicle.vehicle': 'Vehicle',
+  'vehicle.interchange': 'Change at {name}',
   'follow.tram': 'Follow tram',
   'follow.train': 'Follow train',
   'follow.bus': 'Follow bus',
@@ -101,7 +107,6 @@ const de: Record<MessageKey, string> = {
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',
   'vehicle.flyToStop': 'Zu {name} fliegen',
-  'vehicle.trip': 'Fahrt',
   'vehicle.close': 'Auswahl schließen',
   'vehicle.moving': 'In Fahrt',
   'vehicle.atStop': 'An Haltestelle',
@@ -109,6 +114,13 @@ const de: Record<MessageKey, string> = {
   'vehicle.inTunnel': 'im Tunnel',
   'vehicle.onTime': 'pünktlich',
   'vehicle.onSchedule': 'Nach Fahrplan',
+  'vehicle.arrival': 'Ankunft',
+  'vehicle.inMinutes': 'in {count} Min',
+  'vehicle.arriving': 'gleich',
+  'vehicle.stopsLeft': 'noch {count} Halte',
+  'vehicle.lastStop': 'Endhalt',
+  'vehicle.vehicle': 'Fahrzeug',
+  'vehicle.interchange': 'Umstieg {name}',
   'follow.tram': 'Straßenbahn folgen',
   'follow.train': 'S-Bahn folgen',
   'follow.bus': 'Bus folgen',
@@ -181,4 +193,12 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
 export function localizeLineName(name: string): string {
   if (lang !== 'de') return name
   return name.replace(/^Line /, 'Linie ').replace(/^Ferry /, 'Fähre ')
+}
+
+/** Label key per transit mode – shared by the line panel and the vehicle card. */
+export const MODE_KEY: Record<'tram' | 'train' | 'bus' | 'ferry', MessageKey> = {
+  tram: 'mode.tram',
+  train: 'mode.train',
+  bus: 'mode.bus',
+  ferry: 'mode.ferry',
 }

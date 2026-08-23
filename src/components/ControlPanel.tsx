@@ -21,7 +21,7 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TransitMode } from '@/data/network-types'
-import { t, type MessageKey } from '@/lib/i18n'
+import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
 import type { RealtimeStatus } from '@/lib/realtime'
 import type { TilesetStatus } from '@/map/CesiumMap'
 
@@ -73,12 +73,6 @@ const TILESET_KEY: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, MessageKey>
 
 /** Display order and label keys of the transit-mode groups. */
 const MODE_ORDER: TransitMode[] = ['tram', 'train', 'bus', 'ferry']
-const MODE_KEY: Record<TransitMode, MessageKey> = {
-  tram: 'mode.tram',
-  train: 'mode.train',
-  bus: 'mode.bus',
-  ferry: 'mode.ferry',
-}
 const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   tram: TramFront,
   train: TrainFront,

@@ -24,6 +24,7 @@ declare global {
       setCloudCover: (cloudCoverPercent: number) => void
       rainDropsVisible: () => number
       selectVehicle: (id: string | null) => void
+      selectedVehicleId: () => string | null
       dataSource: string
       lineIds: () => string[]
       secondsOfDay: () => number

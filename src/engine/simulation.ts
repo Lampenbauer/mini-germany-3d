@@ -44,6 +44,8 @@ export interface VehicleSnapshot {
 
 /** One stop of an active trip (see tripProgress). */
 export interface TripStop {
+  /** Network stop id – the key the interchange lookup matches on. */
+  id: string
   name: string
   /**
    * Predicted arrival in seconds since midnight (Europe/Berlin), with the
@@ -161,6 +163,7 @@ export class Simulation {
       .map((stopTime) => ({ stopTime, stop: dir.stops[stopTime.stopIndex] }))
       .filter((entry) => entry.stop !== undefined)
     const stops: TripStop[] = entries.map(({ stopTime, stop }) => ({
+      id: stop.id,
       name: stop.name,
       arrivalSec: (stopTime.arrival + delay) % DAY_SECONDS,
       lon: stop.coord[0],

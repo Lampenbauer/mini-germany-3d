@@ -72,7 +72,11 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   const card = page.getByTestId('vehicle-card')
   await expect(card).toBeVisible({ timeout: 60_000 })
-  await expect(card).toContainText(vehicleId)
+  // The trip id is no longer printed on the card, so ask the app which
+  // vehicle it restored – that is what this test is actually about.
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.selectedVehicleId()), { timeout: 30_000 })
+    .toBe(vehicleId)
   await expect(card.getByRole('button', { name: 'Stop following' })).toBeVisible({
     timeout: 30_000,
   })

@@ -28,11 +28,28 @@ const vehicle: VehicleSnapshot = {
 
 const noop = () => {}
 
+/** 08:30 – the fixture arrivals sit a few minutes after it. */
+const SIM_SECONDS = 8 * 3600 + 30 * 60
+
+/** Kröpeliner Tor is also served by lines 4 and 5 (the card's own line is 1). */
+const stopLines = new Map([
+  ['doberaner-platz', [{ id: '1', color: '#5D106A' }]],
+  [
+    'kroepeliner-tor',
+    [
+      { id: '1', color: '#5D106A' },
+      { id: '4', color: '#e2001a' },
+      { id: '5', color: '#f39200' },
+    ],
+  ],
+])
+
 // Vehicle underway between Lange Straße (passed) and Doberaner Platz:
 // position 0.5 = halfway along the first segment.
 const progress: TripProgress = {
   stops: [
     {
+      id: 'lange-strasse',
       name: 'Lange Straße',
       arrivalSec: 8 * 3600 + 29 * 60,
       lon: 12.135,
@@ -40,6 +57,7 @@ const progress: TripProgress = {
       passed: true,
     },
     {
+      id: 'doberaner-platz',
       name: 'Doberaner Platz',
       arrivalSec: 8 * 3600 + 31 * 60,
       lon: 12.115,
@@ -48,6 +66,7 @@ const progress: TripProgress = {
     },
     // Seconds are floored to the displayed minute
     {
+      id: 'kroepeliner-tor',
       name: 'Kröpeliner Tor',
       arrivalSec: 8 * 3600 + 33 * 60 + 40,
       lon: 12.125,
@@ -64,6 +83,8 @@ describe('VehicleCard trip stops', () => {
       <VehicleCard
         vehicle={vehicle}
         tripProgress={progress}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -89,6 +110,8 @@ describe('VehicleCard trip stops', () => {
       <VehicleCard
         vehicle={vehicle}
         tripProgress={progress}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -108,6 +131,8 @@ describe('VehicleCard trip stops', () => {
       <VehicleCard
         vehicle={vehicle}
         tripProgress={{ ...progress, position: 1 }}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -129,6 +154,8 @@ describe('VehicleCard trip stops', () => {
       <VehicleCard
         vehicle={vehicle}
         tripProgress={progress}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
         onFlyToStop={onFlyToStop}
         following={false}
         onToggleFollow={noop}
@@ -144,6 +171,8 @@ describe('VehicleCard trip stops', () => {
       <VehicleCard
         vehicle={vehicle}
         tripProgress={null}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -153,5 +182,64 @@ describe('VehicleCard trip stops', () => {
     expect(screen.queryByTestId('vehicle-trip-stops')).not.toBeInTheDocument()
     expect(screen.getByText('Next stop')).toBeInTheDocument()
     expect(screen.getByTestId('vehicle-next-stop')).toHaveTextContent('Doberaner Platz')
+  })
+})
+
+describe('VehicleCard summary', () => {
+  const renderCard = (props: Partial<React.ComponentProps<typeof VehicleCard>> = {}) =>
+    render(
+      <VehicleCard
+        vehicle={vehicle}
+        tripProgress={progress}
+        simSeconds={SIM_SECONDS}
+        stopLines={stopLines}
+        onFlyToStop={noop}
+        following={false}
+        onToggleFollow={noop}
+        onClose={noop}
+        {...props}
+      />,
+    )
+
+  it('lifts the destination arrival out of the stop list', () => {
+    renderCard()
+    // Last stop arrives 08:33:40 → 08:33, three minutes after 08:30
+    const arrival = screen.getByTestId('vehicle-arrival')
+    expect(arrival).toHaveTextContent('08:33')
+    expect(arrival).toHaveTextContent('in 3 min')
+    // Two stops still ahead of the vehicle (position 0.5)
+    expect(arrival).toHaveTextContent('2 stops to go')
+  })
+
+  it('says "arriving" instead of "in 0 min" right before the destination', () => {
+    renderCard({ simSeconds: 8 * 3600 + 33 * 60 + 30 })
+    expect(screen.getByTestId('vehicle-arrival')).toHaveTextContent('arriving')
+  })
+
+  it('marks the destination itself as the final stop', () => {
+    renderCard({ tripProgress: { ...progress, position: 2 } })
+    expect(screen.getByTestId('vehicle-arrival')).toHaveTextContent('final stop')
+  })
+
+  it('names the vehicle type and its length', () => {
+    renderCard()
+    const type = screen.getByTestId('vehicle-type')
+    expect(type).toHaveTextContent('Tram')
+    expect(type).toHaveTextContent('32 m')
+  })
+
+  it('shows the other lines at the next stop, never its own', () => {
+    // position 1 → dwelling at Doberaner Platz, next stop Kröpeliner Tor
+    renderCard({ tripProgress: { ...progress, position: 1 } })
+    const badges = screen.getByTestId('vehicle-interchange')
+    expect(badges).toHaveTextContent('4')
+    expect(badges).toHaveTextContent('5')
+    expect(badges).not.toHaveTextContent('1')
+  })
+
+  it('hides the interchange block where no other line calls', () => {
+    // position 0 → next stop Doberaner Platz, served by line 1 alone
+    renderCard({ tripProgress: { ...progress, position: 0 } })
+    expect(screen.queryByTestId('vehicle-interchange')).toBeNull()
   })
 })

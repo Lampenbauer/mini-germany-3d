@@ -43,6 +43,8 @@ export interface MrtTestApi {
   /** Raindrops currently drawn (0 = dry or below ground). */
   rainDropsVisible: () => number
   selectVehicle: (id: string | null) => void
+  /** Trip id of the current selection, null when nothing is selected. */
+  selectedVehicleId: () => string | null
   dataSource: string
   lineIds: () => string[]
   secondsOfDay: () => number
@@ -172,6 +174,8 @@ export default function App() {
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
   const [cameraIs2D, setCameraIs2D] = useState(false)
+  /** Sim clock in seconds of day – drives the vehicle card's countdown. */
+  const [simSeconds, setSimSeconds] = useState(0)
   /** Underground view: tunnels solid, the surface ghosted (see CesiumMap). */
   const [underground, setUnderground] = useState(false)
   /** Same value for the render loop, which never sees the state updates. */
@@ -444,6 +448,7 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
+              setSimSeconds(clock.secondsOfDay())
               setCameraIs2D(map.getCameraView().pitch < -85)
               // Rain: only with live precipitation AND a sim clock near the
               // real time – time travel must not show today's weather.
@@ -574,6 +579,7 @@ export default function App() {
       },
       rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
+      selectedVehicleId: () => selectedIdRef.current,
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
@@ -778,6 +784,27 @@ export default function App() {
     [handleSetLinesVisible],
   )
 
+  /**
+   * Which lines serve a stop – the same relation the stop name plates on the
+   * map show ("Kröpeliner Tor (1, 4, 5, 6)"). The vehicle card reads the
+   * interchange options for the next stop out of it.
+   */
+  const stopLines = useMemo(() => {
+    const byStop = new Map<string, { id: string; color: string }[]>()
+    for (const line of network.lines) {
+      for (const dir of line.directions) {
+        for (const stop of dir.stops) {
+          const serving = byStop.get(stop.id)
+          if (!serving) byStop.set(stop.id, [{ id: line.id, color: line.color }])
+          else if (!serving.some((l) => l.id === line.id)) {
+            serving.push({ id: line.id, color: line.color })
+          }
+        }
+      }
+    }
+    return byStop
+  }, [network])
+
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
@@ -845,6 +872,8 @@ export default function App() {
           <VehicleCard
             vehicle={selected}
             tripProgress={tripProgress}
+            simSeconds={simSeconds}
+            stopLines={stopLines}
             onFlyToStop={handleFlyToStop}
             following={following}
             onToggleFollow={handleToggleFollow}

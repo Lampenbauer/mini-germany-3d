@@ -153,8 +153,8 @@ const GLOW_LIFT = 0.15
 const GLOW_VISIBLE_RANGE = 2_000
 
 /** Follow camera: initial offset behind/above the vehicle. */
-const FOLLOW_PITCH_DEG = -14
-const FOLLOW_RANGE = 150
+const FOLLOW_PITCH_DEG = -16
+const FOLLOW_RANGE = 140
 
 /** Duration of the approach flight when following starts, in seconds. */
 const FOLLOW_FLIGHT_SECONDS = 1.4
