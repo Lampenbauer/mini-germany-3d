@@ -72,6 +72,12 @@ export interface CesiumMapOptions {
    * tiles everywhere at a steep data/memory cost (~4× per halving).
    */
   maximumScreenSpaceError?: number
+  /**
+   * Upper bound on the rain drop pool (?drops=). Visible rain pins the
+   * render loop at animation rate, which the E2E rain test pays for on a
+   * software renderer; a small pool exercises the same paths far cheaper.
+   */
+  maxRainDrops?: number
   onSelectVehicle?: (vehicleId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
   /**
@@ -326,7 +332,11 @@ export class CesiumMap {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const map = this
     // Before loadGoogleTiles(): that hands the overlay its tile shader.
-    this.weather = new WeatherOverlay(this.viewer, () => this.requestRender())
+    this.weather = new WeatherOverlay(
+      this.viewer,
+      () => this.requestRender(),
+      opts.maxRainDrops,
+    )
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,

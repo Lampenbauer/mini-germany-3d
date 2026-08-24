@@ -115,6 +115,8 @@ interface UrlOptions {
   lamps: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
+  /** Cap on the rain drop pool (?drops=50) – keeps the E2E rain test cheap. */
+  maxRainDrops: number | undefined
 }
 
 /** Delay of the URL update after the camera settled (moveEnd) in ms. */
@@ -148,6 +150,8 @@ function readUrlOptions(): UrlOptions {
   const groundHeight = groundHeightRaw === null ? NaN : Number(groundHeightRaw)
   const sseRaw = params.get('sse')
   const sse = sseRaw === null ? NaN : Number(sseRaw)
+  const dropsRaw = params.get('drops')
+  const drops = dropsRaw === null ? NaN : Number(dropsRaw)
   return {
     offline: params.get('offline') === '1',
     speed: Number.isFinite(speed) ? Math.min(600, Math.max(1, speed)) : 1,
@@ -161,6 +165,7 @@ function readUrlOptions(): UrlOptions {
     rain: params.get('rain') !== '0',
     lamps: params.get('lamps') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
+    maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
   }
 }
 
@@ -349,6 +354,7 @@ export default function App() {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
+      maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
       onTilesetStatus: setTilesetStatus,
       onCameraChanged: scheduleHashWrite,

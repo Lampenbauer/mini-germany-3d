@@ -110,6 +110,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
 | `?lamps=0` | Disable the night-time street lighting |
+| `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |

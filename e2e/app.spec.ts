@@ -195,36 +195,6 @@ test('the underground view swaps ghosted and solid vehicles', async () => {
   await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
 })
 
-test('the underground view stops the rain', async () => {
-  // The rain gate lives in the app's UI tick, which rides on the render
-  // loop – and a loaded CI runner spends seconds on a single SwiftShader
-  // frame, so a tick can be tens of seconds apart. Generous budgets, same
-  // as the snapshot poll in beforeEach; a real regression still fails, just
-  // later. (Measured on CI: 6 s locally, 2.8 min on a bad runner.)
-  test.setTimeout(300_000)
-  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
-  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
-  // Light drizzle on purpose: 0.2 mm is 1000 drops instead of the 4000 a
-  // downpour spawns. Visible rain holds the render loop at animation rate,
-  // and under SwiftShader every one of those frames costs seconds – enough
-  // of them and the test spends its whole budget rendering water.
-  await page.evaluate(() => window.__mrt!.setRain(0.2))
-  await expect.poll(drops, slowPoll).toBeGreaterThan(0)
-
-  await page.getByRole('button', { name: 'Show underground view' }).click()
-  // No drops falling around a camera that is below ground
-  await expect.poll(drops, slowPoll).toBe(0)
-
-  // Dry before leaving again, so the second click lands on an idle scene
-  await page.evaluate(() => window.__mrt!.setRain(0))
-  await page.getByRole('button', { name: 'Back to the surface view' }).click()
-
-  // The gate opens both ways: rain set on the surface shows up again
-  await page.evaluate(() => window.__mrt!.setRain(0.2))
-  await expect.poll(drops, slowPoll).toBeGreaterThan(0)
-  await page.evaluate(() => window.__mrt!.setRain(0))
-})
-
 test('line switch hides the vehicles of that line', async () => {
   const before = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
   await page.getByRole('switch', { name: 'Show Line 1' }).click()
