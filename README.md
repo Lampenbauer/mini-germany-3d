@@ -90,7 +90,8 @@ VITE_CESIUM_ION_TOKEN=your-token
 - **Night lighting:** From dusk the streets along the routes light up – one
   light pool per OSM street lamp, the same effect the vehicles' cabin glow
   uses. Nothing is built until the pools would actually show, so a daytime
-  session pays nothing for it; `?lamps=0` leaves them out entirely.
+  session pays nothing for it; the underground view puts them out, and
+  `?lamps=0` leaves them out entirely.
 - **Sharing links:** The URL hash always mirrors the current view, written
   event-driven when the camera settles (no polling). Without a selection it carries
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –

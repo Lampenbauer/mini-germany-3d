@@ -94,7 +94,8 @@ export class StreetLampsLayer {
   private material: Material | null = null
   private appearance: MaterialAppearance | null = null
   private spriteCanvas?: HTMLCanvasElement | null
-  private visible = true
+  /** Underground view: surface lighting has no place down there. */
+  private underground = false
   /** Alpha the material currently carries (avoids redundant writes). */
   private appliedAlpha = -1
   /** Ground anchor the cells were built at – a change forces a rebuild. */
@@ -123,10 +124,16 @@ export class StreetLampsLayer {
     }
   }
 
-  setVisible(visible: boolean): void {
-    if (this.visible === visible) return
-    this.visible = visible
-    for (const cell of this.cells) cell.show = visible && this.appliedAlpha >= LAMP_MIN_ALPHA
+  /**
+   * Underground view: the pools go out. Down there the surface is dimmed
+   * to a dark relief so the tunnels show through it, and a lit street grid
+   * lying over that only muddies them – the same reason the weather grade
+   * drops out (see the tile shader).
+   */
+  setUnderground(underground: boolean): void {
+    if (this.underground === underground) return
+    this.underground = underground
+    // update() applies it on the frame this requests.
     this.host.requestRender()
   }
 
@@ -137,7 +144,7 @@ export class StreetLampsLayer {
    */
   update(): void {
     if (!this.data) return
-    const alpha = this.targetAlpha()
+    const alpha = this.underground ? 0 : this.targetAlpha()
     if (alpha < LAMP_MIN_ALPHA) {
       if (this.appliedAlpha >= LAMP_MIN_ALPHA) {
         this.appliedAlpha = alpha
@@ -159,7 +166,8 @@ export class StreetLampsLayer {
         ;(this.material.uniforms as { color: Color }).color.alpha = alpha
       }
       if (wasHidden) {
-        for (const cell of this.cells) cell.show = this.visible
+        // Only reached with a lit alpha, so the cells belong on screen.
+        for (const cell of this.cells) cell.show = true
       }
       this.host.requestRender()
     }

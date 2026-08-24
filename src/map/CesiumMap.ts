@@ -796,6 +796,7 @@ export class CesiumMap {
     this.routes.setUnderground(underground)
     this.vehicleLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
+    this.streetLamps.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
     // The sky belongs to the surface: with the city sunk into a dark relief
     // a bright daylight atmosphere above it reads as an eclipse.

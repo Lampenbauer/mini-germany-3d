@@ -46,3 +46,24 @@ test('?lamps=0 leaves the street lighting out entirely', async ({ page }) => {
   expect(info.drawn).toBe(0)
   expect(info.alpha).toBe(0)
 })
+
+test('the underground view puts the street lighting out', async ({ page }) => {
+  test.setTimeout(240_000)
+  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
+  const alpha = () => page.evaluate(() => window.__mrt!.streetLamps().alpha)
+
+  await page.goto('/?offline=1&time=23:30&paused=1&rain=0#lat=54.0880&lon=12.1330&height=900&heading=0&pitch=-45')
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+  await expect.poll(alpha, slowPoll).toBeGreaterThan(0)
+
+  // Down there the surface is a dark relief the tunnels show through – a
+  // lit street grid over it would only muddy them.
+  await page.getByRole('button', { name: 'Show underground view' }).click()
+  await expect.poll(alpha, slowPoll).toBe(0)
+
+  // ... and back on when the view returns to the surface
+  await page.getByRole('button', { name: 'Back to the surface view' }).click()
+  await expect.poll(alpha, slowPoll).toBeGreaterThan(0)
+})
