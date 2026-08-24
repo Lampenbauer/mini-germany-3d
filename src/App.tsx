@@ -350,6 +350,9 @@ export default function App() {
     // Restore the saved camera orientation from the URL hash
     const hashView = parseCameraHash(window.location.hash)
     if (hashView) map.setView(hashView)
+    // Fence the camera in around the network – a shared link may carry a
+    // pose from anywhere on the globe, so this runs after the restore.
+    map.limitCameraToNetwork(network)
     map.addRoutes(network)
     map.addStops(network)
     // Apply the layer visibility restored from the hash to the fresh map

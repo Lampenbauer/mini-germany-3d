@@ -9,6 +9,7 @@ vi.mock('@/map/CesiumMap', () => {
     }
     addRoutes() {}
     addStops() {}
+    limitCameraToNetwork() {}
     focusLine() {}
     setSceneTime() {}
     setView() {}

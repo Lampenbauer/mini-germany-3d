@@ -76,6 +76,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   a camera reset ends the follow mode.
 - **Map controls:** 2D/3D pitch toggle, face north, and camera reset sit at the
   lower right edge of the map.
+- **Map bounds:** The camera stays within 25 km of the line network and does not
+  zoom out beyond 25 km altitude – there is nothing outside that this map could
+  show, and every place the camera visits pulls its own 3D tiles. A shared link
+  pointing further away opens at the border (see `config.cameraLimits`).
 - **Sharing links:** The URL hash always mirrors the current view, written
   event-driven when the camera settles (no polling). Without a selection it carries
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
@@ -275,7 +279,7 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 
 ```
 src/
-├── config.ts               # Token, initial camera position, simulation parameters
+├── config.ts               # Token, camera home + limits, simulation parameters
 ├── data/
 │   ├── network.json        # Line network (generated; see scripts below)
 │   ├── schedule.json       # optional real departure times (GTFS)

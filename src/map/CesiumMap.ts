@@ -21,6 +21,7 @@ import {
   JulianDate,
   Math as CesiumMath,
   Matrix3,
+  Matrix4,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
@@ -32,6 +33,11 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
+import {
+  clampCameraPose,
+  networkCameraLimits,
+  type CameraLimits,
+} from './camera-limits'
 import {
   ROUTE_HEIGHT_OFFSET_FALLBACK,
   ROUTE_PULSE_DURATION_MS,
@@ -233,6 +239,8 @@ export class CesiumMap {
   private readonly vehicleLayer: VehicleLayer
   /** Underground view (see setUnderground). */
   private underground = false
+  /** Camera leash (see limitCameraToNetwork); null = camera unrestricted. */
+  private cameraLimits: CameraLimits | null = null
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
   private lastHoverPickAt = 0
   private hoverPickTimer: number | null = null
@@ -369,6 +377,18 @@ export class CesiumMap {
     this.viewer.screenSpaceEventHandler.removeInputAction(
       ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
     )
+
+    // Zoom-out stop for wheel and pinch. Cesium measures this as the
+    // distance to the point under the cursor, not as a height, so on a
+    // tilted view the wheel comes to rest a little below the ceiling –
+    // it only makes the gesture end softly. The height itself is capped
+    // per frame (see enforceCameraLimits).
+    scene.screenSpaceCameraController.maximumZoomDistance =
+      config.cameraLimits.maxHeightMeters
+    // The fence runs after the camera controller has moved the camera
+    // (scene.initializeFrame) and before the frame is drawn, so a pose
+    // outside the leash never reaches the screen.
+    scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
 
     if (opts.offline) {
       // Subtle grid instead of satellite imagery – computable fully offline
@@ -556,6 +576,43 @@ export class CesiumMap {
       this.viewer.camera.setView({ destination, orientation })
     }
     this.requestRender()
+  }
+
+  /**
+   * Leashes the camera to the network: it may leave the bounding box of
+   * all routes by at most config.cameraLimits.paddingMeters and never
+   * rises above config.cameraLimits.maxHeightMeters. Applies right away,
+   * so a pose restored from the URL hash is pulled in too.
+   */
+  limitCameraToNetwork(network: PreparedNetwork): void {
+    this.cameraLimits = networkCameraLimits(
+      network,
+      config.cameraLimits.paddingMeters,
+      config.cameraLimits.maxHeightMeters,
+    )
+    this.enforceCameraLimits()
+  }
+
+  /**
+   * Pulls the camera back inside the leash (see limitCameraToNetwork).
+   * Runs per frame, and in the normal case – camera inside – costs three
+   * comparisons and nothing else.
+   */
+  private enforceCameraLimits(): void {
+    if (!this.cameraLimits) return
+    const camera = this.viewer.camera
+    // Follow mode parks the camera in the followed vehicle's local frame
+    // (camera.lookAt), where setView would read world coordinates as local
+    // ones. No fence needed there: the camera hangs on a vehicle that runs
+    // inside the network, and maximumZoomDistance caps how far it can
+    // orbit away from it.
+    if (!Matrix4.equals(camera.transform, Matrix4.IDENTITY)) return
+    const clamped = clampCameraPose(camera.positionCartographic, this.cameraLimits)
+    if (!clamped) return
+    camera.setView({
+      destination: Cartesian3.fromRadians(clamped.longitude, clamped.latitude, clamped.height),
+      orientation: { heading: camera.heading, pitch: camera.pitch, roll: camera.roll },
+    })
   }
 
   /**
