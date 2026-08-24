@@ -67,6 +67,12 @@ jobs:
               # load, but correct.
               git show HEAD:src/data/network.json > "$RUNNER_TEMP/network-prev.json" || true
               PREV_NETWORK="$RUNNER_TEMP/network-prev.json" npm run data:heights || echo "::warning::Route height refresh failed – routes fall back to ground clamping."
+              # Street lamps along the refreshed routes (OSM + the same
+              # DGM). PREV_LAMPS reuses the committed heights for lamps
+              # that did not move, so the WCS is only hit for new ones.
+              # Soft failure: the previous lamp set stays in place.
+              git show HEAD:src/data/street-lamps.json > "$RUNNER_TEMP/lamps-prev.json" || true
+              PREV_LAMPS="$RUNNER_TEMP/lamps-prev.json" npm run data:lamps || echo "::warning::Street lamp refresh failed – keeping the previous lamp set."
             else
               echo "::warning::OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
             fi
@@ -129,7 +135,7 @@ jobs:
         id: datacommit
         if: github.event_name == 'schedule'
         run: |
-          git add src/data/network.json src/data/schedule.json
+          git add src/data/network.json src/data/schedule.json src/data/street-lamps.json
           if git diff --cached --quiet; then
             echo "Data unchanged – nothing to commit."
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"

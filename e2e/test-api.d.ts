@@ -35,6 +35,7 @@ declare global {
       vehicleOpacity: (id: string) => number | null
       renderRate: () => number
       anyVehicleInView: () => boolean
+      streetLamps: () => { drawn: number; alpha: number }
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

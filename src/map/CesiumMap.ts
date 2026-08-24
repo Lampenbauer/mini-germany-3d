@@ -45,6 +45,7 @@ import {
 } from './RoutesLayer'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
+import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
@@ -52,6 +53,7 @@ import {
   WeatherOverlay,
 } from './WeatherOverlay'
 import type { PreparedNetwork } from '@/data/network-types'
+import type { StreetLampData } from '@/data/street-lamps'
 import type { VehicleSnapshot } from '@/engine/simulation'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
@@ -235,6 +237,8 @@ export class CesiumMap {
   private readonly stops: StopsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
+  /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
+  private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
   /** Underground view (see setUnderground). */
@@ -326,6 +330,16 @@ export class CesiumMap {
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
+    })
+    this.streetLamps = new StreetLampsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      get nightFactor() {
+        return map.nightFactor
+      },
+      groundHeightForNhn: (nhn) =>
+        opts.fixedGroundHeight === undefined && !opts.offline
+          ? nhn + map.routes.heightOffset
+          : map.defaultGroundHeight,
     })
     this.vehicleLayer = new VehicleLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -810,6 +824,15 @@ export class CesiumMap {
     this.stops.add(network)
   }
 
+  /**
+   * Registers the street lamps for the night-time lighting. The pools are
+   * built lazily on the first frame that would show them (see
+   * StreetLampsLayer), so a daytime session costs nothing.
+   */
+  addStreetLamps(data: StreetLampData): void {
+    this.streetLamps.add(data)
+  }
+
   setStopsVisible(visible: boolean): void {
     this.stops.setVisible(visible)
   }
@@ -948,6 +971,7 @@ export class CesiumMap {
   render(): void {
     if (this.destroyed) return
     this.routes.updatePulse()
+    this.streetLamps.update()
     this.viewer.render()
   }
 
@@ -1112,6 +1136,11 @@ export class CesiumMap {
     return window ? { x: window.x, y: window.y } : null
   }
 
+  /** Debug/tests: lamps batched into the scene and their current opacity. */
+  getStreetLampInfo(): { drawn: number; alpha: number } {
+    return this.streetLamps.info
+  }
+
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return this.vehicleLayer.getGroundHeights()
@@ -1123,6 +1152,7 @@ export class CesiumMap {
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()
+    this.streetLamps.destroy()
     this.viewer.destroy()
   }
 }

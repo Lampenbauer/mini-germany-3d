@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
+import { loadStreetLamps } from '@/data/street-lamps'
 import { Simulation, type TripStop, type VehicleSnapshot } from '@/engine/simulation'
 import {
   formatCameraHash,
@@ -54,6 +55,8 @@ export interface MrtTestApi {
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
   anyVehicleInView: () => boolean
+  /** Street lighting: lamps batched into the scene and their current opacity. */
+  streetLamps: () => { drawn: number; alpha: number }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**
@@ -107,6 +110,8 @@ interface UrlOptions {
   realtime: boolean | null
   /** Live-weather rain overlay (?rain=0 disables it). */
   rain: boolean
+  /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
+  lamps: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
 }
@@ -153,6 +158,7 @@ function readUrlOptions(): UrlOptions {
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
     rain: params.get('rain') !== '0',
+    lamps: params.get('lamps') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
   }
 }
@@ -355,6 +361,9 @@ export default function App() {
     map.limitCameraToNetwork(network)
     map.addRoutes(network)
     map.addStops(network)
+    // Night-time street lighting. Nothing is built until the pools would
+    // actually show, so a daytime session pays nothing for this.
+    if (urlOpts.lamps) map.addStreetLamps(loadStreetLamps())
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
@@ -606,6 +615,7 @@ export default function App() {
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
       anyVehicleInView: () => lastAnyVehicleInView,
+      streetLamps: () => map.getStreetLampInfo(),
       renderRate: () => {
         // Prune on read, not only when a frame is drawn: otherwise the
         // value freezes at its last level the moment rendering stops, and

@@ -28,6 +28,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
+| Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
@@ -80,6 +81,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   zoom out beyond 25 km altitude – there is nothing outside that this map could
   show, and every place the camera visits pulls its own 3D tiles. A shared link
   pointing further away opens at the border (see `config.cameraLimits`).
+- **Night lighting:** From dusk the streets along the routes light up – one
+  light pool per OSM street lamp, the same effect the vehicles' cabin glow
+  uses. Nothing is built until the pools would actually show, so a daytime
+  session pays nothing for it; `?lamps=0` leaves them out entirely.
 - **Sharing links:** The URL hash always mirrors the current view, written
   event-driven when the camera settles (no polling). Without a selection it carries
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
@@ -97,6 +102,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
+| `?lamps=0` | Disable the night-time street lighting |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
@@ -161,6 +167,7 @@ in CI (GitHub Actions), see `.github/workflows/ci.yml`.
 npm run data:update    # Real track geometries + stops from OpenStreetMap (Overpass API)
 npm run data:simplify  # Simplify the path geometry (visually lossless)
 npm run data:heights   # Terrain heights per route vertex from the MV DGM (WCS)
+npm run data:lamps     # OSM street lamps along the routes → src/data/street-lamps.json
 npm run data:gtfs      # Real departure times from a GTFS feed → src/data/schedule.json
 npm test               # validates the new datasets
 ```
@@ -181,6 +188,13 @@ npm test               # validates the new datasets
   measurable GPU time on every rendered frame. The NHN→ellipsoid offset is
   calibrated at runtime against sampled Google-tile heights; without
   heights in `network.json` the app falls back to ground clamping.
+- `data:lamps` collects the `highway=street_lamp` nodes standing within 25 m
+  of a route (© OpenStreetMap contributors, ODbL – in Rostock these come from
+  the city's own open-data import, `source=OpenData.HRO`) and gives each one a
+  DGM terrain height, the same way the routes get theirs. Lamps beside a bridge
+  or tunnel section are skipped: there the route's height profile is the deck
+  or the surface above the tube, not the ground the lamp stands on. About 7000
+  lamps survive that, and the map turns them into light pools after dusk.
 - `data:gtfs` downloads the free Germany-wide public transport feed from
   [gtfs.de](https://gtfs.de) (DELFI-based) by default. With `GTFS_URL`/`GTFS_FILE`
   the official VVW feed can be used instead. The script looks up timetables for
@@ -261,10 +275,11 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
    `npm run data:gtfs` before the test steps, so the day-specific GTFS departures
    (weekday vs. weekend service) stay current; the rarely changing OSM geometry
-   (`npm run data:update` + `npm run data:simplify` + `npm run data:heights`) is
-   only refreshed once a week (Sunday night). Route directions whose geometry is
-   unchanged reuse the committed terrain heights (`PREV_NETWORK`), so the DGM WCS
-   is only queried for actual changes. A failed Overpass fetch (overloaded
+   (`npm run data:update` + `npm run data:simplify` + `npm run data:heights` +
+   `npm run data:lamps`) is only refreshed once a week (Sunday night). Route
+   directions whose geometry is unchanged reuse the committed terrain heights
+   (`PREV_NETWORK`), and lamps that did not move reuse theirs (`PREV_LAMPS`), so
+   the DGM WCS is only queried for actual changes. A failed Overpass fetch (overloaded
    mirrors) keeps the previous network data with a workflow warning and does not
    block the GTFS refresh. Only if the full
    test suite passes on the refreshed dataset is the result deployed and the new
@@ -283,6 +298,7 @@ src/
 ├── data/
 │   ├── network.json        # Line network (generated; see scripts below)
 │   ├── schedule.json       # optional real departure times (GTFS)
+│   ├── street-lamps.json   # OSM street lamps along the routes (generated)
 │   └── network.ts          # Loading + preparation (distances, direction mirroring)
 ├── lib/
 │   ├── geo.ts              # Haversine, bearing, polyline interpolation/projection
@@ -304,6 +320,7 @@ scripts/
 ├── fetch-osm-network.mjs     # real geometry from OSM/Overpass   (npm run data:update)
 ├── simplify-network.mjs      # thins out route geometries        (npm run data:simplify)
 ├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
+├── fetch-street-lamps.mjs    # OSM street lamps + DGM heights    (npm run data:lamps)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
@@ -336,7 +353,8 @@ overview would keep floating several meters above the roofs up close.
   use of the Photorealistic 3D Tiles is subject to the Google Maps Platform terms;
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
-- Terrain heights (after `npm run data:heights`): © GeoBasis-DE/M-V
+- Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
+- Terrain heights (after `npm run data:heights` / `data:lamps`): © GeoBasis-DE/M-V
   (digitales Geländemodell via WCS, [geodaten-mv.de](https://www.geodaten-mv.de)) –
   shown in the app inside Cesium's "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or VVW – observe the source's license terms

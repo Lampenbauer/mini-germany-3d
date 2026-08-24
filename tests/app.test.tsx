@@ -9,6 +9,7 @@ vi.mock('@/map/CesiumMap', () => {
     }
     addRoutes() {}
     addStops() {}
+    addStreetLamps() {}
     limitCameraToNetwork() {}
     focusLine() {}
     setSceneTime() {}
@@ -18,6 +19,9 @@ vi.mock('@/map/CesiumMap', () => {
     }
     getGroundHeights() {
       return []
+    }
+    getStreetLampInfo() {
+      return { drawn: 0, alpha: 0 }
     }
     getVehicleBoxDriftMeters() {
       return 0
