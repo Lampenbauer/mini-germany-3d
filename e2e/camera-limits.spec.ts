@@ -46,7 +46,13 @@ test('a shared link from far away lands at the fence', async ({ page }) => {
 test('zooming out stops at the ceiling', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  // Start high and straight down. Climbing to the ceiling from the home
+  // view takes dozens of wheel steps, and on a CI runner under SwiftShader
+  // every one of them is seconds of rendering – the test used to spend
+  // longer scrolling than its whole budget allowed.
+  await page.goto(
+    '/?offline=1&time=08:30&paused=1#lat=54.09&lon=12.13&height=14000&heading=0&pitch=-90',
+  )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -55,8 +61,8 @@ test('zooming out stops at the ceiling', async ({ page }) => {
   // Keep scrolling out well past the ceiling – the fence has to hold at
   // every step, not just at the end.
   await page.mouse.move(640, 400)
-  for (let i = 0; i < 20; i++) {
-    await page.mouse.wheel(0, 600)
+  for (let i = 0; i < 6; i++) {
+    await page.mouse.wheel(0, 1200)
     await page.waitForTimeout(150)
     const view = await cameraView(page)
     expect(view.height).toBeLessThanOrEqual(MAX_HEIGHT + 1)
@@ -67,11 +73,12 @@ test('zooming out stops at the ceiling', async ({ page }) => {
   }
 
   // ... and the wheel really did run into the ceiling, otherwise the test
-  // proves nothing. It stops a little below it: maximumZoomDistance is the
-  // distance to the point under the cursor, and the view is tilted.
+  // proves nothing. Straight down the ceiling is the height itself, so it
+  // ends right below it (maximumZoomDistance measures the distance to the
+  // point under the cursor, which a tilted view stretches).
   const end = await cameraView(page)
-  expect(end.height).toBeGreaterThan(start.height * 1.5)
-  expect(end.height).toBeGreaterThan(MAX_HEIGHT * 0.7)
+  expect(end.height).toBeGreaterThan(start.height)
+  expect(end.height).toBeGreaterThan(MAX_HEIGHT * 0.9)
 })
 
 test('panning stops at the fence', async ({ page }) => {
@@ -87,12 +94,14 @@ test('panning stops at the fence', async ({ page }) => {
   })
 
   // Dragging the map to the left pushes the camera east – into the fence.
-  for (let i = 0; i < 6; i++) {
+  // Three drags are plenty from the border; each one is seconds of
+  // SwiftShader rendering on CI.
+  for (let i = 0; i < 3; i++) {
     await page.mouse.move(1000, 400)
     await page.mouse.down()
-    await page.mouse.move(300, 400, { steps: 10 })
+    await page.mouse.move(300, 400, { steps: 4 })
     await page.mouse.up()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(250)
     const view = await cameraView(page)
     expect(view.lon).toBeLessThan(FENCE.east + SLACK)
     expect(view.lat).toBeGreaterThan(FENCE.south - SLACK)
