@@ -29,6 +29,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
+| Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
@@ -71,7 +72,12 @@ VITE_CESIUM_ION_TOKEN=your-token
   three seconds while every other line fades out. Clicking a hidden line switches
   it back on first.
 - **Selecting a vehicle:** Clicking a box opens the info card (line, destination,
-  next stop) at the top right. "Follow" flies the camera in behind the vehicle and
+  next stop) at the top right. Its interchange row lists the lines a passenger can
+  change to – while the vehicle stands at a stop those are that stop's connections,
+  and only once it pulls away do they become the next stop's. A junction is several
+  stops in the data (one per platform, at Doberaner Platz eight of them up to 91 m
+  apart), so the lines are collected by walking distance rather than by stop id.
+  "Follow" flies the camera in behind the vehicle and
   chases it facing the direction of travel; rotating the camera hands control back
   to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
   a camera reset ends the follow mode.

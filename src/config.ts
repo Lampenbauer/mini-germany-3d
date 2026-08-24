@@ -73,6 +73,17 @@ export const config = {
     maxHeightMeters: 25_000,
   },
 
+  /**
+   * How far a connecting line may call from the stop shown to count as an
+   * interchange, in meters. A transit stop is several stops in the data –
+   * one per platform, at a junction with different lines and sometimes
+   * different names – so the vehicle card matches on walking distance
+   * rather than on the stop id (see src/lib/interchange.ts). Deliberately
+   * short: a wider radius starts claiming changes no passenger would
+   * recognize as one.
+   */
+  interchangeRadiusMeters: 100,
+
   /** Simulation defaults */
   simulation: {
     /** Time-lapse factor at startup (1 = real time). */

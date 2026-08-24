@@ -21,6 +21,7 @@ import {
 } from '@/lib/camera-hash'
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
+import { buildInterchangeIndex } from '@/lib/interchange'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -832,25 +833,14 @@ export default function App() {
   )
 
   /**
-   * Which lines serve a stop – the same relation the stop name plates on the
-   * map show ("Kröpeliner Tor (1, 4, 5, 6)"). The vehicle card reads the
-   * interchange options for the next stop out of it.
+   * Where a passenger can change at each stop – including the platforms a
+   * short walk away, which at a junction carry the interesting lines (see
+   * src/lib/interchange.ts). The vehicle card reads its badges out of it.
    */
-  const stopLines = useMemo(() => {
-    const byStop = new Map<string, { id: string; color: string }[]>()
-    for (const line of network.lines) {
-      for (const dir of line.directions) {
-        for (const stop of dir.stops) {
-          const serving = byStop.get(stop.id)
-          if (!serving) byStop.set(stop.id, [{ id: line.id, color: line.color }])
-          else if (!serving.some((l) => l.id === line.id)) {
-            serving.push({ id: line.id, color: line.color })
-          }
-        }
-      }
-    }
-    return byStop
-  }, [network])
+  const interchangeByStop = useMemo(
+    () => buildInterchangeIndex(network, config.interchangeRadiusMeters),
+    [network],
+  )
 
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
@@ -920,7 +910,7 @@ export default function App() {
             vehicle={selected}
             tripProgress={tripProgress}
             simSeconds={simSeconds}
-            stopLines={stopLines}
+            interchangeByStop={interchangeByStop}
             onFlyToStop={handleFlyToStop}
             following={following}
             onToggleFollow={handleToggleFollow}

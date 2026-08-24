@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
+import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
 
 export interface VehicleCardProps {
@@ -12,8 +13,8 @@ export interface VehicleCardProps {
   tripProgress: TripProgress | null
   /** Simulation clock in seconds of day – basis for the arrival countdown. */
   simSeconds: number
-  /** Stop id → every line serving it (drives the interchange badges). */
-  stopLines: ReadonlyMap<string, { id: string; color: string }[]>
+  /** Stop id → the lines reachable from it (drives the interchange badges). */
+  interchangeByStop: ReadonlyMap<string, InterchangeOption[]>
   /** Click on a stop – the camera flies to it. */
   onFlyToStop: (stop: TripStop) => void
   following: boolean
@@ -73,7 +74,7 @@ export function VehicleCard({
   vehicle,
   tripProgress,
   simSeconds,
-  stopLines,
+  interchangeByStop,
   onFlyToStop,
   following,
   onToggleFollow,
@@ -92,10 +93,17 @@ export function VehicleCard({
   // applied), just buried at its bottom – this lifts it into the summary.
   const finalStop = stops.length > 0 ? stops[stops.length - 1] : null
   const stopsLeft = Math.max(0, stops.length - 1 - markerIndex)
-  // Interchange at the stop the vehicle heads for, minus its own line
-  const nextStop = stops.length > 0 ? stops[nextIndex] : null
-  const interchange = nextStop
-    ? (stopLines.get(nextStop.id) ?? []).filter((line) => line.id !== vehicle.lineId)
+  /**
+   * The stop whose interchange options are shown. While the vehicle dwells
+   * (markerFraction 0 – the marker sits on the stop's own dot) that is the
+   * stop it stands at: those are the connections a passenger can take right
+   * now. Only once it pulls away does the stop ahead become the useful one.
+   */
+  const interchangeStop = stops.length > 0 ? stops[markerFraction === 0 ? markerIndex : nextIndex] : null
+  const interchange = interchangeStop
+    ? (interchangeByStop.get(interchangeStop.id) ?? []).filter(
+        (line) => line.id !== vehicle.lineId,
+      )
     : []
 
   // Bring the vehicle marker into view when a (new) vehicle is selected –
@@ -245,10 +253,10 @@ export function VehicleCard({
             </span>
           )}
         </div>
-        {interchange.length > 0 && nextStop && (
+        {interchange.length > 0 && interchangeStop && (
           <div className="flex flex-col gap-1">
             <span className="text-sm text-muted-foreground">
-              {t('vehicle.interchange', { name: nextStop.name })}
+              {t('vehicle.interchange', { name: interchangeStop.name })}
             </span>
             <div className="flex flex-wrap gap-1" data-testid="vehicle-interchange">
               {interchange.map((line) => (
