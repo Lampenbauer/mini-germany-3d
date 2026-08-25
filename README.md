@@ -29,6 +29,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
+| Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
@@ -92,6 +93,12 @@ VITE_CESIUM_ION_TOKEN=your-token
   uses. Nothing is built until the pools would actually show, so a daytime
   session pays nothing for it; the underground view puts them out, and
   `?lamps=0` leaves them out entirely.
+- **Selecting a stop:** Clicking a stop disc or name plate opens its departure
+  board: the lines calling there, the next departures within the hour (soonest
+  first, GTFS-RT delays applied, after-midnight service handled), and the lines
+  boarding a short walk away. A departure whose vehicle is already on the map is
+  a link – clicking it jumps to that vehicle's card. Underground platforms are
+  marked, and "Fly to stop" brings the camera in.
 - **Sharing links:** The URL hash always mirrors the current view, written
   event-driven when the camera settles (no polling). Without a selection it carries
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
@@ -114,6 +121,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
+| `#stop=…` | Shared stop selection – opens the stop's departure board and flies to it |
 | `…&routes=0&stops=0&paused=1` | Layer toggles and pause state (only present when off/paused) |
 
 ## Tests

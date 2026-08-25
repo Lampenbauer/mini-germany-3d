@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   formatCameraHash,
   formatUiStateHash,
+  formatStopHash,
   formatVehicleHash,
   parseCameraHash,
   parseUiStateHash,
+  parseStopHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
 
@@ -115,5 +117,22 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       paused: false,
     })
+  })
+})
+
+describe('stop hash', () => {
+  it('round-trips a stop id', () => {
+    expect(parseStopHash(formatStopHash('osm-241200227'))).toBe('osm-241200227')
+  })
+
+  it('encodes ids that need escaping', () => {
+    const id = 'weird id/with?chars'
+    expect(parseStopHash(formatStopHash(id))).toBe(id)
+  })
+
+  it('ignores hashes without a stop and oversized ids', () => {
+    expect(parseStopHash('#lat=54&lon=12&height=100')).toBeNull()
+    expect(parseStopHash('')).toBeNull()
+    expect(parseStopHash(`#stop=${'x'.repeat(200)}`)).toBeNull()
   })
 })

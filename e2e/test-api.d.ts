@@ -25,7 +25,10 @@ declare global {
       rainDropsVisible: () => number
       selectVehicle: (id: string | null) => void
       selectedVehicleId: () => string | null
+      selectStop: (id: string | null) => void
+      selectedStopId: () => string | null
       vehicleScreenPosition: (id: string) => { x: number; y: number } | null
+      stopScreenPosition: (id: string) => { x: number; y: number } | null
       dataSource: string
       lineIds: () => string[]
       secondsOfDay: () => number

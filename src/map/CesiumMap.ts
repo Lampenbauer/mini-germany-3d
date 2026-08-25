@@ -79,6 +79,8 @@ export interface CesiumMapOptions {
    */
   maxRainDrops?: number
   onSelectVehicle?: (vehicleId: string | null) => void
+  /** Click on a stop disc or name plate (null = click on empty map). */
+  onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
   /**
    * Fired while the camera pose changes (per rendered frame, threshold
@@ -461,7 +463,16 @@ export class CesiumMap {
 
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
-      this.opts.onSelectVehicle?.(this.pickVehicleId(movement.position))
+      const target = this.pickTarget(movement.position)
+      if (target?.type === 'vehicle') {
+        this.opts.onSelectVehicle?.(target.id)
+      } else if (target?.type === 'stop') {
+        this.opts.onSelectStop?.(target.id)
+      } else {
+        // Empty map clears whichever selection is up
+        this.opts.onSelectVehicle?.(null)
+        this.opts.onSelectStop?.(null)
+      }
     }, ScreenSpaceEventType.LEFT_CLICK)
 
     // Hover: turn the cursor into a pointer over a vehicle, so it reads as
@@ -481,30 +492,30 @@ export class CesiumMap {
     }, ScreenSpaceEventType.MOUSE_MOVE)
   }
 
-  /** Pointer over a vehicle, default cursor otherwise (see the MOUSE_MOVE hook). */
+  /** Pointer over a vehicle or stop, default cursor otherwise (see MOUSE_MOVE). */
   private applyHoverCursor(): void {
     if (this.destroyed || !this.hoverPosition) return
     this.lastHoverPickAt = performance.now()
-    const overVehicle = this.pickVehicleId(this.hoverPosition) !== null
-    if (overVehicle === this.hoveringVehicle) return
-    this.hoveringVehicle = overVehicle
-    this.viewer.scene.canvas.style.cursor = overVehicle ? 'pointer' : ''
+    const overTarget = this.pickTarget(this.hoverPosition) !== null
+    if (overTarget === this.hoveringVehicle) return
+    this.hoveringVehicle = overTarget
+    this.viewer.scene.canvas.style.cursor = overTarget ? 'pointer' : ''
   }
 
   /**
-   * Vehicle id under a screen position, or null. Body primitives return
-   * their instance id as a string, the number label an Entity – both carry
-   * the "vehicle:" prefix.
+   * Selectable object under a screen position, or null. Vehicle body
+   * primitives return their instance id as a string, the number label an
+   * Entity – both carry the "vehicle:" prefix. Stop discs and name plates
+   * are billboards whose id is the "stop:"-prefixed stop id.
    */
-  private pickVehicleId(position: Cartesian2): string | null {
+  private pickTarget(position: Cartesian2): { type: 'vehicle' | 'stop'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
-    if (pickedId instanceof Entity && pickedId.id.startsWith('vehicle:')) {
-      return pickedId.id.slice('vehicle:'.length)
-    }
-    if (typeof pickedId === 'string' && pickedId.startsWith('vehicle:')) {
-      return pickedId.slice('vehicle:'.length)
-    }
+    const raw =
+      pickedId instanceof Entity ? pickedId.id : typeof pickedId === 'string' ? pickedId : null
+    if (raw === null) return null
+    if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
+    if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
     return null
   }
 
@@ -1150,6 +1161,17 @@ export class CesiumMap {
   /** Debug/tests: lamps batched into the scene and their current opacity. */
   getStreetLampInfo(): { drawn: number; alpha: number } {
     return this.streetLamps.info
+  }
+
+  /**
+   * Screen position of a stop's disc in CSS pixels, or null when off
+   * screen or unknown – the stop-card E2E clicks the real disc with it.
+   */
+  getStopScreenPosition(id: string): { x: number; y: number } | null {
+    const position = this.stops.stopWorldPosition(id)
+    if (!position) return null
+    const window = SceneTransforms.worldToWindowCoordinates(this.viewer.scene, position)
+    return window ? { x: window.x, y: window.y } : null
   }
 
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */

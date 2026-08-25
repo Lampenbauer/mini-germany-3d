@@ -23,7 +23,7 @@ export interface VehicleCardProps {
 }
 
 /** "08:31" from seconds since midnight (arrival seconds are already 0–24 h). */
-function formatArrival(arrivalSec: number): string {
+export function formatArrival(arrivalSec: number): string {
   const clamped = ((arrivalSec % 86400) + 86400) % 86400
   const h = Math.floor(clamped / 3600)
   const m = Math.floor((clamped % 3600) / 60)
@@ -31,7 +31,7 @@ function formatArrival(arrivalSec: number): string {
 }
 
 /** "+3 min" / "-1 min" / "on time" */
-function formatDelay(delaySeconds: number): string {
+export function formatDelay(delaySeconds: number): string {
   if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
@@ -45,7 +45,7 @@ function formatDelay(delaySeconds: number): string {
  * at 08:30:00 reads as three minutes, not the four a rounded difference
  * would give.
  */
-function minutesUntil(arrivalSec: number, nowSec: number): number {
+export function minutesUntil(arrivalSec: number, nowSec: number): number {
   const diff = Math.floor(arrivalSec / 60) - Math.floor(nowSec / 60)
   return diff < -720 ? diff + 1440 : diff > 720 ? diff - 1440 : diff
 }
