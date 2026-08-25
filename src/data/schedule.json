@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "gtfs",
-    "generated": "2026-08-24",
+    "generated": "2026-08-25",
     "serviceDate": "20260904",
     "serviceCount": 23,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
