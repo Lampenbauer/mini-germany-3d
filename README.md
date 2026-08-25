@@ -287,7 +287,9 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    `npm run data:lamps`) is only refreshed once a week (Sunday night). Route
    directions whose geometry is unchanged reuse the committed terrain heights
    (`PREV_NETWORK`), and lamps that did not move reuse theirs (`PREV_LAMPS`), so
-   the DGM WCS is only queried for actual changes. A failed Overpass fetch (overloaded
+   the DGM WCS is only queried for actual changes. The same refresh can be
+   started by hand from the Actions tab (`Run workflow` → `refresh_data` for
+   the schedule, `refresh_osm` for the weekly OSM/height/lamp part). A failed Overpass fetch (overloaded
    mirrors) keeps the previous network data with a workflow warning and does not
    block the GTFS refresh. Only if the full
    test suite passes on the refreshed dataset is the result deployed and the new
