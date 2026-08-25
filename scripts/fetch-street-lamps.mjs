@@ -76,12 +76,23 @@ const round1 = (v) => Math.round(v * 10) / 10
 const QUERY =
   `[out:json][timeout:300];node["highway"="street_lamp"](${BBOX});out skel qt;`
 
+/**
+ * Below this the answer is treated as a mirror failure rather than data.
+ * Rostock's lamps come from an official open-data import and number in
+ * the tens of thousands; a handful of them means the instance is
+ * overloaded or half-synced, and taking that at face value would quietly
+ * wipe the lamp set.
+ */
+const MIN_PLAUSIBLE_LAMPS = 1000
+
 async function fetchLampNodes() {
   if (process.env.OVERPASS_FILE) {
     console.log(`Reading local Overpass response ${process.env.OVERPASS_FILE}`)
     return JSON.parse(readFileSync(resolve(process.env.OVERPASS_FILE), 'utf8'))
   }
-  return postOverpass(QUERY)
+  return postOverpass(QUERY, {
+    validate: (data) => (data?.elements?.length ?? 0) >= MIN_PLAUSIBLE_LAMPS,
+  })
 }
 
 /** "lon:lat" → height, from a previously generated file. */

@@ -26,7 +26,17 @@ export const REQUEST_HEADERS = {
 /** Bounding box for Rostock (south, west, north, east). */
 export const BBOX = '53.95,11.95,54.22,12.35'
 
-export async function postOverpass(query) {
+/**
+ * Runs a query against the mirrors in order and returns the first usable
+ * answer.
+ *
+ * `validate` decides what "usable" means. A mirror can answer HTTP 200
+ * with an empty result set – overloaded, half-synced, or the query timed
+ * out server-side – and for a query whose answer is known to be non-empty
+ * that is a failure, not data. Without the check the caller silently
+ * treats the outage as "the city has no street lamps".
+ */
+export async function postOverpass(query, { validate } = {}) {
   const errors = []
   for (const url of OVERPASS_MIRRORS) {
     console.log(`Querying Overpass at ${url} …`)
@@ -42,7 +52,14 @@ export async function postOverpass(query) {
         console.warn(`  ⚠ HTTP ${response.status} – trying next mirror`)
         continue
       }
-      return await response.json()
+      const data = await response.json()
+      if (validate && !validate(data)) {
+        const count = data?.elements?.length ?? 0
+        errors.push(`${url} → answered with an implausible result (${count} elements)`)
+        console.warn(`  ⚠ implausible result (${count} elements) – trying next mirror`)
+        continue
+      }
+      return data
     } catch (err) {
       errors.push(`${url} → ${err.message}`)
       console.warn(`  ⚠ ${err.message} – trying next mirror`)
