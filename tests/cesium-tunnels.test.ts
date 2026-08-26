@@ -176,15 +176,16 @@ describe('Cesium tunnel rendering', () => {
 
   it('uses an opaque base render state when a vehicle spawns inside a tunnel', () => {
     const map = vehicleLayer()
-    // A box-body mode: tram/train use glTF models, whose appearance path
-    // has no appearance/render state (covered by the model branch).
+    // A box-body mode: tram/train/bus use glTF models, whose appearance
+    // path has no appearance/render state (covered by the model branch) –
+    // the ferry is the one mode still drawn as a box.
     const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
       lineName: 'Tunnellinie',
       color: '#ff0000',
-      mode: 'bus',
-      vehicle: config.vehicles.bus,
+      mode: 'ferry',
+      vehicle: config.vehicles.ferry,
       direction: 0,
       lon: 12.1,
       lat: 54.0,

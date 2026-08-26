@@ -374,7 +374,6 @@ export class CesiumMap {
         this.flyingUntil = performance.now() + durationMs
       },
     })
-    this.vehicleLayer.addCredit()
     this.stops = new StopsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),

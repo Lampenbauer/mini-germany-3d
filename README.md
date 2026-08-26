@@ -24,7 +24,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Feature | Details |
 |---------|---------|
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
-| Vehicles as simple boxes on real routes | 3D boxes with line labels and per-mode dimensions (tram 32 m, S-Bahn 57 m Talent 2, bus 12 m, ferries their real vessel sizes), schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleet – the tram a five-section Vossloh 6N2 (32 m), the S-Bahn a three-car Talent 2 (57 m), buses 12 m solos, each with glazing, doors, grey roofs and pantographs; ferries keep their boxes. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
@@ -339,6 +339,7 @@ scripts/
 ├── simplify-network.mjs      # thins out route geometries        (npm run data:simplify)
 ├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
 ├── fetch-street-lamps.mjs    # OSM street lamps + DGM heights    (npm run data:lamps)
+├── build-vehicle-models.mjs  # procedural low-poly vehicle GLBs  (npm run models:build)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
