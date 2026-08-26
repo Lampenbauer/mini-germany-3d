@@ -176,13 +176,17 @@ describe('Cesium tunnel rendering', () => {
 
   it('uses an opaque base render state when a vehicle spawns inside a tunnel', () => {
     const map = vehicleLayer()
+    // Every real mode ships a glTF consist now, whose appearance path has
+    // no appearance/render state (covered by the model branch). The box
+    // body remains the defensive fallback for a mode without a model –
+    // an invented mode pins that branch open for this test.
     const snapshot: VehicleSnapshot = {
       id: 'tunnel-spawn',
       lineId: 'U',
       lineName: 'Tunnellinie',
       color: '#ff0000',
-      mode: 'tram',
-      vehicle: config.vehicles.tram,
+      mode: 'zeppelin' as VehicleSnapshot['mode'],
+      vehicle: config.vehicles.ferry,
       direction: 0,
       lon: 12.1,
       lat: 54.0,
