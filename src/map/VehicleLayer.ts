@@ -19,6 +19,7 @@ import {
   ColorGeometryInstanceAttribute,
   ConstantPositionProperty,
   ConstantProperty,
+  CustomShader,
   DistanceDisplayCondition,
   type Entity,
   GeometryInstance,
@@ -37,6 +38,7 @@ import {
   PlaneGeometry,
   Primitive,
   Transforms,
+  UniformType,
   VertexFormat,
   type Viewer,
 } from 'cesium'
@@ -225,6 +227,55 @@ const VEHICLE_MODELS: Partial<Record<TransitMode, VehicleModelSpec>> = {
 }
 
 /**
+ * Extra meters between the sampled water surface and the ferries' model
+ * waterline. The Google mesh's water undulates (waves, wakes,
+ * reconstruction noise) around the height sampled under the vessel, and
+ * a hull riding exactly on the sample sits visibly sunk wherever the
+ * mesh crests – the same reason the ferry ROUTES get their own extra
+ * lift in RoutesLayer. Riding high reads as a shallow-draft vessel;
+ * riding low reads as sinking, so the lift errs upward.
+ */
+const FERRY_FLOAT_LIFT = 0.8
+
+/**
+ * The two Rostock ferries are very different vessels, so the mode alone
+ * does not pick the model: the Gehlsdorf passenger ferry (19.9 m) and
+ * the Breitling car ferry (39 m) each get their own hull, chosen by the
+ * per-line vessel length from network.json. Both are double-ended like
+ * the real ships – the 180° turn on the return leg is exactly what the
+ * real double-enders do (house on the other side), not a vehicle sailing
+ * backwards. baseLift is half the height plus FERRY_FLOAT_LIFT.
+ */
+const FERRY_MODELS: { minLength: number; spec: VehicleModelSpec }[] = [
+  {
+    minLength: 30,
+    spec: {
+      scale: 1,
+      baseLift: 3 + FERRY_FLOAT_LIFT,
+      gap: 0,
+      wagons: [{ uri: 'models/ferry-fw.glb', length: 39 }],
+    },
+  },
+  {
+    minLength: 0,
+    spec: {
+      scale: 1,
+      baseLift: 1.75 + FERRY_FLOAT_LIFT,
+      gap: 0,
+      wagons: [{ uri: 'models/ferry-fg.glb', length: 19.9 }],
+    },
+  },
+]
+
+/** Model consist for a vehicle; undefined keeps the colored box. */
+function modelSpecFor(snap: VehicleSnapshot): VehicleModelSpec | undefined {
+  if (snap.mode === 'ferry') {
+    return FERRY_MODELS.find((f) => snap.vehicle.length >= f.minLength)?.spec
+  }
+  return VEHICLE_MODELS[snap.mode]
+}
+
+/**
  * How strongly the line color covers the model's own livery (0–1).
  * Deliberately subtle: the real fleet is cream-white, and a vehicle
  * painted wall-to-wall in its line color is exactly the toy look the
@@ -237,6 +288,19 @@ const MODEL_TINT_AMOUNT = 0.25
 // Scratches for the per-tick wagon pose composition.
 const wagonTranslationScratch = new Cartesian3()
 const wagonFlipMatrix = Matrix4.fromRotationTranslation(Matrix3.fromRotationZ(Math.PI))
+
+/**
+ * Night-time window glow: the models' glazing lights up warm as the sun
+ * goes down. One CustomShader shared by every wagon; it recognizes the
+ * glazing by its darkness – the glass material is by far the darkest
+ * surface (luminance 0.058; the next darkest, the bellows, sits at
+ * 0.090) – and adds emissive light scaled by the night ramp. Detection
+ * instead of per-material wiring keeps the GLBs plain PBR, and one
+ * uniform write dims every window in the scene.
+ */
+const WINDOW_GLOW_COLOR = 'vec3(1.0, 0.83, 0.52)'
+const WINDOW_GLOW_LUMINANCE_CUTOFF = '0.075'
+const WINDOW_GLOW_MAX = 0.85
 
 /**
  * Night-time cabin glow: a soft, warm light pool under every vehicle, as
@@ -317,6 +381,21 @@ export class VehicleLayer {
   private followChase = false
   private frameCounter = 0
   private frustumSphere = new BoundingSphere()
+  /** Lights the models' glazing at night (see WINDOW_GLOW_COLOR). */
+  private readonly windowGlowShader = new CustomShader({
+    uniforms: { u_windowGlow: { type: UniformType.FLOAT, value: 0 } },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
+      {
+        float luminance = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
+        if (luminance < ${WINDOW_GLOW_LUMINANCE_CUTOFF})
+        {
+          material.emissive += ${WINDOW_GLOW_COLOR} * u_windowGlow;
+        }
+      }
+    `,
+  })
+
   /** Radial gradient sprite of the glow pools (null: no 2D canvas). */
   private glowSpriteCanvas?: HTMLCanvasElement | null
   /** Material/appearance shared by ALL pools – one uniform sets the alpha. */
@@ -361,6 +440,7 @@ export class VehicleLayer {
    * map, which computes the ramp from the sun elevation.
    */
   applyNightFactor(night: number): void {
+    this.windowGlowShader.setUniform('u_windowGlow', WINDOW_GLOW_MAX * night)
     if (!this.glowMaterial) return
     const uniforms = this.glowMaterial.uniforms as { color: Color }
     uniforms.color.alpha = GLOW_MAX_ALPHA * night
@@ -738,7 +818,7 @@ export class VehicleLayer {
 
   private createVehicleEntity(snap: VehicleSnapshot): VehicleRecord {
     const color = Color.fromCssColorString(snap.color)
-    const modelSpec = VEHICLE_MODELS[snap.mode]
+    const modelSpec = modelSpecFor(snap)
     // Model bodies: origin-to-wheel distance instead of half the box
     // height, so the shared position formula puts the wheels on the road.
     const halfHeight = modelSpec ? modelSpec.scale * modelSpec.baseLift : snap.vehicle.height / 2
@@ -851,7 +931,10 @@ export class VehicleLayer {
     )
     let glow: Primitive | null = null
     let glowMatrix: Matrix4 | null = null
-    const glowAppearance = this.glowPoolAppearance()
+    // The pool renders interior light spilling onto the ROAD – under a
+    // vessel it would paint a lit disc onto open water, so ferries go
+    // without one (their lit windows still mark them at night).
+    const glowAppearance = snap.mode === 'ferry' ? null : this.glowPoolAppearance()
     if (glowAppearance) {
       glow = new Primitive({
         geometryInstances: new GeometryInstance({
@@ -933,6 +1016,7 @@ export class VehicleLayer {
     }
     model.colorBlendMode = ColorBlendMode.MIX
     model.colorBlendAmount = MODEL_TINT_AMOUNT
+    model.customShader = this.windowGlowShader
     this.viewer.scene.primitives.add(model)
     // fromGltfAsync clones the matrix – rebind so the in-place pose
     // updates in sync() reach the model.

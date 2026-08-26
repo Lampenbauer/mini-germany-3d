@@ -250,6 +250,143 @@ export function bus() {
   return mesh
 }
 
+/**
+ * Warnow ferry Kabutzenhof–Gehlsdorf: a small double-ended passenger
+ * ferry (19.9 × 6.6 × 3.5 m per network.json) – low hull pointed at both
+ * ends, a glazed full-width cabin, wheelhouse amidships. Symmetric fore
+ * and aft like the real vessel, which never turns around.
+ */
+export function ferryGehlsdorf() {
+  const mesh = createMesh()
+  const H = 3.5
+  const yBase = -H / 2 // waterline
+  const length = 19.9
+  const width = 6.6
+  const hullTop = yBase + 1.2
+
+  // Hull: dark, pointed at both ends
+  const hull = bodyProfile(width, yBase, hullTop, 0.14)
+  extrude(
+    mesh,
+    hull,
+    [
+      { z: -length / 2, sx: 0.3, sy: 0.85 },
+      { z: -length / 2 + 2.6 },
+      { z: length / 2 - 2.6 },
+      { z: length / 2, sx: 0.3, sy: 0.85 },
+    ],
+    { material: 'chassis', yAnchor: yBase },
+  )
+
+  // Cabin: white, glazed on all four sides
+  const cabinW = 5.0
+  const cabinL = 12
+  const cabinTop = hullTop + 1.6
+  box(mesh, 'body', 0, (hullTop + cabinTop) / 2, 0, cabinW, cabinTop - hullTop, cabinL)
+  windowBand(mesh, cabinW, hullTop + 0.4, cabinTop - 0.25, -cabinL / 2 + 0.4, cabinL / 2 - 0.4, {
+    panes: 4,
+  })
+  for (const dir of [-1, 1]) {
+    box(mesh, 'glass', 0, (hullTop + cabinTop) / 2 + 0.12, dir * (cabinL / 2 + 0.015), 3.4, 1.0, 0.03)
+  }
+
+  // Wheelhouse amidships, glazed all round, roof flush with the height cap
+  const whTop = H / 2
+  box(mesh, 'body', 0, (cabinTop + whTop) / 2, 0, 2.6, whTop - cabinTop, 2.8)
+  for (const side of [-1, 1]) {
+    box(mesh, 'glass', side * (2.6 / 2 + 0.015), (cabinTop + whTop) / 2 + 0.05, 0, 0.03, 0.42, 2.2)
+    box(mesh, 'glass', 0, (cabinTop + whTop) / 2 + 0.05, side * (2.8 / 2 + 0.015), 2.0, 0.42, 0.03)
+  }
+
+  // Cabin roof fore and aft of the wheelhouse (clear of its footprint,
+  // so no two down-facing faces share the cabin-top plane)
+  for (const dir of [-1, 1]) {
+    box(mesh, 'roof', 0, cabinTop + 0.03, dir * (cabinL / 2 / 2 + 0.85), cabinW * 0.9, 0.06, cabinL / 2 - 1.75)
+  }
+  return mesh
+}
+
+/**
+ * Breitling ferry Warnemünde–Hohe Düne: the double-ended car ferry
+ * (39 × 11 × 6 m per network.json) – open car deck between white
+ * bulwarks, boarding ramps raked up at both ends, deckhouse with the
+ * bridge on the starboard side. Fore-aft symmetric; on the return leg
+ * the 180° rotation puts the house on the other side, exactly like the
+ * real double-ender.
+ */
+export function ferryBreitling() {
+  const mesh = createMesh()
+  const H = 6
+  const yBase = -H / 2 // waterline
+  const length = 39
+  const width = 11
+  const deck = yBase + 1.7
+
+  // Hull with double-ended taper
+  const hull = bodyProfile(width, yBase, deck, 0.2)
+  extrude(
+    mesh,
+    hull,
+    [
+      { z: -length / 2, sx: 0.5, sy: 0.9 },
+      { z: -length / 2 + 4 },
+      { z: length / 2 - 4 },
+      { z: length / 2, sx: 0.5, sy: 0.9 },
+    ],
+    { material: 'body', yAnchor: yBase },
+  )
+  // Car deck plate between the ramps (its underside sits inside the hull)
+  box(mesh, 'chassis', 0, deck - 0.02, 0, width - 1.4, 0.06, length - 9.6)
+
+  // Boarding ramps raked up at both ends – the double-ender's signature.
+  // Thin free-form slabs (top and underside quad each); the edge-on gap
+  // between the two faces is below anything the map resolves.
+  const rampW = 7
+  for (const dir of [-1, 1]) {
+    const z0 = dir * (length / 2 - 4.7)
+    const z1 = dir * (length / 2 - 0.4)
+    const yLow = deck - 0.02
+    const yHigh = deck + 1.5
+    const x = rampW / 2
+    const top = [
+      [-x, yLow, z0],
+      [x, yLow, z0],
+      [x, yHigh, z1],
+      [-x, yHigh, z1],
+    ]
+    if (dir < 0) top.reverse()
+    quad(mesh, 'chassis', top[0], top[1], top[2], top[3])
+    const bottom = [...top].reverse().map(([bx, by, bz]) => [bx, by - 0.1, bz])
+    quad(mesh, 'chassis', bottom[0], bottom[1], bottom[2], bottom[3])
+  }
+
+  // Bulwarks along the open deck, inset from the hull sides
+  for (const side of [-1, 1]) {
+    box(mesh, 'body', side * (width / 2 - 0.35), deck + 0.35, 0, 0.25, 0.8, length - 10)
+  }
+
+  // Deckhouse on the starboard side with the bridge on top
+  const houseX = width / 2 - 1.6
+  const houseTop = deck + 2.3
+  box(mesh, 'body', houseX, (deck + houseTop) / 2, 0, 2.4, houseTop - deck, 12)
+  // windowBand() centers its panes on the vehicle axis – this house is
+  // offset to one side, so its glazing is placed by hand
+  for (const side of [-1, 1]) {
+    for (const dz of [-1, 0, 1]) {
+      box(mesh, 'glass', houseX + side * (2.4 / 2 + 0.015), deck + 1.55, dz * 3.7, 0.03, 1.1, 3.2)
+    }
+  }
+  const bridgeTop = houseTop + 1.5
+  box(mesh, 'body', houseX, (houseTop + bridgeTop) / 2, 0, 2.8, bridgeTop - houseTop, 4.6)
+  for (const dz of [-1, 1]) {
+    box(mesh, 'glass', houseX, (houseTop + bridgeTop) / 2 + 0.1, dz * (4.6 / 2 + 0.015), 2.2, 0.6, 0.03)
+  }
+  box(mesh, 'roof', houseX, bridgeTop + 0.03, 0, 2.6, 0.06, 4.2)
+  // Mast up to the height cap
+  box(mesh, 'chassis', houseX, (bridgeTop + H / 2) / 2 + 0.03, 0, 0.12, H / 2 - bridgeTop - 0.06, 0.12)
+  return mesh
+}
+
 /** Every file the build script writes: name → mesh factory. */
 export const FLEET = {
   'tram-end': tramEnd,
@@ -258,4 +395,6 @@ export const FLEET = {
   'sbahn-end': sbahnEnd,
   'sbahn-mid-panto': sbahnMid,
   bus,
+  'ferry-fg': ferryGehlsdorf,
+  'ferry-fw': ferryBreitling,
 }

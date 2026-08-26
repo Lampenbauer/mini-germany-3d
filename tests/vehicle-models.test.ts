@@ -18,6 +18,9 @@ const EXPECTED: Record<string, { length: number; width: number; height: number }
   'sbahn-end': { length: 18.6, width: 2.92, height: HEIGHTS.train },
   'sbahn-mid-panto': { length: 18.9, width: 2.92, height: HEIGHTS.train },
   bus: { length: 12, width: 2.55, height: HEIGHTS.bus },
+  // Per-line vessel dimensions from network.json (FG and FW)
+  'ferry-fg': { length: 19.9, width: 6.6, height: 3.5 },
+  'ferry-fw': { length: 39, width: 11, height: 6 },
 }
 
 /** Face normals must point away from the enclosed volume – a face wound
