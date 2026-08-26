@@ -21,6 +21,7 @@ import {
   JulianDate,
   Math as CesiumMath,
   Matrix3,
+  Matrix4,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
@@ -33,12 +34,18 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import {
+  clampCameraPose,
+  networkCameraLimits,
+  type CameraLimits,
+} from './camera-limits'
+import {
   ROUTE_HEIGHT_OFFSET_FALLBACK,
   ROUTE_PULSE_DURATION_MS,
   RoutesLayer,
 } from './RoutesLayer'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
+import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
@@ -46,6 +53,7 @@ import {
   WeatherOverlay,
 } from './WeatherOverlay'
 import type { PreparedNetwork } from '@/data/network-types'
+import type { StreetLampData } from '@/data/street-lamps'
 import type { VehicleSnapshot } from '@/engine/simulation'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
@@ -64,7 +72,15 @@ export interface CesiumMapOptions {
    * tiles everywhere at a steep data/memory cost (~4× per halving).
    */
   maximumScreenSpaceError?: number
+  /**
+   * Upper bound on the rain drop pool (?drops=). Visible rain pins the
+   * render loop at animation rate, which the E2E rain test pays for on a
+   * software renderer; a small pool exercises the same paths far cheaper.
+   */
+  maxRainDrops?: number
   onSelectVehicle?: (vehicleId: string | null) => void
+  /** Click on a stop disc or name plate (null = click on empty map). */
+  onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
   /**
    * Fired while the camera pose changes (per rendered frame, threshold
@@ -229,10 +245,14 @@ export class CesiumMap {
   private readonly stops: StopsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
+  /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
+  private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
   /** Underground view (see setUnderground). */
   private underground = false
+  /** Camera leash (see limitCameraToNetwork); null = camera unrestricted. */
+  private cameraLimits: CameraLimits | null = null
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
   private lastHoverPickAt = 0
   private hoverPickTimer: number | null = null
@@ -314,10 +334,24 @@ export class CesiumMap {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const map = this
     // Before loadGoogleTiles(): that hands the overlay its tile shader.
-    this.weather = new WeatherOverlay(this.viewer, () => this.requestRender())
+    this.weather = new WeatherOverlay(
+      this.viewer,
+      () => this.requestRender(),
+      opts.maxRainDrops,
+    )
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
+    })
+    this.streetLamps = new StreetLampsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      get nightFactor() {
+        return map.nightFactor
+      },
+      groundHeightForNhn: (nhn) =>
+        opts.fixedGroundHeight === undefined && !opts.offline
+          ? nhn + map.routes.heightOffset
+          : map.defaultGroundHeight,
     })
     this.vehicleLayer = new VehicleLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -371,6 +405,18 @@ export class CesiumMap {
       ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
     )
 
+    // Zoom-out stop for wheel and pinch. Cesium measures this as the
+    // distance to the point under the cursor, not as a height, so on a
+    // tilted view the wheel comes to rest a little below the ceiling –
+    // it only makes the gesture end softly. The height itself is capped
+    // per frame (see enforceCameraLimits).
+    scene.screenSpaceCameraController.maximumZoomDistance =
+      config.cameraLimits.maxHeightMeters
+    // The fence runs after the camera controller has moved the camera
+    // (scene.initializeFrame) and before the frame is drawn, so a pose
+    // outside the leash never reaches the screen.
+    scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
+
     if (opts.offline) {
       // Subtle grid instead of satellite imagery – computable fully offline
       scene.imageryLayers.addImageryProvider(
@@ -418,7 +464,16 @@ export class CesiumMap {
 
     this.handler = new ScreenSpaceEventHandler(scene.canvas)
     this.handler.setInputAction((movement: { position: Cartesian2 }) => {
-      this.opts.onSelectVehicle?.(this.pickVehicleId(movement.position))
+      const target = this.pickTarget(movement.position)
+      if (target?.type === 'vehicle') {
+        this.opts.onSelectVehicle?.(target.id)
+      } else if (target?.type === 'stop') {
+        this.opts.onSelectStop?.(target.id)
+      } else {
+        // Empty map clears whichever selection is up
+        this.opts.onSelectVehicle?.(null)
+        this.opts.onSelectStop?.(null)
+      }
     }, ScreenSpaceEventType.LEFT_CLICK)
 
     // Hover: turn the cursor into a pointer over a vehicle, so it reads as
@@ -438,30 +493,30 @@ export class CesiumMap {
     }, ScreenSpaceEventType.MOUSE_MOVE)
   }
 
-  /** Pointer over a vehicle, default cursor otherwise (see the MOUSE_MOVE hook). */
+  /** Pointer over a vehicle or stop, default cursor otherwise (see MOUSE_MOVE). */
   private applyHoverCursor(): void {
     if (this.destroyed || !this.hoverPosition) return
     this.lastHoverPickAt = performance.now()
-    const overVehicle = this.pickVehicleId(this.hoverPosition) !== null
-    if (overVehicle === this.hoveringVehicle) return
-    this.hoveringVehicle = overVehicle
-    this.viewer.scene.canvas.style.cursor = overVehicle ? 'pointer' : ''
+    const overTarget = this.pickTarget(this.hoverPosition) !== null
+    if (overTarget === this.hoveringVehicle) return
+    this.hoveringVehicle = overTarget
+    this.viewer.scene.canvas.style.cursor = overTarget ? 'pointer' : ''
   }
 
   /**
-   * Vehicle id under a screen position, or null. Body primitives return
-   * their instance id as a string, the number label an Entity – both carry
-   * the "vehicle:" prefix.
+   * Selectable object under a screen position, or null. Vehicle body
+   * primitives return their instance id as a string, the number label an
+   * Entity – both carry the "vehicle:" prefix. Stop discs and name plates
+   * are billboards whose id is the "stop:"-prefixed stop id.
    */
-  private pickVehicleId(position: Cartesian2): string | null {
+  private pickTarget(position: Cartesian2): { type: 'vehicle' | 'stop'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
-    if (pickedId instanceof Entity && pickedId.id.startsWith('vehicle:')) {
-      return pickedId.id.slice('vehicle:'.length)
-    }
-    if (typeof pickedId === 'string' && pickedId.startsWith('vehicle:')) {
-      return pickedId.slice('vehicle:'.length)
-    }
+    const raw =
+      pickedId instanceof Entity ? pickedId.id : typeof pickedId === 'string' ? pickedId : null
+    if (raw === null) return null
+    if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
+    if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
     return null
   }
 
@@ -557,6 +612,43 @@ export class CesiumMap {
       this.viewer.camera.setView({ destination, orientation })
     }
     this.requestRender()
+  }
+
+  /**
+   * Leashes the camera to the network: it may leave the bounding box of
+   * all routes by at most config.cameraLimits.paddingMeters and never
+   * rises above config.cameraLimits.maxHeightMeters. Applies right away,
+   * so a pose restored from the URL hash is pulled in too.
+   */
+  limitCameraToNetwork(network: PreparedNetwork): void {
+    this.cameraLimits = networkCameraLimits(
+      network,
+      config.cameraLimits.paddingMeters,
+      config.cameraLimits.maxHeightMeters,
+    )
+    this.enforceCameraLimits()
+  }
+
+  /**
+   * Pulls the camera back inside the leash (see limitCameraToNetwork).
+   * Runs per frame, and in the normal case – camera inside – costs three
+   * comparisons and nothing else.
+   */
+  private enforceCameraLimits(): void {
+    if (!this.cameraLimits) return
+    const camera = this.viewer.camera
+    // Follow mode parks the camera in the followed vehicle's local frame
+    // (camera.lookAt), where setView would read world coordinates as local
+    // ones. No fence needed there: the camera hangs on a vehicle that runs
+    // inside the network, and maximumZoomDistance caps how far it can
+    // orbit away from it.
+    if (!Matrix4.equals(camera.transform, Matrix4.IDENTITY)) return
+    const clamped = clampCameraPose(camera.positionCartographic, this.cameraLimits)
+    if (!clamped) return
+    camera.setView({
+      destination: Cartesian3.fromRadians(clamped.longitude, clamped.latitude, clamped.height),
+      orientation: { heading: camera.heading, pitch: camera.pitch, roll: camera.roll },
+    })
   }
 
   /**
@@ -726,6 +818,7 @@ export class CesiumMap {
     this.routes.setUnderground(underground)
     this.vehicleLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
+    this.streetLamps.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
     // The sky belongs to the surface: with the city sunk into a dark relief
     // a bright daylight atmosphere above it reads as an eclipse.
@@ -752,6 +845,15 @@ export class CesiumMap {
   /** Stops layer (see StopsLayer) – the map only forwards. */
   addStops(network: PreparedNetwork): void {
     this.stops.add(network)
+  }
+
+  /**
+   * Registers the street lamps for the night-time lighting. The pools are
+   * built lazily on the first frame that would show them (see
+   * StreetLampsLayer), so a daytime session costs nothing.
+   */
+  addStreetLamps(data: StreetLampData): void {
+    this.streetLamps.add(data)
   }
 
   setStopsVisible(visible: boolean): void {
@@ -892,6 +994,7 @@ export class CesiumMap {
   render(): void {
     if (this.destroyed) return
     this.routes.updatePulse()
+    this.streetLamps.update()
     this.viewer.render()
   }
 
@@ -1056,6 +1159,22 @@ export class CesiumMap {
     return window ? { x: window.x, y: window.y } : null
   }
 
+  /** Debug/tests: lamps batched into the scene and their current opacity. */
+  getStreetLampInfo(): { drawn: number; alpha: number } {
+    return this.streetLamps.info
+  }
+
+  /**
+   * Screen position of a stop's disc in CSS pixels, or null when off
+   * screen or unknown – the stop-card E2E clicks the real disc with it.
+   */
+  getStopScreenPosition(id: string): { x: number; y: number } | null {
+    const position = this.stops.stopWorldPosition(id)
+    if (!position) return null
+    const window = SceneTransforms.worldToWindowCoordinates(this.viewer.scene, position)
+    return window ? { x: window.x, y: window.y } : null
+  }
+
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return this.vehicleLayer.getGroundHeights()
@@ -1067,6 +1186,7 @@ export class CesiumMap {
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()
+    this.streetLamps.destroy()
     this.viewer.destroy()
   }
 }

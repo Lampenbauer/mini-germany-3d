@@ -212,6 +212,17 @@ export class StopsLayer {
   }
 
   /**
+   * Current world position of a stop's disc (billboard height included),
+   * or null for an unknown id. E2E helper – lets a test click the real
+   * disc without hunting for it with scene.pick.
+   */
+  stopWorldPosition(stopId: string): Cartesian3 | null {
+    const wanted = `stop:${stopId}`
+    const record = this.stopRecords.find((r) => r.disc.id === wanted)
+    return record ? record.disc.position : null
+  }
+
+  /**
    * Underground view: the stops on the surface are ghosted, the ones on an
    * underground platform stay solid – the same swap the routes and vehicles
    * make. Disc and name plate carry it via their color multiplier.

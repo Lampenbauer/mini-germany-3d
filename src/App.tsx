@@ -9,17 +9,23 @@ import { cn } from '@/lib/utils'
 import { loadBundledNetwork } from '@/data/network'
 import type { PreparedNetwork } from '@/data/network-types'
 import schedule from '@/data/schedule.json'
-import { Simulation, type TripStop, type VehicleSnapshot } from '@/engine/simulation'
+import { loadStreetLamps } from '@/data/street-lamps'
+import { Simulation, type VehicleSnapshot } from '@/engine/simulation'
+import { StopCard, type StopInfo } from '@/components/StopCard'
 import {
   formatCameraHash,
+  formatStopHash,
   formatUiStateHash,
   formatVehicleHash,
   parseCameraHash,
+  parseStopHash,
   parseUiStateHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
+import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
+import { buildInterchangeIndex } from '@/lib/interchange'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -43,10 +49,13 @@ export interface MrtTestApi {
   /** Raindrops currently drawn (0 = dry or below ground). */
   rainDropsVisible: () => number
   selectVehicle: (id: string | null) => void
+  selectStop: (id: string | null) => void
+  selectedStopId: () => string | null
   /** Trip id of the current selection, null when nothing is selected. */
   selectedVehicleId: () => string | null
   /** Screen position of a vehicle in CSS px (null = off screen/unknown). */
   vehicleScreenPosition: (id: string) => { x: number; y: number } | null
+  stopScreenPosition: (id: string) => { x: number; y: number } | null
   dataSource: string
   lineIds: () => string[]
   secondsOfDay: () => number
@@ -54,6 +63,8 @@ export interface MrtTestApi {
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
   anyVehicleInView: () => boolean
+  /** Street lighting: lamps batched into the scene and their current opacity. */
+  streetLamps: () => { drawn: number; alpha: number }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**
@@ -107,8 +118,12 @@ interface UrlOptions {
   realtime: boolean | null
   /** Live-weather rain overlay (?rain=0 disables it). */
   rain: boolean
+  /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
+  lamps: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
+  /** Cap on the rain drop pool (?drops=50) – keeps the E2E rain test cheap. */
+  maxRainDrops: number | undefined
 }
 
 /** Delay of the URL update after the camera settled (moveEnd) in ms. */
@@ -142,6 +157,8 @@ function readUrlOptions(): UrlOptions {
   const groundHeight = groundHeightRaw === null ? NaN : Number(groundHeightRaw)
   const sseRaw = params.get('sse')
   const sse = sseRaw === null ? NaN : Number(sseRaw)
+  const dropsRaw = params.get('drops')
+  const drops = dropsRaw === null ? NaN : Number(dropsRaw)
   return {
     offline: params.get('offline') === '1',
     speed: Number.isFinite(speed) ? Math.min(600, Math.max(1, speed)) : 1,
@@ -153,7 +170,9 @@ function readUrlOptions(): UrlOptions {
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
     rain: params.get('rain') !== '0',
+    lamps: params.get('lamps') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
+    maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
   }
 }
 
@@ -164,6 +183,7 @@ export default function App() {
   const networkRef = useRef<PreparedNetwork | null>(null)
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
+  const selectedStopIdRef = useRef<string | null>(null)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
@@ -184,6 +204,7 @@ export default function App() {
   const [vehicleCount, setVehicleCount] = useState(0)
   const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
@@ -196,6 +217,40 @@ export default function App() {
   const undergroundRef = useRef(false)
 
   const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
+
+  /**
+   * What the stop card shows about each stop: name, position, serving
+   * lines, underground platform. Same aggregation the stops layer runs
+   * for its name plates – a stop belongs to every line calling at it.
+   */
+  const stopInfoById = useMemo(() => {
+    const byId = new Map<string, StopInfo>()
+    for (const line of network.lines) {
+      for (const dir of line.directions) {
+        for (const stop of dir.stops) {
+          const underground = isInTunnel(dir.tunnels, stop.dist)
+          const known = byId.get(stop.id)
+          if (known) {
+            if (!known.lines.some((l) => l.id === line.id)) {
+              known.lines.push({ id: line.id, color: line.color })
+            }
+            if (underground) known.inTunnel = true
+            continue
+          }
+          byId.set(stop.id, {
+            id: stop.id,
+            name: stop.name,
+            lon: stop.coord[0],
+            lat: stop.coord[1],
+            nhn: stop.nhn,
+            lines: [{ id: line.id, color: line.color }],
+            inTunnel: underground,
+          })
+        }
+      }
+    }
+    return byId
+  }, [network])
   const showRoutesRef = useRef(showRoutes)
   // Mirrors for the hash writer (closures in the init effect must not see
   // stale React state): layer toggles and pause travel in the URL.
@@ -212,6 +267,11 @@ export default function App() {
 
   const selectVehicle = useCallback((id: string | null) => {
     selectedIdRef.current = id
+    // One selection at a time: picking a vehicle dismisses the stop card
+    if (id !== null && selectedStopIdRef.current !== null) {
+      selectedStopIdRef.current = null
+      setSelectedStopId(null)
+    }
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
     const map = mapRef.current
@@ -229,6 +289,17 @@ export default function App() {
     setSelected(snap)
     if (followingRef.current) map?.setFollow(id)
   }, [])
+
+  /** Stop selection (click on a disc/name plate, or a #stop= link). */
+  const selectStop = useCallback(
+    (id: string | null) => {
+      if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
+      selectedStopIdRef.current = id
+      setSelectedStopId(id)
+      writeHashRef.current()
+    },
+    [selectVehicle],
+  )
 
   // Initialization: map, simulation, render loop
   useEffect(() => {
@@ -306,7 +377,9 @@ export default function App() {
       const hash =
         (selectedIdRef.current
           ? formatVehicleHash(selectedIdRef.current)
-          : formatCameraHash(m.getCameraView())) +
+          : selectedStopIdRef.current
+            ? formatStopHash(selectedStopIdRef.current)
+            : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
@@ -342,7 +415,9 @@ export default function App() {
       offline: urlOpts.offline,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
+      maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
+      onSelectStop: selectStop,
       onTilesetStatus: setTilesetStatus,
       onCameraChanged: scheduleHashWrite,
     })
@@ -350,8 +425,14 @@ export default function App() {
     // Restore the saved camera orientation from the URL hash
     const hashView = parseCameraHash(window.location.hash)
     if (hashView) map.setView(hashView)
+    // Fence the camera in around the network – a shared link may carry a
+    // pose from anywhere on the globe, so this runs after the restore.
+    map.limitCameraToNetwork(network)
     map.addRoutes(network)
     map.addStops(network)
+    // Night-time street lighting. Nothing is built until the pools would
+    // actually show, so a daytime session pays nothing for this.
+    if (urlOpts.lamps) map.addStreetLamps(loadStreetLamps())
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
@@ -388,6 +469,18 @@ export default function App() {
     // pose, the approach flight brings the viewer to the vehicle.
     let pendingSharedVehicle = parseVehicleHash(window.location.hash)
     const sharedVehicleDeadline = performance.now() + 20_000
+
+    // A stop shared via the URL (#stop=…) opens its card right away –
+    // stops are static, nothing to wait for – and flies the camera there,
+    // since the link carries no pose. A vehicle hash takes precedence.
+    if (!pendingSharedVehicle) {
+      const sharedStopId = parseStopHash(window.location.hash)
+      const sharedStop = sharedStopId ? stopInfoById.get(sharedStopId) : undefined
+      if (sharedStop) {
+        selectStop(sharedStop.id)
+        map.flyToStop(sharedStop.lon, sharedStop.lat, sharedStop.nhn)
+      }
+    }
 
     // First write right away: a camera that never moves after boot fires no
     // change event (the first rendered frame establishes the baseline), yet
@@ -594,7 +687,10 @@ export default function App() {
       rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
       selectedVehicleId: () => selectedIdRef.current,
+      selectStop,
+      selectedStopId: () => selectedStopIdRef.current,
       vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
+      stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
       dataSource: network.meta.source,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
@@ -603,6 +699,7 @@ export default function App() {
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
       anyVehicleInView: () => lastAnyVehicleInView,
+      streetLamps: () => map.getStreetLampInfo(),
       renderRate: () => {
         // Prune on read, not only when a frame is drawn: otherwise the
         // value freezes at its last level the moment rendering stops, and
@@ -788,7 +885,7 @@ export default function App() {
   }, [])
 
   /** Fly the camera to a stop of the selected vehicle's trip. */
-  const handleFlyToStop = useCallback((stop: TripStop) => {
+  const handleFlyToStop = useCallback((stop: { lon: number; lat: number; nhn?: number }) => {
     const map = mapRef.current
     if (!map) return
     // A camera flight and the follow chase would fight – stop following
@@ -819,25 +916,14 @@ export default function App() {
   )
 
   /**
-   * Which lines serve a stop – the same relation the stop name plates on the
-   * map show ("Kröpeliner Tor (1, 4, 5, 6)"). The vehicle card reads the
-   * interchange options for the next stop out of it.
+   * Where a passenger can change at each stop – including the platforms a
+   * short walk away, which at a junction carry the interesting lines (see
+   * src/lib/interchange.ts). The vehicle card reads its badges out of it.
    */
-  const stopLines = useMemo(() => {
-    const byStop = new Map<string, { id: string; color: string }[]>()
-    for (const line of network.lines) {
-      for (const dir of line.directions) {
-        for (const stop of dir.stops) {
-          const serving = byStop.get(stop.id)
-          if (!serving) byStop.set(stop.id, [{ id: line.id, color: line.color }])
-          else if (!serving.some((l) => l.id === line.id)) {
-            serving.push({ id: line.id, color: line.color })
-          }
-        }
-      }
-    }
-    return byStop
-  }, [network])
+  const interchangeByStop = useMemo(
+    () => buildInterchangeIndex(network, config.interchangeRadiusMeters),
+    [network],
+  )
 
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
@@ -862,6 +948,18 @@ export default function App() {
   // All stops of the selected trip plus the vehicle's position among them.
   // `selected` is refreshed on every UI tick, so the position marker and
   // the passed-stop dimming track the vehicle.
+  const selectedStop = selectedStopId ? (stopInfoById.get(selectedStopId) ?? null) : null
+  // Recomputed with the 4-Hz clock state – the countdowns tick with the
+  // simulation, and GTFS-RT delays land as they arrive. ~200 stop calls
+  // filtered per pass, far below the snapshot work of the same tick.
+  const stopDepartures = useMemo(
+    () =>
+      selectedStop && simRef.current
+        ? simRef.current.upcomingDepartures(selectedStop.id, simSeconds)
+        : [],
+    [selectedStop, simSeconds],
+  )
+
   const tripProgress = useMemo(
     () => (selected ? (simRef.current?.tripProgress(selected.id) ?? null) : null),
     [selected],
@@ -901,13 +999,27 @@ export default function App() {
         />
       </div>
 
+      {!selected && selectedStop && (
+        <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <StopCard
+            stop={selectedStop}
+            departures={stopDepartures}
+            simSeconds={simSeconds}
+            interchange={interchangeByStop.get(selectedStop.id) ?? []}
+            onSelectVehicle={selectVehicle}
+            onFlyTo={handleFlyToStop}
+            onClose={() => selectStop(null)}
+          />
+        </div>
+      )}
+
       {selected && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VehicleCard
             vehicle={selected}
             tripProgress={tripProgress}
             simSeconds={simSeconds}
-            stopLines={stopLines}
+            interchangeByStop={interchangeByStop}
             onFlyToStop={handleFlyToStop}
             following={following}
             onToggleFollow={handleToggleFollow}

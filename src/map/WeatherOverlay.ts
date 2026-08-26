@@ -47,6 +47,7 @@ const RAIN_FALL_MPS = 260
 /** Visible drop count: base + per-mm scale, capped (GPU/CPU budget). */
 const RAIN_DROPS_BASE = 800
 const RAIN_DROPS_PER_MM = 1000
+/** Default cap on the pool; ?drops= lowers it (see the constructor). */
 const RAIN_MAX_DROPS = 4000
 /**
  * Overcast grade strength: even drizzle overcasts clearly, heavy rain
@@ -122,6 +123,14 @@ export class WeatherOverlay {
   constructor(
     private readonly viewer: Viewer,
     private readonly requestRender: () => void,
+    /**
+     * Upper bound on the drop pool (?drops=). Visible rain is a field of
+     * blended billboards and the app treats it as an animation, so it
+     * pins the render loop at full rate – on a software renderer that is
+     * seconds per frame, which is what makes the E2E rain test crawl. A
+     * handful of drops exercises the same code paths.
+     */
+    private readonly maxDrops: number = RAIN_MAX_DROPS,
   ) {}
 
   /**
@@ -176,7 +185,7 @@ export class WeatherOverlay {
     }
     if (!this.rainBillboards && !this.createRainDrops()) return
     const visible = Math.min(
-      RAIN_MAX_DROPS,
+      this.maxDrops,
       Math.round(RAIN_DROPS_BASE + intensity * RAIN_DROPS_PER_MM),
     )
     this.rainDrops.forEach((drop, index) => {
@@ -266,7 +275,7 @@ export class WeatherOverlay {
     // correctly when looking down.
     const up = Cartesian3.normalize(this.viewer.camera.positionWC, new Cartesian3())
     const drops: RainDrop[] = []
-    for (let i = 0; i < RAIN_MAX_DROPS; i++) {
+    for (let i = 0; i < this.maxDrops; i++) {
       // Uniform in a disc; far drops fade so the volume edge stays invisible
       const angle = Math.random() * 2 * Math.PI
       const radius = RAIN_RADIUS * Math.sqrt(Math.random())

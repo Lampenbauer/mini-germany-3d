@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
+import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
 
 export interface VehicleCardProps {
@@ -12,8 +13,8 @@ export interface VehicleCardProps {
   tripProgress: TripProgress | null
   /** Simulation clock in seconds of day – basis for the arrival countdown. */
   simSeconds: number
-  /** Stop id → every line serving it (drives the interchange badges). */
-  stopLines: ReadonlyMap<string, { id: string; color: string }[]>
+  /** Stop id → the lines reachable from it (drives the interchange badges). */
+  interchangeByStop: ReadonlyMap<string, InterchangeOption[]>
   /** Click on a stop – the camera flies to it. */
   onFlyToStop: (stop: TripStop) => void
   following: boolean
@@ -22,7 +23,7 @@ export interface VehicleCardProps {
 }
 
 /** "08:31" from seconds since midnight (arrival seconds are already 0–24 h). */
-function formatArrival(arrivalSec: number): string {
+export function formatArrival(arrivalSec: number): string {
   const clamped = ((arrivalSec % 86400) + 86400) % 86400
   const h = Math.floor(clamped / 3600)
   const m = Math.floor((clamped % 3600) / 60)
@@ -30,7 +31,7 @@ function formatArrival(arrivalSec: number): string {
 }
 
 /** "+3 min" / "-1 min" / "on time" */
-function formatDelay(delaySeconds: number): string {
+export function formatDelay(delaySeconds: number): string {
   if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
@@ -44,7 +45,7 @@ function formatDelay(delaySeconds: number): string {
  * at 08:30:00 reads as three minutes, not the four a rounded difference
  * would give.
  */
-function minutesUntil(arrivalSec: number, nowSec: number): number {
+export function minutesUntil(arrivalSec: number, nowSec: number): number {
   const diff = Math.floor(arrivalSec / 60) - Math.floor(nowSec / 60)
   return diff < -720 ? diff + 1440 : diff > 720 ? diff - 1440 : diff
 }
@@ -73,7 +74,7 @@ export function VehicleCard({
   vehicle,
   tripProgress,
   simSeconds,
-  stopLines,
+  interchangeByStop,
   onFlyToStop,
   following,
   onToggleFollow,
@@ -92,10 +93,17 @@ export function VehicleCard({
   // applied), just buried at its bottom – this lifts it into the summary.
   const finalStop = stops.length > 0 ? stops[stops.length - 1] : null
   const stopsLeft = Math.max(0, stops.length - 1 - markerIndex)
-  // Interchange at the stop the vehicle heads for, minus its own line
-  const nextStop = stops.length > 0 ? stops[nextIndex] : null
-  const interchange = nextStop
-    ? (stopLines.get(nextStop.id) ?? []).filter((line) => line.id !== vehicle.lineId)
+  /**
+   * The stop whose interchange options are shown. While the vehicle dwells
+   * (markerFraction 0 – the marker sits on the stop's own dot) that is the
+   * stop it stands at: those are the connections a passenger can take right
+   * now. Only once it pulls away does the stop ahead become the useful one.
+   */
+  const interchangeStop = stops.length > 0 ? stops[markerFraction === 0 ? markerIndex : nextIndex] : null
+  const interchange = interchangeStop
+    ? (interchangeByStop.get(interchangeStop.id) ?? []).filter(
+        (line) => line.id !== vehicle.lineId,
+      )
     : []
 
   // Bring the vehicle marker into view when a (new) vehicle is selected –
@@ -245,10 +253,10 @@ export function VehicleCard({
             </span>
           )}
         </div>
-        {interchange.length > 0 && nextStop && (
+        {interchange.length > 0 && interchangeStop && (
           <div className="flex flex-col gap-1">
             <span className="text-sm text-muted-foreground">
-              {t('vehicle.interchange', { name: nextStop.name })}
+              {t('vehicle.interchange', { name: interchangeStop.name })}
             </span>
             <div className="flex flex-wrap gap-1" data-testid="vehicle-interchange">
               {interchange.map((line) => (

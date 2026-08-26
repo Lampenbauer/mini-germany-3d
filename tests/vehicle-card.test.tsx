@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VehicleCard } from '@/components/VehicleCard'
 import { config } from '@/config'
+import type { InterchangeOption } from '@/lib/interchange'
 import type { TripProgress, VehicleSnapshot } from '@/engine/simulation'
 
 afterEach(cleanup)
@@ -31,9 +32,18 @@ const noop = () => {}
 /** 08:30 – the fixture arrivals sit a few minutes after it. */
 const SIM_SECONDS = 8 * 3600 + 30 * 60
 
-/** Kröpeliner Tor is also served by lines 4 and 5 (the card's own line is 1). */
-const stopLines = new Map([
-  ['doberaner-platz', [{ id: '1', color: '#5D106A' }]],
+/**
+ * Where a passenger can change (the card's own line is 1). Doberaner Platz
+ * reaches line 6 across the square, Kröpeliner Tor has 4 and 5.
+ */
+const interchangeByStop = new Map<string, InterchangeOption[]>([
+  [
+    'doberaner-platz',
+    [
+      { id: '1', color: '#5D106A' },
+      { id: '6', color: '#94368D' },
+    ],
+  ],
   [
     'kroepeliner-tor',
     [
@@ -84,7 +94,7 @@ describe('VehicleCard trip stops', () => {
         vehicle={vehicle}
         tripProgress={progress}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -111,7 +121,7 @@ describe('VehicleCard trip stops', () => {
         vehicle={vehicle}
         tripProgress={progress}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -132,7 +142,7 @@ describe('VehicleCard trip stops', () => {
         vehicle={vehicle}
         tripProgress={{ ...progress, position: 1 }}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -155,7 +165,7 @@ describe('VehicleCard trip stops', () => {
         vehicle={vehicle}
         tripProgress={progress}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={onFlyToStop}
         following={false}
         onToggleFollow={noop}
@@ -172,7 +182,7 @@ describe('VehicleCard trip stops', () => {
         vehicle={vehicle}
         tripProgress={null}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -192,7 +202,7 @@ describe('VehicleCard summary', () => {
         vehicle={vehicle}
         tripProgress={progress}
         simSeconds={SIM_SECONDS}
-        stopLines={stopLines}
+        interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
         following={false}
         onToggleFollow={noop}
@@ -228,17 +238,27 @@ describe('VehicleCard summary', () => {
     expect(type).toHaveTextContent('32 m')
   })
 
-  it('shows the other lines at the next stop, never its own', () => {
-    // position 1 → dwelling at Doberaner Platz, next stop Kröpeliner Tor
+  it('shows the stop it stands at while dwelling, never its own line', () => {
+    // position 1 = standing at Doberaner Platz. Those are the connections
+    // a passenger can take right now – not the ones two minutes ahead.
     renderCard({ tripProgress: { ...progress, position: 1 } })
+    expect(screen.getByText('Change at Doberaner Platz')).toBeInTheDocument()
     const badges = screen.getByTestId('vehicle-interchange')
-    expect(badges).toHaveTextContent('4')
-    expect(badges).toHaveTextContent('5')
+    expect(badges).toHaveTextContent('6')
     expect(badges).not.toHaveTextContent('1')
   })
 
-  it('hides the interchange block where no other line calls', () => {
-    // position 0 → next stop Doberaner Platz, served by line 1 alone
+  it('moves on to the stop ahead once the vehicle pulls away', () => {
+    renderCard({ tripProgress: { ...progress, position: 1.1 } })
+    expect(screen.getByText('Change at Kröpeliner Tor')).toBeInTheDocument()
+    const badges = screen.getByTestId('vehicle-interchange')
+    expect(badges).toHaveTextContent('4')
+    expect(badges).toHaveTextContent('5')
+    expect(badges).not.toHaveTextContent('6')
+  })
+
+  it('hides the interchange block where no other line is reachable', () => {
+    // position 0 = standing at Lange Straße, which no other line reaches
     renderCard({ tripProgress: { ...progress, position: 0 } })
     expect(screen.queryByTestId('vehicle-interchange')).toBeNull()
   })

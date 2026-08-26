@@ -25,7 +25,10 @@ declare global {
       rainDropsVisible: () => number
       selectVehicle: (id: string | null) => void
       selectedVehicleId: () => string | null
+      selectStop: (id: string | null) => void
+      selectedStopId: () => string | null
       vehicleScreenPosition: (id: string) => { x: number; y: number } | null
+      stopScreenPosition: (id: string) => { x: number; y: number } | null
       dataSource: string
       lineIds: () => string[]
       secondsOfDay: () => number
@@ -35,6 +38,7 @@ declare global {
       vehicleOpacity: (id: string) => number | null
       renderRate: () => number
       anyVehicleInView: () => boolean
+      streetLamps: () => { drawn: number; alpha: number }
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

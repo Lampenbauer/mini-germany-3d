@@ -72,6 +72,31 @@ export interface TripProgress {
   position: number
 }
 
+/** One upcoming departure at a stop (see upcomingDepartures). */
+export interface StopDeparture {
+  /** Simulation trip id – selectable on the map while `active`. */
+  tripId: string
+  lineId: string
+  color: string
+  mode: TransitMode
+  direction: 0 | 1
+  destination: string
+  /**
+   * Predicted departure in seconds of day (Europe/Berlin), the trip's
+   * current GTFS-RT delay applied. After-midnight service stays encoded
+   * past 24:00, matching TripStop.arrivalSec – format with % 86400.
+   */
+  departureSec: number
+  /** Seconds from the queried instant until that departure (>= 0). */
+  secondsUntil: number
+  /** Current delay in seconds (0 = on schedule). */
+  delaySeconds: number
+  /** true if this trip is currently overlaid by GTFS-Realtime data. */
+  realtime: boolean
+  /** The trip is already underway – its vehicle is on the map now. */
+  active: boolean
+}
+
 export class Simulation {
   readonly network: PreparedNetwork
   readonly clock: SimClock
@@ -82,6 +107,13 @@ export class Simulation {
   private realtimeDelays = new Map<string, number>()
   /** Turnaround time at the terminus in seconds (see config.simulation). */
   private terminalLinger: number
+  /**
+   * stop id → every (trip, stop time) calling there, minus each trip's
+   * final stop (nothing departs from where the run ends). Built lazily on
+   * the first stop query – ~64k stop times in one pass – and static
+   * afterwards: trips never change after construction, only their delays.
+   */
+  private stopCalls: Map<string, { trip: Trip; departure: number }[]> | null = null
 
   constructor(
     network: PreparedNetwork,
@@ -193,6 +225,68 @@ export class Simulation {
       }
     }
     return { stops, position }
+  }
+
+  /**
+   * The next departures at a stop, soonest first: what a passenger
+   * standing there can still catch. Current GTFS-RT delays are applied to
+   * the scheduled times; a trip whose vehicle is already on the map is
+   * flagged `active`, so the UI can jump to it.
+   *
+   * The window wraps across midnight (a 00:10 night bus shows up at
+   * 23:50), and a loop line calling at the stop twice appears once per
+   * pass – both really do depart there.
+   */
+  upcomingDepartures(
+    stopId: string,
+    tSec = this.clock.secondsOfDay(),
+    { windowSeconds = 3600, limit = 8 }: { windowSeconds?: number; limit?: number } = {},
+  ): StopDeparture[] {
+    if (!this.stopCalls) {
+      this.stopCalls = new Map()
+      for (const trip of this.trips) {
+        const line = this.network.lineById.get(trip.lineId)
+        if (!line) continue
+        const stops = line.directions[trip.direction].stops
+        // The final stop is where the run ends – nothing departs from it.
+        for (let i = 0; i < trip.stopTimes.length - 1; i++) {
+          const stop = stops[trip.stopTimes[i].stopIndex]
+          if (!stop) continue
+          let calls = this.stopCalls.get(stop.id)
+          if (!calls) this.stopCalls.set(stop.id, (calls = []))
+          calls.push({ trip, departure: trip.stopTimes[i].departure })
+        }
+      }
+    }
+
+    const departures: StopDeparture[] = []
+    for (const { trip, departure } of this.stopCalls.get(stopId) ?? []) {
+      const delay = this.realtimeDelays.get(trip.id) ?? 0
+      const predicted = departure + delay
+      // Distance to the departure on the day circle: also catches
+      // after-midnight times encoded past 24:00 and the evening→morning
+      // wrap, both of which land outside a plain [tSec, tSec+window].
+      const secondsUntil = (((predicted - tSec) % DAY_SECONDS) + DAY_SECONDS) % DAY_SECONDS
+      if (secondsUntil > windowSeconds) continue
+      const line = this.network.lineById.get(trip.lineId)
+      if (!line) continue
+      const dir = line.directions[trip.direction]
+      departures.push({
+        tripId: trip.id,
+        lineId: trip.lineId,
+        color: line.color,
+        mode: line.mode,
+        direction: trip.direction,
+        destination: trip.destination ?? dir.to,
+        departureSec: predicted,
+        secondsUntil,
+        delaySeconds: delay,
+        realtime: this.realtimeDelays.has(trip.id),
+        active: tripStateAt(trip, dir, tSec - delay, this.terminalLinger) !== null,
+      })
+    }
+    departures.sort((a, b) => a.secondsUntil - b.secondsUntil)
+    return departures.slice(0, limit)
   }
 
   snapshotsAt(tSec: number): VehicleSnapshot[] {

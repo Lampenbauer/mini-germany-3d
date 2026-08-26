@@ -16,6 +16,7 @@
     "data:gtfs": "node scripts/fetch-gtfs-schedule.mjs",
     "data:simplify": "node scripts/simplify-network.mjs",
     "data:heights": "node scripts/fetch-route-heights.mjs",
+    "data:lamps": "node scripts/fetch-street-lamps.mjs",
     "postinstall": "node scripts/copy-cesium-assets.mjs"
   },
   "dependencies": {

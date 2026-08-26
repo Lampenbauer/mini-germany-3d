@@ -1,11 +1,13 @@
 /**
- * Persists the view in the URL hash in one of two forms:
+ * Persists the view in the URL hash in one of three forms:
  *   camera pose  #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
- *   selection    #vehicle=1-0-500
- * While a vehicle is selected, ONLY its trip id is in the URL – trip ids
- * are deterministic across reloads (see simTripId), and opening such a
- * link re-selects the vehicle and follows it, so no camera pose is
- * needed. Without a selection the camera pose makes the view shareable.
+ *   vehicle      #vehicle=1-0-500
+ *   stop         #stop=osm-241200227
+ * While a selection is up, ONLY its id is in the URL – trip ids are
+ * deterministic across reloads (see simTripId), stop ids are the stable
+ * network ids – and opening such a link re-selects it (a vehicle is then
+ * followed, a stop flown to), so no camera pose is needed. Without a
+ * selection the camera pose makes the view shareable.
  */
 
 export interface CameraView {
@@ -50,6 +52,25 @@ export function formatCameraHash(view: CameraView): string {
 /** Hash for a selected vehicle – the trip id is the whole shared state. */
 export function formatVehicleHash(vehicleId: string): string {
   return `#vehicle=${encodeURIComponent(vehicleId)}`
+}
+
+/**
+ * Hash for a selected stop. Stop ids are stable across reloads (OSM node
+ * ids from network.json), so the link re-opens the same stop card; like
+ * the vehicle hash it carries no camera pose – the restore flies to the
+ * stop instead.
+ */
+export function formatStopHash(stopId: string): string {
+  return `#stop=${encodeURIComponent(stopId)}`
+}
+
+/** Stop id carried in the hash, or null (same permissiveness as vehicles). */
+export function parseStopHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!raw) return null
+  const stop = new URLSearchParams(raw).get('stop')
+  if (!stop || stop.length > 128) return null
+  return stop
 }
 
 /**
