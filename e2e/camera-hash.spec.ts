@@ -113,3 +113,45 @@ test('layer toggles travel in the URL and are restored', async ({ page }) => {
   // The boot flag ?paused=1 was in the URL anyway – the button shows Resume
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
 })
+
+test('an edited hash applies without a reload', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto(
+    '/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=6000&heading=0&pitch=-60',
+  )
+  await page.waitForFunction(() => window.__mrt?.ready === true)
+  await expect(page.getByRole('switch', { name: 'Show stops' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+
+  // Survives a same-document navigation, not a reload – the marker proves
+  // the app kept running instead of booting again.
+  await page.evaluate(() => {
+    ;(window as unknown as { __stillTheSamePage?: boolean }).__stillTheSamePage = true
+  })
+
+  // What a user typing in the address bar does: only the hash changes.
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.0901&lon=12.1405&height=2000&heading=0&pitch=-60&stops=0'
+  })
+
+  await expect
+    .poll(
+      () => page.evaluate(() => window.__cesiumViewer!.camera.positionCartographic.height),
+      { timeout: 20_000, intervals: [250, 500] },
+    )
+    .toBeLessThan(2600)
+
+  // The layer state in the hash rides along, not just the camera
+  await expect(page.getByRole('switch', { name: 'Show stops' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __stillTheSamePage?: boolean }).__stillTheSamePage,
+    ),
+  ).toBe(true)
+})

@@ -468,7 +468,7 @@ export default function App() {
     // restored vehicle starts in follow mode: the link carries no camera
     // pose, the approach flight brings the viewer to the vehicle.
     let pendingSharedVehicle = parseVehicleHash(window.location.hash)
-    const sharedVehicleDeadline = performance.now() + 20_000
+    let sharedVehicleDeadline = performance.now() + 20_000
 
     // A stop shared via the URL (#stop=…) opens its card right away –
     // stops are static, nothing to wait for – and flies the camera there,
@@ -481,6 +481,59 @@ export default function App() {
         map.flyToStop(sharedStop.lon, sharedStop.lat, sharedStop.nhn)
       }
     }
+
+    // The hash IS the app state, but so far only the boot ever read it –
+    // editing it in the address bar did nothing until a reload. Our own
+    // writes go through replaceState, which fires no hashchange, so
+    // everything arriving here comes from outside: a typed edit, a link,
+    // a history step.
+    const applyHash = () => {
+      const hash = window.location.hash
+      const ui = parseUiStateHash(hash)
+      if (ui.paused !== pausedRef.current) {
+        clock.setPaused(ui.paused)
+        pausedRef.current = ui.paused
+        setPaused(ui.paused)
+      }
+      const routesVisible = !ui.routesHidden
+      if (routesVisible !== showRoutesRef.current) {
+        showRoutesRef.current = routesVisible
+        setShowRoutes(routesVisible)
+        applyRouteVisibility()
+      }
+      const stopsVisible = !ui.stopsHidden
+      if (stopsVisible !== showStopsRef.current) {
+        showStopsRef.current = stopsVisible
+        setShowStops(stopsVisible)
+        map.setStopsVisible(stopsVisible)
+      }
+
+      // A selection outranks a camera pose, the same order writeHash
+      // builds the hash in – so a hash carrying neither clears both.
+      const vehicleId = parseVehicleHash(hash)
+      if (vehicleId) {
+        // Same restore path as a shared link: the trip may not be in the
+        // snapshots yet, so it waits for it and gives up silently.
+        pendingSharedVehicle = vehicleId
+        sharedVehicleDeadline = performance.now() + 20_000
+        return
+      }
+      pendingSharedVehicle = null
+      const stopId = parseStopHash(hash)
+      const stop = stopId ? stopInfoById.get(stopId) : undefined
+      if (stop) {
+        selectStop(stop.id)
+        map.flyToStop(stop.lon, stop.lat, stop.nhn)
+        return
+      }
+      if (selectedIdRef.current) selectVehicle(null)
+      if (selectedStopIdRef.current) selectStop(null)
+      const view = parseCameraHash(hash)
+      // Instant, like the boot restore – an edited pose is a jump to it,
+      // not a sightseeing flight. The camera fence still applies.
+      if (view) map.setView(view)
+    }
+    window.addEventListener('hashchange', applyHash)
 
     // First write right away: a camera that never moves after boot fires no
     // change event (the first rendered frame establishes the baseline), yet
@@ -745,6 +798,7 @@ export default function App() {
       cancelAnimationFrame(rafId)
       window.clearInterval(rafWatchdog)
       window.removeEventListener('pagehide', writeHash)
+      window.removeEventListener('hashchange', applyHash)
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
