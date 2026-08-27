@@ -51,8 +51,16 @@ const MRT_AIS_BBOX = [[53.83, 11.64], [54.43, 12.61]];
 const MRT_AIS_TTL_SECONDS = 40;
 /** Default listen window; ?listen= raises it up to the cap below. */
 const MRT_AIS_LISTEN_SECONDS = 12;
-/** Hard cap for ?listen= (max_execution_time=60 needs headroom). */
+/** Hard cap for ?listen= (the 60 s wall-clock budget needs headroom). */
 const MRT_AIS_LISTEN_MAX_SECONDS = 45;
+/**
+ * Wall-clock budget for the whole request in seconds: all-inkl caps PHP
+ * at 60 s, and FastCGI timeouts count wall time. The window is bounded
+ * by an absolute deadline derived from this, so a slow connect shrinks
+ * the listen instead of the process being killed mid-window with the
+ * state write still pending.
+ */
+const MRT_AIS_WALL_BUDGET_SECONDS = 52.0;
 /** During a window the state is flushed this often – polls arriving
  *  mid-window pick up near-live fixes instead of waiting for its end. */
 const MRT_AIS_FLUSH_SECONDS = 8;
@@ -223,8 +231,13 @@ function mrt_ws_parse(string &$buffer): ?array
  * One listen window: connect, subscribe, merge everything heard into
  * $state. Failures are silent by design – the previous state stays.
  */
-function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds, ?callable $onFlush = null): bool
-{
+function mrt_ais_listen(
+    array &$state,
+    string $apiKey,
+    int $listenSeconds,
+    ?callable $onFlush = null,
+    ?float $hardDeadline = null
+): bool {
     $context = stream_context_create(['ssl' => ['peer_name' => MRT_AIS_HOST]]);
     $fp = @stream_socket_client(
         'ssl://' . MRT_AIS_HOST . ':443', $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context
@@ -263,6 +276,7 @@ function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds, ?call
     $heard = false;
     stream_set_timeout($fp, 1);
     $deadline = microtime(true) + $listenSeconds;
+    if ($hardDeadline !== null && $hardDeadline < $deadline) $deadline = $hardDeadline;
     $nextFlush = microtime(true) + MRT_AIS_FLUSH_SECONDS;
     while (microtime(true) < $deadline) {
         $closed = false;
@@ -425,14 +439,21 @@ if (function_exists('fastcgi_finish_request')) {
 // The cron may ask for a longer window (?listen=45): higher listening
 // duty cycle, smaller blind gaps, smoother ships – same single lock.
 $listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
-set_time_limit($listenSeconds + 30);
+set_time_limit(60);
+$requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
 $windowStart = mrt_now_ms();
 $state = $data['state'];
 $flush = function (array $flushState) use ($stateFile, $windowStart): void {
     mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy
     mrt_ais_save($stateFile, $flushState, $windowStart);
 };
-$heard = mrt_ais_listen($state, $apiKey, $listenSeconds, $flush);
+$heard = mrt_ais_listen(
+    $state,
+    $apiKey,
+    $listenSeconds,
+    $flush,
+    $requestStart + MRT_AIS_WALL_BUDGET_SECONDS
+);
 if ($heard) {
     // A window that never even reached the stream keeps the old
     // listenedAt – the next request retries right away instead of
