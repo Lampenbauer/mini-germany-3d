@@ -405,6 +405,9 @@ export class VehicleLayer {
   /** Underground view (see setUnderground). */
   private underground = false
 
+  /** Running line focus (see startLineFocus), null = none. */
+  private lineFocus: { lineId: string; until: number } | null = null
+
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VehicleLayerHost,
@@ -489,6 +492,9 @@ export class VehicleLayer {
       camera.upWC,
     )
     let anyVehicleInView = false
+    // Resolved once per tick: while a "zoom to line" focus runs, the other
+    // lines' badges step aside (see startLineFocus).
+    const focusedLine = this.focusedLine()
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -530,6 +536,7 @@ export class VehicleLayer {
       }
 
       const show = visibleLines.has(snap.lineId)
+      const showLabel = show && (focusedLine === null || focusedLine === snap.lineId)
 
       // Vehicle height: terrain profile of the route (NHN + calibrated
       // offset) whenever the direction carries DGM heights – deterministic,
@@ -636,8 +643,8 @@ export class VehicleLayer {
           visibilityChanged = true
         }
       }
-      if (record.labelEntity.show !== show) {
-        record.labelEntity.show = show
+      if (record.labelEntity.show !== showLabel) {
+        record.labelEntity.show = showLabel
         visibilityChanged = true
       }
       if (visibilityChanged) this.host.requestRender()
@@ -1118,6 +1125,33 @@ export class VehicleLayer {
       }
     }
     this.host.requestRender()
+  }
+
+  /**
+   * "Zoom to line": for these few seconds only that line's badges stay up.
+   * The other routes fade out for the attention pulse (see RoutesLayer),
+   * and their vehicle labels would otherwise keep covering the very route
+   * the pulse is pointing at. Bodies are untouched – at the distance the
+   * flight ends they are past their draw range anyway.
+   */
+  startLineFocus(lineId: string, durationMs: number): void {
+    this.lineFocus = { lineId, until: performance.now() + durationMs }
+    this.host.requestRender()
+  }
+
+  /**
+   * Line id whose badges are alone on stage right now, null when no focus
+   * runs. Clears an expired focus – sync() calls this per tick, so the
+   * other labels come back within a tick of the pulse ending.
+   */
+  private focusedLine(): string | null {
+    const focus = this.lineFocus
+    if (!focus) return null
+    if (performance.now() >= focus.until) {
+      this.lineFocus = null
+      return null
+    }
+    return focus.lineId
   }
 
   /**

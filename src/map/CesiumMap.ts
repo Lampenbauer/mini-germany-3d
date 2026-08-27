@@ -712,6 +712,9 @@ export class CesiumMap {
     // Render at full rate during flight AND pulse (see getRenderHints)
     this.flyingUntil = performance.now() + Math.max(2100, ROUTE_PULSE_DURATION_MS + 200)
     this.routes.startPulse(lineId)
+    // The badges of the other lines step aside for the same span, so they
+    // do not cover the route the pulse is pointing at.
+    this.vehicleLayer.startLineFocus(lineId, ROUTE_PULSE_DURATION_MS)
     this.requestRender()
     this.viewer.camera.flyToBoundingSphere(sphere, {
       duration: 1.5,
