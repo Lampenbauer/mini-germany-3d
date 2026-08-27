@@ -108,7 +108,7 @@ describe('StopCard', () => {
       ],
       onSelectVehicle,
     })
-    const buttons = screen.getAllByTitle('Show this vehicle on the map')
+    const buttons = screen.getAllByTitle('Fly to this vehicle')
     expect(buttons).toHaveLength(1)
     fireEvent.click(buttons[0])
     expect(onSelectVehicle).toHaveBeenCalledWith('active-trip')

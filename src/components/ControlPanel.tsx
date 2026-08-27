@@ -119,34 +119,27 @@ const LineGroup = memo(function LineGroup(props: {
       <ul className="flex flex-col gap-1.5">
         {props.lines.map((line) => (
           <li key={line.id} className="flex items-center justify-between gap-2">
-            {/* Delayed so scanning the list does not pop a tooltip per row */}
-            <Tooltip delayDuration={500}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
-                  aria-label={t('lines.zoomTo', { name: line.name })}
-                  onClick={() => props.onFocusLine(line.id)}
-                >
-                  <span
-                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-                    style={{ backgroundColor: line.color }}
-                    aria-hidden
-                  >
-                    {line.id}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm leading-tight">{line.name}</div>
-                    <div className="truncate text-xs leading-tight text-muted-foreground">
-                      {line.from} ↔ {line.to}
-                    </div>
-                  </div>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {t('lines.zoomTo', { name: line.name })}
-              </TooltipContent>
-            </Tooltip>
+            <button
+              type="button"
+              className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+              aria-label={t('lines.flyTo', { name: line.name })}
+              title={t('lines.flyTo', { name: line.name })}
+              onClick={() => props.onFocusLine(line.id)}
+            >
+              <span
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+                style={{ backgroundColor: line.color }}
+                aria-hidden
+              >
+                {line.id}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm leading-tight">{line.name}</div>
+                <div className="truncate text-xs leading-tight text-muted-foreground">
+                  {line.from} ↔ {line.to}
+                </div>
+              </div>
+            </button>
             <Switch
               aria-label={t('lines.show', { name: line.name })}
               checked={line.visible}

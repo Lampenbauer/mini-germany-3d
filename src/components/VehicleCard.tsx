@@ -199,6 +199,7 @@ export function VehicleCard({
                       type="button"
                       className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent/60"
                       aria-label={t('vehicle.flyToStop', { name: stop.name })}
+                      title={t('vehicle.flyToThisStop')}
                       onClick={() => onFlyToStop(stop)}
                     >
                       <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>

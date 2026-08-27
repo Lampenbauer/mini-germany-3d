@@ -44,7 +44,7 @@ describe('t', () => {
     expect(t('lines.title')).toBe('Linien')
     expect(t('layers.stops')).toBe('Haltestellen')
     expect(t('count.vehicles', { count: 42 })).toBe('42 Fahrzeuge im Einsatz')
-    expect(t('lines.zoomTo', { name: 'Linie 1' })).toBe('Auf Linie 1 zoomen')
+    expect(t('lines.flyTo', { name: 'Linie 1' })).toBe('Zu Linie 1 fliegen')
   })
 })
 

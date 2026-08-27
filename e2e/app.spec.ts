@@ -216,6 +216,11 @@ test('selecting a vehicle opens the info card', async () => {
   await expect(card.getByTestId('vehicle-next-stop')).toHaveText(tram.nextStopName)
   await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
 
+  // Every stop of the trip is a camera flight – the tooltip says so
+  await expect(
+    card.getByTestId('vehicle-trip-stops').getByRole('button').first(),
+  ).toHaveAttribute('title', 'Fly to this stop')
+
   await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
 })

@@ -111,7 +111,7 @@ describe('App (UI shell)', () => {
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: `Zoom to ${firstLine.name}` }))
+    fireEvent.click(screen.getByRole('button', { name: `Fly to ${firstLine.name}` }))
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
