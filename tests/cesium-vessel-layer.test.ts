@@ -1,4 +1,4 @@
-import { Cartographic, Entity, Matrix4, Primitive, type Viewer } from 'cesium'
+import { Cartesian3, Cartographic, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
 import type { AisVessel } from '@/lib/ais-extract'
 import { VesselLayer } from '@/map/VesselLayer'
@@ -29,7 +29,11 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
   }
 }
 
-function harness() {
+function harness({
+  cameraLon = 12.106,
+  cameraHeight = 1500,
+  frustum = Intersect.INTERSECTING,
+}: { cameraLon?: number; cameraHeight?: number; frustum?: Intersect } = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
   const viewer = {
@@ -43,15 +47,24 @@ function harness() {
       add: (options: Entity.ConstructorOptions) => new Entity(options),
       remove: (entity: Entity) => removedEntities.push(entity),
     },
+    camera: {
+      positionWC: Cartesian3.fromDegrees(cameraLon, 54.098, cameraHeight),
+      directionWC: new Cartesian3(0, 0, -1),
+      upWC: new Cartesian3(0, 1, 0),
+      frustum: {
+        computeCullingVolume: () => ({ computeVisibility: () => frustum }),
+      },
+    },
   } as unknown as Viewer
-  const layer = new VesselLayer(viewer, { requestRender: vi.fn(), waterSurfaceHeight: 37.75 })
+  const requestRender = vi.fn()
+  const layer = new VesselLayer(viewer, { requestRender, waterSurfaceHeight: 37.75 })
   const record = (mmsi: number) =>
     (
       layer as unknown as {
         vessels: Map<number, { matrix: Matrix4; labelEntity: Entity; labelText: string }>
       }
     ).vessels.get(mmsi)
-  return { layer, record, removedPrimitives, removedEntities }
+  return { layer, record, removedPrimitives, removedEntities, requestRender }
 }
 
 function positionOf(matrix: Matrix4): Cartographic {
@@ -108,6 +121,30 @@ describe('VesselLayer', () => {
     expect(after).not.toBe(before)
     expect(h.removedPrimitives).toHaveLength(1)
     expect(h.layer.vesselCount).toBe(1)
+  })
+
+  it('repaints for movement on screen, but never for ships nobody sees', () => {
+    // The map renders on demand – a vessel sailing far outside the view
+    // must not keep the GPU awake (that is the trams' rule too).
+    const offScreen = harness({ frustum: Intersect.OUTSIDE })
+    offScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    // Even the arrival stays silent off screen – the next due frame
+    // includes the new box anyway.
+    expect(offScreen.requestRender).not.toHaveBeenCalled()
+    offScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    expect(offScreen.requestRender).not.toHaveBeenCalled()
+
+    const beyondRange = harness({ cameraLon: 12.7 }) // ~39 km east, frustum says visible
+    beyondRange.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    beyondRange.requestRender.mockClear()
+    beyondRange.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    expect(beyondRange.requestRender).not.toHaveBeenCalled()
+
+    const onScreen = harness()
+    onScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    onScreen.requestRender.mockClear()
+    onScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    expect(onScreen.requestRender).toHaveBeenCalled()
   })
 
   it('hides and reveals the fleet with the underground view', () => {

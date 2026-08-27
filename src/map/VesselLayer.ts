@@ -12,6 +12,7 @@
  */
 
 import {
+  BoundingSphere,
   BoxGeometry,
   Cartesian2,
   Cartesian3,
@@ -22,6 +23,7 @@ import {
   DistanceDisplayCondition,
   GeometryInstance,
   HeadingPitchRoll,
+  Intersect,
   LabelStyle,
   Math as CesiumMath,
   Matrix4,
@@ -41,6 +43,13 @@ export interface VesselLayerHost {
 
 /** Ship names fade in below this camera distance (meters). */
 const NAME_VISIBLE_RANGE = 6_000
+/**
+ * Beyond this camera distance a moving vessel does not request repaints –
+ * at 20 km a hull is sub-pixel, and the app's event-driven rendering must
+ * stay idle when nothing visible changes (the trams' layer works the same
+ * way: movement only costs GPU while it is inside the view).
+ */
+const VESSEL_RENDER_RANGE = 20_000
 /** Fallback dimensions for the many small craft without static data. */
 const DEFAULT_LENGTH = 12
 const DEFAULT_WIDTH = 4
@@ -77,15 +86,44 @@ const hprScratch = new HeadingPitchRoll(0, 0, 0)
 export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
   private visible = true
+  private frustumSphere = new BoundingSphere()
 
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VesselLayerHost,
   ) {}
 
+  /**
+   * Requests a repaint only when `position` is on screen and close enough
+   * to matter. Everything the layer changes – movement, arrivals,
+   * departures, late names and dimensions – is folded into whichever
+   * frame renders next anyway; a repaint of its own is only owed while
+   * someone can see the change. Off screen the layer stays silent, and
+   * the app's event-driven rendering stays idle (the trams' rule).
+   */
+  private repaintIfOnScreen(
+    cullingVolume: { computeVisibility(sphere: BoundingSphere): number },
+    position: Cartesian3,
+  ): void {
+    if (!this.visible) return
+    if (Cartesian3.distance(this.viewer.camera.positionWC, position) >= VESSEL_RENDER_RANGE) return
+    Cartesian3.clone(position, this.frustumSphere.center)
+    this.frustumSphere.radius = 80
+    if (cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE) {
+      this.host.requestRender()
+    }
+  }
+
   /** Per-tick update: dead-reckoned positions, arrivals, departures. */
   sync(vessels: AisVessel[], nowMs: number): void {
     const alive = new Set<number>()
+    // One culling volume per tick, for every repaint decision below.
+    const camera = this.viewer.camera
+    const cullingVolume = camera.frustum.computeCullingVolume(
+      camera.positionWC,
+      camera.directionWC,
+      camera.upWC,
+    )
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -104,7 +142,7 @@ export class VesselLayer {
       if (!record) {
         record = this.createVessel(vessel, nowMs)
         this.vessels.set(vessel.mmsi, record)
-        this.host.requestRender()
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
 
       const reckoned = deadReckon(vessel, nowMs)
@@ -120,21 +158,22 @@ export class VesselLayer {
       record.labelPosition.setValue(position)
       if (!Cartesian3.equalsEpsilon(position, record.lastPosition, 0, 0.5)) {
         Cartesian3.clone(position, record.lastPosition)
-        this.host.requestRender()
+        this.repaintIfOnScreen(cullingVolume, position)
       }
 
       const text = vessel.name || String(vessel.mmsi)
       if (text !== record.labelText && record.labelEntity.label) {
         record.labelText = text
         record.labelEntity.label.text = new ConstantProperty(text)
-        this.host.requestRender()
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
     }
 
-    for (const mmsi of this.vessels.keys()) {
+    for (const [mmsi, record] of this.vessels) {
       if (!alive.has(mmsi)) {
+        // Position first – remove() drops the record.
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
         this.remove(mmsi)
-        this.host.requestRender()
       }
     }
   }
