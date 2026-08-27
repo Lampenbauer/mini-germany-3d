@@ -1,0 +1,16 @@
+/** Type declarations so the vessel fleet can be unit-tested from Vitest. */
+
+import type { Mesh } from './vehicle-mesh.mjs'
+
+export const VESSEL_DIMS: Record<string, { length: number; width: number; height: number }>
+
+export function vesselCargo(): Mesh
+export function vesselTanker(): Mesh
+export function vesselPassenger(): Mesh
+export function vesselTug(): Mesh
+export function vesselFishing(): Mesh
+export function vesselSail(): Mesh
+export function vesselMotor(): Mesh
+export function vesselGeneric(): Mesh
+
+export const VESSELS: Record<string, () => Mesh>

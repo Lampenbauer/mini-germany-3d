@@ -1069,6 +1069,7 @@ export class CesiumMap {
     if (Math.abs(night - this.nightFactor) < 0.01 && night !== 0) return
     this.nightFactor = night
     this.vehicleLayer.applyNightFactor(night)
+    this.vesselLayer.applyNightFactor(night)
   }
 
 

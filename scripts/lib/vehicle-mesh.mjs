@@ -28,6 +28,12 @@ export const MATERIALS = {
   door: { color: [0.62, 0.63, 0.62, 1], metallic: 0.1, roughness: 0.6 },
   /** Articulation bellows between sections. */
   bellows: { color: [0.09, 0.09, 0.095, 1], metallic: 0.0, roughness: 0.95 },
+  /** Muted brick-red cargo hull (weathered anti-fouling paint). */
+  hullRed: { color: [0.34, 0.16, 0.13, 1], metallic: 0.05, roughness: 0.8 },
+  /** Muted marine-blue hull for coasters and fishing boats. */
+  hullBlue: { color: [0.13, 0.19, 0.27, 1], metallic: 0.05, roughness: 0.75 },
+  /** Off-white yacht and superstructure shell (no line tint on vessels). */
+  hullWhite: { color: [0.82, 0.83, 0.81, 1], metallic: 0.05, roughness: 0.45 },
 }
 
 /** One mesh under construction: per-material triangle soups. */

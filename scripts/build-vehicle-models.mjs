@@ -13,13 +13,14 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FLEET } from './lib/vehicle-fleet.mjs'
+import { VESSELS } from './lib/vessel-fleet.mjs'
 import { toGlb, triangleCount } from './lib/vehicle-mesh.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT_DIR = resolve(__dirname, '../public/models')
 
 mkdirSync(OUT_DIR, { recursive: true })
-for (const [name, build] of Object.entries(FLEET)) {
+for (const [name, build] of Object.entries({ ...FLEET, ...VESSELS })) {
   const mesh = build()
   const glb = toGlb(mesh, { name })
   const path = resolve(OUT_DIR, `${name}.glb`)
