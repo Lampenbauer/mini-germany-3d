@@ -1,5 +1,15 @@
 name: CI
 
+# One run per commit, not one per trigger: a branch with an open PR fires
+# both `push` and `pull_request` for every push – same commit, twice the
+# pipeline. Runs of the same branch share a group and the newer run
+# cancels the older (which also stops outdated runs when pushes arrive in
+# quick succession). Scheduled and manual runs get a group of their own:
+# a nightly mid-refresh must never be cancelled by a late-night push.
+concurrency:
+  group: ci-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('solo-{0}', github.run_id) || github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: ['**']
