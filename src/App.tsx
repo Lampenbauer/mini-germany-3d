@@ -79,6 +79,8 @@ export interface MrtTestApi {
     animating: boolean
     rainActive: boolean
     vehicleInView: boolean
+    /** A vessel whose drawn pose is still changing is on screen. */
+    vesselInView: boolean
     interacting: boolean
     tilesLoading: boolean
     intervalMs: number
@@ -568,6 +570,15 @@ export default function App() {
     let rafId = 0
     let lastUiUpdate = 0
     let lastSimTick = 0
+    // A real ship under way on screen paces ticks and rendering like a
+    // tram in view does.
+    let lastMovingVesselInView = false
+    // Pause freezes the whole picture, ships included: the AIS input and
+    // its clock hold at the moment of pausing, so dead reckoning stands
+    // still and later polls cannot move a frozen world. Play unfreezes
+    // into live data (and snaps the sim clock to real time, see
+    // handleTogglePause) – the display ease glides everything over.
+    let aisFrozen: { vessels: AisVessel[]; backdrop: AisVessel[]; atMs: number } | null = null
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -595,7 +606,8 @@ export default function App() {
         if (!document.hidden) {
           // Tick the simulation at ~30 fps max; when paused or with no
           // vehicle in view, 2 fps is plenty.
-          const tickInterval = clock.paused || !lastAnyVehicleInView ? 500 : 33
+          const tickInterval =
+            (clock.paused || !lastAnyVehicleInView) && !lastMovingVesselInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
 
@@ -611,14 +623,28 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
+            if (clock.paused) {
+              // A pause that started before the first poll upgrades once
+              // when data lands – frozen, but not needlessly empty.
+              if (aisFrozen === null || (aisFrozen.vessels.length === 0 && aisVessels.length > 0)) {
+                aisFrozen = { vessels: aisVessels, backdrop: aisBackdrop, atMs: Date.now() }
+              }
+            } else {
+              aisFrozen = null
+            }
+            const aisNow = aisFrozen?.atMs ?? Date.now()
+            const vesselsForTick = aisFrozen?.vessels ?? aisVessels
             // Real ferry positions beat simulated ones (realism first);
             // without a fresh fix the timetable position stands.
-            if (aisVessels.length > 0) {
-              overrideFerryPositions(snapshots, aisVessels, config.ais.ferryLineByMmsi, Date.now())
+            if (vesselsForTick.length > 0) {
+              overrideFerryPositions(snapshots, vesselsForTick, config.ais.ferryLineByMmsi, aisNow)
             }
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
-            if (aisEnabled) map.syncVessels(aisBackdrop, Date.now())
+            const vesselInfo = aisEnabled
+              ? map.syncVessels(aisFrozen?.backdrop ?? aisBackdrop, aisNow)
+              : null
             lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
+            lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
 
             // After syncVehicles, so the selection highlight and the follow
             // camera find the vehicle record (setSelected/setFollow only act
@@ -700,7 +726,10 @@ export default function App() {
             ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
             : null
           // Falling rain is an animation too – even with the sim paused
-          const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+          const animating =
+            (lastAnyVehicleInView && !clock.paused) ||
+            lastMovingVesselInView ||
+            rainActiveRef.current
           const renderInterval = !hints
             ? Number.POSITIVE_INFINITY
             : hints.interacting
@@ -795,11 +824,15 @@ export default function App() {
       },
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-        const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+        const animating =
+          (lastAnyVehicleInView && !clock.paused) ||
+          lastMovingVesselInView ||
+          rainActiveRef.current
         return {
           animating,
           rainActive: rainActiveRef.current,
           vehicleInView: lastAnyVehicleInView,
+          vesselInView: lastMovingVesselInView,
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
@@ -902,10 +935,15 @@ export default function App() {
 
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
-      simRef.current?.clock.setPaused(!prev)
-      pausedRef.current = !prev
+      const next = !prev
+      simRef.current?.clock.setPaused(next)
+      // Play never resumes a past moment: releasing the pause snaps the
+      // clock to the real time, so trams (GTFS) and ships (AIS) carry on
+      // where reality actually is – not where it was when paused.
+      if (!next) simRef.current?.clock.resetToRealTime()
+      pausedRef.current = next
       writeHashRef.current()
-      return !prev
+      return next
     })
   }, [])
 

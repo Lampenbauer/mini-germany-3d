@@ -31,8 +31,17 @@ export interface AisVessel {
   positionAt: number
 }
 
-/** Vessels drop out after this long without any position-carrying message. */
+/** Vessels drop out of the LIST after this long without a position. */
 export const AIS_EXPIRE_MS = 30 * 60_000
+
+/**
+ * How long a vessel's record survives in the STATE beyond its last
+ * position. Static data (name, type, dimensions) arrives only every six
+ * minutes and is expensive to re-learn through short listen windows – a
+ * ferry that leaves for Gedser and returns two hours later must come
+ * back as the 170 m BERLIN, not as a nameless 12 m default hull.
+ */
+export const AIS_STATIC_KEEP_MS = 48 * 3600_000
 
 /** Dead reckoning stops extrapolating beyond this data age. */
 export const AIS_RECKON_CAP_MS = 90_000
@@ -162,17 +171,21 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
 }
 
 /**
- * The state as a serializable vessel list: expired entries dropped,
- * sorted by MMSI so the dev middleware, the PHP twin, and the fixtures
- * all agree on the order byte for byte.
+ * The state as a serializable vessel list: only vessels with a fresh
+ * position are listed, sorted by MMSI so the dev middleware, the PHP
+ * twin, and the fixtures all agree on the order byte for byte. Records
+ * whose position merely went stale stay in the state as memory – their
+ * static data survives until AIS_STATIC_KEEP_MS closes the book.
  */
 export function aisStateVessels(state: AisState, nowMs: number): AisVessel[] {
   const vessels: AisVessel[] = []
   for (const [mmsi, vessel] of state) {
-    if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) {
+    const age = nowMs - vessel.positionAt
+    if (age > AIS_STATIC_KEEP_MS) {
       state.delete(mmsi)
       continue
     }
+    if (age > AIS_EXPIRE_MS) continue
     vessels.push(vessel)
   }
   return vessels.sort((a, b) => a.mmsi - b.mmsi)

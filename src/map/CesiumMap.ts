@@ -828,8 +828,8 @@ export class CesiumMap {
    * themselves – is ghosted instead.
    */
   /** Per-tick update of the AIS harbor traffic (see VesselLayer). */
-  syncVessels(vessels: AisVessel[], nowMs: number): void {
-    this.vesselLayer.sync(vessels, nowMs)
+  syncVessels(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
+    return this.vesselLayer.sync(vessels, nowMs)
   }
 
   getVesselCount(): number {
@@ -1069,6 +1069,7 @@ export class CesiumMap {
     if (Math.abs(night - this.nightFactor) < 0.01 && night !== 0) return
     this.nightFactor = night
     this.vehicleLayer.applyNightFactor(night)
+    this.vesselLayer.applyNightFactor(night)
   }
 
 
