@@ -5,8 +5,9 @@ import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
+import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
 
 const UPSTREAM_RT_URL = 'https://realtime.gtfs.de/realtime-free.pb'
 const RT_CACHE_TTL_MS = 60_000
@@ -98,8 +99,79 @@ function gtfsRealtimeFilterPlugin(): Plugin {
   }
 }
 
+/**
+ * Dev/preview middleware for /api/ais: holds ONE aisstream.io WebSocket
+ * open (started lazily on the first request, reconnecting on drops) and
+ * serves the merged vessel state as JSON. In production api/ais.php does
+ * the same job with short listen windows instead of a permanent socket –
+ * shared hosting cannot keep one. Extraction logic is shared via
+ * src/lib/ais-extract.ts and pinned by tests/ais-parity.test.ts.
+ *
+ * Needs AISSTREAM_KEY (env or .env, not VITE_-prefixed – the key must
+ * never reach the client bundle). Without it the endpoint answers 503 and
+ * the app runs without the vessel layer, like offline mode does.
+ */
+function aisLivePlugin(): Plugin {
+  const state: AisState = new Map()
+  let apiKey = process.env.AISSTREAM_KEY ?? ''
+  let started = false
+
+  const connect = (): void => {
+    const ws = new WebSocket('wss://stream.aisstream.io/v0/stream')
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({ APIKey: apiKey, BoundingBoxes: [[[53.83, 11.64], [54.43, 12.61]]] }),
+      )
+    }
+    ws.onmessage = async (event) => {
+      const text = typeof event.data === 'string' ? event.data : await (event.data as Blob).text()
+      try {
+        mergeAisMessage(state, JSON.parse(text), Date.now())
+      } catch {
+        // one malformed message must not kill the stream
+      }
+    }
+    // Covers errors too – an errored socket closes right after.
+    ws.onclose = () => setTimeout(connect, 10_000)
+  }
+
+  const handle = (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
+    if (!req.url || !req.url.startsWith('/api/ais')) {
+      next()
+      return
+    }
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Cache-Control', 'no-store')
+    if (!apiKey) {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'AISSTREAM_KEY is not set - vessel layer disabled' }))
+      return
+    }
+    if (!started) {
+      started = true
+      connect()
+    }
+    res.end(JSON.stringify({ timestamp: Date.now(), vessels: aisStateVessels(state, Date.now()) }))
+  }
+
+  return {
+    name: 'ais-live',
+    configResolved(config) {
+      // .env values (unprefixed ones included) are not in process.env –
+      // loadEnv picks them up without exposing them to the client.
+      apiKey ||= loadEnv(config.mode, config.root, '').AISSTREAM_KEY ?? ''
+    },
+    configureServer(server) {
+      server.middlewares.use(handle)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), gtfsRealtimeFilterPlugin()],
+  plugins: [react(), tailwindcss(), gtfsRealtimeFilterPlugin(), aisLivePlugin()],
   define: {
     CESIUM_BASE_URL: JSON.stringify('/cesium'),
     __BUILD_ID__: JSON.stringify(new Date().toISOString()),

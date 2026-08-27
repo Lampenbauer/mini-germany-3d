@@ -19,6 +19,9 @@ e2e/.cache/
 # Data pipeline downloads
 scripts/.cache/
 
+# aisstream.io API key for local ais.php tests (see server/api/ais.php)
+server/api/ais-key.txt
+
 # Editor/OS
 .vscode/*
 !.vscode/extensions.json

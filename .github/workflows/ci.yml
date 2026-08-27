@@ -127,9 +127,11 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: PHP parser parity test (api/realtime.php)
+      - name: PHP twin parity tests (api/realtime.php, api/ais.php)
         if: success() && steps.datacheck.outputs.changed == 'true'
-        run: node scripts/test-php-parser.mjs
+        run: |
+          node scripts/test-php-parser.mjs
+          node scripts/test-ais-parity.mjs
 
       - name: Production build
         if: success() && steps.datacheck.outputs.changed == 'true'
@@ -203,6 +205,7 @@ jobs:
         run: |
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
+          cp server/api/ais.php dist/api/
           cp src/data/schedule.json dist/api/schedule.json
 
       - name: Upload deployment artifact

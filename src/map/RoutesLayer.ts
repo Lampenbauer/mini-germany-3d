@@ -65,7 +65,7 @@ const ROUTE_LIFT_SLOTS = 8
  * but the Google mesh's water surface undulates up to ~1 m around the
  * geoid, which the land-calibrated height offset cannot capture.
  */
-const FERRY_ROUTE_EXTRA_LIFT = 1.25
+export const FERRY_ROUTE_EXTRA_LIFT = 1.25
 
 /**
  * Attention pulse on a line's route after "zoom to line": the opacity

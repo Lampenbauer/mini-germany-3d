@@ -39,12 +39,15 @@ import {
   type CameraLimits,
 } from './camera-limits'
 import {
+  FERRY_ROUTE_EXTRA_LIFT,
   ROUTE_HEIGHT_OFFSET_FALLBACK,
   ROUTE_PULSE_DURATION_MS,
   RoutesLayer,
 } from './RoutesLayer'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
+import { VesselLayer } from './VesselLayer'
+import type { AisVessel } from '@/lib/ais-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -243,6 +246,8 @@ export class CesiumMap {
   private readonly weather: WeatherOverlay
   /** Discs, name plates, declutter and stop heights (see StopsLayer). */
   private readonly stops: StopsLayer
+  /** AIS harbor traffic (see VesselLayer). */
+  private vesselLayer: VesselLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -385,6 +390,14 @@ export class CesiumMap {
       },
       get pixelRatio() {
         return map.effectivePixelRatio
+      },
+    })
+    this.vesselLayer = new VesselLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      // Water level like the ferry routes: NHN 0 plus the calibrated
+      // offset plus the same lift that clears the tiles' wavy water mesh.
+      get waterSurfaceHeight() {
+        return map.routes.heightOffset + FERRY_ROUTE_EXTRA_LIFT
       },
     })
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
@@ -814,11 +827,22 @@ export class CesiumMap {
    * solid, while the surface – routes, vehicles and the photo tiles
    * themselves – is ghosted instead.
    */
+  /** Per-tick update of the AIS harbor traffic (see VesselLayer). */
+  syncVessels(vessels: AisVessel[], nowMs: number): void {
+    this.vesselLayer.sync(vessels, nowMs)
+  }
+
+  getVesselCount(): number {
+    return this.vesselLayer.vesselCount
+  }
+
   setUnderground(underground: boolean): void {
     if (underground === this.underground) return
     this.underground = underground
     this.routes.setUnderground(underground)
     this.vehicleLayer.setUnderground(underground)
+    // The AIS fleet is surface scenery – it leaves with the sky.
+    this.vesselLayer.setVisible(!underground)
     this.stops.setUnderground(underground)
     this.streetLamps.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
