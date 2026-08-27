@@ -42,6 +42,8 @@ jobs:
       # Commit the deploy job must match against the live main branch –
       # for nightly runs this is the freshly pushed data commit.
       deploy_sha: ${{ steps.datacommit.outputs.sha || github.sha }}
+      # "false" only on a nightly run that found nothing new (see datacheck).
+      data_changed: ${{ steps.datacheck.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
 
@@ -93,15 +95,44 @@ jobs:
           fi
           npm run data:gtfs
 
+      # A nightly run exists to ship fresh data, so ask right here whether
+      # there is any – on a quiet night everything below is skipped and the
+      # run ends in about a minute instead of ten to sixteen. This is only
+      # meaningful because the data scripts write byte-stable output for
+      # unchanged input (no generation date in the files, guarded by
+      # tests/schedule-data.test.ts).
+      #
+      # Pushes and manual runs always continue: they test the code, and a
+      # manual run is the way to force the full pipeline on a quiet day.
+      - name: Anything new to test? (nightly)
+        id: datacheck
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != "schedule" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet -- src/data/network.json src/data/schedule.json src/data/street-lamps.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Feed unchanged – skipping tests, build and deploy."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Every step below runs only on something new (see datacheck). They
+      # need the explicit success(): an `if:` of one's own replaces the
+      # implicit one, and a step without it runs even after a failure.
       - name: Typecheck & unit tests (Vitest)
+        if: success() && steps.datacheck.outputs.changed == 'true'
         run: |
           npm run typecheck
           npm test
 
       - name: PHP parser parity test (api/realtime.php)
+        if: success() && steps.datacheck.outputs.changed == 'true'
         run: node scripts/test-php-parser.mjs
 
       - name: Production build
+        if: success() && steps.datacheck.outputs.changed == 'true'
         env:
           # Same condition the deploy job below runs under: only a build
           # that actually goes to the webspace gets the domain-restricted
@@ -125,9 +156,11 @@ jobs:
           npm run build
 
       - name: Install Playwright Chromium
+        if: success() && steps.datacheck.outputs.changed == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: E2E tests (Playwright, offline mode)
+        if: success() && steps.datacheck.outputs.changed == 'true'
         run: npm run test:e2e
 
       - name: Upload Playwright report (on failure)
@@ -143,15 +176,11 @@ jobs:
       # Only after all tests passed: persist the refreshed data on main.
       # Pushes via GITHUB_TOKEN do not trigger a new CI run – deploy
       # happens in this same workflow run below.
-      #
-      # This only skips work if the data scripts write byte-stable output
-      # for unchanged input – so none of the generated files carries a
-      # generation date (guarded by tests/schedule-data.test.ts). Most
-      # nights the upstream timetable is unchanged and nothing is
-      # committed, pushed or deployed.
       - name: Commit refreshed data (nightly or on request)
         id: datacommit
-        if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm)
         run: |
           git add src/data/network.json src/data/schedule.json src/data/street-lamps.json
           if git diff --cached --quiet; then
@@ -167,7 +196,8 @@ jobs:
 
       - name: Prepare deployment artifact
         if: >-
-          success() && github.ref == 'refs/heads/main' &&
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
            github.event_name == 'schedule')
         run: |
@@ -177,7 +207,8 @@ jobs:
 
       - name: Upload deployment artifact
         if: >-
-          success() && github.ref == 'refs/heads/main' &&
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
            github.event_name == 'schedule')
         uses: actions/upload-artifact@v7
@@ -193,6 +224,7 @@ jobs:
     needs: test
     if: >-
       needs.test.result == 'success' &&
+      needs.test.outputs.data_changed == 'true' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
        github.event_name == 'schedule')
