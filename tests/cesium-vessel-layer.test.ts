@@ -147,6 +147,23 @@ describe('VesselLayer', () => {
     expect(onScreen.requestRender).toHaveBeenCalled()
   })
 
+  it('glides onto a corrected fix instead of teleporting', () => {
+    const h = harness()
+    h.layer.sync([vessel()], NOW)
+    // A fresh fix 200 m east – after one 33 ms tick the drawn ship has
+    // moved only a small first step of the ease, not the full jump …
+    const corrected = vessel({ lon: 12.109, positionAt: NOW + 33 })
+    h.layer.sync([corrected], NOW + 33)
+    const early = positionOf(h.record(211222290)!.matrix)
+    const earlyLon = (early.longitude * 180) / Math.PI
+    expect(earlyLon).toBeGreaterThan(12.106)
+    expect(earlyLon).toBeLessThan(12.1065)
+    // … and converges once the ease has run its course.
+    for (let t = 66; t <= 3000; t += 33) h.layer.sync([corrected], NOW + t)
+    const settled = positionOf(h.record(211222290)!.matrix)
+    expect((settled.longitude * 180) / Math.PI).toBeCloseTo(12.109, 5)
+  })
+
   it('hides and reveals the fleet with the underground view', () => {
     const h = harness()
     h.layer.sync([vessel()], NOW)

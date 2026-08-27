@@ -151,7 +151,8 @@ function aisLivePlugin(): Plugin {
       started = true
       connect()
     }
-    res.end(JSON.stringify({ timestamp: Date.now(), vessels: aisStateVessels(state, Date.now()) }))
+    const now = Date.now()
+    res.end(JSON.stringify({ timestamp: now, servedAt: now, vessels: aisStateVessels(state, now) }))
   }
 
   return {

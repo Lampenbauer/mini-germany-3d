@@ -50,6 +50,14 @@ const NAME_VISIBLE_RANGE = 6_000
  * way: movement only costs GPU while it is inside the view).
  */
 const VESSEL_RENDER_RANGE = 20_000
+/**
+ * Time constant of the display smoothing in ms: the drawn position eases
+ * toward the dead-reckoned target instead of snapping. Between ticks that
+ * yields fluid motion; when a fresh fix corrects the extrapolation by
+ * meters (or, after a data gap, by hundreds of meters), the ship glides
+ * over in about a second instead of teleporting.
+ */
+const SMOOTH_TAU_MS = 400
 /** Fallback dimensions for the many small craft without static data. */
 const DEFAULT_LENGTH = 12
 const DEFAULT_WIDTH = 4
@@ -77,7 +85,12 @@ interface VesselRecord {
   builtWidth: number
   builtHeight: number
   labelText: string
+  /** Smoothed pose actually drawn (eases toward the reckoned target). */
+  displayPosition: Cartesian3
+  displayBearing: number
+  /** Pose as of the last repaint request – the change detector. */
   lastPosition: Cartesian3
+  lastBearing: number
 }
 
 const positionScratch = new Cartesian3()
@@ -87,6 +100,7 @@ export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
   private visible = true
   private frustumSphere = new BoundingSphere()
+  private lastSyncMs = 0
 
   constructor(
     private readonly viewer: Viewer,
@@ -124,6 +138,11 @@ export class VesselLayer {
       camera.directionWC,
       camera.upWC,
     )
+    // Smoothing step for this tick; a long pause (tab hidden) snaps.
+    const dtMs = this.lastSyncMs > 0 ? Math.max(0, nowMs - this.lastSyncMs) : 0
+    this.lastSyncMs = nowMs
+    const alpha = dtMs > 0 && dtMs < 2000 ? 1 - Math.exp(-dtMs / SMOOTH_TAU_MS) : 1
+
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -146,19 +165,42 @@ export class VesselLayer {
       }
 
       const reckoned = deadReckon(vessel, nowMs)
-      const position = Cartesian3.fromDegrees(
+      const target = Cartesian3.fromDegrees(
         reckoned.lon,
         reckoned.lat,
         this.host.waterSurfaceHeight + record.builtHeight / 2,
         undefined,
         positionScratch,
       )
-      hprScratch.heading = CesiumMath.toRadians(reckoned.bearingDeg - 90)
-      Transforms.headingPitchRollToFixedFrame(position, hprScratch, undefined, undefined, record.matrix)
-      record.labelPosition.setValue(position)
-      if (!Cartesian3.equalsEpsilon(position, record.lastPosition, 0, 0.5)) {
-        Cartesian3.clone(position, record.lastPosition)
-        this.repaintIfOnScreen(cullingVolume, position)
+      Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
+      if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {
+        Cartesian3.clone(target, record.displayPosition)
+      }
+      // Shortest-path ease of the bearing – cog jitter must not wag the bow
+      const bearingGap = ((reckoned.bearingDeg - record.displayBearing + 540) % 360) - 180
+      record.displayBearing =
+        Math.abs(bearingGap) < 0.05
+          ? reckoned.bearingDeg
+          : (record.displayBearing + bearingGap * alpha + 360) % 360
+
+      hprScratch.heading = CesiumMath.toRadians(record.displayBearing - 90)
+      Transforms.headingPitchRollToFixedFrame(
+        record.displayPosition,
+        hprScratch,
+        undefined,
+        undefined,
+        record.matrix,
+      )
+      record.labelPosition.setValue(record.displayPosition)
+      // Repaint per tick while the drawn pose still changes – that is what
+      // makes a ship under way glide at the render loop's own rate.
+      if (
+        !Cartesian3.equalsEpsilon(record.displayPosition, record.lastPosition, 0, 0.02) ||
+        Math.abs(record.displayBearing - record.lastBearing) > 0.05
+      ) {
+        Cartesian3.clone(record.displayPosition, record.lastPosition)
+        record.lastBearing = record.displayBearing
+        this.repaintIfOnScreen(cullingVolume, record.displayPosition)
       }
 
       const text = vessel.name || String(vessel.mmsi)
@@ -254,7 +296,10 @@ export class VesselLayer {
       builtWidth: width,
       builtHeight: style.height,
       labelText,
+      displayPosition: Cartesian3.clone(position),
+      displayBearing: reckoned.bearingDeg,
       lastPosition: Cartesian3.clone(position),
+      lastBearing: reckoned.bearingDeg,
     }
   }
 

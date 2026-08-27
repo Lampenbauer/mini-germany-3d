@@ -19,6 +19,10 @@
  * keeps concurrent listeners to one – which also respects aisstream's
  * 3-connections-per-account limit.
  *
+ * A keeper cron may call this endpoint with ?listen=45 (capped): longer
+ * windows shrink the blind gaps between them, which is what keeps fast
+ * movers like the Gedser ferry from freezing and jumping.
+ *
  * API key (never in the repo): first hit of
  *   - environment variable AISSTREAM_KEY
  *   - ais-key.txt next to this script (local tests)
@@ -45,8 +49,13 @@ const MRT_AIS_PATH = '/v0/stream';
 const MRT_AIS_BBOX = [[53.83, 11.64], [54.43, 12.61]];
 /** State age at which a request triggers the next listen window. */
 const MRT_AIS_TTL_SECONDS = 40;
-/** Length of one listen window (well below max_execution_time=60). */
+/** Default listen window; ?listen= raises it up to the cap below. */
 const MRT_AIS_LISTEN_SECONDS = 12;
+/** Hard cap for ?listen= (max_execution_time=60 needs headroom). */
+const MRT_AIS_LISTEN_MAX_SECONDS = 45;
+/** During a window the state is flushed this often – polls arriving
+ *  mid-window pick up near-live fixes instead of waiting for its end. */
+const MRT_AIS_FLUSH_SECONDS = 8;
 /** Vessels drop out after this long without a position (mirror of ais-extract.ts). */
 const MRT_AIS_EXPIRE_MS = 30 * 60_000;
 
@@ -214,7 +223,7 @@ function mrt_ws_parse(string &$buffer): ?array
  * One listen window: connect, subscribe, merge everything heard into
  * $state. Failures are silent by design – the previous state stays.
  */
-function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds): bool
+function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds, ?callable $onFlush = null): bool
 {
     $context = stream_context_create(['ssl' => ['peer_name' => MRT_AIS_HOST]]);
     $fp = @stream_socket_client(
@@ -254,6 +263,7 @@ function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds): bool
     $heard = false;
     stream_set_timeout($fp, 1);
     $deadline = microtime(true) + $listenSeconds;
+    $nextFlush = microtime(true) + MRT_AIS_FLUSH_SECONDS;
     while (microtime(true) < $deadline) {
         $closed = false;
         while (($frame = mrt_ws_parse($buffer)) !== null) {
@@ -281,6 +291,10 @@ function mrt_ais_listen(array &$state, string $apiKey, int $listenSeconds): bool
             if ($closed) break;
         }
         if ($closed) break;
+        if ($onFlush !== null && $heard && microtime(true) >= $nextFlush) {
+            $onFlush($state);
+            $nextFlush = microtime(true) + MRT_AIS_FLUSH_SECONDS;
+        }
         $chunk = fread($fp, 8192);
         if ($chunk !== false && $chunk !== '') {
             $buffer .= $chunk;
@@ -314,26 +328,40 @@ function mrt_ais_key(): string
     return '';
 }
 
-/** @return array{timestamp:int, state:array<int,array>} */
+/** @return array{listenedAt:int, state:array<int,array>} */
 function mrt_ais_load(string $stateFile): array
 {
     $raw = @file_get_contents($stateFile);
     $data = is_string($raw) ? json_decode($raw, true) : null;
-    if (!is_array($data) || !isset($data['timestamp'], $data['state']) || !is_array($data['state'])) {
-        return ['timestamp' => 0, 'state' => []];
+    if (!is_array($data) || !is_array($data['state'] ?? null)) {
+        return ['listenedAt' => 0, 'state' => []];
     }
     // JSON object keys arrive as strings – vessels are keyed by int MMSI.
     $state = [];
     foreach ($data['state'] as $mmsi => $vessel) {
         $state[(int) $mmsi] = $vessel;
     }
-    return ['timestamp' => (int) $data['timestamp'], 'state' => $state];
+    return ['listenedAt' => (int) ($data['listenedAt'] ?? 0), 'state' => $state];
 }
 
-function mrt_ais_respond(array $state, int $timestamp): void
+function mrt_ais_save(string $stateFile, array $state, int $listenedAt): void
+{
+    $tmp = $stateFile . '.' . getmypid() . '.tmp';
+    file_put_contents($tmp, json_encode(['listenedAt' => $listenedAt, 'state' => $state]));
+    rename($tmp, $stateFile);
+}
+
+function mrt_ais_respond(array $state, int $listenedAt): void
 {
     $nowMs = mrt_now_ms();
-    echo json_encode(['timestamp' => $timestamp, 'vessels' => mrt_ais_vessels($state, $nowMs)]);
+    // servedAt is the clock-skew anchor: positionAt stamps only compare
+    // to the client's clock through the moment THIS response left, not
+    // through the (possibly much older) moment the state was written.
+    echo json_encode([
+        'timestamp' => $listenedAt,
+        'servedAt' => $nowMs,
+        'vessels' => mrt_ais_vessels($state, $nowMs),
+    ]);
 }
 
 // --- CLI self-test ---------------------------------------------------------
@@ -368,9 +396,12 @@ $stateFile = sys_get_temp_dir() . '/mrt-ais-state.json';
 $lockFile = sys_get_temp_dir() . '/mrt-ais-state.lock';
 
 $data = mrt_ais_load($stateFile);
-$ageSeconds = (mrt_now_ms() - $data['timestamp']) / 1000;
+// Freshness keys on when the last window STARTED: a long window must not
+// push the next one further out – the blind gap between windows is what
+// a moving ship's jump grows with.
+$ageSeconds = (mrt_now_ms() - $data['listenedAt']) / 1000;
 if ($ageSeconds <= MRT_AIS_TTL_SECONDS) {
-    mrt_ais_respond($data['state'], $data['timestamp']);
+    mrt_ais_respond($data['state'], $data['listenedAt']);
     exit;
 }
 
@@ -378,26 +409,37 @@ $lock = fopen($lockFile, 'c');
 $haveLock = $lock !== false && flock($lock, LOCK_EX | LOCK_NB);
 if (!$haveLock) {
     // Another request is already listening – stale is better than waiting.
-    mrt_ais_respond($data['state'], $data['timestamp']);
+    mrt_ais_respond($data['state'], $data['listenedAt']);
     if ($lock !== false) fclose($lock);
     exit;
 }
 
 // Serve the stale answer first, then listen with the response already gone.
-mrt_ais_respond($data['state'], $data['timestamp']);
+mrt_ais_respond($data['state'], $data['listenedAt']);
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
     flush();
 }
 
-set_time_limit(MRT_AIS_LISTEN_SECONDS + 30);
+// The cron may ask for a longer window (?listen=45): higher listening
+// duty cycle, smaller blind gaps, smoother ships – same single lock.
+$listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
+set_time_limit($listenSeconds + 30);
+$windowStart = mrt_now_ms();
 $state = $data['state'];
-mrt_ais_listen($state, $apiKey, MRT_AIS_LISTEN_SECONDS);
-$nowMs = mrt_now_ms();
-mrt_ais_vessels($state, $nowMs); // expiry prunes in place
-$tmp = $stateFile . '.' . getmypid() . '.tmp';
-file_put_contents($tmp, json_encode(['timestamp' => $nowMs, 'state' => $state]));
-rename($tmp, $stateFile);
+$flush = function (array $flushState) use ($stateFile, $windowStart): void {
+    mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy
+    mrt_ais_save($stateFile, $flushState, $windowStart);
+};
+$heard = mrt_ais_listen($state, $apiKey, $listenSeconds, $flush);
+if ($heard) {
+    // A window that never even reached the stream keeps the old
+    // listenedAt – the next request retries right away instead of
+    // trusting a freshness the failed window did not earn.
+    $nowMs = mrt_now_ms();
+    mrt_ais_vessels($state, $nowMs); // expiry prunes in place
+    mrt_ais_save($stateFile, $state, $windowStart);
+}
 flock($lock, LOCK_UN);
 fclose($lock);

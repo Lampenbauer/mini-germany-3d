@@ -19,6 +19,8 @@ export type AisUpdateHandler = (status: AisStatus, vessels: AisVessel[]) => void
 
 interface AisApiResponse {
   timestamp: number
+  /** Server clock at the moment the response left (skew anchor). */
+  servedAt?: number
   vessels: AisVessel[]
 }
 
@@ -68,8 +70,12 @@ export class AisClient {
       }
       // The position stamps come from the server clock – shift them into
       // this browser's timeline so dead reckoning and expiry read them
-      // correctly even against a skewed client clock.
-      const skewMs = typeof data.timestamp === 'number' ? Date.now() - data.timestamp : 0
+      // correctly even against a skewed client clock. The anchor is the
+      // moment the response left the server, NOT the state's write time:
+      // a cached answer is old, and anchoring on its age would make every
+      // fix look that much fresher than it is.
+      const anchor = data.servedAt ?? data.timestamp
+      const skewMs = typeof anchor === 'number' ? Date.now() - anchor : 0
       for (const vessel of data.vessels) vessel.positionAt += skewMs
       this.vessels = data.vessels
       this.status = {
