@@ -49,6 +49,30 @@ export const config = {
   },
 
   /**
+   * AIS vessel positions (aisstream.io, via the filtered /api/ais
+   * endpoint – Vite middleware in dev, api/ais.php in production). Real
+   * harbor traffic as backdrop, and the city ferries snap onto their AIS
+   * twins. An empty URL disables the layer; offline mode and ?ais=0 do
+   * too.
+   */
+  ais: {
+    url: (import.meta.env?.VITE_AIS_URL as string | undefined) ?? '/api/ais',
+    /** Poll interval in ms (the server refreshes its state every ~40 s). */
+    pollIntervalMs: 30_000,
+    /**
+     * Which real vessel serves which simulated ferry line (MMSI → line
+     * id): the Gehlsdorf solar ferry and the two boats sharing the
+     * Warnemünde–Hohe Düne crossing. Identified from live AIS 2026-08-27;
+     * a replacement vessel would need its MMSI added here.
+     */
+    ferryLineByMmsi: {
+      211825200: 'FG', // WARNOWSTROMER
+      211624750: 'FW', // BREITLING
+      211624870: 'FW', // MF WARNOW
+    } as Record<number, string>,
+  },
+
+  /**
    * Initial camera position (also the "Reset camera" home view). A URL hash
    * (#lat=…&lon=…) still takes precedence when present.
    */

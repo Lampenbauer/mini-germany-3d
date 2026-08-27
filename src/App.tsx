@@ -27,6 +27,8 @@ import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
+import { AisClient, overrideFerryPositions } from '@/lib/ais'
+import type { AisVessel } from '@/lib/ais-extract'
 import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
@@ -49,6 +51,8 @@ export interface MrtTestApi {
   /** Raindrops currently drawn (0 = dry or below ground). */
   rainDropsVisible: () => number
   selectVehicle: (id: string | null) => void
+  /** AIS backdrop vessels currently drawn (0 = layer off or no data yet). */
+  aisVesselCount: () => number
   selectStop: (id: string | null) => void
   selectedStopId: () => string | null
   /** Trip id of the current selection, null when nothing is selected. */
@@ -118,6 +122,8 @@ interface UrlOptions {
   realtime: boolean | null
   /** Live-weather rain overlay (?rain=0 disables it). */
   rain: boolean
+  /** false only with ?ais=0 – live AIS vessels are on by default. */
+  ais: boolean
   /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
   lamps: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
@@ -170,6 +176,7 @@ function readUrlOptions(): UrlOptions {
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
     rain: params.get('rain') !== '0',
+    ais: params.get('ais') !== '0',
     lamps: params.get('lamps') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
@@ -351,6 +358,24 @@ export default function App() {
       // Delay data changes slowly; polling every 2 minutes keeps the load
       // on the shared endpoint low (the server caches upstream for 60 s).
       realtimeClient.start(120_000)
+    }
+
+    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as
+    // backdrop, and the ferries snap onto their AIS twins. Off in offline
+    // mode and tests, ?ais=0 opts out.
+    const aisEnabled =
+      config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais
+    let aisClient: AisClient | null = null
+    let aisVessels: AisVessel[] = []
+    let aisBackdrop: AisVessel[] = []
+    if (aisEnabled) {
+      aisClient = new AisClient(config.ais.url, (_status, vessels) => {
+        aisVessels = vessels
+        // The mapped ferries sail as simulated vehicles – drawing them in
+        // the backdrop too would put two boats on one crossing.
+        aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
+      })
+      aisClient.start(config.ais.pollIntervalMs)
     }
 
     const allLines = new Set(network.lines.map((l) => l.id))
@@ -586,7 +611,13 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
+            // Real ferry positions beat simulated ones (realism first);
+            // without a fresh fix the timetable position stands.
+            if (aisVessels.length > 0) {
+              overrideFerryPositions(snapshots, aisVessels, config.ais.ferryLineByMmsi, Date.now())
+            }
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
+            if (aisEnabled) map.syncVessels(aisBackdrop, Date.now())
             lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
 
             // After syncVehicles, so the selection highlight and the follow
@@ -728,6 +759,7 @@ export default function App() {
         pausedRef.current = p
         setPaused(p)
       },
+      aisVesselCount: () => map.getVesselCount(),
       setRealtimeDelays: (delays: Record<string, number>) => {
         sim.setRealtimeDelays(new Map(Object.entries(delays)))
       },
@@ -802,6 +834,7 @@ export default function App() {
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
+      aisClient?.stop()
       weatherClient?.stop()
       window.__mrt = undefined
       map.destroy()
