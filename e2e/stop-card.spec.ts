@@ -110,3 +110,61 @@ test('a shared stop link restores the card and flies to the stop', async ({ page
     .poll(() => page.evaluate(() => window.__mrt!.selectedStopId()))
     .toBe(stopId)
 })
+
+test('a departure click follows its vehicle', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.waitForFunction(
+    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+    undefined,
+    { timeout: 120_000 },
+  )
+
+  // A stop whose board lists a departure that is already on the map –
+  // only those are clickable links to their vehicle.
+  const card = page.getByTestId('stop-card')
+  const link = card.getByTitle('Fly to this vehicle').first()
+  let found = false
+  for (const id of (await stopIds(page)).slice(0, 25)) {
+    await page.evaluate((sid) => window.__mrt!.selectStop(sid), id)
+    await expect(card).toBeVisible()
+    if ((await link.count()) > 0) {
+      found = true
+      break
+    }
+  }
+  expect(found, 'no stop with a departure already on the map').toBe(true)
+  // The mode icon marks it as clickable without hovering
+  await expect(link.getByTestId('departure-on-map')).toBeVisible()
+
+  // force: Playwright's actionability retry can land on the canvas under
+  // SwiftShader load and thereby close the selection (click on empty map).
+  await link.click({ force: true })
+
+  // The board is replaced by the vehicle card – one selection at a time –
+  // and the camera rides along right away.
+  await expect(page.getByTestId('vehicle-card')).toBeVisible()
+  await expect(card).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop following' })).toBeVisible()
+  const tripId = await page.evaluate(() => window.__mrt!.selectedVehicleId())
+  expect(tripId).toBeTruthy()
+
+  // The camera closes in on the vehicle (paused, so it stays put).
+  await expect
+    .poll(
+      () =>
+        page.evaluate((vehicleId) => {
+          const c = window.__cesiumViewer!.camera.positionCartographic
+          const v = window.__mrt!.vehicles().find(({ id }) => id === vehicleId)
+          if (!v) return Number.POSITIVE_INFINITY
+          const camLat = (c.latitude * 180) / Math.PI
+          const camLon = (c.longitude * 180) / Math.PI
+          const dLat = (camLat - v.lat) * 110540
+          const dLon = (camLon - v.lon) * 111320 * Math.cos((v.lat * Math.PI) / 180)
+          return Math.hypot(dLat, dLon)
+        }, tripId),
+      { timeout: 45_000, intervals: [500, 1000] },
+    )
+    .toBeLessThan(1500)
+})

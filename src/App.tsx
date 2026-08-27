@@ -884,6 +884,21 @@ export default function App() {
     map.setCameraOrientation({ headingDeg: 0 })
   }, [])
 
+  /**
+   * A departure clicked in the stop card: select its vehicle and ride
+   * along. The tram is somewhere off screen – following both flies the
+   * camera there and keeps it there while the trip runs.
+   */
+  const handleSelectDeparture = useCallback(
+    (tripId: string) => {
+      selectVehicle(tripId)
+      followingRef.current = true
+      setFollowing(true)
+      mapRef.current?.setFollow(tripId)
+    },
+    [selectVehicle],
+  )
+
   /** Fly the camera to a stop of the selected vehicle's trip. */
   const handleFlyToStop = useCallback((stop: { lon: number; lat: number; nhn?: number }) => {
     const map = mapRef.current
@@ -1006,7 +1021,7 @@ export default function App() {
             departures={stopDepartures}
             simSeconds={simSeconds}
             interchange={interchangeByStop.get(selectedStop.id) ?? []}
-            onSelectVehicle={selectVehicle}
+            onSelectVehicle={handleSelectDeparture}
             onFlyTo={handleFlyToStop}
             onClose={() => selectStop(null)}
           />
