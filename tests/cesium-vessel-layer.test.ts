@@ -147,6 +147,27 @@ describe('VesselLayer', () => {
     expect(onScreen.requestRender).toHaveBeenCalled()
   })
 
+  it('reports a ship under way on screen for the tick pacing – steadily', () => {
+    const h = harness()
+    const underWay = () => vessel({ sogKn: 4, cogDeg: 180, positionAt: NOW })
+    expect(h.layer.sync([underWay()], NOW).anyMovingVesselInView).toBe(true)
+    // Stable across consecutive 33 ms ticks even though the pose ease
+    // advances less than the repaint epsilon per tick – a flickering
+    // signal would oscillate the app between its 33 and 500 ms ticks.
+    expect(h.layer.sync([underWay()], NOW + 33).anyMovingVesselInView).toBe(true)
+    expect(h.layer.sync([underWay()], NOW + 66).anyMovingVesselInView).toBe(true)
+
+    // Moored: converges, then reports quiet
+    const moored = harness()
+    const anchored = () => vessel({ sogKn: 0, cogDeg: null })
+    moored.layer.sync([anchored()], NOW)
+    expect(moored.layer.sync([anchored()], NOW + 33).anyMovingVesselInView).toBe(false)
+
+    // Under way but off screen: quiet too
+    const offScreen = harness({ frustum: Intersect.OUTSIDE })
+    expect(offScreen.layer.sync([underWay()], NOW).anyMovingVesselInView).toBe(false)
+  })
+
   it('glides onto a corrected fix instead of teleporting', () => {
     const h = harness()
     h.layer.sync([vessel()], NOW)

@@ -33,7 +33,7 @@ import {
   type Entity,
   type Viewer,
 } from 'cesium'
-import { AIS_EXPIRE_MS, deadReckon, type AisVessel } from '@/lib/ais-extract'
+import { AIS_EXPIRE_MS, AIS_RECKON_CAP_MS, deadReckon, type AisVessel } from '@/lib/ais-extract'
 
 export interface VesselLayerHost {
   requestRender(): void
@@ -42,7 +42,7 @@ export interface VesselLayerHost {
 }
 
 /** Ship names fade in below this camera distance (meters). */
-const NAME_VISIBLE_RANGE = 6_000
+const NAME_VISIBLE_RANGE = 15_000
 /**
  * Beyond this camera distance a moving vessel does not request repaints –
  * at 20 km a hull is sub-pixel, and the app's event-driven rendering must
@@ -108,28 +108,38 @@ export class VesselLayer {
   ) {}
 
   /**
-   * Requests a repaint only when `position` is on screen and close enough
-   * to matter. Everything the layer changes – movement, arrivals,
-   * departures, late names and dimensions – is folded into whichever
-   * frame renders next anyway; a repaint of its own is only owed while
-   * someone can see the change. Off screen the layer stays silent, and
-   * the app's event-driven rendering stays idle (the trams' rule).
+   * Whether `position` sits inside the view and close enough to matter.
+   * Everything the layer changes – movement, arrivals, departures, late
+   * names and dimensions – is folded into whichever frame renders next
+   * anyway; a repaint of its own is only owed while someone can see the
+   * change. Off screen the layer stays silent, and the app's
+   * event-driven rendering stays idle (the trams' rule).
    */
+  private isOnScreen(
+    cullingVolume: { computeVisibility(sphere: BoundingSphere): number },
+    position: Cartesian3,
+  ): boolean {
+    if (!this.visible) return false
+    if (Cartesian3.distance(this.viewer.camera.positionWC, position) >= VESSEL_RENDER_RANGE) return false
+    Cartesian3.clone(position, this.frustumSphere.center)
+    this.frustumSphere.radius = 80
+    return cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
+  }
+
   private repaintIfOnScreen(
     cullingVolume: { computeVisibility(sphere: BoundingSphere): number },
     position: Cartesian3,
   ): void {
-    if (!this.visible) return
-    if (Cartesian3.distance(this.viewer.camera.positionWC, position) >= VESSEL_RENDER_RANGE) return
-    Cartesian3.clone(position, this.frustumSphere.center)
-    this.frustumSphere.radius = 80
-    if (cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE) {
-      this.host.requestRender()
-    }
+    if (this.isOnScreen(cullingVolume, position)) this.host.requestRender()
   }
 
-  /** Per-tick update: dead-reckoned positions, arrivals, departures. */
-  sync(vessels: AisVessel[], nowMs: number): void {
+  /**
+   * Per-tick update: dead-reckoned positions, arrivals, departures.
+   * Returns whether a vessel whose drawn pose is still changing sits
+   * inside the view – the app's tick and render pacing treat that like a
+   * tram in view, otherwise ships glide in 500 ms stop-motion steps.
+   */
+  sync(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
     const alive = new Set<number>()
     // One culling volume per tick, for every repaint decision below.
     const camera = this.viewer.camera
@@ -143,6 +153,7 @@ export class VesselLayer {
     this.lastSyncMs = nowMs
     const alpha = dtMs > 0 && dtMs < 2000 ? 1 - Math.exp(-dtMs / SMOOTH_TAU_MS) : 1
 
+    let anyMovingVesselInView = false
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -194,13 +205,26 @@ export class VesselLayer {
       record.labelPosition.setValue(record.displayPosition)
       // Repaint per tick while the drawn pose still changes – that is what
       // makes a ship under way glide at the render loop's own rate.
-      if (
+      const poseChanged =
         !Cartesian3.equalsEpsilon(record.displayPosition, record.lastPosition, 0, 0.02) ||
         Math.abs(record.displayBearing - record.lastBearing) > 0.05
-      ) {
+      // The pacing signal must NOT hang on the per-tick repaint epsilon:
+      // a slow ship advances less than it per 33 ms tick, the flag would
+      // drop, the app would fall back to 500 ms ticks, and the two rates
+      // would oscillate into exactly the stop-motion this exists to
+      // prevent. "Under way" comes from the data instead – stable across
+      // ticks – with the pose ease riding along until it converged.
+      const underWay =
+        (vessel.sogKn ?? 0) >= 0.3 &&
+        vessel.cogDeg !== null &&
+        nowMs - vessel.positionAt <= AIS_RECKON_CAP_MS
+      if ((poseChanged || underWay) && this.isOnScreen(cullingVolume, record.displayPosition)) {
+        anyMovingVesselInView = true
+        if (poseChanged) this.host.requestRender()
+      }
+      if (poseChanged) {
         Cartesian3.clone(record.displayPosition, record.lastPosition)
         record.lastBearing = record.displayBearing
-        this.repaintIfOnScreen(cullingVolume, record.displayPosition)
       }
 
       const text = vessel.name || String(vessel.mmsi)
@@ -218,6 +242,7 @@ export class VesselLayer {
         this.remove(mmsi)
       }
     }
+    return { anyMovingVesselInView }
   }
 
   /** The underground view hides the surface fleet with the other layers. */
@@ -274,10 +299,10 @@ export class VesselLayer {
       show: this.visible,
       label: {
         text: labelText,
-        font: '12px "Inter Variable", system-ui, sans-serif',
+        font: '10px "Inter Variable", system-ui, sans-serif',
         fillColor: Color.WHITE,
         outlineColor: color,
-        outlineWidth: 3,
+        outlineWidth: 2,
         style: LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cartesian2(0, -16),
         distanceDisplayCondition: new DistanceDisplayCondition(0, NAME_VISIBLE_RANGE),

@@ -79,6 +79,8 @@ export interface MrtTestApi {
     animating: boolean
     rainActive: boolean
     vehicleInView: boolean
+    /** A vessel whose drawn pose is still changing is on screen. */
+    vesselInView: boolean
     interacting: boolean
     tilesLoading: boolean
     intervalMs: number
@@ -568,6 +570,10 @@ export default function App() {
     let rafId = 0
     let lastUiUpdate = 0
     let lastSimTick = 0
+    // A real ship under way on screen paces ticks and rendering like a
+    // tram in view does – but independent of the sim clock: AIS traffic
+    // is reality and keeps moving while the simulation is paused.
+    let lastMovingVesselInView = false
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -595,7 +601,8 @@ export default function App() {
         if (!document.hidden) {
           // Tick the simulation at ~30 fps max; when paused or with no
           // vehicle in view, 2 fps is plenty.
-          const tickInterval = clock.paused || !lastAnyVehicleInView ? 500 : 33
+          const tickInterval =
+            (clock.paused || !lastAnyVehicleInView) && !lastMovingVesselInView ? 500 : 33
           if (now - lastSimTick >= tickInterval) {
             lastSimTick = now
 
@@ -617,8 +624,9 @@ export default function App() {
               overrideFerryPositions(snapshots, aisVessels, config.ais.ferryLineByMmsi, Date.now())
             }
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
-            if (aisEnabled) map.syncVessels(aisBackdrop, Date.now())
+            const vesselInfo = aisEnabled ? map.syncVessels(aisBackdrop, Date.now()) : null
             lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
+            lastMovingVesselInView = vesselInfo?.anyMovingVesselInView ?? false
 
             // After syncVehicles, so the selection highlight and the follow
             // camera find the vehicle record (setSelected/setFollow only act
@@ -700,7 +708,10 @@ export default function App() {
             ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
             : null
           // Falling rain is an animation too – even with the sim paused
-          const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+          const animating =
+            (lastAnyVehicleInView && !clock.paused) ||
+            lastMovingVesselInView ||
+            rainActiveRef.current
           const renderInterval = !hints
             ? Number.POSITIVE_INFINITY
             : hints.interacting
@@ -795,11 +806,15 @@ export default function App() {
       },
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-        const animating = (lastAnyVehicleInView && !clock.paused) || rainActiveRef.current
+        const animating =
+          (lastAnyVehicleInView && !clock.paused) ||
+          lastMovingVesselInView ||
+          rainActiveRef.current
         return {
           animating,
           rainActive: rainActiveRef.current,
           vehicleInView: lastAnyVehicleInView,
+          vesselInView: lastMovingVesselInView,
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
