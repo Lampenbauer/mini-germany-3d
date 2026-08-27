@@ -2,6 +2,7 @@ import { Crosshair, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
 import { t } from '@/lib/i18n'
@@ -96,8 +97,22 @@ export function StopCard({
           ) : (
             <ol className="flex flex-col" data-testid="stop-departures">
               {departures.map((dep) => {
+                const VehicleIcon = MODE_ICON[dep.mode]
                 const row = (
                   <>
+                    {/* Whether the vehicle is out there is the difference
+                        between a clickable row and a plain one – this
+                        column says so without hovering. The slot stays in
+                        the layout when empty so the rows stay aligned. */}
+                    <span className="flex w-3.5 shrink-0 justify-center">
+                      {dep.active && (
+                        <VehicleIcon
+                          className="size-3.5"
+                          data-testid="departure-on-map"
+                          aria-hidden
+                        />
+                      )}
+                    </span>
                     <span className="w-11 shrink-0 font-mono text-xs tabular-nums">
                       {formatArrival(dep.departureSec)}
                     </span>
@@ -127,7 +142,7 @@ export function StopCard({
                     {dep.active ? (
                       <button
                         type="button"
-                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-accent"
+                        className="flex w-full cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-accent"
                         title={t('stop.flyToVehicle')}
                         onClick={() => onSelectVehicle(dep.tripId)}
                       >

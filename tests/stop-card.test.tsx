@@ -110,6 +110,10 @@ describe('StopCard', () => {
     })
     const buttons = screen.getAllByTitle('Fly to this vehicle')
     expect(buttons).toHaveLength(1)
+    // Visible at rest, not just on hover: only the row whose vehicle is
+    // out there carries the mode icon.
+    expect(screen.getAllByTestId('departure-on-map')).toHaveLength(1)
+    expect(buttons[0]).toContainElement(screen.getByTestId('departure-on-map'))
     fireEvent.click(buttons[0])
     expect(onSelectVehicle).toHaveBeenCalledWith('active-trip')
   })

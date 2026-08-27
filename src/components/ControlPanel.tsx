@@ -1,6 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import {
-  Bus,
   ChevronDown,
   ChevronUp,
   Gauge,
@@ -8,14 +7,13 @@ import {
   Pause,
   Play,
   RadioTower,
-  Ship,
   TimerReset,
-  TrainFront,
   TramFront,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MODE_ICON } from '@/components/mode-icon'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -73,13 +71,6 @@ const TILESET_KEY: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, MessageKey>
 
 /** Display order and label keys of the transit-mode groups. */
 const MODE_ORDER: TransitMode[] = ['tram', 'train', 'bus', 'ferry']
-const MODE_ICON: Record<TransitMode, typeof TramFront> = {
-  tram: TramFront,
-  train: TrainFront,
-  bus: Bus,
-  ferry: Ship,
-}
-
 /**
  * One transit-mode group of the line list (header only when >1 group).
  * Memoized: the panel re-renders 4×/s for the clock, but the line rows only
