@@ -156,7 +156,6 @@ async function main() {
 
   const out = {
     meta: {
-      generated: new Date().toISOString().slice(0, 10),
       attribution: ATTRIBUTION,
       maxDistanceMeters: MAX_DISTANCE_METERS,
       minSpacingMeters: MIN_SPACING_METERS,

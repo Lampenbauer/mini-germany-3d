@@ -7,7 +7,6 @@ import type { NetworkJson } from '@/data/network-types'
 export const testNetworkJson: NetworkJson = {
   meta: {
     source: 'approximated',
-    generated: '2026-01-01',
     attribution: 'Testdaten',
   },
   stops: {

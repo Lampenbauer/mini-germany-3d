@@ -815,7 +815,6 @@ async function main() {
   const schedule = {
     meta: {
       source: 'gtfs',
-      generated: new Date().toISOString().slice(0, 10),
       serviceDate,
       serviceCount: activeServiceIds.size,
       attribution:

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
 import { loadBundledNetwork } from '@/data/network'
 import scheduleJson from '@/data/schedule.json'
+import networkJson from '@/data/network.json'
+import lampsJson from '@/data/street-lamps.json'
 import {
   buildAllTrips,
   normalizeSpan,
@@ -99,5 +101,29 @@ describe('bundled schedule data', () => {
     // Guard with head-room against re-inflation (the bug showed ~2×).
     expect(peak).toBeGreaterThan(4)
     expect(peak).toBeLessThan(18)
+  })
+})
+
+/**
+ * The nightly CI regenerates these files and commits them only when they
+ * actually differ (see .github/workflows/ci.yml). A field carrying the
+ * generation date defeats that guard: the file would differ every night,
+ * so an unchanged timetable would still produce a commit, a push to main
+ * and a deploy. Provenance is not lost by leaving it out – the commit
+ * date records when the data was fetched, and more reliably.
+ */
+describe('the committed data files', () => {
+  it('carry no generation timestamp in their meta', () => {
+    for (const [name, data] of [
+      ['schedule.json', scheduleJson],
+      ['network.json', networkJson],
+      ['street-lamps.json', lampsJson],
+    ] as const) {
+      const meta = (data as { meta?: Record<string, unknown> }).meta ?? {}
+      expect(Object.keys(meta), name).not.toContain('generated')
+      for (const [key, value] of Object.entries(meta)) {
+        expect(String(value), `${name} meta.${key}`).not.toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      }
+    }
   })
 })

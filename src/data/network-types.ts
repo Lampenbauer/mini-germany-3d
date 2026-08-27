@@ -21,7 +21,6 @@ export interface NetworkJson {
 export interface NetworkMeta {
   /** "approximated" = bundled demo geometry, "osm" = generated via Overpass. */
   source: 'approximated' | 'osm'
-  generated: string
   attribution: string
 }
 

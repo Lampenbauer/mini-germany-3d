@@ -143,6 +143,12 @@ jobs:
       # Only after all tests passed: persist the refreshed data on main.
       # Pushes via GITHUB_TOKEN do not trigger a new CI run – deploy
       # happens in this same workflow run below.
+      #
+      # This only skips work if the data scripts write byte-stable output
+      # for unchanged input – so none of the generated files carries a
+      # generation date (guarded by tests/schedule-data.test.ts). Most
+      # nights the upstream timetable is unchanged and nothing is
+      # committed, pushed or deployed.
       - name: Commit refreshed data (nightly or on request)
         id: datacommit
         if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm

@@ -646,7 +646,6 @@ async function main() {
   const network = {
     meta: {
       source: 'osm',
-      generated: new Date().toISOString().slice(0, 10),
       attribution:
         'Route and stop data © OpenStreetMap contributors (ODbL 1.0), via Overpass API.',
     },

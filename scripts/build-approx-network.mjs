@@ -350,7 +350,6 @@ const LINES = [
 const network = {
   meta: {
     source: 'approximated',
-    generated: new Date().toISOString().slice(0, 10),
     attribution:
       'Demo dataset: line geometry approximated (hand-modeled). ' +
       'Real track geometry: npm run data:update (OpenStreetMap/Overpass, © OpenStreetMap contributors, ODbL).',

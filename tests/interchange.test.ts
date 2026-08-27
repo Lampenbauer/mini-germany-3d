@@ -16,7 +16,7 @@ describe('buildInterchangeIndex', () => {
    * its own line. Coordinates are ~0.00036 ° of latitude per 40 m.
    */
   const network = prepareNetwork({
-    meta: { source: 'approximated', generated: '2026-01-01', attribution: 'Test' },
+    meta: { source: 'approximated', attribution: 'Test' },
     stops: {
       north: { name: 'Markt Nord', coord: [12.1, 54.0] },
       south: { name: 'Markt Süd', coord: [12.1, 53.99964] },

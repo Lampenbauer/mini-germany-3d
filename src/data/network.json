@@ -1,7 +1,6 @@
 {
   "meta": {
     "source": "osm",
-    "generated": "2026-08-25",
     "attribution": "Route and stop data © OpenStreetMap contributors (ODbL 1.0), via Overpass API. Terrain heights © GeoBasis-DE/M-V (DGM via WCS, geodaten-mv.de)."
   },
   "stops": {

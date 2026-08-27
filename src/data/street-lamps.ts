@@ -12,7 +12,6 @@ export type StreetLamp = [number, number, number]
 
 export interface StreetLampData {
   meta: {
-    generated: string
     attribution: string
     /** Distance to a route within which a lamp was kept, in meters. */
     maxDistanceMeters: number
