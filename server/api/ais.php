@@ -64,8 +64,12 @@ const MRT_AIS_WALL_BUDGET_SECONDS = 52.0;
 /** During a window the state is flushed this often – polls arriving
  *  mid-window pick up near-live fixes instead of waiting for its end. */
 const MRT_AIS_FLUSH_SECONDS = 8;
-/** Vessels drop out after this long without a position (mirror of ais-extract.ts). */
+/** Vessels drop out of the LIST after this long without a position. */
 const MRT_AIS_EXPIRE_MS = 30 * 60_000;
+/** Records survive in the STATE this long – static data (name, type,
+ *  dimensions, learned only every 6 minutes) must outlive a ferry's
+ *  round trip to Gedser. Mirror of ais-extract.ts. */
+const MRT_AIS_STATIC_KEEP_MS = 48 * 3600_000;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/ais-extract.ts
@@ -159,14 +163,24 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
     if ($vessel['lat'] !== null) $state[$mmsi] = $vessel;
 }
 
-/** Expires stale vessels and returns the list sorted by MMSI. */
+/**
+ * Lists vessels with a fresh position, sorted by MMSI. Stale records
+ * stay in the state as memory until MRT_AIS_STATIC_KEEP_MS – see the
+ * constant above.
+ */
 function mrt_ais_vessels(array &$state, int $nowMs): array
 {
+    $fresh = [];
     foreach ($state as $mmsi => $vessel) {
-        if ($nowMs - $vessel['positionAt'] > MRT_AIS_EXPIRE_MS) unset($state[$mmsi]);
+        $age = $nowMs - $vessel['positionAt'];
+        if ($age > MRT_AIS_STATIC_KEEP_MS) {
+            unset($state[$mmsi]);
+        } elseif ($age <= MRT_AIS_EXPIRE_MS) {
+            $fresh[$mmsi] = $vessel;
+        }
     }
-    ksort($state);
-    return array_values($state);
+    ksort($fresh);
+    return array_values($fresh);
 }
 
 // ---------------------------------------------------------------------------

@@ -128,14 +128,51 @@ describe('mergeAisMessage', () => {
 })
 
 describe('aisStateVessels', () => {
-  it('expires vessels whose position went stale', () => {
+  it('hides stale positions but keeps the record as memory', () => {
     const state: AisState = new Map([
       [1, vessel({ mmsi: 1, positionAt: NOW - 31 * 60_000 })],
       [2, vessel({ mmsi: 2, positionAt: NOW - 60_000 })],
+      [3, vessel({ mmsi: 3, positionAt: NOW - 72 * 3600_000 })],
     ])
     const vessels = aisStateVessels(state, NOW)
     expect(vessels.map((v) => v.mmsi)).toEqual([2])
-    expect(state.has(1)).toBe(false)
+    // 31 min: off the list, still remembered; 72 h: gone for good
+    expect(state.has(1)).toBe(true)
+    expect(state.has(3)).toBe(false)
+  })
+
+  it('gives a returning ferry her size back from memory', () => {
+    // The Gedser run: BERLIN learns her static data, sails out of the
+    // box for two hours, and comes back with nothing but a position
+    // report – the model must be the 169 m ferry again immediately.
+    const state: AisState = new Map()
+    mergeAisMessage(
+      state,
+      {
+        MetaData: { MMSI: 211331640, ShipName: 'BERLIN', latitude: 54.15, longitude: 12.1 },
+        Message: {
+          ShipStaticData: { Name: 'BERLIN', Type: 60, Dimension: { A: 90, B: 79, C: 13, D: 12 } },
+        },
+      },
+      NOW,
+    )
+    const away = NOW + 2 * 3600_000
+    expect(aisStateVessels(state, away)).toEqual([]) // out of the box
+    mergeAisMessage(
+      state,
+      {
+        MetaData: { MMSI: 211331640, ShipName: 'BERLIN' },
+        Message: {
+          PositionReport: { Latitude: 54.2, Longitude: 12.09, Sog: 15, Cog: 180, TrueHeading: 181 },
+        },
+      },
+      away,
+    )
+    const back = aisStateVessels(state, away)
+    expect(back).toHaveLength(1)
+    expect(back[0].lengthM).toBe(169)
+    expect(back[0].typeCode).toBe(60)
+    expect(back[0].name).toBe('BERLIN')
   })
 })
 
