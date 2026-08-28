@@ -8,6 +8,7 @@ import {
   extrude,
   toGlb,
   triangleCount,
+  wheel,
 } from '../scripts/lib/vehicle-mesh.mjs'
 
 /** Expected bounding dimensions per generated file (length, width, height). */
@@ -47,6 +48,42 @@ describe('mesh primitives', () => {
     for (const dot of outwardness(mesh.groups.get('body')!, [3, -2, 5])) {
       expect(dot).toBeGreaterThan(0)
     }
+  })
+
+  it('winds every wheel face outward and puts the contact patch on the ground', () => {
+    const mesh = createMesh()
+    wheel(mesh, 1.04, -1.05, 3.2, 0.5, 0.3, 1)
+    for (const [, g] of mesh.groups) {
+      // The first 8 quads are the prism walls; radial outwardness in Y/Z
+      // (the axle runs along X)
+      for (let f = 0; f < 8; f++) {
+        const vi = f * 4
+        const dot =
+          ((g.positions[vi * 3 + 1] + g.positions[(vi + 2) * 3 + 1]) / 2 - -1.05) *
+            g.normals[vi * 3 + 1] +
+          ((g.positions[vi * 3 + 2] + g.positions[(vi + 2) * 3 + 2]) / 2 - 3.2) *
+            g.normals[vi * 3 + 2]
+        expect(dot).toBeGreaterThan(0)
+      }
+      // After the walls (48 indices) come the two cap fans: their index
+      // winding must agree with their stated ±X normal, or glTF's
+      // single-sided rendering simply drops the whole cap.
+      for (const triStart of [48, 48 + 24]) {
+        const [ia, ib, ic] = [g.indices[triStart], g.indices[triStart + 1], g.indices[triStart + 2]]
+        const p = (v: number) => [g.positions[v * 3], g.positions[v * 3 + 1], g.positions[v * 3 + 2]]
+        const [a, b, c] = [p(ia), p(ib), p(ic)]
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+        const windingX = u[1] * v[2] - u[2] * v[1]
+        expect(Math.sign(windingX)).toBe(Math.sign(g.normals[ia * 3]))
+      }
+    }
+    // The tire's flat bottom is the mesh's ground contact
+    let minY = Infinity
+    for (const g of mesh.groups.values()) {
+      for (let i = 1; i < g.positions.length; i += 3) minY = Math.min(minY, g.positions[i])
+    }
+    expect(minY).toBeCloseTo(-1.55, 5)
   })
 
   it('winds extrusion walls outward', () => {

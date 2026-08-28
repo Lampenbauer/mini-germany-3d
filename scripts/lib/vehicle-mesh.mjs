@@ -218,6 +218,63 @@ export function pantograph(mesh, roofY, z, maxY) {
   box(mesh, 'chassis', 0, maxY - 0.03, z, 1.6, 0.05, 0.12)
 }
 
+/**
+ * Road wheel: an octagonal tire prism along X with a flat bottom (the
+ * contact patch – the fleet's bounding test insists the mesh's lowest
+ * plane sits exactly on the wheel plane), plus a silver hub cap proud of
+ * the outboard face. Nothing rotates: at map distance a crisp dark
+ * octagon with a bright hub reads as a wheel, a spinning one would not
+ * read at all.
+ *
+ * `side` is the sign of cx – it decides which cap face gets the hub.
+ */
+export function wheel(mesh, cx, cy, cz, radius, thickness, side) {
+  const octagon = (x, r) => {
+    const circum = r / Math.cos(Math.PI / 8)
+    const points = []
+    for (let k = 0; k < 8; k++) {
+      const a = ((k + 0.5) / 8) * 2 * Math.PI
+      points.push([x, cy - circum * Math.cos(a), cz + circum * Math.sin(a)])
+    }
+    return points
+  }
+  const capFan = (ring, material, invert) => {
+    const g = group(mesh, material)
+    const cyr = ring.reduce((sum, p) => sum + p[1], 0) / ring.length
+    const czr = ring.reduce((sum, p) => sum + p[2], 0) / ring.length
+    const normal = invert ? [-1, 0, 0] : [1, 0, 0]
+    const base = g.positions.length / 3
+    g.positions.push(ring[0][0], cyr, czr)
+    g.normals.push(...normal)
+    for (const p of ring) {
+      g.positions.push(p[0], p[1], p[2])
+      g.normals.push(...normal)
+    }
+    for (let i = 0; i < ring.length; i++) {
+      const j = (i + 1) % ring.length
+      // The octagon ring runs clockwise seen from +X, so the fan winding
+      // is the mirror of extrude()'s – checked by the winding test.
+      if (invert) g.indices.push(base, base + 1 + i, base + 1 + j)
+      else g.indices.push(base, base + 1 + j, base + 1 + i)
+    }
+  }
+  const prism = (material, x0, x1, r, yCenter = cy) => {
+    const a = octagon(x0, r).map(([x, y, z]) => [x, y - cy + yCenter, z])
+    const b = octagon(x1, r).map(([x, y, z]) => [x, y - cy + yCenter, z])
+    for (let i = 0; i < 8; i++) {
+      const j = (i + 1) % 8
+      quad(mesh, material, a[j], a[i], b[i], b[j])
+    }
+    capFan(a, material, true)
+    capFan(b, material, false)
+  }
+  prism('chassis', cx - thickness / 2, cx + thickness / 2, radius)
+  // Hub cap: 1 mm clear of the tire face so the two never share a plane
+  const face = cx + (side * thickness) / 2
+  const hub = [face + side * 0.001, face + side * 0.021].sort((p, q) => p - q)
+  prism('roof', hub[0], hub[1], radius * 0.4, cy)
+}
+
 /** Bogie: dark under-floor block with hinted wheel discs. */
 export function bogie(mesh, y0, z, width) {
   box(mesh, 'chassis', 0, y0 + 0.28, z, width - 0.5, 0.56, 1.9)

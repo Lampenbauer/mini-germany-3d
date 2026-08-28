@@ -53,5 +53,14 @@ export function windowBand(
 export function doors(mesh: Mesh, w: number, y0: number, y1: number, z: number, leafWidth?: number): void
 export function pantograph(mesh: Mesh, roofY: number, z: number): void
 export function bogie(mesh: Mesh, y0: number, z: number, width: number): void
+export function wheel(
+  mesh: Mesh,
+  cx: number,
+  cy: number,
+  cz: number,
+  radius: number,
+  thickness: number,
+  side: number,
+): void
 export function toGlb(mesh: Mesh, opts: { name: string }): Uint8Array
 export function triangleCount(mesh: Mesh): number
