@@ -210,6 +210,7 @@ jobs:
         run: |
           node scripts/test-php-parser.mjs
           node scripts/test-ais-parity.mjs
+          node scripts/test-ais-state.mjs
 
       - name: Production build
         if: >-

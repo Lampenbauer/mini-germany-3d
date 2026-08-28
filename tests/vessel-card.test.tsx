@@ -67,6 +67,20 @@ describe('VesselCard', () => {
     expect(screen.getByTestId('vessel-name')).toHaveTextContent('211222290')
   })
 
+  it('survives a field the server never sent at all', () => {
+    // Not hypothetical: the state file outlives deploys, so records
+    // written before a field existed reach the browser without the key.
+    // `undefined` slips past a `=== null` guard and throws on .toFixed,
+    // which took the whole view down in production. The client normalizes
+    // now (see ais.ts), but the card must not be the thing that decides it.
+    const partial = vessel()
+    delete (partial as Partial<AisVessel>).draughtM
+    delete (partial as Partial<AisVessel>).sogKn
+    expect(() => show(partial)).not.toThrow()
+    expect(screen.getByTestId('vessel-draught')).toHaveTextContent('not reported')
+    expect(screen.getByTestId('vessel-speed')).toHaveTextContent('not reported')
+  })
+
   it('says a field is unreported instead of inventing a zero', () => {
     show(vessel({ typeCode: 0, lengthM: null, widthM: null, draughtM: null, sogKn: null, navStatus: null }))
     expect(screen.getByTestId('vessel-type')).toHaveTextContent('unknown')

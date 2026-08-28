@@ -65,7 +65,7 @@ export function vesselTypeKey(typeCode: number): MessageKey | null {
  * as a wrong guess.
  */
 export function navStatusKey(navStatus: number | null): MessageKey | null {
-  if (navStatus === null) return null
+  if (navStatus === null || navStatus === undefined) return null
   const known = [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 14, 15]
   return known.includes(navStatus) ? (`navStatus.${navStatus}` as MessageKey) : null
 }
@@ -75,11 +75,20 @@ export function vesselTitle(vessel: AisVessel): string {
   return vessel.name || String(vessel.mmsi)
 }
 
-/** "52 × 12 m", or null when no static report carried the dimensions. */
+/**
+ * "52 × 12 m", or null when no static report carried the dimensions.
+ *
+ * The `?? null` here and below is not decoration: a record written before
+ * a field existed reaches the browser without the key, and `undefined`
+ * walks straight through a `=== null` check into a method call on
+ * nothing. That took the whole view down once.
+ */
 export function formatDimensions(vessel: AisVessel): string | null {
-  if (vessel.lengthM === null && vessel.widthM === null) return null
-  const length = vessel.lengthM === null ? '?' : String(Math.round(vessel.lengthM))
-  const width = vessel.widthM === null ? '?' : String(Math.round(vessel.widthM))
+  const lengthM = vessel.lengthM ?? null
+  const widthM = vessel.widthM ?? null
+  if (lengthM === null && widthM === null) return null
+  const length = lengthM === null ? '?' : String(Math.round(lengthM))
+  const width = widthM === null ? '?' : String(Math.round(widthM))
   return `${length} × ${width} m`
 }
 
@@ -89,9 +98,10 @@ export function formatDimensions(vessel: AisVessel): string | null {
  * GPS noise.
  */
 export function formatSpeed(sogKn: number | null): string {
-  if (sogKn === null) return t('vessel.notReported')
-  if (sogKn < 0.2) return '0 kn'
-  return `${sogKn.toFixed(1)} kn`
+  const kn = sogKn ?? null
+  if (kn === null) return t('vessel.notReported')
+  if (kn < 0.2) return '0 kn'
+  return `${kn.toFixed(1)} kn`
 }
 
 /**
@@ -101,7 +111,7 @@ export function formatSpeed(sogKn: number | null): string {
  * sits still because nothing new has come in for her.
  */
 export function formatFixAge(positionAt: number, nowMs: number): string {
-  const seconds = Math.max(0, Math.round((nowMs - positionAt) / 1000))
+  const seconds = Math.max(0, Math.round((nowMs - positionAt) / 1000)) || 0
   return seconds < 90
     ? t('vessel.fixAge', { count: seconds })
     : t('vessel.fixAgeMin', { count: Math.round(seconds / 60) })

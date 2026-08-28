@@ -6,7 +6,7 @@
  * clock (playbackSample in ais-extract.ts).
  */
 
-import type { AisVessel } from '@/lib/ais-extract'
+import type { AisTrackPoint, AisVessel } from '@/lib/ais-extract'
 
 export interface AisStatus {
   state: 'connecting' | 'live' | 'error'
@@ -76,11 +76,7 @@ export class AisClient {
       // fix look that much fresher than it is.
       const anchor = data.servedAt ?? data.timestamp
       const skewMs = typeof anchor === 'number' ? Date.now() - anchor : 0
-      for (const vessel of data.vessels) {
-        vessel.positionAt += skewMs
-        for (const point of vessel.track) point[0] += skewMs
-      }
-      this.vessels = data.vessels
+      this.vessels = data.vessels.map((vessel) => normalizeVessel(vessel, skewMs))
       this.status = {
         state: 'live',
         vesselCount: data.vessels.length,
@@ -95,5 +91,39 @@ export class AisClient {
       // clears them if the outage lasts.
       this.onUpdate(this.status, this.vessels)
     }
+  }
+}
+
+/**
+ * Brings one vessel from the wire into the shape the app relies on, and
+ * shifts its timestamps into this browser's timeline.
+ *
+ * The server's state file outlives deploys, so a record written before a
+ * field existed comes back without that key – absent, which is not null.
+ * That is not hypothetical: it reached production and took the whole view
+ * down, because `undefined` slips past a `=== null` guard and then throws
+ * on the first method call. The server fills those in now too, but a
+ * client that renders somebody else's JSON has no business trusting its
+ * shape, and one missing field should never cost more than one field.
+ */
+function normalizeVessel(raw: AisVessel, skewMs: number): AisVessel {
+  const num = (value: unknown): number | null => (typeof value === 'number' ? value : null)
+  const track: AisTrackPoint[] = Array.isArray(raw.track) ? raw.track : []
+  for (const point of track) point[0] += skewMs
+  return {
+    mmsi: raw.mmsi,
+    name: typeof raw.name === 'string' ? raw.name : '',
+    lat: raw.lat,
+    lon: raw.lon,
+    sogKn: num(raw.sogKn),
+    cogDeg: num(raw.cogDeg),
+    headingDeg: num(raw.headingDeg),
+    navStatus: num(raw.navStatus),
+    typeCode: num(raw.typeCode) ?? 0,
+    lengthM: num(raw.lengthM),
+    widthM: num(raw.widthM),
+    draughtM: num(raw.draughtM),
+    positionAt: raw.positionAt + skewMs,
+    track,
   }
 }

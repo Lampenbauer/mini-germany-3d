@@ -38,6 +38,9 @@ export function VesselCard({ vessel, nowMs, following, onToggleFollow, onClose }
   const typeKey = vesselTypeKey(vessel.typeCode)
   const statusKey = navStatusKey(vessel.navStatus)
   const dimensions = formatDimensions(vessel)
+  // A field the server never sent arrives as undefined, not null – see
+  // formatDimensions in vessel-info.ts for what that cost once.
+  const draughtM = vessel.draughtM ?? null
 
   return (
     <Card
@@ -79,7 +82,7 @@ export function VesselCard({ vessel, nowMs, following, onToggleFollow, onClose }
 
           <span className="text-muted-foreground">{t('vessel.draught')}</span>
           <span data-testid="vessel-draught">
-            {vessel.draughtM === null ? t('vessel.notReported') : `${vessel.draughtM.toFixed(1)} m`}
+            {draughtM === null ? t('vessel.notReported') : `${draughtM.toFixed(1)} m`}
           </span>
         </div>
         <div className="flex items-center gap-2">
