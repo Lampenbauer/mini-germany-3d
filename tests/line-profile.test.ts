@@ -96,23 +96,6 @@ describe('buildLineProfile', () => {
     expect(p.trips).toEqual({ total: 6, shortWorkings: 2 })
   })
 
-  it('calls a flat route flat instead of reporting 0–0 m', () => {
-    const flat = line()
-    flat.directions[0].heights = [0.2, 0.1, 0.3]
-    expect(buildLineProfile(flat, undefined).heightRange).toBeNull()
-
-    const hilly = line()
-    hilly.directions[0].heights = [2, 31, 12]
-    expect(buildLineProfile(hilly, undefined).heightRange).toEqual({ min: 2, max: 31 })
-  })
-
-  it('measures the underground share over the whole line', () => {
-    const withTunnel = line()
-    withTunnel.directions[0].tunnels = [[0, 500]]
-    // 500 m of 2000 m across both directions
-    expect(buildLineProfile(withTunnel, undefined).tunnelShare).toBeCloseTo(0.25, 6)
-  })
-
   it('has no schedule facts without a schedule', () => {
     const p = buildLineProfile(line(), undefined)
     expect(p.service).toBeNull()
@@ -162,36 +145,63 @@ describe('against the real network', () => {
 
 describe('buildLineActivity', () => {
   const vehicle = (lineId: string, extra: Record<string, unknown> = {}) =>
-    ({ lineId, realtime: false, delaySeconds: 0, ...extra }) as never
+    ({
+      id: `${lineId}-x`,
+      lineId,
+      direction: 0,
+      destination: 'B',
+      nextStopName: 'Stop 1',
+      status: 'moving',
+      inTunnel: false,
+      realtime: false,
+      delaySeconds: 0,
+      ...extra,
+    }) as never
 
   it("counts only this line's vehicles", () => {
-    const a = buildLineActivity('X', undefined, [vehicle('X'), vehicle('2'), vehicle('X')], 0)
-    expect(a.running).toBe(2)
+    const a = buildLineActivity(line(), undefined, [vehicle('X'), vehicle('2'), vehicle('X')], 0)
+    expect(a.vehicles).toHaveLength(2)
   })
 
   it('takes the next scheduled departure of each direction', () => {
     // Not by querying a terminus: a terminus is not reliably where a trip
     // starts. Line 1 runs 139 of 217 trips short and showed no departure
     // at all from its own Mecklenburger Allee terminus.
-    const a = buildLineActivity('X', sched([600, 1200, 1800], [900, 1500]), [], 1000)
+    const a = buildLineActivity(line(), sched([600, 1200, 1800], [900, 1500]), [], 1000)
     expect(a.nextDeparture).toEqual([1200, 1500])
   })
 
   it('reports no next departure once a direction is done for the day', () => {
-    const a = buildLineActivity('X', sched([600], [900]), [], 2000)
+    const a = buildLineActivity(line(), sched([600], [900]), [], 2000)
     expect(a.nextDeparture).toEqual([null, null])
   })
 
   it('still finds the after-midnight tail, which is encoded past 24:00', () => {
-    const a = buildLineActivity('X', sched([23 * 3600, 24 * 3600 + 1800]), [], 23 * 3600 + 60)
+    const a = buildLineActivity(line(), sched([23 * 3600, 24 * 3600 + 1800]), [], 23 * 3600 + 60)
     expect(a.nextDeparture[0]).toBe(24 * 3600 + 1800)
+  })
+
+  it('orders the vehicles by how far along the route they are', () => {
+    // Stop 3 is ahead of stop 1 in the direction's own list, and
+    // direction 0 comes before direction 1
+    const a = buildLineActivity(
+      line(),
+      undefined,
+      [
+        vehicle('X', { id: 'back', nextStopName: 'Stop 1' }),
+        vehicle('X', { id: 'other-way', direction: 1, nextStopName: 'Stop 1' }),
+        vehicle('X', { id: 'front', nextStopName: 'Stop 3' }),
+      ],
+      0,
+    )
+    expect(a.vehicles.map((v) => v.id)).toEqual(['back', 'front', 'other-way'])
   })
 
   it('averages the delay over the tracked vehicles only', () => {
     // Two matched at +120/+240, two the feed knows nothing about. Counting
     // the unmatched zeros would report the line as nearly punctual.
     const a = buildLineActivity(
-      'X',
+      line(),
       undefined,
       [
         vehicle('X', { realtime: true, delaySeconds: 120 }),
@@ -205,7 +215,7 @@ describe('buildLineActivity', () => {
   })
 
   it('says nothing about delay when the feed covers none of the line', () => {
-    const a = buildLineActivity('X', undefined, [vehicle('X'), vehicle('X')], 0)
+    const a = buildLineActivity(line(), undefined, [vehicle('X'), vehicle('X')], 0)
     expect(a.delay).toBeNull()
   })
 })

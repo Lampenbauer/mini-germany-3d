@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LineCard } from '@/components/LineCard'
-import type { LineActivity, LineProfile } from '@/lib/line-profile'
+import type { LineActivity, LineProfile, LineVehicle } from '@/lib/line-profile'
 
 /**
  * The line card. Every row is optional in the data – a line can have no
@@ -20,8 +20,6 @@ function profile(overrides: Partial<LineProfile> = {}): LineProfile {
     lengthMeters: [18_700, 18_650],
     stopCount: [39, 39],
     meanStopSpacing: 490,
-    tunnelShare: 0,
-    heightRange: { min: 1, max: 20 },
     service: { first: 3 * 3600 + 1440, last: 24 * 3600 + 2460 },
     headway: { median: 600, peak: 600 },
     trips: { total: 217, shortWorkings: 139 },
@@ -29,9 +27,23 @@ function profile(overrides: Partial<LineProfile> = {}): LineProfile {
   }
 }
 
+function vehicle(overrides: Partial<LineVehicle> = {}): LineVehicle {
+  return {
+    id: '1-0-500',
+    direction: 0,
+    destination: 'Hafenallee',
+    nextStopName: 'Platz der Jugend',
+    status: 'moving',
+    inTunnel: false,
+    delaySeconds: 0,
+    realtime: false,
+    ...overrides,
+  }
+}
+
 function activity(overrides: Partial<LineActivity> = {}): LineActivity {
   return {
-    running: 6,
+    vehicles: Array.from({ length: 6 }, (_, i) => vehicle({ id: `1-0-${i}` })),
     nextDeparture: [8 * 3600 + 1800, 8 * 3600 + 2100],
     delay: null,
     ...overrides,
@@ -40,6 +52,7 @@ function activity(overrides: Partial<LineActivity> = {}): LineActivity {
 
 function show(p: LineProfile, a: LineActivity | null = null) {
   const onFlyTo = vi.fn()
+  const onSelectVehicle = vi.fn()
   const onClose = vi.fn()
   render(
     <LineCard
@@ -48,10 +61,11 @@ function show(p: LineProfile, a: LineActivity | null = null) {
       name="Line 1"
       color="#5D106A"
       onFlyTo={onFlyTo}
+      onSelectVehicle={onSelectVehicle}
       onClose={onClose}
     />,
   )
-  return { onFlyTo, onClose }
+  return { onFlyTo, onSelectVehicle, onClose }
 }
 
 describe('LineCard', () => {
@@ -65,7 +79,6 @@ describe('LineCard', () => {
     expect(screen.getByTestId('line-route')).toHaveTextContent('490 m apart')
     expect(screen.getByTestId('line-trips')).toHaveTextContent('217 a day')
     expect(screen.getByTestId('line-trips')).toHaveTextContent('139 short workings')
-    expect(screen.getByTestId('line-terrain')).toHaveTextContent('1–20 m NHN')
   })
 
   it('names the peak only when it is actually denser', () => {
@@ -80,10 +93,9 @@ describe('LineCard', () => {
   })
 
   it('drops the rows a line has no data for', () => {
-    // The Warnow ferry: no gradient, no tunnel, and every trip runs the
-    // full route – three rows that must not appear as zeros
-    show(profile({ heightRange: null, tunnelShare: 0, trips: { total: 70, shortWorkings: 0 } }))
-    expect(screen.queryByTestId('line-terrain')).not.toBeInTheDocument()
+    // The Warnow ferry runs every trip over its full route – a short
+    // workings count of zero must not appear as one
+    show(profile({ trips: { total: 70, shortWorkings: 0 } }))
     expect(screen.getByTestId('line-trips')).not.toHaveTextContent('short workings')
   })
 
@@ -99,11 +111,6 @@ describe('LineCard', () => {
     show(profile({ lengthMeters: [8800, 6100], stopCount: [16, 12] }))
     expect(screen.getByTestId('line-route')).toHaveTextContent('8.8 / 6.1 km')
     expect(screen.getByTestId('line-route')).toHaveTextContent('16 / 12 stops')
-  })
-
-  it('reports the underground share of a line that has one', () => {
-    show(profile({ tunnelShare: 0.12 }))
-    expect(screen.getByTestId('line-terrain')).toHaveTextContent('12 % underground')
   })
 
   it('flies to the line and closes', () => {
@@ -132,7 +139,7 @@ describe('LineCard live rows', () => {
   })
 
   it('does not pretend a line is out when it is not', () => {
-    show(profile(), activity({ running: 0, nextDeparture: [null, null] }))
+    show(profile(), activity({ vehicles: [], nextDeparture: [null, null] }))
     expect(screen.getByTestId('line-running')).toHaveTextContent('none in service')
     expect(screen.getByTestId('line-next')).toHaveTextContent('nothing more today')
   })
@@ -154,6 +161,55 @@ describe('LineCard live rows', () => {
     // Under a minute either way is "to time", not "0 min late"
     show(profile(), activity({ delay: { medianSeconds: 20, vehicles: 3 } }))
     expect(screen.getByTestId('line-running')).toHaveTextContent('running to time')
+  })
+
+  it('lists the line\'s vehicles and reports a click on one', () => {
+    const { onSelectVehicle } = show(
+      profile(),
+      activity({
+        vehicles: [
+          vehicle({ id: 'a', destination: 'Hafenallee', nextStopName: 'Zoo' }),
+          vehicle({
+            id: 'b',
+            direction: 1,
+            destination: 'Mecklenburger Allee',
+            nextStopName: 'Steintor',
+            status: 'dwell',
+          }),
+        ],
+      }),
+    )
+    const list = screen.getByTestId('line-vehicles')
+    // The destination heads its direction's group instead of repeating on
+    // every row – six rows saying "Hafenallee" say nothing
+    expect(list).toHaveTextContent('Hafenallee')
+    expect(list).toHaveTextContent('towards Zoo')
+    // A dwelling vehicle is AT its stop, not heading for it
+    expect(list).toHaveTextContent('at Steintor')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show the vehicle towards Zoo, heading for Hafenallee' }),
+    )
+    expect(onSelectVehicle).toHaveBeenCalledWith('a')
+  })
+
+  it('shows a delay badge only on the vehicles the feed covers', () => {
+    show(
+      profile(),
+      activity({
+        vehicles: [
+          vehicle({ id: 'a', realtime: true, delaySeconds: 180 }),
+          vehicle({ id: 'b', realtime: false, delaySeconds: 0 }),
+        ],
+      }),
+    )
+    expect(screen.getByTestId('line-vehicles')).toHaveTextContent('+3 min')
+  })
+
+  it('has no vehicle list when nothing of the line is out', () => {
+    show(profile(), activity({ vehicles: [] }))
+    expect(screen.queryByTestId('line-vehicles')).not.toBeInTheDocument()
+    expect(screen.getByTestId('line-running')).toHaveTextContent('none in service')
   })
 
   it('leaves the live rows out entirely before the first snapshot', () => {

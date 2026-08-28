@@ -1176,7 +1176,7 @@ export default function App() {
     () =>
       selectedLine
         ? buildLineActivity(
-            selectedLine.id,
+            selectedLine,
             schedule as ScheduleJson,
             snapshotsRef.current,
             simSeconds,
@@ -1261,6 +1261,7 @@ export default function App() {
             name={localizeLineName(selectedLine.name)}
             color={selectedLine.color}
             onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
+            onSelectVehicle={handleSelectDeparture}
             onClose={() => setSelectedLineId(null)}
           />
         </div>

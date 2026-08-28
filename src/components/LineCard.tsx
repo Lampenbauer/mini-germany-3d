@@ -1,8 +1,9 @@
-import { ArrowLeftRight, Crosshair, X } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight, Crosshair, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MODE_ICON } from '@/components/mode-icon'
+import { formatDelay } from '@/components/VehicleCard'
 import { MODE_KEY, t } from '@/lib/i18n'
 import {
   formatLength,
@@ -30,14 +31,35 @@ export interface LineCardProps {
   color: string
   /** Camera flight to the route, as clicking the name in the panel does. */
   onFlyTo: () => void
+  /** Click on one of the line's vehicles – the map selects and follows it. */
+  onSelectVehicle: (tripId: string) => void
   onClose: () => void
 }
 
-export function LineCard({ profile, activity, name, color, onFlyTo, onClose }: LineCardProps) {
+export function LineCard({
+  profile,
+  activity,
+  name,
+  color,
+  onFlyTo,
+  onSelectVehicle,
+  onClose,
+}: LineCardProps) {
   const ModeIcon = MODE_ICON[profile.mode]
   const minutes = (seconds: number) => Math.round(seconds / 60)
   // Both termini's next departures, soonest first – which end it leaves
   // from matters less than when something next moves.
+  // Grouped by direction: within one, every vehicle carries the same
+  // destination, and six rows repeating "Hafenallee" say nothing. As a
+  // heading it says which way the group runs, once.
+  const byDirection = ([0, 1] as const)
+    .map((direction) => ({
+      direction,
+      destination: direction === 0 ? profile.to : profile.from,
+      vehicles: (activity?.vehicles ?? []).filter((v) => v.direction === direction),
+    }))
+    .filter((group) => group.vehicles.length > 0)
+
   // Each direction's next departure with where it is headed – direction 0
   // runs toward `to`, direction 1 back toward `from`. Naming the
   // destination is what makes a single line unambiguous when only one
@@ -131,8 +153,8 @@ export function LineCard({ profile, activity, name, color, onFlyTo, onClose }: L
             <>
               <span className="text-muted-foreground">{t('line.running')}</span>
               <span data-testid="line-running">
-                {activity.running > 0
-                  ? t('line.runningCount', { count: activity.running })
+                {activity.vehicles.length > 0
+                  ? t('line.runningCount', { count: activity.vehicles.length })
                   : t('line.runningNone')}
                 {/* Only where the feed covers this line – see buildLineActivity */}
                 {activity.delay && (
@@ -160,23 +182,58 @@ export function LineCard({ profile, activity, name, color, onFlyTo, onClose }: L
               </span>
             </>
           )}
-
-          {(profile.heightRange || profile.tunnelShare > 0.005) && (
-            <>
-              <span className="text-muted-foreground">{t('line.terrain')}</span>
-              <span data-testid="line-terrain">
-                {profile.heightRange &&
-                  `${Math.round(profile.heightRange.min)}–${Math.round(profile.heightRange.max)} m NHN`}
-                {profile.tunnelShare > 0.005 && (
-                  <span className="text-muted-foreground">
-                    {profile.heightRange ? ' · ' : ''}
-                    {t('line.tunnelShare', { count: Math.round(profile.tunnelShare * 100) })}
-                  </span>
-                )}
-              </span>
-            </>
-          )}
         </div>
+        {byDirection.length > 0 && (
+          <div
+            className="scroll-fade-y flex max-h-48 flex-col gap-1 overflow-y-auto"
+            data-testid="line-vehicles"
+          >
+            {byDirection.map((group) => (
+              <div key={group.direction} className="flex flex-col">
+                <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                  <ArrowRight className="size-3 shrink-0" aria-hidden />
+                  {group.destination}
+                </span>
+                <ol className="flex flex-col">
+                  {group.vehicles.map((v) => {
+                    // Where it is, in one phrase – the row's text and its
+                    // accessible name say the same thing.
+                    const position =
+                      v.status === 'dwell'
+                        ? t('line.atStop', { name: v.nextStopName })
+                        : t('line.towards', { name: v.nextStopName })
+                    return (
+                      <li key={v.id}>
+                        {/* Every vehicle here is on the map by definition, so
+                            unlike the stop card's departures each row is a link. */}
+                        <button
+                          type="button"
+                          className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+                          onClick={() => onSelectVehicle(v.id)}
+                          aria-label={t('line.showVehicle', {
+                            name: position,
+                            destination: group.destination,
+                          })}
+                        >
+                          <ModeIcon
+                            className={`size-3.5 shrink-0 ${v.inTunnel ? 'opacity-40' : ''}`}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">{position}</span>
+                          {v.realtime && (
+                            <Badge variant="secondary" className="shrink-0 text-[10px]">
+                              {formatDelay(v.delaySeconds)}
+                            </Badge>
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onFlyTo}>
             <Crosshair aria-hidden />

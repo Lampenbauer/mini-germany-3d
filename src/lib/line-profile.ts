@@ -35,9 +35,6 @@ const PEAK_TO = 9 * 3600
  */
 export const DIRECTION_SPREAD = 0.1
 
-/** Below this rise a route counts as flat and reports no height range. */
-const FLAT_ROUTE_METERS = 5
-
 export interface LineProfile {
   lineId: string
   mode: TransitMode
@@ -50,10 +47,6 @@ export interface LineProfile {
   stopCount: [number, number]
   /** Mean distance between consecutive stops over both directions. */
   meanStopSpacing: number
-  /** Share of the route running underground, 0..1. */
-  tunnelShare: number
-  /** Terrain along the route in meters NHN; null where no heights exist. */
-  heightRange: { min: number; max: number } | null
   /** First and last departure of the day, seconds of day. */
   service: { first: number; last: number } | null
   /**
@@ -104,20 +97,6 @@ export function buildLineProfile(
   const spans = line.directions.reduce((sum, d) => sum + Math.max(0, d.stops.length - 1), 0)
   const meanStopSpacing = spans > 0 ? (d0.totalLength + d1.totalLength) / spans : 0
 
-  const tunnelLength = line.directions.reduce(
-    (sum, d) => sum + d.tunnels.reduce((s, [a, b]) => s + (b - a), 0),
-    0,
-  )
-  const totalLength = d0.totalLength + d1.totalLength
-  const tunnelShare = totalLength > 0 ? tunnelLength / totalLength : 0
-
-  // A flat route says nothing worth a row – the Warnow ferries run at
-  // water level, and "0–0 m NHN" is noise, not information.
-  const heights = line.directions.flatMap((d) => d.heights ?? []).filter(Number.isFinite)
-  const min = heights.length ? Math.min(...heights) : 0
-  const max = heights.length ? Math.max(...heights) : 0
-  const heightRange = heights.length && max - min >= FLAT_ROUTE_METERS ? { min, max } : null
-
   const perDirection = departuresByDirection(schedule, line.id)
   const departures = perDirection.flat().sort((a, b) => a - b)
   const service = departures.length ? { first: departures[0], last: departures[departures.length - 1] } : null
@@ -149,8 +128,6 @@ export function buildLineProfile(
     lengthMeters,
     stopCount,
     meanStopSpacing,
-    tunnelShare,
-    heightRange,
     service,
     headway,
     trips,
@@ -191,9 +168,26 @@ export function formatServiceTime(seconds: number): string {
  * on the app's UI tick, so it stays a filter and a median over lists the
  * app already holds – no lookups, no allocation beyond the result.
  */
+/** One of the line's vehicles, as the card lists it. */
+export interface LineVehicle {
+  /** Simulation trip id – what selecting the vehicle needs. */
+  id: string
+  direction: 0 | 1
+  destination: string
+  nextStopName: string
+  status: 'dwell' | 'moving'
+  inTunnel: boolean
+  delaySeconds: number
+  realtime: boolean
+}
+
 export interface LineActivity {
-  /** Vehicles of this line on the map at this instant. */
-  running: number
+  /**
+   * The line's vehicles on the map at this instant, grouped by direction
+   * and ordered by how far along the route they are – the order they
+   * would appear to someone following the line on the map.
+   */
+  vehicles: LineVehicle[]
   /**
    * Next scheduled departure per direction in seconds of day, null once
    * that direction is done for the day. Index matches the directions, so
@@ -216,12 +210,37 @@ export interface LineActivity {
 }
 
 export function buildLineActivity(
-  lineId: string,
+  line: PreparedLine,
   schedule: ScheduleJson | undefined,
   snapshots: readonly VehicleSnapshot[],
   nowSeconds: number,
 ): LineActivity {
+  const lineId = line.id
   const own = snapshots.filter((s) => s.lineId === lineId)
+
+  // Progress along the route, cheaply: the next stop's position in the
+  // direction's own stop list. A vehicle heading for stop 3 is ahead of
+  // one heading for stop 12, without asking the simulation for either.
+  const stopOrder = line.directions.map(
+    (d) => new Map(d.stops.map((stop, index) => [stop.name, index])),
+  )
+  const vehicles: LineVehicle[] = own
+    .map((s) => ({
+      id: s.id,
+      direction: s.direction,
+      destination: s.destination,
+      nextStopName: s.nextStopName,
+      status: s.status,
+      inTunnel: s.inTunnel,
+      delaySeconds: s.delaySeconds,
+      realtime: s.realtime,
+    }))
+    .sort(
+      (a, b) =>
+        a.direction - b.direction ||
+        (stopOrder[a.direction].get(a.nextStopName) ?? 0) -
+          (stopOrder[b.direction].get(b.nextStopName) ?? 0),
+    )
   // After-midnight service is encoded past 24:00, so a plain ">= now"
   // finds it while the day is still running; once the clock has wrapped
   // past the last departure the direction is done.
@@ -239,5 +258,5 @@ export function buildLineActivity(
     ? { medianSeconds: median(realtimeDelays), vehicles: realtimeDelays.length }
     : null
 
-  return { running: own.length, nextDeparture, delay }
+  return { vehicles, nextDeparture, delay }
 }
