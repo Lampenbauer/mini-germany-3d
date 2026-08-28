@@ -66,18 +66,19 @@ afterEach(() => {
 })
 
 describe('App (UI shell)', () => {
-  it('renders title, clock, and status badges', () => {
+  it('renders title and clock', () => {
     render(<App />)
     expect(screen.getByText('Mini Rostock 3D')).toBeInTheDocument()
     expect(screen.getByTestId('sim-clock')).toBeInTheDocument()
-    expect(screen.getByTestId('tileset-status')).toHaveTextContent('Offline mode')
-    // The data-source badge only appears as a warning for approximated
-    // demo geometry – real OSM data shows no badge.
-    if (loadBundledNetwork().meta.source === 'osm') {
-      expect(screen.queryByTestId('data-source')).not.toBeInTheDocument()
-    } else {
-      expect(screen.getByTestId('data-source')).toHaveTextContent('Demo data (approximated)')
-    }
+  })
+
+  it('reports the basemap and the data source it ended up with', () => {
+    // The panel used to carry these as badges. They are still worth
+    // asserting – offline mode is what the whole test run depends on –
+    // so they moved to the debug API rather than out of the suite.
+    render(<App />)
+    expect(window.__mrt?.tilesetStatus()).toBe('offline')
+    expect(window.__mrt?.dataSource).toBe(loadBundledNetwork().meta.source)
   })
 
   it('shows all lines with their switch enabled', () => {

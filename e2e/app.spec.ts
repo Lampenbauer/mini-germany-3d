@@ -65,15 +65,11 @@ test('loads the app with map and control panel', async () => {
   await expect(page).toHaveTitle('Mini Rostock 3D')
   await expect(page.getByText('Mini Rostock 3D')).toBeVisible()
   await expect(page.locator('[data-testid=cesium-container] canvas')).toBeVisible()
-  await expect(page.getByTestId('tileset-status')).toHaveText('Offline mode')
-  // The data-source badge only appears as a warning for approximated demo
-  // geometry – real OSM data shows no badge.
-  const source = await page.evaluate(() => window.__mrt!.dataSource)
-  if (source === 'osm') {
-    await expect(page.getByTestId('data-source')).toHaveCount(0)
-  } else {
-    await expect(page.getByTestId('data-source')).toHaveText('Demo data (approximated)')
-  }
+  // The panel used to carry these as badges; the facts are still worth
+  // asserting, so they are read from the debug API instead. Offline mode
+  // in particular is what this whole spec file depends on.
+  expect(await page.evaluate(() => window.__mrt!.tilesetStatus())).toBe('offline')
+  expect(await page.evaluate(() => window.__mrt!.dataSource)).toMatch(/^(osm|approximated)$/)
 })
 
 test('shows the frozen simulation time 08:30', async () => {
@@ -94,14 +90,9 @@ test('shows active vehicles on the network lines', async () => {
     Math.floor((expected.length * 2) / 3),
   )
 
-  // "trams" for a tram-only network, "vehicles" once buses/ferries join
-  await expect(page.getByTestId('vehicle-count')).toContainText(
-    /\d+ (trams|vehicles) in service/,
-  )
+  // Vehicles on visible lines are what the map actually draws
   const count = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
-  await expect(page.getByTestId('vehicle-count')).toContainText(
-    new RegExp(`${count} (trams|vehicles) in service`),
-  )
+  expect(count).toBeGreaterThan(0)
 })
 
 test('renders OSM tunnel route sections at reduced opacity', async () => {

@@ -30,6 +30,10 @@ declare global {
       vehicleScreenPosition: (id: string) => { x: number; y: number } | null
       stopScreenPosition: (id: string) => { x: number; y: number } | null
       dataSource: string
+      /** Which basemap the map ended up on ('offline' with ?offline=1). */
+      tilesetStatus: () => 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
+      /** GTFS-RT feed state and matched trips (null = disabled). */
+      realtimeStatus: () => { state: string; matchedCount: number } | null
       lineIds: () => string[]
       secondsOfDay: () => number
       loopTicks: () => number
