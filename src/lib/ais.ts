@@ -104,8 +104,15 @@ export interface FerrySnapshotLike {
   bearing: number
 }
 
-/** AIS fixes older than this cannot stand in for a ferry. */
-const FERRY_FIX_MAX_AGE_MS = 3 * 60_000
+/**
+ * AIS fixes older than this cannot stand in for a ferry. Kept just above
+ * the ~60 s grid aisstream delivers, so a ferry normally rides her real
+ * fix and only falls back to the timetable when one is genuinely missing.
+ * Three minutes was too generous: reckoning a stale fix across a crossing
+ * that takes about two – decelerating and turning at the pier – drove the
+ * Warnemünde boat straight over the quay onto land.
+ */
+const FERRY_FIX_MAX_AGE_MS = 75_000
 /** Beyond this GTFS-to-AIS distance the fix belongs to no simulated trip. */
 const FERRY_SNAP_MAX_METERS = 500
 
