@@ -82,6 +82,8 @@ export interface CesiumMapOptions {
    */
   maxRainDrops?: number
   onSelectVehicle?: (vehicleId: string | null) => void
+  /** Click on an AIS ship, by MMSI (null = selection cleared). */
+  onSelectVessel?: (mmsi: number | null) => void
   /** Click on a stop disc or name plate (null = click on empty map). */
   onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
@@ -399,6 +401,9 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.routes.heightOffset + FERRY_ROUTE_EXTRA_LIFT
       },
+      noteCameraFlight: (durationMs) => {
+        this.flyingUntil = performance.now() + durationMs
+      },
     })
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
@@ -481,10 +486,13 @@ export class CesiumMap {
         this.opts.onSelectVehicle?.(target.id)
       } else if (target?.type === 'stop') {
         this.opts.onSelectStop?.(target.id)
+      } else if (target?.type === 'vessel') {
+        this.opts.onSelectVessel?.(Number(target.id))
       } else {
         // Empty map clears whichever selection is up
         this.opts.onSelectVehicle?.(null)
         this.opts.onSelectStop?.(null)
+        this.opts.onSelectVessel?.(null)
       }
     }, ScreenSpaceEventType.LEFT_CLICK)
 
@@ -519,9 +527,12 @@ export class CesiumMap {
    * Selectable object under a screen position, or null. Vehicle body
    * primitives return their instance id as a string, the number label an
    * Entity – both carry the "vehicle:" prefix. Stop discs and name plates
-   * are billboards whose id is the "stop:"-prefixed stop id.
+   * are billboards whose id is the "stop:"-prefixed stop id, and AIS hulls
+   * and their name labels the "vessel:"-prefixed MMSI.
    */
-  private pickTarget(position: Cartesian2): { type: 'vehicle' | 'stop'; id: string } | null {
+  private pickTarget(
+    position: Cartesian2,
+  ): { type: 'vehicle' | 'stop' | 'vessel'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
     const raw =
@@ -529,6 +540,7 @@ export class CesiumMap {
     if (raw === null) return null
     if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
     if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
+    if (raw.startsWith('vessel:')) return { type: 'vessel', id: raw.slice('vessel:'.length) }
     return null
   }
 
@@ -807,7 +819,26 @@ export class CesiumMap {
   }
 
   setFollow(id: string | null): void {
+    // One camera between the two layers, so every change of mind has to
+    // release the other one – including a release, which is where this
+    // used to go wrong: clearing the vehicle follow left a still-engaged
+    // ship chase behind, and the next tick threw the camera into orbit.
+    this.vesselLayer.setFollow(null)
     this.vehicleLayer.setFollow(id)
+  }
+
+  /**
+   * Follow an AIS ship, or nobody. A camera cannot chase a tram and a
+   * freighter at once, so this releases the vehicle side either way –
+   * see setFollow above for why "either way" matters.
+   */
+  setFollowVessel(mmsi: number | null): void {
+    this.vehicleLayer.setFollow(null)
+    this.vesselLayer.setFollow(mmsi)
+  }
+
+  hasVessel(mmsi: number): boolean {
+    return this.vesselLayer.hasVessel(mmsi)
   }
 
   hasVehicle(id: string): boolean {

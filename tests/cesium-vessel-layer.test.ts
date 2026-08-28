@@ -1,5 +1,5 @@
 import { Cartesian3, Cartographic, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib/ais-extract'
 import { VesselLayer } from '@/map/VesselLayer'
 
@@ -9,6 +9,8 @@ import { VesselLayer } from '@/map/VesselLayer'
  * fall back to the MMSI until a name arrives, and records that leave
  * with their vessel.
  */
+
+afterEach(() => vi.restoreAllMocks())
 
 const NOW = 1_800_000_000_000
 /** The instant the playback renders when the wall clock reads NOW. */
@@ -36,6 +38,7 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     typeCode: 0,
     lengthM: 52,
     widthM: 12,
+    draughtM: 3.5,
     positionAt: NOW,
     track: [],
     ...overrides,
@@ -49,6 +52,7 @@ function harness({
 }: { cameraLon?: number; cameraHeight?: number; frustum?: Intersect } = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
+  const cameraCalls: unknown[][] = []
   const viewer = {
     scene: {
       primitives: {
@@ -62,22 +66,36 @@ function harness({
     },
     camera: {
       positionWC: Cartesian3.fromDegrees(cameraLon, 54.098, cameraHeight),
+      position: Cartesian3.fromDegrees(cameraLon, 54.098, cameraHeight),
       directionWC: new Cartesian3(0, 0, -1),
       upWC: new Cartesian3(0, 1, 0),
+      heading: 0,
+      pitch: -0.3,
       frustum: {
         computeCullingVolume: () => ({ computeVisibility: () => frustum }),
       },
+      // The follow camera's Cesium surface – the chase maths is covered by
+      // the vehicle layer's own tests, here it only has to be reachable.
+      lookAt: (...args: unknown[]) => cameraCalls.push(['lookAt', ...args]),
+      lookAtTransform: (...args: unknown[]) => cameraCalls.push(['lookAtTransform', ...args]),
+      flyToBoundingSphere: (...args: unknown[]) =>
+        cameraCalls.push(['flyToBoundingSphere', ...args]),
+      cancelFlight: () => cameraCalls.push(['cancelFlight']),
     },
   } as unknown as Viewer
   const requestRender = vi.fn()
-  const layer = new VesselLayer(viewer, { requestRender, waterSurfaceHeight: 37.75 })
+  const layer = new VesselLayer(viewer, {
+    requestRender,
+    waterSurfaceHeight: 37.75,
+    noteCameraFlight: () => {},
+  })
   const record = (mmsi: number) =>
     (
       layer as unknown as {
         vessels: Map<number, { matrix: Matrix4; labelEntity: Entity; labelText: string }>
       }
     ).vessels.get(mmsi)
-  return { layer, record, removedPrimitives, removedEntities, requestRender }
+  return { layer, record, removedPrimitives, removedEntities, requestRender, cameraCalls }
 }
 
 function positionOf(matrix: Matrix4): Cartographic {
@@ -217,6 +235,55 @@ describe('VesselLayer', () => {
     expect(h.removedPrimitives).toHaveLength(0)
     h.layer.setLabelsVisible(true)
     expect(record.labelEntity.show).toBe(true)
+  })
+
+  it('approaches a followed ship by flight, then chases her every tick', () => {
+    // The flight is guarded by the wall clock, not the sync's timestamp
+    let clock = 10_000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const h = harness()
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW)
+    expect(h.layer.hasVessel(211222290)).toBe(true)
+
+    h.layer.setFollow(211222290)
+    // Following starts with an approach flight, not a teleport
+    expect(h.cameraCalls.map((c) => c[0])).toContain('flyToBoundingSphere')
+
+    // While the flight runs, a tick must not cut it short with a lookAt
+    h.cameraCalls.length = 0
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW + 33)
+    expect(h.cameraCalls.map((c) => c[0])).not.toContain('lookAt')
+
+    // Once it is over, every tick aims the camera at the ship again
+    clock += 10_000
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW + 66)
+    expect(h.cameraCalls.map((c) => c[0])).toContain('lookAt')
+  })
+
+  it('lets a followed ship go and leaves the camera to the user', () => {
+    const h = harness()
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW)
+    h.layer.setFollow(211222290)
+    h.cameraCalls.length = 0
+
+    h.layer.setFollow(null)
+    // Releasing resets the reference frame …
+    expect(h.cameraCalls.map((c) => c[0])).toContain('lookAtTransform')
+    // … and no later tick may grab the camera back
+    h.cameraCalls.length = 0
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW + 5_000)
+    expect(h.cameraCalls.map((c) => c[0])).not.toContain('lookAt')
+  })
+
+  it('waits for a ship that is not on the map yet instead of flying nowhere', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000)
+    const h = harness()
+    expect(h.layer.hasVessel(211222290)).toBe(false)
+    h.layer.setFollow(211222290)
+    // Nothing to fly to – but the chase engages on the sync that draws her
+    expect(h.cameraCalls.map((c) => c[0])).not.toContain('flyToBoundingSphere')
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW)
+    expect(h.cameraCalls.map((c) => c[0])).toContain('lookAt')
   })
 
   it('keeps names off while the toggle is off, arrivals included', () => {

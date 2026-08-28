@@ -15,7 +15,7 @@
  * Response (also served while a refresh is still pending):
  *   { "timestamp": <unix ms of the state>, "vessels": [ { mmsi, name,
  *     lat, lon, sogKn, cogDeg, headingDeg, navStatus, typeCode,
- *     lengthM, widthM, positionAt, track }, ... ] }
+ *     lengthM, widthM, draughtM, positionAt, track }, ... ] }
  * track is the vessel's recent fixes ([unix ms, lat, lon, sogKn, cogDeg,
  * headingDeg], oldest first): the app renders the fleet 4 minutes behind
  * the wall clock and interpolates BETWEEN these – see the playback notes
@@ -145,6 +145,7 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         'typeCode' => 0,
         'lengthM' => null,
         'widthM' => null,
+        'draughtM' => null,
         'positionAt' => 0,
         'track' => [],
     ];
@@ -195,6 +196,10 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
     [$length, $width] = mrt_ais_dimensions($staticData['Dimension'] ?? $reportB['Dimension'] ?? null);
     if ($length !== null) $vessel['lengthM'] = $length;
     if ($width !== null) $vessel['widthM'] = $width;
+    // Draught rides with the name and dimensions – only the full static
+    // report carries it, and 0 is AIS for "not reported", not a value.
+    $draught = $staticData['MaximumStaticDraught'] ?? null;
+    if (is_numeric($draught) && $draught > 0) $vessel['draughtM'] = (float) $draught;
 
     if ($vessel['lat'] !== null) $state[$mmsi] = $vessel;
 }

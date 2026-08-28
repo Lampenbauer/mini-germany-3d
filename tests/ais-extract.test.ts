@@ -36,6 +36,7 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     typeCode: 0,
     lengthM: null,
     widthM: null,
+    draughtM: null,
     positionAt: NOW,
     track: [],
     ...overrides,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compass, Home, Layers2, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { VehicleCard } from '@/components/VehicleCard'
+import { VesselCard } from '@/components/VesselCard'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
@@ -193,6 +194,9 @@ export default function App() {
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
+  const selectedMmsiRef = useRef<number | null>(null)
+  /** Latest AIS list, so a selected ship's card refreshes with the polls. */
+  const aisVesselsRef = useRef<AisVessel[]>([])
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
@@ -214,6 +218,7 @@ export default function App() {
   const [vehicleCount, setVehicleCount] = useState(0)
   const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
+  const [selectedVessel, setSelectedVessel] = useState<AisVessel | null>(null)
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
@@ -283,6 +288,12 @@ export default function App() {
       selectedStopIdRef.current = null
       setSelectedStopId(null)
     }
+    // …and the ship card, which shares the same corner of the screen
+    if (id !== null && selectedMmsiRef.current !== null) {
+      selectedMmsiRef.current = null
+      setSelectedVessel(null)
+      mapRef.current?.setFollowVessel(null)
+    }
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
     const map = mapRef.current
@@ -301,15 +312,46 @@ export default function App() {
     if (followingRef.current) map?.setFollow(id)
   }, [])
 
+  /**
+   * Ship selection (click on a hull or its name label). Ships carry no
+   * hash state – they are not reproducible the way a stop or a scheduled
+   * trip is, since which ships are in the harbor depends on the minute.
+   */
+  const selectVessel = useCallback(
+    (mmsi: number | null) => {
+      if (mmsi !== null) {
+        if (selectedIdRef.current !== null) selectVehicle(null)
+        if (selectedStopIdRef.current !== null) {
+          selectedStopIdRef.current = null
+          setSelectedStopId(null)
+        }
+      }
+      selectedMmsiRef.current = mmsi
+      if (mmsi === null) {
+        setSelectedVessel(null)
+        if (followingRef.current) {
+          followingRef.current = false
+          setFollowing(false)
+          mapRef.current?.setFollowVessel(null)
+        }
+        return
+      }
+      setSelectedVessel(aisVesselsRef.current.find((v) => v.mmsi === mmsi) ?? null)
+      if (followingRef.current) mapRef.current?.setFollowVessel(mmsi)
+    },
+    [selectVehicle],
+  )
+
   /** Stop selection (click on a disc/name plate, or a #stop= link). */
   const selectStop = useCallback(
     (id: string | null) => {
       if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
+      if (id !== null && selectedMmsiRef.current !== null) selectVessel(null)
       selectedStopIdRef.current = id
       setSelectedStopId(id)
       writeHashRef.current()
     },
-    [selectVehicle],
+    [selectVehicle, selectVessel],
   )
 
   // Initialization: map, simulation, render loop
@@ -380,6 +422,15 @@ export default function App() {
         // The city ferries sail as simulated vehicles on their timetable –
         // drawing their AIS twins too would put two boats on one crossing.
         aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
+        aisVesselsRef.current = aisBackdrop
+        // An open ship card follows its ship's fixes; a ship that has left
+        // the picture closes it rather than freezing at her last position.
+        const mmsi = selectedMmsiRef.current
+        if (mmsi !== null) {
+          const fresh = aisBackdrop.find((v) => v.mmsi === mmsi) ?? null
+          if (fresh === null) selectVessel(null)
+          else setSelectedVessel(fresh)
+        }
       })
       aisClient.start(config.ais.pollIntervalMs)
     }
@@ -449,6 +500,7 @@ export default function App() {
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
+      onSelectVessel: selectVessel,
       onSelectStop: selectStop,
       onTilesetStatus: setTilesetStatus,
       onCameraChanged: scheduleHashWrite,
@@ -971,11 +1023,13 @@ export default function App() {
 
   const handleToggleFollow = useCallback(() => {
     const id = selectedIdRef.current
-    if (!id) return
+    const mmsi = selectedMmsiRef.current
+    if (id === null && mmsi === null) return
     const next = !followingRef.current
     followingRef.current = next
     setFollowing(next)
-    mapRef.current?.setFollow(next ? id : null)
+    if (mmsi !== null) mapRef.current?.setFollowVessel(next ? mmsi : null)
+    else mapRef.current?.setFollow(next && id !== null ? id : null)
   }, [])
 
   const handleResetCamera = useCallback(() => {
@@ -983,6 +1037,7 @@ export default function App() {
       followingRef.current = false
       setFollowing(false)
       mapRef.current?.setFollow(null)
+      mapRef.current?.setFollowVessel(null)
     }
     mapRef.current?.setCameraHome(true)
   }, [])
@@ -1154,7 +1209,19 @@ export default function App() {
         />
       </div>
 
-      {!selected && selectedStop && (
+      {selectedVessel && (
+        <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <VesselCard
+            vessel={selectedVessel}
+            nowMs={Date.now()}
+            following={following}
+            onToggleFollow={handleToggleFollow}
+            onClose={() => selectVessel(null)}
+          />
+        </div>
+      )}
+
+      {!selected && !selectedVessel && selectedStop && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <StopCard
             stop={selectedStop}

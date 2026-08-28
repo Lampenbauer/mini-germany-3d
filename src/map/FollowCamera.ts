@@ -71,6 +71,15 @@ export class FollowCamera {
   private offset: HeadingPitchRange | null = null
   private chase = false
   /**
+   * Whether this instance currently owns the camera. Everything below
+   * reads camera.position as a distance from the subject, which it only
+   * is inside our own lookAt reference frame – outside it, that is the
+   * distance from the center of the earth. Adopting THAT as the viewing
+   * range put the camera 6000 km up looking straight down, which is
+   * exactly what a stale chase used to do after its layer was released.
+   */
+  private engaged = false
+  /**
    * Safety cap for the approach flight. The tween only really ends with
    * its complete/cancel callback – under slow rendering that can be well
    * after the nominal duration, and a tween frame landing after the
@@ -92,6 +101,7 @@ export class FollowCamera {
   engage(target: FollowTarget | null): void {
     this.offset = null
     this.chase = true
+    this.engaged = true
     if (target) {
       this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
       const center = Cartesian3.fromDegrees(target.lon, target.lat, target.centerHeight)
@@ -119,6 +129,7 @@ export class FollowCamera {
   release(): void {
     this.offset = null
     this.chase = false
+    this.engaged = false
     // Also abort a still-running approach flight (e.g. "Stop following"
     // clicked mid-flight), otherwise it lands on the abandoned subject.
     if (performance.now() < this.flightUntil) this.viewer.camera.cancelFlight()
@@ -129,6 +140,9 @@ export class FollowCamera {
 
   /** One frame of chasing. Call while the subject is being synced. */
   update(target: FollowTarget): void {
+    // Released, or never engaged: the camera belongs to the user or to
+    // the other layer, and touching it here is how it ends up in orbit.
+    if (!this.engaged) return
     // The approach flight is still running – lookAt would cut it short.
     if (performance.now() < this.flightUntil) return
     const camera = this.viewer.camera

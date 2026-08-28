@@ -21,6 +21,7 @@ import {
   UniformType,
   Cartesian2,
   Cartesian3,
+  Cartographic,
   Color,
   ColorGeometryInstanceAttribute,
   ConstantPositionProperty,
@@ -39,11 +40,14 @@ import {
   type Viewer,
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
+import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface (calibrated like the ferry routes). */
   readonly waterSurfaceHeight: number
+  /** A camera flight is starting – keeps the render loop at full rate. */
+  noteCameraFlight(durationMs: number): void
 }
 
 /** Ship names fade in below this camera distance (meters). */
@@ -162,6 +166,9 @@ export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
   private visible = true
   private labelsVisible = true
+  /** MMSI the camera is chasing, null when free. */
+  private followMmsi: number | null = null
+  private readonly followCamera: FollowCamera
   private frustumSphere = new BoundingSphere()
   private lastSyncMs = 0
   /** Lights the hulls' glazing at night (see WINDOW_GLOW_COLOR). */
@@ -182,7 +189,9 @@ export class VesselLayer {
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VesselLayerHost,
-  ) {}
+  ) {
+    this.followCamera = new FollowCamera(viewer, host)
+  }
 
   /**
    * Whether `position` sits inside the view and close enough to matter.
@@ -324,6 +333,19 @@ export class VesselLayer {
         record.lastBearing = record.displayBearing
       }
 
+      // Chase from the DRAWN pose, not the raw sample: the display ease
+      // is what the eye follows, so the camera has to ride the same curve
+      // or it would jitter against the hull it is chasing.
+      if (vessel.mmsi === this.followMmsi) {
+        const carto = Cartographic.fromCartesian(record.displayPosition)
+        this.followCamera.update({
+          lon: CesiumMath.toDegrees(carto.longitude),
+          lat: CesiumMath.toDegrees(carto.latitude),
+          centerHeight: this.host.waterSurfaceHeight + drawnHeight + 2,
+          bearingDeg: record.displayBearing,
+        })
+      }
+
       const text = vessel.name || String(vessel.mmsi)
       if (text !== record.labelText && record.labelEntity.label) {
         record.labelText = text
@@ -357,6 +379,35 @@ export class VesselLayer {
       record.labelEntity.show = visible && this.labelsVisible
     }
     this.host.requestRender()
+  }
+
+  /**
+   * Follow a ship by MMSI, or nobody. A ship that is not on the map yet
+   * gets no approach flight – the first sync that draws her engages the
+   * chase instead, which is also what happens when she is off screen.
+   */
+  setFollow(mmsi: number | null): void {
+    this.followMmsi = mmsi
+    if (mmsi === null) {
+      this.followCamera.release()
+      return
+    }
+    const record = this.vessels.get(mmsi)
+    if (!record) {
+      this.followCamera.engage(null)
+      return
+    }
+    const carto = Cartographic.fromCartesian(record.displayPosition)
+    this.followCamera.engage({
+      lon: CesiumMath.toDegrees(carto.longitude),
+      lat: CesiumMath.toDegrees(carto.latitude),
+      centerHeight: this.host.waterSurfaceHeight + record.builtHeight + 2,
+      bearingDeg: record.displayBearing,
+    })
+  }
+
+  hasVessel(mmsi: number): boolean {
+    return this.vessels.has(mmsi)
   }
 
   /** Ship names off – the fleet's half of the Labels layer toggle. */

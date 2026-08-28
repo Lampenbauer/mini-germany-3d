@@ -43,6 +43,8 @@ export interface AisVessel {
   typeCode: number
   lengthM: number | null
   widthM: number | null
+  /** Maximum static draught in m, from ShipStaticData; null unreported. */
+  draughtM: number | null
   /** Unix ms of the last message that carried coordinates. */
   positionAt: number
   /** Recent fixes, oldest first – the playback interpolates these. */
@@ -114,6 +116,7 @@ export interface AisRawMessage {
       Name?: string
       Type?: number
       Dimension?: RawDimension
+      MaximumStaticDraught?: number
     }
     StaticDataReport?: {
       ReportA?: { Name?: string; Valid?: boolean }
@@ -163,6 +166,7 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
     typeCode: 0,
     lengthM: null,
     widthM: null,
+    draughtM: null,
     positionAt: 0,
     track: [],
   }
@@ -208,6 +212,10 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
   const dim = dimensions(staticData?.Dimension ?? (partReport?.ReportB?.Valid ? partReport.ReportB.Dimension : undefined))
   if (dim.length !== null) vessel.lengthM = dim.length
   if (dim.width !== null) vessel.widthM = dim.width
+  // Draught rides with the name and dimensions – only the full static
+  // report carries it, and 0 is AIS for "not reported", not a value.
+  const draught = staticData?.MaximumStaticDraught
+  if (typeof draught === 'number' && draught > 0) vessel.draughtM = draught
 
   if (Number.isFinite(vessel.lat)) state.set(mmsi, vessel)
 }
