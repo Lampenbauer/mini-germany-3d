@@ -205,7 +205,9 @@ const VEHICLE_MODELS: Partial<Record<TransitMode, VehicleModelSpec>> = {
       { uri: 'models/tram-mid-panto.glb', length: 6.1 },
       { uri: 'models/tram-mid.glb', length: 6.1 },
       { uri: 'models/tram-mid.glb', length: 6.1 },
-      { uri: 'models/tram-end.glb', length: 6.55, flipped: true },
+      // Own mesh, not the front car flipped: the 180° turn would put
+      // the door on the left of the car, and the 6N2 boards right-only.
+      { uri: 'models/tram-end-rear.glb', length: 6.55, flipped: true },
     ],
   },
   train: {

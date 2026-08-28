@@ -14,6 +14,7 @@ import {
 /** Expected bounding dimensions per generated file (length, width, height). */
 const EXPECTED: Record<string, { length: number; width: number; height: number }> = {
   'tram-end': { length: 6.55, width: 2.65, height: HEIGHTS.tram },
+  'tram-end-rear': { length: 6.55, width: 2.65, height: HEIGHTS.tram },
   'tram-mid': { length: 6.1, width: 2.65, height: HEIGHTS.tram },
   'tram-mid-panto': { length: 6.1, width: 2.65, height: HEIGHTS.tram },
   'sbahn-end': { length: 18.6, width: 2.92, height: HEIGHTS.train },

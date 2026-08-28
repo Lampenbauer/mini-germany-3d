@@ -48,9 +48,22 @@ export function windowBand(
   y1: number,
   z0: number,
   z1: number,
-  opts?: { panes?: number },
+  opts?: { panes?: number; holes?: { z: number; width: number; sides?: number[] }[] },
 ): void
-export function doors(mesh: Mesh, w: number, y0: number, y1: number, z: number, leafWidth?: number): void
+export function doors(
+  mesh: Mesh,
+  w: number,
+  y0: number,
+  y1: number,
+  z: number,
+  leafWidth?: number,
+  sides?: number[],
+): void
+export function doorHole(
+  z: number,
+  leafWidth?: number,
+  sides?: number[],
+): { z: number; width: number; sides?: number[] }
 export function pantograph(mesh: Mesh, roofY: number, z: number): void
 export function bogie(mesh: Mesh, y0: number, z: number, width: number): void
 export function wheel(

@@ -30,6 +30,22 @@ import {
 export const HEIGHTS = { tram: 3.6, train: 4.3, bus: 3.1 }
 
 /**
+ * The mesh's -X renders as the right-hand side of travel: Cesium maps
+ * glTF +Z onto the vehicle's forward axis and glTF +X onto its LEFT.
+ * Confirmed by a human looking at the running app – screenshots kept
+ * misleading here (a camera placed by compass math trusted the snapshot
+ * bearing of a bus dwelling at a stop, and nose-vs-tail is genuinely
+ * hard to tell on a low-poly model), so when this side ever looks wrong
+ * again: check it in the app, not on stills.
+ * Buses and the unidirectional 6N2 board on this side only; the
+ * Talent 2 keeps doors in both walls. A flipped rear cab car swaps the
+ * sides, which is why the tram's rear end section is its own mesh
+ * (tram-end-rear) with the door mirrored to +X.
+ */
+const RIGHT = [-1]
+const MIRRORED = [1]
+
+/**
  * Shared vertical layout of a car: skirt from the wheels up to the
  * floor, body shell above, roof sheet on top.
  */
@@ -87,8 +103,12 @@ function carShell(mesh, { length, width, bodyTop, floor, noseFront, noseBack, be
   )
 }
 
-/** Vossloh 6N2 end section (cab at +Z). */
-export function tramEnd() {
+/**
+ * Vossloh 6N2 end section (cab at +Z). `doorSides` defaults to the
+ * right wall; the rear section of the consist rides flipped 180° and
+ * passes MIRRORED so its door comes out on the right side of the CAR.
+ */
+export function tramEnd({ doorSides = RIGHT } = {}) {
   const mesh = createMesh()
   const H = HEIGHTS.tram
   const yBase = -H / 2
@@ -108,9 +128,9 @@ export function tramEnd() {
   const winBottom = floor + 0.35
   windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.35, length / 2 - 1.75, {
     panes: 2,
-    holes: [doorHole(-0.35)],
+    holes: [doorHole(-0.35, undefined, doorSides)],
   })
-  doors(mesh, width, floor - 0.42, winTop, -0.35)
+  doors(mesh, width, floor - 0.42, winTop, -0.35, undefined, doorSides)
   bogie(mesh, yBase, -length / 2 + 1.35, width)
   // Rooftop resistor/AC hump behind the cab
   box(mesh, 'roof', 0, bodyTop + 0.16, -0.9, width * 0.6, 0.22, 2.2)
@@ -135,9 +155,9 @@ export function tramMid({ withPantograph = false } = {}) {
   const winBottom = floor + 0.35
   windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.5, length / 2 - 0.5, {
     panes: 2,
-    holes: [doorHole(0)],
+    holes: [doorHole(0, undefined, RIGHT)],
   })
-  doors(mesh, width, floor - 0.42, winTop, 0)
+  doors(mesh, width, floor - 0.42, winTop, 0, undefined, RIGHT)
   bogie(mesh, yBase, 0, width)
   if (withPantograph) pantograph(mesh, bodyTop + 0.09, 0.4, H / 2)
   else box(mesh, 'roof', 0, bodyTop + 0.16, 0, width * 0.6, 0.22, 2.4)
@@ -240,10 +260,10 @@ export function bus() {
   const midDoorZ = -length / 2 + 4.2
   windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.7, length / 2 - 1.5, {
     panes: 4,
-    holes: [doorHole(frontDoorZ, 1.15), doorHole(midDoorZ, 1.15)],
+    holes: [doorHole(frontDoorZ, 1.15, RIGHT), doorHole(midDoorZ, 1.15, RIGHT)],
   })
-  doors(mesh, width, floor - 0.35, winTop, frontDoorZ, 1.15)
-  doors(mesh, width, floor - 0.35, winTop, midDoorZ, 1.15)
+  doors(mesh, width, floor - 0.35, winTop, frontDoorZ, 1.15, RIGHT)
+  doors(mesh, width, floor - 0.35, winTop, midDoorZ, 1.15, RIGHT)
   // Two axles of visible wheels, tucked into the clearance under the
   // skirt like into wheel arches. Front axle behind the front door,
   // rear axle clear of the middle door – a plausible 12 m wheelbase.
@@ -406,7 +426,8 @@ export function ferryBreitling() {
 
 /** Every file the build script writes: name → mesh factory. */
 export const FLEET = {
-  'tram-end': tramEnd,
+  'tram-end': () => tramEnd(),
+  'tram-end-rear': () => tramEnd({ doorSides: MIRRORED }),
   'tram-mid': () => tramMid(),
   'tram-mid-panto': () => tramMid({ withPantograph: true }),
   'sbahn-end': sbahnEnd,

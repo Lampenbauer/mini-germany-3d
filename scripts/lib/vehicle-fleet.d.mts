@@ -4,7 +4,7 @@ import type { Mesh } from './vehicle-mesh.mjs'
 
 export const HEIGHTS: { tram: number; train: number; bus: number }
 export const FLEET: Record<string, () => Mesh>
-export function tramEnd(): Mesh
+export function tramEnd(opts?: { doorSides?: number[] }): Mesh
 export function tramMid(opts?: { withPantograph?: boolean }): Mesh
 export function sbahnEnd(): Mesh
 export function sbahnMid(): Mesh

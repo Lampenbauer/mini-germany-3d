@@ -163,22 +163,31 @@ export function windowBand(mesh, w, y0, y1, z0, z1, { panes = 1, holes = [] } = 
   const paneLength = (z1 - z0 - gap * (panes - 1)) / panes
   for (let i = 0; i < panes; i++) {
     const za = z0 + i * (paneLength + gap)
-    // Subtract every hole from this pane's [za, za+paneLength] interval
-    let pieces = [[za, za + paneLength]]
-    for (const hole of holes) {
-      const h0 = hole.z - hole.width / 2
-      const h1 = hole.z + hole.width / 2
-      pieces = pieces.flatMap(([a, b]) => {
-        if (h1 <= a || h0 >= b) return [[a, b]]
-        const kept = []
-        if (h0 > a) kept.push([a, h0])
-        if (h1 < b) kept.push([h1, b])
-        return kept
-      })
+    // Subtract every hole that exists on the wall at hand from the
+    // pane's [za, za+paneLength] interval. A door on the right only
+    // (buses, trams) leaves the left wall to the glazing – cutting both
+    // walls would put a blind hole where the pane belongs. Loop order
+    // (panes outer, sides inner) is what it always was, so meshes whose
+    // holes span both sides serialize byte-identically.
+    const piecesFor = (side) => {
+      let pieces = [[za, za + paneLength]]
+      for (const hole of holes) {
+        if (hole.sides && !hole.sides.includes(side)) continue
+        const h0 = hole.z - hole.width / 2
+        const h1 = hole.z + hole.width / 2
+        pieces = pieces.flatMap(([a, b]) => {
+          if (h1 <= a || h0 >= b) return [[a, b]]
+          const kept = []
+          if (h0 > a) kept.push([a, h0])
+          if (h1 < b) kept.push([h1, b])
+          return kept
+        })
+      }
+      return pieces
     }
-    for (const [a, b] of pieces) {
-      if (b - a < 0.2) continue // sliver panes read as seams, drop them
-      for (const side of [-1, 1]) {
+    for (const side of [-1, 1]) {
+      for (const [a, b] of piecesFor(side)) {
+        if (b - a < 0.2) continue // sliver panes read as seams, drop them
         box(mesh, 'glass', side * (w / 2 - 0.01), (y0 + y1) / 2, (a + b) / 2, 0.06, y1 - y0, b - a)
       }
     }
@@ -186,20 +195,26 @@ export function windowBand(mesh, w, y0, y1, z0, z1, { panes = 1, holes = [] } = 
 }
 
 /**
- * Double-leaf door on both sides. Layered strictly outward from the
- * wall – wall < window panes < leaf < door glazing, each step well clear
- * of the last – so no two faces of the assembly are ever coplanar.
+ * Double-leaf door. Layered strictly outward from the wall – wall <
+ * window panes < leaf < door glazing, each step well clear of the last –
+ * so no two faces of the assembly are ever coplanar.
+ *
+ * `sides` picks the walls that get one: road vehicles and unidirectional
+ * trams board on the right only, S-Bahn cars on both sides.
  */
-export function doors(mesh, w, y0, y1, z, leafWidth = 1.3) {
-  for (const side of [-1, 1]) {
+export function doors(mesh, w, y0, y1, z, leafWidth = 1.3, sides = [-1, 1]) {
+  for (const side of sides) {
     box(mesh, 'door', side * (w / 2 - 0.005), (y0 + y1) / 2, z, 0.06, y1 - y0, leafWidth)
     box(mesh, 'glass', side * (w / 2 + 0.0325), y1 - (y1 - y0) * 0.27, z, 0.015, (y1 - y0) * 0.42, leafWidth - 0.24)
   }
 }
 
-/** z-range a door assembly occupies – the hole the window band must cut. */
-export function doorHole(z, leafWidth = 1.3) {
-  return { z, width: leafWidth + 0.18 }
+/**
+ * z-range a door assembly occupies – the hole the window band must cut,
+ * on the same `sides` the door was built on.
+ */
+export function doorHole(z, leafWidth = 1.3, sides = undefined) {
+  return { z, width: leafWidth + 0.18, sides }
 }
 
 /**
