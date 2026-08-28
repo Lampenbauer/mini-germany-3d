@@ -53,6 +53,9 @@ export interface ControlPanelProps {
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
   onToggleStops: (visible: boolean) => void
+  /** Vehicle numbers and ship names – one switch for every name on the map. */
+  showLabels: boolean
+  onToggleLabels: (visible: boolean) => void
   vehicleCount: number
   tilesetStatus: TilesetStatus
   /** Warning badge for approximated geometry; null = no badge. */
@@ -298,6 +301,14 @@ export function ControlPanel(props: ControlPanelProps) {
                   aria-label={t('layers.showStops')}
                   checked={props.showStops}
                   onCheckedChange={props.onToggleStops}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{t('layers.labels')}</span>
+                <Switch
+                  aria-label={t('layers.showLabels')}
+                  checked={props.showLabels}
+                  onCheckedChange={props.onToggleLabels}
                 />
               </div>
             </div>

@@ -205,4 +205,29 @@ describe('VesselLayer', () => {
     h.layer.setVisible(true)
     expect(h.record(211222290)!.labelEntity.show).toBe(true)
   })
+
+  it('drops the ship names for the Labels toggle, hull untouched', () => {
+    const h = harness()
+    h.layer.sync([vessel()], NOW)
+    h.layer.setLabelsVisible(false)
+    const record = h.record(211222290)!
+    expect(record.labelEntity.show).toBe(false)
+    // Only the name goes – the vessel itself stays on the water
+    expect(h.layer.vesselCount).toBe(1)
+    expect(h.removedPrimitives).toHaveLength(0)
+    h.layer.setLabelsVisible(true)
+    expect(record.labelEntity.show).toBe(true)
+  })
+
+  it('keeps names off while the toggle is off, arrivals included', () => {
+    const h = harness()
+    h.layer.setLabelsVisible(false)
+    h.layer.sync([vessel()], NOW)
+    // A ship that arrives after the switch must not bring its name along
+    expect(h.record(211222290)!.labelEntity.show).toBe(false)
+    // …and the underground view must not hand it back on the way up
+    h.layer.setVisible(false)
+    h.layer.setVisible(true)
+    expect(h.record(211222290)!.labelEntity.show).toBe(false)
+  })
 })

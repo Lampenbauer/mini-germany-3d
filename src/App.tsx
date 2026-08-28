@@ -207,6 +207,7 @@ export default function App() {
   const [visibleLines, setVisibleLines] = useState<Set<string>>(new Set())
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
+  const [showLabels, setShowLabels] = useState(true)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -264,6 +265,7 @@ export default function App() {
   // Mirrors for the hash writer (closures in the init effect must not see
   // stale React state): layer toggles and pause travel in the URL.
   const showStopsRef = useRef(showStops)
+  const showLabelsRef = useRef(showLabels)
   const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
@@ -337,6 +339,10 @@ export default function App() {
       showStopsRef.current = false
       setShowStops(false)
     }
+    if (uiState.labelsHidden) {
+      showLabelsRef.current = false
+      setShowLabels(false)
+    }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
@@ -408,6 +414,7 @@ export default function App() {
         formatUiStateHash({
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
+          labelsHidden: !showLabelsRef.current,
           paused: pausedRef.current,
         })
       if (hash !== window.location.hash) {
@@ -461,6 +468,7 @@ export default function App() {
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
+    if (uiState.labelsHidden) map.setLabelsVisible(false)
 
     // Rain overlay: live precipitation for the city center (Open-Meteo).
     // Offline mode stays dry (no network, deterministic E2E tests) and
@@ -531,6 +539,12 @@ export default function App() {
         showStopsRef.current = stopsVisible
         setShowStops(stopsVisible)
         map.setStopsVisible(stopsVisible)
+      }
+      const labelsVisible = !ui.labelsHidden
+      if (labelsVisible !== showLabelsRef.current) {
+        showLabelsRef.current = labelsVisible
+        setShowLabels(labelsVisible)
+        map.setLabelsVisible(labelsVisible)
       }
 
       // A selection outranks a camera pose, the same order writeHash
@@ -920,6 +934,13 @@ export default function App() {
     writeHashRef.current()
   }, [])
 
+  const handleToggleLabels = useCallback((visible: boolean) => {
+    showLabelsRef.current = visible
+    setShowLabels(visible)
+    mapRef.current?.setLabelsVisible(visible)
+    writeHashRef.current()
+  }, [])
+
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
     simRef.current?.clock.setSpeed(value)
@@ -1124,6 +1145,8 @@ export default function App() {
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}
           onToggleStops={handleToggleStops}
+          showLabels={showLabels}
+          onToggleLabels={handleToggleLabels}
           vehicleCount={vehicleCount}
           tilesetStatus={tilesetStatus}
           dataSource={dataSource}

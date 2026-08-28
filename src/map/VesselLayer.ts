@@ -161,6 +161,7 @@ const WINDOW_GLOW_MAX = 0.85
 export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
   private visible = true
+  private labelsVisible = true
   private frustumSphere = new BoundingSphere()
   private lastSyncMs = 0
   /** Lights the hulls' glazing at night (see WINDOW_GLOW_COLOR). */
@@ -353,7 +354,17 @@ export class VesselLayer {
     for (const record of this.vessels.values()) {
       if (record.primitive) record.primitive.show = visible
       if (record.model) record.model.show = visible
-      record.labelEntity.show = visible
+      record.labelEntity.show = visible && this.labelsVisible
+    }
+    this.host.requestRender()
+  }
+
+  /** Ship names off – the fleet's half of the Labels layer toggle. */
+  setLabelsVisible(visible: boolean): void {
+    if (visible === this.labelsVisible) return
+    this.labelsVisible = visible
+    for (const record of this.vessels.values()) {
+      record.labelEntity.show = this.visible && visible
     }
     this.host.requestRender()
   }
@@ -399,7 +410,7 @@ export class VesselLayer {
     const labelEntity = this.viewer.entities.add({
       id: `vessel:${vessel.mmsi}`,
       position: labelPosition,
-      show: this.visible,
+      show: this.visible && this.labelsVisible,
       label: {
         text: labelText,
         font: '10px "Inter Variable", system-ui, sans-serif',

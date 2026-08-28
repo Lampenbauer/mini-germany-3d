@@ -408,6 +408,9 @@ export class VehicleLayer {
   /** Running line focus (see startLineFocus), null = none. */
   private lineFocus: { lineId: string; until: number } | null = null
 
+  /** Vehicle number labels (see setLabelsVisible). */
+  private labelsVisible = true
+
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VehicleLayerHost,
@@ -422,6 +425,21 @@ export class VehicleLayer {
     if (underground === this.underground) return
     this.underground = underground
     for (const record of this.vehicles.values()) record.appearanceDirty = true
+    this.host.requestRender()
+  }
+
+  /**
+   * Vehicle numbers off – the vehicles' half of the Labels layer toggle.
+   * sync() folds the flag into every label's show, but that runs at the
+   * tick rate; hiding is applied here as well so the switch acts at once
+   * (turning them back on, the next tick decides which ones qualify).
+   */
+  setLabelsVisible(visible: boolean): void {
+    if (visible === this.labelsVisible) return
+    this.labelsVisible = visible
+    if (!visible) {
+      for (const record of this.vehicles.values()) record.labelEntity.show = false
+    }
     this.host.requestRender()
   }
 
@@ -536,7 +554,8 @@ export class VehicleLayer {
       }
 
       const show = visibleLines.has(snap.lineId)
-      const showLabel = show && (focusedLine === null || focusedLine === snap.lineId)
+      const showLabel =
+        this.labelsVisible && show && (focusedLine === null || focusedLine === snap.lineId)
 
       // Vehicle height: terrain profile of the route (NHN + calibrated
       // offset) whenever the direction carries DGM heights – deterministic,

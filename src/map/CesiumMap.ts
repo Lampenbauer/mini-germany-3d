@@ -886,6 +886,12 @@ export class CesiumMap {
     this.stops.setVisible(visible)
   }
 
+  /** One switch for every name on the map: vehicle numbers and ship names. */
+  setLabelsVisible(visible: boolean): void {
+    this.vehicleLayer.setLabelsVisible(visible)
+    this.vesselLayer.setLabelsVisible(visible)
+  }
+
   /** Line visibility drives which stops stay on the map. */
   setVisibleLines(visibleLines: ReadonlySet<string>): void {
     this.stops.setVisibleLines(visibleLines)
