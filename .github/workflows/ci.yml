@@ -160,11 +160,15 @@ jobs:
         env:
           # Same condition the deploy job below runs under: only a build
           # that actually goes to the webspace gets the domain-restricted
-          # token, everything else the unrestricted one.
+          # token, everything else the unrestricted one. A preview counts –
+          # it is served from the production domain, so the restricted token
+          # is the one that works there, and shipping the unrestricted one
+          # in a bundle the whole internet can read would hand it out.
           DEPLOY_BUILD: >-
-            ${{ github.ref == 'refs/heads/main' &&
-                (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-                 github.event_name == 'schedule') }}
+            ${{ (github.ref == 'refs/heads/main' &&
+                 (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+                  github.event_name == 'schedule')) ||
+                (github.event_name == 'workflow_dispatch' && inputs.deploy_preview) }}
           ION_TOKEN_FALLBACK: ${{ secrets.CESIUM_ION_TOKEN }}
         run: |
           if [ "$DEPLOY_BUILD" = "true" ]; then
