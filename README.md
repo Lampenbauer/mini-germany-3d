@@ -56,8 +56,9 @@ VITE_CESIUM_ION_TOKEN=your-token
 > browser bundle. That is exactly why the deployed site is built with a token
 > restricted to `minirostock3d.lampenbauer.com` in the
 > [Cesium ion dashboard](https://ion.cesium.com/tokens), which makes it useless
-> anywhere else; it sits in `.github/workflows/ci.yml`. Every other CI build uses
-> the unrestricted token from the `CESIUM_ION_TOKEN` repository secret. For the
+> anywhere else; it sits in `.github/workflows/ci.yml` and every CI build uses it,
+> so that two builds of the same source tree are byte-equal and interchangeable
+> (see [Deployment](#deployment-all-inkl-webhosting)). For the
 > Google 3D Tiles, access to *Google Photorealistic 3D Tiles* (asset 2275207) must
 > be enabled in the ion account.
 
@@ -271,13 +272,12 @@ The app connects to the **free GTFS-Realtime feed from gtfs.de**
 rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 `https://minirostock3d.lampenbauer.com`:
 
-1. **One-time setup:** Create five secrets in the repository settings
+1. **One-time setup:** Create four secrets in the repository settings
    (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH
    password), **`KAS_SSH_HOST`** (the SSH host), **`KAS_SSH_USER`** (the SSH
-   user), **`KAS_TARGET_DIR`** (the document root on the webspace, with a
-   trailing slash), and **`CESIUM_ION_TOKEN`** (the unrestricted ion token every
-   build that does not go to the webspace uses – the deploy build takes the
-   domain-restricted one from the workflow instead).
+   user), and **`KAS_TARGET_DIR`** (the document root on the webspace, with a
+   trailing slash). The Ion token is not among them – it is domain-restricted and
+   sits in the workflow in the clear.
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and
@@ -285,10 +285,31 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    `KAS_TARGET_DIR` secret. PR checks, feature-branch pushes,
    and failed tests do not deploy. A manual run of the CI workflow on `main` also
    goes through all tests first, which makes it suitable as a recovery deploy.
-3. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
+3. **Trying a branch out on the real hosting:** Actions → CI → `Run workflow`,
+   pick the branch, tick **`deploy_preview`**. It passes the same full test suite
+   and then goes to the same place – there is only one document root, so the
+   branch *replaces the live site for every visitor* until production is put
+   back. The run summary of a preview deploy says as much, and the deploy
+   concurrency group keeps a preview and a production deploy from interleaving.
+   Without the tick, a manual run on a branch only builds and tests, as before.
+   To put production back, tick **`restore_production`** instead: that skips the
+   test job entirely and rsyncs the artifact of the last successful `main`
+   deploy, so the site is back in a minute or two rather than the ~18 the full
+   suite takes (15 of them E2E). Nothing untested goes up – it is byte for byte
+   the build that passed on the commit it was made from. Deploying `main` the
+   normal way (step 2) remains the option that rebuilds and re-tests.
+4. **Builds are reused across runs.** Every successful run keeps its build as an
+   artifact named after the *source tree* it was made from (`git write-tree`, so
+   two runs of identical sources share a name). A preview deploy first looks for
+   an artifact of its own tree: if the branch push already built and tested this
+   exact code, the preview skips build, tests and E2E and just ships it, which is
+   what keeps previewing a pushed branch from costing a second full run. When
+   there is none, it builds and tests normally. `main`'s artifacts are kept 30
+   days as the rollback target for `restore_production`, everything else 3.
+5. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).
-4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
+6. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
    `npm run data:gtfs` before the test steps, so the day-specific GTFS departures
    (weekday vs. weekend service) stay current; the rarely changing OSM geometry
    (`npm run data:update` + `npm run data:simplify` + `npm run data:heights` +

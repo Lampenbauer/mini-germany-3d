@@ -24,6 +24,14 @@ on:
         description: 'Also refresh OSM network, terrain heights and street lamps (otherwise Sunday only)'
         type: boolean
         default: false
+      deploy_preview:
+        description: 'Deploy THIS branch to the live site (replaces production until main is deployed again)'
+        type: boolean
+        default: false
+      restore_production:
+        description: 'Put the last deployed main build back on the live site (no build, no tests – takes a minute)'
+        type: boolean
+        default: false
   schedule:
     # Nightly data refresh: GTFS schedule every night, OSM network and
     # terrain heights only once a week (see the refresh step), then the
@@ -37,23 +45,38 @@ env:
   # Cesium Ion token of the deployed site. Restricted to
   # minirostock3d.lampenbauer.com in the Ion dashboard, so it is useless
   # anywhere else and does not need to be a secret – it ships inside the
-  # browser bundle regardless. Every build that is NOT the deploy build
-  # uses the unrestricted token from the CESIUM_ION_TOKEN secret instead.
+  # browser bundle regardless. Every build uses it, including the ones
+  # that never leave CI: builds of one source tree have to be byte-equal
+  # for a later run to reuse one (see "Identify the source tree"), and a
+  # second token would break that. A build downloaded and served from
+  # somewhere other than that domain falls back to the wireframe globe.
   ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlUxakJsUm82d3hUT0FVZkMiLCJqdGkiOiI2ZDY5OWM3Ny04Mjk5LTQ3ZDktYWQxZS1kZWIyNThiNTcxNGMiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIFJvc3RvY2sgM0QiLCJpYXQiOjE3ODc0ODc5MzZ9.8Fpf1_WzG6N_GT9UiNCOPaSJSmZr01iMI5Wu9r4FP80
 
 jobs:
+  # A restore re-deploys an artifact that already passed all of this on
+  # this very commit – running it again would cost 18 minutes to learn
+  # nothing, and the live site would wear the preview for all of them.
   test:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.restore_production) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       # The nightly run pushes the refreshed src/data files back to main
       contents: write
+      # The reuse probe looks through earlier runs' artifacts. An explicit
+      # permissions block grants nothing it does not name, so this line is
+      # what keeps that API call out of a 403.
+      actions: read
     outputs:
       # Commit the deploy job must match against the live main branch –
       # for nightly runs this is the freshly pushed data commit.
       deploy_sha: ${{ steps.datacommit.outputs.sha || github.sha }}
       # "false" only on a nightly run that found nothing new (see datacheck).
       data_changed: ${{ steps.datacheck.outputs.changed }}
+      # Which run holds the build to deploy, and under which name: this
+      # run, unless an earlier one had already built this very tree.
+      artifact_name: production-dist-${{ steps.tree.outputs.sha }}
+      artifact_run_id: ${{ steps.reuse.outputs.run_id || github.run_id }}
     steps:
       - uses: actions/checkout@v7
 
@@ -105,6 +128,21 @@ jobs:
           fi
           npm run data:gtfs
 
+      # What the build is made OF, not which commit asked for it: the
+      # deployable output is a pure function of the source tree, so two
+      # runs of the same tree produce interchangeable artifacts. That is
+      # what lets a preview reuse a push's build instead of repeating 15
+      # minutes of E2E. It has to be read AFTER the refresh above, or a
+      # nightly build would be published under the pre-refresh tree.
+      # `git add -A` stages the refreshed data (nothing on a normal run,
+      # and never anything gitignored); write-tree then hashes it.
+      - name: Identify the source tree
+        id: tree
+        run: |
+          git add -A
+          echo "sha=$(git write-tree)" >> "$GITHUB_OUTPUT"
+          git reset -q
+
       # A nightly run exists to ship fresh data, so ask right here whether
       # there is any – on a quiet night everything below is skipped and the
       # run ends in about a minute instead of ten to sixteen. This is only
@@ -128,51 +166,77 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Has this exact source tree already been built and kept? Then a
+      # preview does not need to build it again - and skipping that means
+      # skipping the 15 minutes of E2E behind it, which is the whole
+      # reason this exists. Only deploy_preview asks: a push must still
+      # test its own code, and main's deploys are cheap to keep honest.
+      - name: Reusable build for this tree?
+        id: reuse
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          github.event_name == 'workflow_dispatch' && inputs.deploy_preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TREE: ${{ steps.tree.outputs.sha }}
+        run: |
+          hit="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.name == \"production-dist-$TREE\" and .expired == false)
+                  | \"\(.created_at) \(.workflow_run.id)\"" | sort -r | head -n 1)"
+          if [ -n "$hit" ]; then
+            run_id="$(echo "$hit" | cut -d' ' -f2)"
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tree $TREE was already built by run $run_id - reusing it, skipping build and tests."
+          else
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+            echo "No artifact for tree $TREE - building and testing it."
+          fi
+
       # Every step below runs only on something new (see datacheck). They
       # need the explicit success(): an `if:` of one's own replaces the
       # implicit one, and a step without it runs even after a failure.
       - name: Typecheck & unit tests (Vitest)
-        if: success() && steps.datacheck.outputs.changed == 'true'
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
         run: |
           npm run typecheck
           npm test
 
       - name: PHP twin parity tests (api/realtime.php, api/ais.php)
-        if: success() && steps.datacheck.outputs.changed == 'true'
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
         run: |
           node scripts/test-php-parser.mjs
           node scripts/test-ais-parity.mjs
 
       - name: Production build
-        if: success() && steps.datacheck.outputs.changed == 'true'
-        env:
-          # Same condition the deploy job below runs under: only a build
-          # that actually goes to the webspace gets the domain-restricted
-          # token, everything else the unrestricted one.
-          DEPLOY_BUILD: >-
-            ${{ github.ref == 'refs/heads/main' &&
-                (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-                 github.event_name == 'schedule') }}
-          ION_TOKEN_FALLBACK: ${{ secrets.CESIUM_ION_TOKEN }}
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
         run: |
-          if [ "$DEPLOY_BUILD" = "true" ]; then
-            echo "Building with the domain-restricted Ion token."
-            export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_DEPLOY"
-          else
-            echo "Building with the Ion token from the CESIUM_ION_TOKEN secret."
-            export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_FALLBACK"
-          fi
-          if [ -z "$VITE_CESIUM_ION_TOKEN" ]; then
-            echo "::warning::No Cesium Ion token for this build – the map falls back to the wireframe globe."
-          fi
+          # Every build gets the domain-restricted token, because every
+          # build is now a deploy candidate: the artifact is keyed by the
+          # source tree it was built from and reused by any later run of
+          # that same tree (see BUILD_TREE), which only holds if they are
+          # byte-identical. The token is domain-locked and lives in this
+          # file in the clear, so nothing is given away by using it
+          # everywhere; the E2E suite runs against the dev server, not
+          # this build, so it does not care either way.
+          export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_DEPLOY"
           npm run build
 
       - name: Install Playwright Chromium
-        if: success() && steps.datacheck.outputs.changed == 'true'
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
         run: npx playwright install --with-deps chromium
 
       - name: E2E tests (Playwright, offline mode)
-        if: success() && steps.datacheck.outputs.changed == 'true'
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
         run: npm run test:e2e
 
       - name: Upload Playwright report (on failure)
@@ -206,12 +270,15 @@ jobs:
             echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
+      # Every build that happened is kept, whatever branch it came from:
+      # main's is the rollback target, and any other is what lets a later
+      # preview of that same tree skip the whole suite. Same gate as the
+      # build step itself – if we reused someone else's, there is nothing
+      # here to package.
       - name: Prepare deployment artifact
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-           github.event_name == 'schedule')
+          steps.reuse.outputs.run_id == ''
         run: |
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
@@ -221,28 +288,46 @@ jobs:
       - name: Upload deployment artifact
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-           github.event_name == 'schedule')
+          steps.reuse.outputs.run_id == ''
         uses: actions/upload-artifact@v7
         with:
-          name: production-dist
+          # The tree is the identity – see "Identify the source tree".
+          name: production-dist-${{ steps.tree.outputs.sha }}
           path: dist/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 1
+          # main's is the restore job's rollback target and has to outlive
+          # the run that made it; a branch's only has to survive until
+          # someone previews that branch, which is minutes to hours.
+          retention-days: ${{ github.ref == 'refs/heads/main' && 30 || 3 }}
 
+  # Deploys on three occasions: a push or nightly run on main, a manual
+  # run on main (the "deploy main again" button), and a manual run on any
+  # branch with deploy_preview ticked – the way to try a branch out on the
+  # real hosting without merging it. Taking a preview back down is the
+  # restore job at the bottom, not this one.
+  #
+  # There is ONE target: the live docroot. A preview therefore REPLACES the
+  # production site for everyone until main is deployed again (deliberate –
+  # a subdomain or subdirectory would need its own docroot, its own Cesium
+  # Ion domain, and would have to be swept up afterwards). The deploy
+  # concurrency group keeps two of these from ever interleaving.
   deploy:
     name: Deploy (all-inkl)
     needs: test
     if: >-
       needs.test.result == 'success' &&
       needs.test.outputs.data_changed == 'true' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'schedule')
+      ((github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+         github.event_name == 'schedule')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.deploy_preview))
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # Downloading a build another run made (see artifact_run_id)
+      actions: read
     concurrency:
       group: deploy-all-inkl
       cancel-in-progress: false
@@ -252,13 +337,19 @@ jobs:
       KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
       KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
       KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+      # Anything that is not main standing on the live site is a preview.
+      IS_PREVIEW: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Download deployment artifact
         uses: actions/download-artifact@v8
         with:
-          name: production-dist
+          # Usually this run's own build; for a preview that reused an
+          # earlier build of the same tree, that other run's.
+          name: ${{ needs.test.outputs.artifact_name }}
+          run-id: ${{ needs.test.outputs.artifact_run_id }}
+          github-token: ${{ github.token }}
           path: dist
 
       - name: Upload via rsync over SSH
@@ -269,11 +360,15 @@ jobs:
           # at it (nothing newer was merged mid-run).
           EXPECTED_SHA: ${{ needs.test.outputs.deploy_sha }}
         run: |
-          git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
-          current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
-          if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
-            echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
-            exit 0
+          # Only main races with itself. A preview deploys the branch the
+          # maintainer picked, whatever main happens to be doing.
+          if [ "$IS_PREVIEW" != "true" ]; then
+            git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
+            current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
+            if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
+              echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
+              exit 0
+            fi
           fi
           if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
             echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
@@ -285,3 +380,116 @@ jobs:
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
           echo "✅ Deployed to https://minirostock3d.lampenbauer.com"
+
+      # A preview stands on the live site until someone takes it down, and
+      # the only way down is deploying main. Say so where the run is read.
+      - name: Note what is live now
+        if: success()
+        run: |
+          if [ "$IS_PREVIEW" = "true" ]; then
+            {
+              echo "### ⚠️ A preview is live"
+              echo
+              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minirostock3d.lampenbauer.com> —"
+              echo "for every visitor, not just for you."
+              echo
+              echo "It stays there until production is restored. To do that, run this"
+              echo "workflow again on \`main\` (Actions → CI → Run workflow → Branch: main),"
+              echo "or merge something into main."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Production is live" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`main\` ($GITHUB_SHA) is on <https://minirostock3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Undo button for a preview: takes the artifact of the last successful
+  # main deploy and puts it back, without building or testing anything.
+  # Nothing untested reaches the site that way – it is byte for byte the
+  # build that already passed the full suite on the commit it was made
+  # from. That is the whole point: re-running 15 minutes of E2E on a
+  # commit that has already been green buys nothing while the preview is
+  # still standing on the live site.
+  #
+  # The deploy job cannot double as this: it needs `test`, which a restore
+  # skips, so `needs.test.result == 'success'` is false and it stands down
+  # on its own. Both share the deploy concurrency group.
+  restore:
+    name: Restore production (all-inkl)
+    if: github.event_name == 'workflow_dispatch' && inputs.restore_production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Reading and downloading another run's artifact
+      actions: read
+    concurrency:
+      group: deploy-all-inkl
+      cancel-in-progress: false
+    env:
+      KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
+      KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
+      KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+    steps:
+      # Every branch uploads a build now, and they are named by source
+      # tree rather than by branch, so the run's branch is what tells
+      # production apart from the rest: only main ever built production.
+      - name: Find the last production build
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifacts="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main"
+                                        and (.name | startswith("production-dist-")))
+                  | "\(.created_at) \(.workflow_run.id) \(.workflow_run.head_sha) \(.name)"')"
+          newest="$(printf '%s\n' "$artifacts" | sort -r | head -n 1)"
+          if [ -z "$newest" ]; then
+            echo "::error::No unexpired production build from a main run found. Deploy main normally (Run workflow → Branch: main) instead."
+            exit 1
+          fi
+          echo "run_id=$(echo "$newest" | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "$newest" | cut -d' ' -f3)" >> "$GITHUB_OUTPUT"
+          echo "built=$(echo "$newest" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "name=$(echo "$newest" | cut -d' ' -f4)" >> "$GITHUB_OUTPUT"
+
+      - name: Download it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ steps.find.outputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" --name "${{ steps.find.outputs.name }}" --dir dist
+          # A truncated download would rsync --delete a half site into place
+          test -s dist/index.html || { echo "::error::Artifact has no index.html – refusing to deploy it."; exit 1; }
+
+      - name: Upload via rsync over SSH
+        env:
+          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+        run: |
+          if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
+            echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
+            exit 1
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+          echo "✅ Restored to https://minirostock3d.lampenbauer.com"
+
+      - name: Note what is live now
+        if: success()
+        env:
+          RESTORED_SHA: ${{ steps.find.outputs.sha }}
+          BUILT_AT: ${{ steps.find.outputs.built }}
+        run: |
+          {
+            echo "### ✅ Production restored"
+            echo
+            echo "The main build \`$RESTORED_SHA\` (built $BUILT_AT) is back on"
+            echo "<https://minirostock3d.lampenbauer.com>."
+            echo
+            echo "No rebuild and no test run – this is the same artifact that passed"
+            echo "the full suite when that commit was pushed."
+          } >> "$GITHUB_STEP_SUMMARY"
