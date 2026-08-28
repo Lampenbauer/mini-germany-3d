@@ -49,10 +49,18 @@ describe('overrideFerryPositions', () => {
     expect(snapshot.bearing).toBe(220)
   })
 
+  it('still rides a fix one aisstream grid step old', () => {
+    // The source delivers a ship under way about every 60 s – a fix that
+    // old is the normal case, not a gap, and must not hand the ferry back
+    // to the timetable.
+    const snapshot = ferry({})
+    expect(overrideFerryPositions([snapshot], [fix({ positionAt: NOW - 60_000 })], MAPPING, NOW)).toBe(1)
+  })
+
   it('ignores stale fixes, far fixes, unmapped vessels, and non-ferries', () => {
     const stale = ferry({})
     expect(
-      overrideFerryPositions([stale], [fix({ positionAt: NOW - 4 * 60_000 })], MAPPING, NOW),
+      overrideFerryPositions([stale], [fix({ positionAt: NOW - 90_000 })], MAPPING, NOW),
     ).toBe(0)
 
     const far = ferry({})

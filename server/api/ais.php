@@ -3,10 +3,14 @@
  * AIS vessel positions for the Rostock map, from aisstream.io – on shared
  * hosting, which cannot hold a WebSocket open permanently. Every refresh
  * therefore opens the stream for a short listen window, merges what it
- * heard into a persistent state file, and closes again. Ships under way
- * report every 2–30 s and are caught by every window; moored ships report
- * every 3 minutes and trickle in over the first windows – harmless, since
- * a moored ship's last position is still exactly where it is.
+ * heard into a persistent state file, and closes again. What that costs
+ * is set by the source, not by AIS on-air: aisstream aggregates, and a
+ * ship under way arrives on a 30 s grid, mostly every 60 s (measured
+ * 2026-08-28 on a permanently open socket – a 15 kn ship therefore jumps
+ * ~450 m between fixes no matter what we do). Every window we are NOT
+ * listening multiplies that interval, so the duty cycle is the one knob
+ * that matters. Moored ships trickle in over the first windows –
+ * harmless, their last position is still exactly where they are.
  *
  * Response (also served while a refresh is still pending):
  *   { "timestamp": <unix ms of the state>, "vessels": [ { mmsi, name,
@@ -19,9 +23,11 @@
  * keeps concurrent listeners to one – which also respects aisstream's
  * 3-connections-per-account limit.
  *
- * A keeper cron may call this endpoint with ?listen=45 (capped): longer
- * windows shrink the blind gaps between them, which is what keeps fast
- * movers like the Gedser ferry from freezing and jumping.
+ * The keeper cron calls this endpoint every minute with ?listen=45
+ * (capped) and is treated differently in two ways: its window runs no
+ * matter how fresh the state looks, and it queues for the lock instead
+ * of giving up. Both exist because the browser's short windows would
+ * otherwise crowd it out – see the TTL constant below.
  *
  * API key (never in the repo): first hit of
  *   - environment variable AISSTREAM_KEY
@@ -47,8 +53,17 @@ const MRT_AIS_HOST = 'stream.aisstream.io';
 const MRT_AIS_PATH = '/v0/stream';
 /** Rostock camera fence: network bbox + 25 km padding ([[lat,lon] SW, NE]). */
 const MRT_AIS_BBOX = [[53.83, 11.64], [54.43, 12.61]];
-/** State age at which a request triggers the next listen window. */
-const MRT_AIS_TTL_SECONDS = 40;
+/**
+ * State age at which a BROWSER request triggers the next listen window –
+ * it bounds the blind gap the browser-driven path leaves when no keeper
+ * cron runs. The keeper ignores it: with the TTL at 40 s the short
+ * windows kept the state fresh almost continuously, the keeper answered
+ * from the cache instead of listening, and the endpoint spent 27 % of
+ * the time on the stream where the minutely cron alone buys 75 %.
+ */
+const MRT_AIS_TTL_SECONDS = 15;
+/** How long the keeper queues for the lock before skipping its minute. */
+const MRT_AIS_LOCK_WAIT_SECONDS = 15;
 /** Default listen window; ?listen= raises it up to the cap below. */
 const MRT_AIS_LISTEN_SECONDS = 12;
 /** Hard cap for ?listen= (the 60 s wall-clock budget needs headroom). */
@@ -424,36 +439,57 @@ $stateFile = sys_get_temp_dir() . '/mrt-ais-state.json';
 $lockFile = sys_get_temp_dir() . '/mrt-ais-state.lock';
 
 $data = mrt_ais_load($stateFile);
+// A request that names its own window is the keeper cron. Freshness must
+// not silence it: the browser's short windows hold the state inside the
+// TTL almost continuously, so a keeper that trusted that freshness would
+// answer from the cache and skip its window nearly every minute – which
+// is the one thing it was deployed to prevent.
+$keeper = isset($_GET['listen']);
 // Freshness keys on when the last window STARTED: a long window must not
 // push the next one further out – the blind gap between windows is what
 // a moving ship's jump grows with.
 $ageSeconds = (mrt_now_ms() - $data['listenedAt']) / 1000;
-if ($ageSeconds <= MRT_AIS_TTL_SECONDS) {
+if (!$keeper && $ageSeconds <= MRT_AIS_TTL_SECONDS) {
     mrt_ais_respond($data['state'], $data['listenedAt']);
     exit;
 }
 
-$lock = fopen($lockFile, 'c');
-$haveLock = $lock !== false && flock($lock, LOCK_EX | LOCK_NB);
-if (!$haveLock) {
-    // Another request is already listening – stale is better than waiting.
-    mrt_ais_respond($data['state'], $data['listenedAt']);
-    if ($lock !== false) fclose($lock);
-    exit;
-}
-
-// Serve the stale answer first, then listen with the response already gone.
+// Answer from the state either way, then listen with the response gone –
+// nobody waits on a window, not even while the keeper queues for the lock.
 mrt_ais_respond($data['state'], $data['listenedAt']);
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
     flush();
 }
+set_time_limit(60);
 
-// The cron may ask for a longer window (?listen=45): higher listening
+$lock = fopen($lockFile, 'c');
+if ($lock === false) exit;
+$haveLock = flock($lock, LOCK_EX | LOCK_NB);
+if (!$haveLock) {
+    // A browser request gives up – whoever holds the lock is refreshing
+    // the state anyway. The keeper waits the short window out instead of
+    // losing its minute; the wall budget then shortens its own window by
+    // whatever the wait cost, so it still ends in time for the next
+    // minute's keeper to find the lock free.
+    if (!$keeper) {
+        fclose($lock);
+        exit;
+    }
+    $waitUntil = microtime(true) + MRT_AIS_LOCK_WAIT_SECONDS;
+    while (!($haveLock = flock($lock, LOCK_EX | LOCK_NB)) && microtime(true) < $waitUntil) {
+        usleep(250_000);
+    }
+    if (!$haveLock) {
+        fclose($lock);
+        exit;
+    }
+}
+
+// The keeper asks for a longer window (?listen=45): higher listening
 // duty cycle, smaller blind gaps, smoother ships – same single lock.
 $listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
-set_time_limit(60);
 $requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
 $windowStart = mrt_now_ms();
 $state = $data['state'];

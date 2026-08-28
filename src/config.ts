@@ -57,8 +57,12 @@ export const config = {
    */
   ais: {
     url: (import.meta.env?.VITE_AIS_URL as string | undefined) ?? '/api/ais',
-    /** Poll interval in ms (the server refreshes its state every ~40 s). */
-    pollIntervalMs: 30_000,
+    /**
+     * Poll interval in ms. Costs the server a state-file read, not a
+     * listen window, so it is cheap – and it has to be well under the
+     * window's 8 s flush for that flush to reach anyone at all.
+     */
+    pollIntervalMs: 10_000,
     /**
      * Which real vessel serves which simulated ferry line (MMSI → line
      * id): the Gehlsdorf solar ferry and the two boats sharing the
