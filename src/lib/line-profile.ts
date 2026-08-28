@@ -18,6 +18,7 @@
  * tests/line-profile.test.ts.
  */
 
+import type { VehicleSnapshot } from '@/engine/simulation'
 import type { PreparedLine, TransitMode } from '@/data/network-types'
 import { getLanguage } from '@/lib/i18n'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -183,4 +184,60 @@ export function formatServiceTime(seconds: number): string {
   const h = Math.floor(wrapped / 3600)
   const m = Math.floor((wrapped % 3600) / 60)
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/**
+ * What the line is doing right now, as opposed to what it is. Recomputed
+ * on the app's UI tick, so it stays a filter and a median over lists the
+ * app already holds – no lookups, no allocation beyond the result.
+ */
+export interface LineActivity {
+  /** Vehicles of this line on the map at this instant. */
+  running: number
+  /**
+   * Next scheduled departure per direction in seconds of day, null once
+   * that direction is done for the day. Index matches the directions, so
+   * [0] heads for the profile's `to` and [1] for its `from`.
+   *
+   * Taken from the schedule rather than by querying the terminus stop:
+   * a terminus is not reliably where a trip starts. Line 1 runs 139 of
+   * its 217 trips short and had no departure at all from Mecklenburger
+   * Allee in the queried hour, and line 25's direction-1 stop list
+   * begins at Maxim-Gorki-Straße although the direction is named for
+   * Thomas-Morus-Straße.
+   */
+  nextDeparture: [number | null, number | null]
+  /**
+   * Median delay over the line's vehicles that GTFS-RT actually covers,
+   * and how many that is. Null when the feed says nothing about this
+   * line – which is not the same as the line being on time.
+   */
+  delay: { medianSeconds: number; vehicles: number } | null
+}
+
+export function buildLineActivity(
+  lineId: string,
+  schedule: ScheduleJson | undefined,
+  snapshots: readonly VehicleSnapshot[],
+  nowSeconds: number,
+): LineActivity {
+  const own = snapshots.filter((s) => s.lineId === lineId)
+  // After-midnight service is encoded past 24:00, so a plain ">= now"
+  // finds it while the day is still running; once the clock has wrapped
+  // past the last departure the direction is done.
+  const perDirection = departuresByDirection(schedule, lineId)
+  const nextDeparture = [0, 1].map((i) => {
+    const next = (perDirection[i] ?? []).find((t) => t >= nowSeconds)
+    return next ?? null
+  }) as [number | null, number | null]
+
+  // Only the vehicles the feed actually covers: averaging a matched +4 min
+  // together with the zeros of unmatched trips would report the line as
+  // punctual because most of it is invisible to the feed.
+  const realtimeDelays = own.filter((s) => s.realtime).map((s) => s.delaySeconds)
+  const delay = realtimeDelays.length
+    ? { medianSeconds: median(realtimeDelays), vehicles: realtimeDelays.length }
+    : null
+
+  return { running: own.length, nextDeparture, delay }
 }

@@ -8,6 +8,7 @@ import {
   formatLength,
   formatServiceTime,
   formatStopCount,
+  type LineActivity,
   type LineProfile,
 } from '@/lib/line-profile'
 
@@ -19,6 +20,11 @@ import {
  */
 export interface LineCardProps {
   profile: LineProfile
+  /**
+   * What the line is doing at this instant, refreshed on the app's UI
+   * tick. Null while the simulation has not produced a snapshot yet.
+   */
+  activity: LineActivity | null
   /** Line name and color from the network – the card's identity. */
   name: string
   color: string
@@ -27,9 +33,19 @@ export interface LineCardProps {
   onClose: () => void
 }
 
-export function LineCard({ profile, name, color, onFlyTo, onClose }: LineCardProps) {
+export function LineCard({ profile, activity, name, color, onFlyTo, onClose }: LineCardProps) {
   const ModeIcon = MODE_ICON[profile.mode]
   const minutes = (seconds: number) => Math.round(seconds / 60)
+  // Both termini's next departures, soonest first – which end it leaves
+  // from matters less than when something next moves.
+  // Each direction's next departure with where it is headed – direction 0
+  // runs toward `to`, direction 1 back toward `from`. Naming the
+  // destination is what makes a single line unambiguous when only one
+  // direction still has service.
+  const upcoming = [profile.to, profile.from]
+    .map((destination, i) => ({ destination, at: activity?.nextDeparture[i] ?? null }))
+    .filter((entry): entry is { destination: string; at: number } => entry.at !== null)
+    .sort((a, b) => a.at - b.at)
 
   return (
     <Card
@@ -107,6 +123,40 @@ export function LineCard({ profile, name, color, onFlyTo, onClose }: LineCardPro
                     {t('line.shortWorkings', { count: profile.trips.shortWorkings })}
                   </span>
                 )}
+              </span>
+            </>
+          )}
+
+          {activity && (
+            <>
+              <span className="text-muted-foreground">{t('line.running')}</span>
+              <span data-testid="line-running">
+                {activity.running > 0
+                  ? t('line.runningCount', { count: activity.running })
+                  : t('line.runningNone')}
+                {/* Only where the feed covers this line – see buildLineActivity */}
+                {activity.delay && (
+                  <span className="text-muted-foreground">
+                    {' · '}
+                    {minutes(Math.abs(activity.delay.medianSeconds)) < 1
+                      ? t('line.punctual')
+                      : activity.delay.medianSeconds > 0
+                        ? t('line.delayed', { count: minutes(activity.delay.medianSeconds) })
+                        : t('line.early', { count: minutes(-activity.delay.medianSeconds) })}
+                  </span>
+                )}
+              </span>
+
+              <span className="text-muted-foreground">{t('line.nextOut')}</span>
+              <span data-testid="line-next">
+                {upcoming.length > 0
+                  ? upcoming.map((entry) => (
+                      <span key={entry.destination} className="block truncate">
+                        {formatServiceTime(entry.at)}
+                        <span className="text-muted-foreground"> → {entry.destination}</span>
+                      </span>
+                    ))
+                  : t('line.nextNone')}
               </span>
             </>
           )}

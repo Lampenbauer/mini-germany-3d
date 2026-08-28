@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LineCard } from '@/components/LineCard'
-import type { LineProfile } from '@/lib/line-profile'
+import type { LineActivity, LineProfile } from '@/lib/line-profile'
 
 /**
  * The line card. Every row is optional in the data – a line can have no
@@ -29,10 +29,28 @@ function profile(overrides: Partial<LineProfile> = {}): LineProfile {
   }
 }
 
-function show(p: LineProfile) {
+function activity(overrides: Partial<LineActivity> = {}): LineActivity {
+  return {
+    running: 6,
+    nextDeparture: [8 * 3600 + 1800, 8 * 3600 + 2100],
+    delay: null,
+    ...overrides,
+  }
+}
+
+function show(p: LineProfile, a: LineActivity | null = null) {
   const onFlyTo = vi.fn()
   const onClose = vi.fn()
-  render(<LineCard profile={p} name="Line 1" color="#5D106A" onFlyTo={onFlyTo} onClose={onClose} />)
+  render(
+    <LineCard
+      profile={p}
+      activity={a}
+      name="Line 1"
+      color="#5D106A"
+      onFlyTo={onFlyTo}
+      onClose={onClose}
+    />,
+  )
   return { onFlyTo, onClose }
 }
 
@@ -94,5 +112,55 @@ describe('LineCard', () => {
     expect(onFlyTo).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Close line' }))
     expect(onClose).toHaveBeenCalledOnce()
+  })
+})
+
+describe('LineCard live rows', () => {
+  it('says how much of the line is out and when it next leaves', () => {
+    show(profile(), activity())
+    expect(screen.getByTestId('line-running')).toHaveTextContent('6 in service')
+    // Both directions, soonest first, each naming where it heads – which
+    // is what makes a single entry unambiguous when one direction is done
+    expect(screen.getByTestId('line-next')).toHaveTextContent('08:30 → Hafenallee')
+    expect(screen.getByTestId('line-next')).toHaveTextContent('08:35 → Mecklenburger Allee')
+  })
+
+  it('names the destination of the one direction still running', () => {
+    show(profile(), activity({ nextDeparture: [null, 8 * 3600 + 2100] }))
+    expect(screen.getByTestId('line-next')).toHaveTextContent('08:35 → Mecklenburger Allee')
+    expect(screen.getByTestId('line-next')).not.toHaveTextContent('Hafenallee')
+  })
+
+  it('does not pretend a line is out when it is not', () => {
+    show(profile(), activity({ running: 0, nextDeparture: [null, null] }))
+    expect(screen.getByTestId('line-running')).toHaveTextContent('none in service')
+    expect(screen.getByTestId('line-next')).toHaveTextContent('nothing more today')
+  })
+
+  it('reports the delay only where the feed covers the line', () => {
+    show(profile(), activity({ delay: null }))
+    expect(screen.getByTestId('line-running')).not.toHaveTextContent('late')
+    cleanup()
+
+    show(profile(), activity({ delay: { medianSeconds: 180, vehicles: 4 } }))
+    expect(screen.getByTestId('line-running')).toHaveTextContent('3 min late on average')
+    cleanup()
+
+    // Early happens – the DELFI feed reports it for a few percent of trips
+    show(profile(), activity({ delay: { medianSeconds: -120, vehicles: 2 } }))
+    expect(screen.getByTestId('line-running')).toHaveTextContent('2 min early on average')
+    cleanup()
+
+    // Under a minute either way is "to time", not "0 min late"
+    show(profile(), activity({ delay: { medianSeconds: 20, vehicles: 3 } }))
+    expect(screen.getByTestId('line-running')).toHaveTextContent('running to time')
+  })
+
+  it('leaves the live rows out entirely before the first snapshot', () => {
+    show(profile(), null)
+    expect(screen.queryByTestId('line-running')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('line-next')).not.toBeInTheDocument()
+    // The profile stands on its own
+    expect(screen.getByTestId('line-route')).toBeInTheDocument()
   })
 })

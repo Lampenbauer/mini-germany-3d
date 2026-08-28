@@ -3,6 +3,7 @@ import { loadBundledNetwork } from '@/data/network'
 import schedule from '@/data/schedule.json'
 import type { PreparedLine } from '@/data/network-types'
 import {
+  buildLineActivity,
   buildLineProfile,
   formatLength,
   formatServiceTime,
@@ -156,5 +157,55 @@ describe('against the real network', () => {
     const p = buildLineProfile(network.lineById.get('1')!, schedule as ScheduleJson)
     expect(Math.round(p.headway!.median / 60)).toBe(10)
     expect(p.trips!.shortWorkings).toBeGreaterThan(0)
+  })
+})
+
+describe('buildLineActivity', () => {
+  const vehicle = (lineId: string, extra: Record<string, unknown> = {}) =>
+    ({ lineId, realtime: false, delaySeconds: 0, ...extra }) as never
+
+  it("counts only this line's vehicles", () => {
+    const a = buildLineActivity('X', undefined, [vehicle('X'), vehicle('2'), vehicle('X')], 0)
+    expect(a.running).toBe(2)
+  })
+
+  it('takes the next scheduled departure of each direction', () => {
+    // Not by querying a terminus: a terminus is not reliably where a trip
+    // starts. Line 1 runs 139 of 217 trips short and showed no departure
+    // at all from its own Mecklenburger Allee terminus.
+    const a = buildLineActivity('X', sched([600, 1200, 1800], [900, 1500]), [], 1000)
+    expect(a.nextDeparture).toEqual([1200, 1500])
+  })
+
+  it('reports no next departure once a direction is done for the day', () => {
+    const a = buildLineActivity('X', sched([600], [900]), [], 2000)
+    expect(a.nextDeparture).toEqual([null, null])
+  })
+
+  it('still finds the after-midnight tail, which is encoded past 24:00', () => {
+    const a = buildLineActivity('X', sched([23 * 3600, 24 * 3600 + 1800]), [], 23 * 3600 + 60)
+    expect(a.nextDeparture[0]).toBe(24 * 3600 + 1800)
+  })
+
+  it('averages the delay over the tracked vehicles only', () => {
+    // Two matched at +120/+240, two the feed knows nothing about. Counting
+    // the unmatched zeros would report the line as nearly punctual.
+    const a = buildLineActivity(
+      'X',
+      undefined,
+      [
+        vehicle('X', { realtime: true, delaySeconds: 120 }),
+        vehicle('X', { realtime: true, delaySeconds: 240 }),
+        vehicle('X'),
+        vehicle('X'),
+      ],
+      0,
+    )
+    expect(a.delay).toEqual({ medianSeconds: 240, vehicles: 2 })
+  })
+
+  it('says nothing about delay when the feed covers none of the line', () => {
+    const a = buildLineActivity('X', undefined, [vehicle('X'), vehicle('X')], 0)
+    expect(a.delay).toBeNull()
   })
 })

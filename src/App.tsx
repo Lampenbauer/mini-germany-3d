@@ -28,7 +28,7 @@ import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
-import { buildLineProfile } from '@/lib/line-profile'
+import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
@@ -1167,6 +1167,24 @@ export default function App() {
     [selectedLine],
   )
 
+  /**
+   * What the line is doing now. Unlike the profile this rides the UI tick
+   * (simSeconds, ~4×/s) – a filter over the snapshot list the app already
+   * has, plus one departure query per terminus.
+   */
+  const lineActivity = useMemo(
+    () =>
+      selectedLine
+        ? buildLineActivity(
+            selectedLine.id,
+            schedule as ScheduleJson,
+            snapshotsRef.current,
+            simSeconds,
+          )
+        : null,
+    [selectedLine, simSeconds],
+  )
+
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
@@ -1239,6 +1257,7 @@ export default function App() {
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <LineCard
             profile={lineProfile}
+            activity={lineActivity}
             name={localizeLineName(selectedLine.name)}
             color={selectedLine.color}
             onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
