@@ -285,10 +285,18 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    `KAS_TARGET_DIR` secret. PR checks, feature-branch pushes,
    and failed tests do not deploy. A manual run of the CI workflow on `main` also
    goes through all tests first, which makes it suitable as a recovery deploy.
-3. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
+3. **Trying a branch out on the real hosting:** Actions → CI → `Run workflow`,
+   pick the branch, tick **`deploy_preview`**. It passes the same full test suite
+   and then goes to the same place – there is only one document root, so the
+   branch *replaces the live site for every visitor* until production is put
+   back. Restoring it is the recovery deploy from step 2: run the workflow again
+   on `main`. The run summary of a preview deploy says as much, and the deploy
+   concurrency group keeps a preview and a production deploy from interleaving.
+   Without the tick, a manual run on a branch only builds and tests, as before.
+4. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).
-4. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
+5. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
    `npm run data:gtfs` before the test steps, so the day-specific GTFS departures
    (weekday vs. weekend service) stay current; the rarely changing OSM geometry
    (`npm run data:update` + `npm run data:simplify` + `npm run data:heights` +

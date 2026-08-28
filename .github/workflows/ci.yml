@@ -24,6 +24,10 @@ on:
         description: 'Also refresh OSM network, terrain heights and street lamps (otherwise Sunday only)'
         type: boolean
         default: false
+      deploy_preview:
+        description: 'Deploy THIS branch to the live site (replaces production until main is deployed again)'
+        type: boolean
+        default: false
   schedule:
     # Nightly data refresh: GTFS schedule every night, OSM network and
     # terrain heights only once a week (see the refresh step), then the
@@ -206,12 +210,15 @@ jobs:
             echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
+      # Built for main's own deploys, and for a branch a maintainer sent
+      # to the live site on purpose (deploy_preview – see the deploy job).
       - name: Prepare deployment artifact
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-           github.event_name == 'schedule')
+          ((github.ref == 'refs/heads/main' &&
+            (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+             github.event_name == 'schedule')) ||
+           (github.event_name == 'workflow_dispatch' && inputs.deploy_preview))
         run: |
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
@@ -221,9 +228,10 @@ jobs:
       - name: Upload deployment artifact
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-           github.event_name == 'schedule')
+          ((github.ref == 'refs/heads/main' &&
+            (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+             github.event_name == 'schedule')) ||
+           (github.event_name == 'workflow_dispatch' && inputs.deploy_preview))
         uses: actions/upload-artifact@v7
         with:
           name: production-dist
@@ -232,15 +240,26 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # Deploys on three occasions: a push or nightly run on main, a manual
+  # run on main (the "deploy main again" button), and a manual run on any
+  # branch with deploy_preview ticked – the way to try a branch out on the
+  # real hosting without merging it.
+  #
+  # There is ONE target: the live docroot. A preview therefore REPLACES the
+  # production site for everyone until main is deployed again (deliberate –
+  # a subdomain or subdirectory would need its own docroot, its own Cesium
+  # Ion domain, and would have to be swept up afterwards). The deploy
+  # concurrency group keeps two of these from ever interleaving.
   deploy:
     name: Deploy (all-inkl)
     needs: test
     if: >-
       needs.test.result == 'success' &&
       needs.test.outputs.data_changed == 'true' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'schedule')
+      ((github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+         github.event_name == 'schedule')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.deploy_preview))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -252,6 +271,8 @@ jobs:
       KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
       KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
       KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+      # Anything that is not main standing on the live site is a preview.
+      IS_PREVIEW: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -269,11 +290,15 @@ jobs:
           # at it (nothing newer was merged mid-run).
           EXPECTED_SHA: ${{ needs.test.outputs.deploy_sha }}
         run: |
-          git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
-          current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
-          if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
-            echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
-            exit 0
+          # Only main races with itself. A preview deploys the branch the
+          # maintainer picked, whatever main happens to be doing.
+          if [ "$IS_PREVIEW" != "true" ]; then
+            git ls-remote --exit-code origin refs/heads/main > "$RUNNER_TEMP/main-ref"
+            current_main_sha="$(cut -f1 "$RUNNER_TEMP/main-ref")"
+            if [ "$current_main_sha" != "$EXPECTED_SHA" ]; then
+              echo "::notice::Deploy skipped: $EXPECTED_SHA is no longer the current main commit ($current_main_sha)."
+              exit 0
+            fi
           fi
           if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
             echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
@@ -285,3 +310,25 @@ jobs:
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
           echo "✅ Deployed to https://minirostock3d.lampenbauer.com"
+
+      # A preview stands on the live site until someone takes it down, and
+      # the only way down is deploying main. Say so where the run is read.
+      - name: Note what is live now
+        if: success()
+        run: |
+          if [ "$IS_PREVIEW" = "true" ]; then
+            {
+              echo "### ⚠️ A preview is live"
+              echo
+              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minirostock3d.lampenbauer.com> —"
+              echo "for every visitor, not just for you."
+              echo
+              echo "It stays there until production is restored. To do that, run this"
+              echo "workflow again on \`main\` (Actions → CI → Run workflow → Branch: main),"
+              echo "or merge something into main."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Production is live" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`main\` ($GITHUB_SHA) is on <https://minirostock3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
+          fi
