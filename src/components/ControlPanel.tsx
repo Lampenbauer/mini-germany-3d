@@ -6,11 +6,9 @@ import {
   Layers,
   Pause,
   Play,
-  RadioTower,
   TimerReset,
   TramFront,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MODE_ICON } from '@/components/mode-icon'
@@ -19,9 +17,7 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TransitMode } from '@/data/network-types'
-import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
-import type { RealtimeStatus } from '@/lib/realtime'
-import type { TilesetStatus } from '@/map/CesiumMap'
+import { MODE_KEY, t } from '@/lib/i18n'
 
 export interface LineToggleInfo {
   id: string
@@ -53,20 +49,6 @@ export interface ControlPanelProps {
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
   onToggleStops: (visible: boolean) => void
-  vehicleCount: number
-  tilesetStatus: TilesetStatus
-  /** Warning badge for approximated geometry; null = no badge. */
-  dataSource: string | null
-  /** Status des GTFS-Realtime-Feeds (null = deaktiviert). */
-  realtimeStatus: RealtimeStatus | null
-}
-
-// The healthy state (google-3d-tiles) shows no badge – only loading and
-// degraded states are called out in the panel.
-const TILESET_KEY: Record<Exclude<TilesetStatus, 'google-3d-tiles'>, MessageKey> = {
-  loading: 'status.loadingTiles',
-  offline: 'status.offline',
-  failed: 'status.tilesFailed',
 }
 
 /** Display order and label keys of the transit-mode groups. */
@@ -328,36 +310,6 @@ export function ControlPanel(props: ControlPanelProps) {
               </div>
             </div>
 
-            <div className="h-px bg-border" role="separator" />
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" data-testid="vehicle-count">
-                <TramFront aria-hidden />
-                {new Set(props.lines.map((l) => l.mode)).size > 1
-                  ? t(props.vehicleCount === 1 ? 'count.vehicle' : 'count.vehicles', {
-                      count: props.vehicleCount,
-                    })
-                  : t(props.vehicleCount === 1 ? 'count.tram' : 'count.trams', {
-                      count: props.vehicleCount,
-                    })}
-              </Badge>
-              {props.tilesetStatus !== 'google-3d-tiles' && (
-                <Badge variant="outline" data-testid="tileset-status">
-                  {t(TILESET_KEY[props.tilesetStatus])}
-                </Badge>
-              )}
-              {props.dataSource !== null && (
-                <Badge variant="outline" data-testid="data-source">
-                  {props.dataSource}
-                </Badge>
-              )}
-              {props.realtimeStatus?.state === 'live' && (
-                <Badge variant="secondary" data-testid="rt-status">
-                  <RadioTower aria-hidden />
-                  {t('rt.live', { count: props.realtimeStatus.matchedCount })}
-                </Badge>
-              )}
-            </div>
           </>
         )}
       </CardContent>

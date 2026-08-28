@@ -25,7 +25,10 @@ test('GTFS-Realtime endpoint is fetched and shown in the panel', async ({ page }
   await page.goto('/?offline=1&rt=1&time=08:30&paused=1')
   await page.waitForFunction(() => window.__mrt?.ready === true)
 
-  const badge = page.getByTestId('rt-status')
-  await expect(badge).toBeVisible()
-  await expect(badge).toContainText('GTFS-RT')
+  // The panel used to show this as a badge; the feed reaching the app and
+  // matching trips is the part worth asserting, so it is read from the
+  // debug API now.
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.realtimeStatus()?.state))
+    .toBe('live')
 })

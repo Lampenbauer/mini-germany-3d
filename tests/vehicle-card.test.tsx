@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { VehicleCard } from '@/components/VehicleCard'
+import { VehicleCard, formatDelay, formatDelayLong } from '@/components/VehicleCard'
 import { config } from '@/config'
 import type { InterchangeOption } from '@/lib/interchange'
 import type { TripProgress, VehicleSnapshot } from '@/engine/simulation'
@@ -86,6 +86,29 @@ const progress: TripProgress = {
   ],
   position: 0.5,
 }
+
+describe('formatDelayLong', () => {
+  it('spells out a late vehicle', () => {
+    expect(formatDelayLong(180)).toBe('3 min late')
+  })
+
+  it('spells out an early one – the feed does report those', () => {
+    expect(formatDelayLong(-120)).toBe('2 min early')
+    // The minute count must not carry the sign into the sentence
+    expect(formatDelayLong(-60)).toBe('1 min early')
+  })
+
+  it('calls anything under a minute on time, either way', () => {
+    expect(formatDelayLong(0)).toBe('on time')
+    expect(formatDelayLong(59)).toBe('on time')
+    expect(formatDelayLong(-59)).toBe('on time')
+  })
+
+  it('leaves the compact form for the stop card alone', () => {
+    expect(formatDelay(180)).toBe('+3 min')
+    expect(formatDelay(-120)).toBe('-2 min')
+  })
+})
 
 describe('VehicleCard trip stops', () => {
   it('lists every stop with its arrival time, dimming the served ones', () => {

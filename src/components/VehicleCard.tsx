@@ -30,11 +30,27 @@ export function formatArrival(arrivalSec: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-/** "+3 min" / "-1 min" / "on time" */
+/**
+ * "+3 min" / "-1 min" / "on time" – the compact form for the stop card's
+ * departure rows, where the badge sits between a line number and a
+ * countdown and has no room to spell anything out.
+ */
 export function formatDelay(delaySeconds: number): string {
   if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
   const minutes = Math.round(delaySeconds / 60)
   return `${minutes > 0 ? '+' : ''}${minutes} min`
+}
+
+/**
+ * The same fact in words, for the vehicle card, which has the room: "3 min
+ * late" / "1 min early" / "on time". Early is not a theoretical case – the
+ * DELFI feed reports it for a few percent of trips, in whole minutes like
+ * every other value it carries.
+ */
+export function formatDelayLong(delaySeconds: number): string {
+  if (Math.abs(delaySeconds) < 60) return t('vehicle.onTime')
+  const minutes = Math.abs(Math.round(delaySeconds / 60))
+  return delaySeconds > 0 ? t('vehicle.late', { count: minutes }) : t('vehicle.early', { count: minutes })
 }
 
 /**
@@ -283,7 +299,7 @@ export function VehicleCard({
           </Button>
           {vehicle.realtime ? (
             <Badge variant="secondary" data-testid="vehicle-delay">
-              GTFS-RT · {formatDelay(vehicle.delaySeconds)}
+              {formatDelayLong(vehicle.delaySeconds)}
             </Badge>
           ) : (
             <Badge variant="secondary">{t('vehicle.onSchedule')}</Badge>

@@ -61,6 +61,10 @@ export interface MrtTestApi {
   vehicleScreenPosition: (id: string) => { x: number; y: number } | null
   stopScreenPosition: (id: string) => { x: number; y: number } | null
   dataSource: string
+  /** Which basemap the map ended up on ('offline' with ?offline=1). */
+  tilesetStatus: () => TilesetStatus
+  /** GTFS-RT feed state and how many trips it matched (null = disabled). */
+  realtimeStatus: () => RealtimeStatus | null
   lineIds: () => string[]
   secondsOfDay: () => number
   loopTicks: () => number
@@ -210,12 +214,14 @@ export default function App() {
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
-  const [vehicleCount, setVehicleCount] = useState(0)
-  const [tilesetStatus, setTilesetStatus] = useState<TilesetStatus>('loading')
+  // Nothing renders these any more – they exist so the map's basemap and
+  // the realtime feed stay observable to the E2E suite (see __mrt below),
+  // which is why they are refs rather than state.
+  const tilesetStatusRef = useRef<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
-  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null)
+  const realtimeStatusRef = useRef<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
   const [cameraIs2D, setCameraIs2D] = useState(false)
   /** Sim clock in seconds of day – drives the vehicle card's countdown. */
@@ -354,7 +360,7 @@ export default function App() {
         sim.realtimeTripIdMap,
         (status, delays) => {
           sim.setRealtimeDelays(delays)
-          setRealtimeStatus(status)
+          realtimeStatusRef.current = status
         },
       )
       // Delay data changes slowly; polling every 2 minutes keeps the load
@@ -445,7 +451,9 @@ export default function App() {
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
       onSelectStop: selectStop,
-      onTilesetStatus: setTilesetStatus,
+      onTilesetStatus: (status) => {
+        tilesetStatusRef.current = status
+      },
       onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
@@ -688,9 +696,6 @@ export default function App() {
               map.setCloudCover(
                 weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
               )
-              setVehicleCount(
-                snapshots.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
-              )
               const selId = selectedIdRef.current
               if (selId) {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
@@ -806,6 +811,8 @@ export default function App() {
       vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
       dataSource: network.meta.source,
+      tilesetStatus: () => tilesetStatusRef.current,
+      realtimeStatus: () => realtimeStatusRef.current,
       lineIds: () => network.lines.map((l) => l.id),
       secondsOfDay: () => clock.secondsOfDay(),
       loopTicks: () => loopTicks,
@@ -1081,10 +1088,6 @@ export default function App() {
     [network, visibleLines],
   )
 
-  // Badge only as a warning for approximated geometry; real OSM data (the
-  // normal case) needs no callout in the panel.
-  const dataSource = network.meta.source === 'osm' ? null : t('status.demoData')
-
   // All stops of the selected trip plus the vehicle's position among them.
   // `selected` is refreshed on every UI tick, so the position marker and
   // the passed-stop dimming track the vehicle.
@@ -1132,10 +1135,6 @@ export default function App() {
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}
           onToggleStops={handleToggleStops}
-          vehicleCount={vehicleCount}
-          tilesetStatus={tilesetStatus}
-          dataSource={dataSource}
-          realtimeStatus={realtimeStatus}
         />
       </div>
 
