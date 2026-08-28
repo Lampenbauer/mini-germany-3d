@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import rawFixtures from './fixtures/ais-messages.json'
 import {
-  AIS_RECKON_CAP_MS,
+  AIS_PLAYBACK_DELAY_MS,
+  AIS_TRACK_KEEP_MS,
+  AIS_TRACK_MAX_POINTS,
   aisStateVessels,
-  deadReckon,
   mergeAisMessage,
+  playbackSample,
   type AisRawMessage,
   type AisState,
+  type AisTrackPoint,
   type AisVessel,
 } from '@/lib/ais-extract'
 
@@ -33,9 +36,28 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     typeCode: 0,
     lengthM: null,
     widthM: null,
+    draughtM: null,
     positionAt: NOW,
+    track: [],
     ...overrides,
   }
+}
+
+/** A track point in the helper vessel's neighborhood, offsets in degrees. */
+function point(
+  t: number,
+  latOff = 0,
+  lonOff = 0,
+  kinematics: { sog?: number | null; cog?: number | null; hdg?: number | null } = {},
+): AisTrackPoint {
+  return [
+    t,
+    54.1 + latOff,
+    12.1 + lonOff,
+    kinematics.sog !== undefined ? kinematics.sog : 8,
+    kinematics.cog !== undefined ? kinematics.cog : 90,
+    kinematics.hdg !== undefined ? kinematics.hdg : null,
+  ]
 }
 
 describe('mergeAisMessage', () => {
@@ -176,28 +198,96 @@ describe('aisStateVessels', () => {
   })
 })
 
-describe('deadReckon', () => {
-  it('moves a vessel along its course', () => {
-    // 8 kn ≈ 4.12 m/s due east for 30 s ≈ 123 m
-    const moved = deadReckon(vessel({ positionAt: NOW - 30_000 }), NOW)
-    expect(moved.lat).toBeCloseTo(54.1, 6)
-    const meters = (moved.lon - 12.1) * 111_320 * Math.cos((54.1 * Math.PI) / 180)
-    expect(meters).toBeGreaterThan(115)
-    expect(meters).toBeLessThan(130)
-    expect(moved.bearingDeg).toBe(90)
+describe('track recording', () => {
+  it('appends one point per fix, with the kinematics of that moment', () => {
+    const state: AisState = new Map()
+    mergeAisMessage(
+      state,
+      {
+        MetaData: { MMSI: 9 },
+        Message: {
+          PositionReport: { Latitude: 54.1, Longitude: 12.1, Sog: 8, Cog: 90, TrueHeading: 92 },
+        },
+      },
+      NOW,
+    )
+    // A static report between fixes: MetaData coordinates count as a fix
+    // and must carry the LAST KNOWN speed and course, not nulls.
+    mergeAisMessage(
+      state,
+      {
+        MetaData: { MMSI: 9, latitude: 54.101, longitude: 12.102 },
+        Message: { ShipStaticData: { Name: 'T', Type: 70, Dimension: { A: 1, B: 1, C: 1, D: 1 } } },
+      },
+      NOW + 60_000,
+    )
+    const v = state.get(9)!
+    expect(v.track).toEqual([
+      [NOW, 54.1, 12.1, 8, 90, 92],
+      [NOW + 60_000, 54.101, 12.102, 8, 90, 92],
+    ])
   })
 
-  it('stops extrapolating past the cap', () => {
-    const capped = deadReckon(vessel({ positionAt: NOW - 10 * 60_000 }), NOW)
-    const atCap = deadReckon(vessel({ positionAt: NOW - AIS_RECKON_CAP_MS }), NOW)
-    expect(capped.lon).toBeCloseTo(atCap.lon, 10)
+  it('prunes old points and caps the length', () => {
+    const state: AisState = new Map()
+    const fix = (t: number): void =>
+      mergeAisMessage(
+        state,
+        { MetaData: { MMSI: 9 }, Message: { PositionReport: { Latitude: 54.1, Longitude: 12.1 } } },
+        t,
+      )
+    fix(NOW - AIS_TRACK_KEEP_MS - 1000)
+    fix(NOW)
+    expect(state.get(9)!.track.map((p) => p[0])).toEqual([NOW])
+    for (let i = 1; i <= AIS_TRACK_MAX_POINTS + 10; i++) fix(NOW + i)
+    expect(state.get(9)!.track).toHaveLength(AIS_TRACK_MAX_POINTS)
+  })
+})
+
+describe('playbackSample', () => {
+  const REN = NOW - AIS_PLAYBACK_DELAY_MS
+
+  it('interpolates position and bearing between two fixes', () => {
+    const v = vessel({
+      track: [point(REN - 30_000, 0, 0, { hdg: 350 }), point(REN + 30_000, 0.001, 0.002, { hdg: 10 })],
+    })
+    const s = playbackSample(v, REN)
+    expect(s.lat).toBeCloseTo(54.1005, 6)
+    expect(s.lon).toBeCloseTo(12.101, 6)
+    expect(s.bearingDeg).toBeCloseTo(0, 6) // 350 → 10 over the short arc
+    expect(s.underWay).toBe(true)
   })
 
-  it('keeps slow and course-less vessels in place', () => {
-    const anchored = deadReckon(vessel({ sogKn: 0.1, positionAt: NOW - 60_000 }), NOW)
-    expect(anchored.lon).toBe(12.1)
-    const noCourse = deadReckon(vessel({ cogDeg: null, headingDeg: 45, positionAt: NOW - 60_000 }), NOW)
-    expect(noCourse.lon).toBe(12.1)
-    expect(noCourse.bearingDeg).toBe(45)
+  it('clamps to the track ends – no extrapolation past the last fix', () => {
+    const track = [point(REN - 90_000), point(REN - 60_000, 0.001, 0.001)]
+    const stalled = playbackSample(vessel({ track }), REN)
+    expect(stalled.lat).toBeCloseTo(54.101, 6) // waits at the last fix
+    expect(stalled.underWay).toBe(false)
+    const early = playbackSample(vessel({ track }), REN - 120_000)
+    expect(early.lat).toBeCloseTo(54.1, 6)
+  })
+
+  it('falls back to the top-level fix with an empty track', () => {
+    const s = playbackSample(vessel({ headingDeg: 163 }), REN)
+    expect(s.lat).toBeCloseTo(54.1, 6)
+    expect(s.bearingDeg).toBe(163)
+    expect(s.underWay).toBe(false)
+  })
+
+  it('derives the bearing from the segment when no heading is reported', () => {
+    const v = vessel({
+      track: [
+        point(REN - 30_000, 0, 0, { cog: null }),
+        point(REN + 30_000, 0.001, 0, { cog: null }), // due north
+      ],
+    })
+    expect(playbackSample(v, REN).bearingDeg).toBeCloseTo(0, 4)
+  })
+
+  it('does not report berth wobble as under way', () => {
+    const v = vessel({
+      track: [point(REN - 30_000), point(REN + 30_000, 0.000001, 0.000001)],
+    })
+    expect(playbackSample(v, REN).underWay).toBe(false)
   })
 })

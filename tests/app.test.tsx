@@ -87,9 +87,9 @@ describe('App (UI shell)', () => {
     const lineCount = network.lines.length
     const modeCount = new Set(network.lines.map((l) => l.mode)).size
     const switches = screen.getAllByRole('switch', { name: /^Show / })
-    // + 2 layer switches (routes, stops) + transit-mode group switches
-    // (only visible when there is more than one mode)
-    expect(switches).toHaveLength(lineCount + 2 + (modeCount > 1 ? modeCount : 0))
+    // + 3 layer switches (routes, stops, labels) + transit-mode group
+    // switches (only visible when there is more than one mode)
+    expect(switches).toHaveLength(lineCount + 3 + (modeCount > 1 ? modeCount : 0))
     for (const sw of switches) {
       expect(sw).toHaveAttribute('aria-checked', 'true')
     }

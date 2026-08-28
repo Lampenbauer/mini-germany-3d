@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compass, Home, Layers2, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { VehicleCard } from '@/components/VehicleCard'
+import { VesselCard } from '@/components/VesselCard'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
@@ -27,7 +28,7 @@ import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
-import { AisClient, overrideFerryPositions } from '@/lib/ais'
+import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
 import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -197,6 +198,9 @@ export default function App() {
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
+  const selectedMmsiRef = useRef<number | null>(null)
+  /** Latest AIS list, so a selected ship's card refreshes with the polls. */
+  const aisVesselsRef = useRef<AisVessel[]>([])
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
@@ -211,6 +215,7 @@ export default function App() {
   const [visibleLines, setVisibleLines] = useState<Set<string>>(new Set())
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
+  const [showLabels, setShowLabels] = useState(true)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -219,6 +224,7 @@ export default function App() {
   // which is why they are refs rather than state.
   const tilesetStatusRef = useRef<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
+  const [selectedVessel, setSelectedVessel] = useState<AisVessel | null>(null)
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
   const realtimeStatusRef = useRef<RealtimeStatus | null>(null)
@@ -270,6 +276,7 @@ export default function App() {
   // Mirrors for the hash writer (closures in the init effect must not see
   // stale React state): layer toggles and pause travel in the URL.
   const showStopsRef = useRef(showStops)
+  const showLabelsRef = useRef(showLabels)
   const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
@@ -286,6 +293,12 @@ export default function App() {
     if (id !== null && selectedStopIdRef.current !== null) {
       selectedStopIdRef.current = null
       setSelectedStopId(null)
+    }
+    // …and the ship card, which shares the same corner of the screen
+    if (id !== null && selectedMmsiRef.current !== null) {
+      selectedMmsiRef.current = null
+      setSelectedVessel(null)
+      mapRef.current?.setFollowVessel(null)
     }
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
@@ -305,15 +318,46 @@ export default function App() {
     if (followingRef.current) map?.setFollow(id)
   }, [])
 
+  /**
+   * Ship selection (click on a hull or its name label). Ships carry no
+   * hash state – they are not reproducible the way a stop or a scheduled
+   * trip is, since which ships are in the harbor depends on the minute.
+   */
+  const selectVessel = useCallback(
+    (mmsi: number | null) => {
+      if (mmsi !== null) {
+        if (selectedIdRef.current !== null) selectVehicle(null)
+        if (selectedStopIdRef.current !== null) {
+          selectedStopIdRef.current = null
+          setSelectedStopId(null)
+        }
+      }
+      selectedMmsiRef.current = mmsi
+      if (mmsi === null) {
+        setSelectedVessel(null)
+        if (followingRef.current) {
+          followingRef.current = false
+          setFollowing(false)
+          mapRef.current?.setFollowVessel(null)
+        }
+        return
+      }
+      setSelectedVessel(aisVesselsRef.current.find((v) => v.mmsi === mmsi) ?? null)
+      if (followingRef.current) mapRef.current?.setFollowVessel(mmsi)
+    },
+    [selectVehicle],
+  )
+
   /** Stop selection (click on a disc/name plate, or a #stop= link). */
   const selectStop = useCallback(
     (id: string | null) => {
       if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
+      if (id !== null && selectedMmsiRef.current !== null) selectVessel(null)
       selectedStopIdRef.current = id
       setSelectedStopId(id)
       writeHashRef.current()
     },
-    [selectVehicle],
+    [selectVehicle, selectVessel],
   )
 
   // Initialization: map, simulation, render loop
@@ -343,6 +387,10 @@ export default function App() {
       showStopsRef.current = false
       setShowStops(false)
     }
+    if (uiState.labelsHidden) {
+      showLabelsRef.current = false
+      setShowLabels(false)
+    }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
@@ -368,20 +416,27 @@ export default function App() {
       realtimeClient.start(120_000)
     }
 
-    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as
-    // backdrop, and the ferries snap onto their AIS twins. Off in offline
-    // mode and tests, ?ais=0 opts out.
+    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
+    // backdrop, played back 4 minutes behind the wall clock (see
+    // ais-extract.ts). Off in offline mode and tests, ?ais=0 opts out.
     const aisEnabled =
       config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais
     let aisClient: AisClient | null = null
-    let aisVessels: AisVessel[] = []
     let aisBackdrop: AisVessel[] = []
     if (aisEnabled) {
       aisClient = new AisClient(config.ais.url, (_status, vessels) => {
-        aisVessels = vessels
-        // The mapped ferries sail as simulated vehicles – drawing them in
-        // the backdrop too would put two boats on one crossing.
+        // The city ferries sail as simulated vehicles on their timetable –
+        // drawing their AIS twins too would put two boats on one crossing.
         aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
+        aisVesselsRef.current = aisBackdrop
+        // An open ship card follows its ship's fixes; a ship that has left
+        // the picture closes it rather than freezing at her last position.
+        const mmsi = selectedMmsiRef.current
+        if (mmsi !== null) {
+          const fresh = aisBackdrop.find((v) => v.mmsi === mmsi) ?? null
+          if (fresh === null) selectVessel(null)
+          else setSelectedVessel(fresh)
+        }
       })
       aisClient.start(config.ais.pollIntervalMs)
     }
@@ -416,6 +471,7 @@ export default function App() {
         formatUiStateHash({
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
+          labelsHidden: !showLabelsRef.current,
           paused: pausedRef.current,
         })
       if (hash !== window.location.hash) {
@@ -450,6 +506,7 @@ export default function App() {
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
+      onSelectVessel: selectVessel,
       onSelectStop: selectStop,
       onTilesetStatus: (status) => {
         tilesetStatusRef.current = status
@@ -471,6 +528,7 @@ export default function App() {
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
+    if (uiState.labelsHidden) map.setLabelsVisible(false)
 
     // Rain overlay: live precipitation for the city center (Open-Meteo).
     // Offline mode stays dry (no network, deterministic E2E tests) and
@@ -542,6 +600,12 @@ export default function App() {
         setShowStops(stopsVisible)
         map.setStopsVisible(stopsVisible)
       }
+      const labelsVisible = !ui.labelsHidden
+      if (labelsVisible !== showLabelsRef.current) {
+        showLabelsRef.current = labelsVisible
+        setShowLabels(labelsVisible)
+        map.setLabelsVisible(labelsVisible)
+      }
 
       // A selection outranks a camera pose, the same order writeHash
       // builds the hash in – so a hash carrying neither clears both.
@@ -582,11 +646,11 @@ export default function App() {
     // tram in view does.
     let lastMovingVesselInView = false
     // Pause freezes the whole picture, ships included: the AIS input and
-    // its clock hold at the moment of pausing, so dead reckoning stands
+    // its clock hold at the moment of pausing, so the playback stands
     // still and later polls cannot move a frozen world. Play unfreezes
     // into live data (and snaps the sim clock to real time, see
     // handleTogglePause) – the display ease glides everything over.
-    let aisFrozen: { vessels: AisVessel[]; backdrop: AisVessel[]; atMs: number } | null = null
+    let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -634,19 +698,13 @@ export default function App() {
             if (clock.paused) {
               // A pause that started before the first poll upgrades once
               // when data lands – frozen, but not needlessly empty.
-              if (aisFrozen === null || (aisFrozen.vessels.length === 0 && aisVessels.length > 0)) {
-                aisFrozen = { vessels: aisVessels, backdrop: aisBackdrop, atMs: Date.now() }
+              if (aisFrozen === null || (aisFrozen.backdrop.length === 0 && aisBackdrop.length > 0)) {
+                aisFrozen = { backdrop: aisBackdrop, atMs: Date.now() }
               }
             } else {
               aisFrozen = null
             }
             const aisNow = aisFrozen?.atMs ?? Date.now()
-            const vesselsForTick = aisFrozen?.vessels ?? aisVessels
-            // Real ferry positions beat simulated ones (realism first);
-            // without a fresh fix the timetable position stands.
-            if (vesselsForTick.length > 0) {
-              overrideFerryPositions(snapshots, vesselsForTick, config.ais.ferryLineByMmsi, aisNow)
-            }
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
             const vesselInfo = aisEnabled
               ? map.syncVessels(aisFrozen?.backdrop ?? aisBackdrop, aisNow)
@@ -935,6 +993,13 @@ export default function App() {
     writeHashRef.current()
   }, [])
 
+  const handleToggleLabels = useCallback((visible: boolean) => {
+    showLabelsRef.current = visible
+    setShowLabels(visible)
+    mapRef.current?.setLabelsVisible(visible)
+    writeHashRef.current()
+  }, [])
+
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
     simRef.current?.clock.setSpeed(value)
@@ -965,11 +1030,13 @@ export default function App() {
 
   const handleToggleFollow = useCallback(() => {
     const id = selectedIdRef.current
-    if (!id) return
+    const mmsi = selectedMmsiRef.current
+    if (id === null && mmsi === null) return
     const next = !followingRef.current
     followingRef.current = next
     setFollowing(next)
-    mapRef.current?.setFollow(next ? id : null)
+    if (mmsi !== null) mapRef.current?.setFollowVessel(next ? mmsi : null)
+    else mapRef.current?.setFollow(next && id !== null ? id : null)
   }, [])
 
   const handleResetCamera = useCallback(() => {
@@ -977,6 +1044,7 @@ export default function App() {
       followingRef.current = false
       setFollowing(false)
       mapRef.current?.setFollow(null)
+      mapRef.current?.setFollowVessel(null)
     }
     mapRef.current?.setCameraHome(true)
   }, [])
@@ -1135,10 +1203,24 @@ export default function App() {
           onToggleRoutes={handleToggleRoutes}
           showStops={showStops}
           onToggleStops={handleToggleStops}
+          showLabels={showLabels}
+          onToggleLabels={handleToggleLabels}
         />
       </div>
 
-      {!selected && selectedStop && (
+      {selectedVessel && (
+        <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <VesselCard
+            vessel={selectedVessel}
+            nowMs={Date.now()}
+            following={following}
+            onToggleFollow={handleToggleFollow}
+            onClose={() => selectVessel(null)}
+          />
+        </div>
+      )}
+
+      {!selected && !selectedVessel && selectedStop && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <StopCard
             stop={selectedStop}

@@ -15,7 +15,11 @@
  * Response (also served while a refresh is still pending):
  *   { "timestamp": <unix ms of the state>, "vessels": [ { mmsi, name,
  *     lat, lon, sogKn, cogDeg, headingDeg, navStatus, typeCode,
- *     lengthM, widthM, positionAt }, ... ] }
+ *     lengthM, widthM, draughtM, positionAt, track }, ... ] }
+ * track is the vessel's recent fixes ([unix ms, lat, lon, sogKn, cogDeg,
+ * headingDeg], oldest first): the app renders the fleet 4 minutes behind
+ * the wall clock and interpolates BETWEEN these – see the playback notes
+ * in src/lib/ais-extract.ts.
  *
  * The browser is always answered from the state file. When it has gone
  * stale, the request that noticed responds first (stale beats waiting
@@ -85,6 +89,10 @@ const MRT_AIS_EXPIRE_MS = 30 * 60_000;
  *  dimensions, learned only every 6 minutes) must outlive a ferry's
  *  round trip to Gedser. Mirror of ais-extract.ts. */
 const MRT_AIS_STATIC_KEEP_MS = 48 * 3600_000;
+/** Track points older than this are pruned. Mirror of ais-extract.ts. */
+const MRT_AIS_TRACK_KEEP_MS = 10 * 60_000;
+/** Hard cap per vessel – a runaway-transmitter backstop. */
+const MRT_AIS_TRACK_MAX_POINTS = 40;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/ais-extract.ts
@@ -115,17 +123,15 @@ function mrt_ais_dimensions(?array $dim): array
 }
 
 /**
- * Folds one raw aisstream message into the state (mmsi → vessel record).
- * Field-for-field port of mergeAisMessage in src/lib/ais-extract.ts – any
- * behavioral change must land in both, the parity test insists.
+ * The shape of a vessel record, in one place. Also what an older state
+ * file is completed to when it is read back (see mrt_ais_load): the state
+ * outlives deploys, so a record written before a field existed would
+ * otherwise reach the browser without that key at all – which is not the
+ * same as null, and crashed the vessel card when draughtM arrived.
  */
-function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
+function mrt_ais_default_vessel(int $mmsi): array
 {
-    $meta = $raw['MetaData'] ?? null;
-    $mmsi = $meta['MMSI'] ?? null;
-    if (!is_int($mmsi) || $mmsi <= 0) return;
-
-    $vessel = $state[$mmsi] ?? [
+    return [
         'mmsi' => $mmsi,
         'name' => '',
         'lat' => null,
@@ -137,8 +143,24 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         'typeCode' => 0,
         'lengthM' => null,
         'widthM' => null,
+        'draughtM' => null,
         'positionAt' => 0,
+        'track' => [],
     ];
+}
+
+/**
+ * Folds one raw aisstream message into the state (mmsi → vessel record).
+ * Field-for-field port of mergeAisMessage in src/lib/ais-extract.ts – any
+ * behavioral change must land in both, the parity test insists.
+ */
+function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
+{
+    $meta = $raw['MetaData'] ?? null;
+    $mmsi = $meta['MMSI'] ?? null;
+    if (!is_int($mmsi) || $mmsi <= 0) return;
+
+    $vessel = $state[$mmsi] ?? mrt_ais_default_vessel($mmsi);
 
     // Position: the message payload is authoritative (full precision), the
     // MetaData copy fills in for static reports.
@@ -147,7 +169,8 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         ?? null;
     $lat = $report['Latitude'] ?? $meta['latitude'] ?? null;
     $lon = $report['Longitude'] ?? $meta['longitude'] ?? null;
-    if (is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90) {
+    $hasFix = is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90;
+    if ($hasFix) {
         $vessel['lat'] = (float) $lat;
         $vessel['lon'] = (float) $lon;
         $vessel['positionAt'] = $nowMs;
@@ -159,6 +182,17 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         if (array_key_exists('NavigationalStatus', $report)) {
             $vessel['navStatus'] = $report['NavigationalStatus'] ?? $vessel['navStatus'];
         }
+    }
+    if ($hasFix) {
+        // Record AFTER the kinematics update, so a MetaData-only fix
+        // (static report) carries the last known speed and course.
+        $vessel['track'][] = [$nowMs, $vessel['lat'], $vessel['lon'],
+            $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg']];
+        $track = [];
+        foreach ($vessel['track'] as $point) {
+            if ($nowMs - $point[0] <= MRT_AIS_TRACK_KEEP_MS) $track[] = $point;
+        }
+        $vessel['track'] = array_slice($track, -MRT_AIS_TRACK_MAX_POINTS);
     }
 
     // Static data: name, type, dimensions – whichever report carries them.
@@ -174,6 +208,10 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
     [$length, $width] = mrt_ais_dimensions($staticData['Dimension'] ?? $reportB['Dimension'] ?? null);
     if ($length !== null) $vessel['lengthM'] = $length;
     if ($width !== null) $vessel['widthM'] = $width;
+    // Draught rides with the name and dimensions – only the full static
+    // report carries it, and 0 is AIS for "not reported", not a value.
+    $draught = $staticData['MaximumStaticDraught'] ?? null;
+    if (is_numeric($draught) && $draught > 0) $vessel['draughtM'] = (float) $draught;
 
     if ($vessel['lat'] !== null) $state[$mmsi] = $vessel;
 }
@@ -382,7 +420,16 @@ function mrt_ais_load(string $stateFile): array
     // JSON object keys arrive as strings – vessels are keyed by int MMSI.
     $state = [];
     foreach ($data['state'] as $mmsi => $vessel) {
-        $state[(int) $mmsi] = $vessel;
+        if (!is_array($vessel)) continue;
+        $mmsi = (int) $mmsi;
+        // A state file written by an earlier deploy is missing whatever
+        // fields were added since. Union with the defaults fills those in
+        // (PHP's + keeps the keys the record already has), so a record
+        // that predates a field arrives as null rather than as absent.
+        $vessel = $vessel + mrt_ais_default_vessel($mmsi);
+        // The track additionally has to BE a list, not merely present.
+        if (!is_array($vessel['track'])) $vessel['track'] = [];
+        $state[$mmsi] = $vessel;
     }
     return ['listenedAt' => (int) ($data['listenedAt'] ?? 0), 'state' => $state];
 }
@@ -405,6 +452,25 @@ function mrt_ais_respond(array $state, int $listenedAt): void
         'servedAt' => $nowMs,
         'vessels' => mrt_ais_vessels($state, $nowMs),
     ]);
+}
+
+// --- CLI self-test: state migration ----------------------------------------
+// Replays a STATE file (as written to disk) through the loader and prints
+// what would be served. scripts/test-ais-state.mjs feeds it a record from
+// before a field existed and insists every field comes back.
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-state') {
+    $file = $argv[2] ?? '';
+    $nowMs = (int) ($argv[3] ?? 0);
+    if (!is_readable($file) || $nowMs <= 0) {
+        fwrite(STDERR, "usage: php ais.php --selftest-state state.json <now-ms>\n");
+        exit(2);
+    }
+    $data = mrt_ais_load($file);
+    echo json_encode([
+        'timestamp' => $data['listenedAt'],
+        'vessels' => mrt_ais_vessels($data['state'], $nowMs),
+    ]), "\n";
+    exit(0);
 }
 
 // --- CLI self-test ---------------------------------------------------------
@@ -492,6 +558,10 @@ if (!$haveLock) {
 $listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
 $requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
 $windowStart = mrt_now_ms();
+// Re-read the state now that the lock is ours: a keeper that queued
+// behind another window would otherwise save its pre-wait snapshot and
+// silently drop every track point that window just recorded.
+$data = mrt_ais_load($stateFile);
 $state = $data['state'];
 $flush = function (array $flushState) use ($stateFile, $windowStart): void {
     mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy

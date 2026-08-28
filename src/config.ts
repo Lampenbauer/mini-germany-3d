@@ -64,10 +64,12 @@ export const config = {
      */
     pollIntervalMs: 10_000,
     /**
-     * Which real vessel serves which simulated ferry line (MMSI → line
+     * Which real vessel sails which simulated ferry line (MMSI → line
      * id): the Gehlsdorf solar ferry and the two boats sharing the
-     * Warnemünde–Hohe Düne crossing. Identified from live AIS 2026-08-27;
-     * a replacement vessel would need its MMSI added here.
+     * Warnemünde–Hohe Düne crossing. The ferries run purely on their
+     * timetable – this map only EXCLUDES their AIS twins from the
+     * backdrop fleet, one boat per crossing. Identified from live AIS
+     * 2026-08-27; a replacement vessel would need its MMSI added here.
      */
     ferryLineByMmsi: {
       211825200: 'FG', // WARNOWSTROMER

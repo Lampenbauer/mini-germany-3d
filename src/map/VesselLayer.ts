@@ -1,10 +1,12 @@
 /**
  * Background harbor traffic from AIS (see src/lib/ais.ts): one box per
  * vessel in the real ship's reported dimensions, colored by its AIS type,
- * plus a name label. Positions dead-reckon along course and speed between
- * the ~30 s polls, so moving ships glide instead of hopping. The city
- * ferries are excluded upstream – they sail as simulated vehicles whose
- * positions the AIS override corrects (overrideFerryPositions).
+ * plus a name label. The fleet renders AIS_PLAYBACK_DELAY_MS behind the
+ * wall clock, interpolating between the recorded fixes of each vessel's
+ * track (playbackSample) – between two known points there is nothing to
+ * extrapolate, so ships glide instead of stalling and teleporting. The
+ * city ferries are excluded upstream – they sail as simulated vehicles
+ * on their timetable.
  *
  * Same rendering approach as VehicleLayer: Primitive boxes with in-place
  * modelMatrix updates (Entity boxes rebuild geometry asynchronously and
@@ -19,6 +21,7 @@ import {
   UniformType,
   Cartesian2,
   Cartesian3,
+  Cartographic,
   Color,
   ColorGeometryInstanceAttribute,
   ConstantPositionProperty,
@@ -36,12 +39,15 @@ import {
   type Entity,
   type Viewer,
 } from 'cesium'
-import { AIS_EXPIRE_MS, AIS_RECKON_CAP_MS, deadReckon, type AisVessel } from '@/lib/ais-extract'
+import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
+import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface (calibrated like the ferry routes). */
   readonly waterSurfaceHeight: number
+  /** A camera flight is starting – keeps the render loop at full rate. */
+  noteCameraFlight(durationMs: number): void
 }
 
 /** Ship names fade in below this camera distance (meters). */
@@ -55,10 +61,10 @@ const NAME_VISIBLE_RANGE = 15_000
 const VESSEL_RENDER_RANGE = 20_000
 /**
  * Time constant of the display smoothing in ms: the drawn position eases
- * toward the dead-reckoned target instead of snapping. Between ticks that
- * yields fluid motion; when a fresh fix corrects the extrapolation by
- * meters (or, after a data gap, by hundreds of meters), the ship glides
- * over in about a second instead of teleporting.
+ * toward the playback target instead of snapping. Between ticks that
+ * yields fluid motion, and it rounds the corners where one track segment
+ * hands over to the next; when a data gap ends and the playback catches
+ * up, the ship glides over in about a second instead of teleporting.
  */
 const SMOOTH_TAU_MS = 400
 /** Fallback dimensions for the many small craft without static data. */
@@ -159,6 +165,10 @@ const WINDOW_GLOW_MAX = 0.85
 export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
   private visible = true
+  private labelsVisible = true
+  /** MMSI the camera is chasing, null when free. */
+  private followMmsi: number | null = null
+  private readonly followCamera: FollowCamera
   private frustumSphere = new BoundingSphere()
   private lastSyncMs = 0
   /** Lights the hulls' glazing at night (see WINDOW_GLOW_COLOR). */
@@ -179,7 +189,9 @@ export class VesselLayer {
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VesselLayerHost,
-  ) {}
+  ) {
+    this.followCamera = new FollowCamera(viewer, host)
+  }
 
   /**
    * Whether `position` sits inside the view and close enough to matter.
@@ -208,12 +220,13 @@ export class VesselLayer {
   }
 
   /**
-   * Per-tick update: dead-reckoned positions, arrivals, departures.
+   * Per-tick update: played-back positions, arrivals, departures.
    * Returns whether a vessel whose drawn pose is still changing sits
    * inside the view – the app's tick and render pacing treat that like a
    * tram in view, otherwise ships glide in 500 ms stop-motion steps.
    */
   sync(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
+    const renderMs = nowMs - AIS_PLAYBACK_DELAY_MS
     const alive = new Set<number>()
     // One culling volume per tick, for every repaint decision below.
     const camera = this.viewer.camera
@@ -253,7 +266,7 @@ export class VesselLayer {
         this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
 
-      const reckoned = deadReckon(vessel, nowMs)
+      const sample = playbackSample(vessel, renderMs)
       // Stretch the archetype to the reported size; the box placeholder
       // was already built at it. Height grows with the footprint's root –
       // ships get longer much faster than they get taller.
@@ -264,8 +277,8 @@ export class VesselLayer {
         ? spec.height * heightScale(lengthScale, widthScale)
         : record.builtHeight
       const target = Cartesian3.fromDegrees(
-        reckoned.lon,
-        reckoned.lat,
+        sample.lon,
+        sample.lat,
         this.host.waterSurfaceHeight + drawnHeight / 2,
         undefined,
         positionScratch,
@@ -275,10 +288,10 @@ export class VesselLayer {
         Cartesian3.clone(target, record.displayPosition)
       }
       // Shortest-path ease of the bearing – cog jitter must not wag the bow
-      const bearingGap = ((reckoned.bearingDeg - record.displayBearing + 540) % 360) - 180
+      const bearingGap = ((sample.bearingDeg - record.displayBearing + 540) % 360) - 180
       record.displayBearing =
         Math.abs(bearingGap) < 0.05
-          ? reckoned.bearingDeg
+          ? sample.bearingDeg
           : (record.displayBearing + bearingGap * alpha + 360) % 360
 
       hprScratch.heading = CesiumMath.toRadians(record.displayBearing - 90)
@@ -307,12 +320,10 @@ export class VesselLayer {
       // a slow ship advances less than it per 33 ms tick, the flag would
       // drop, the app would fall back to 500 ms ticks, and the two rates
       // would oscillate into exactly the stop-motion this exists to
-      // prevent. "Under way" comes from the data instead – stable across
-      // ticks – with the pose ease riding along until it converged.
-      const underWay =
-        (vessel.sogKn ?? 0) >= 0.3 &&
-        vessel.cogDeg !== null &&
-        nowMs - vessel.positionAt <= AIS_RECKON_CAP_MS
+      // prevent. "Under way" comes from the playback segment instead –
+      // stable across ticks – with the pose ease riding along until it
+      // converged.
+      const underWay = sample.underWay
       if ((poseChanged || underWay) && this.isOnScreen(cullingVolume, record.displayPosition)) {
         anyMovingVesselInView = true
         if (poseChanged) this.host.requestRender()
@@ -320,6 +331,19 @@ export class VesselLayer {
       if (poseChanged) {
         Cartesian3.clone(record.displayPosition, record.lastPosition)
         record.lastBearing = record.displayBearing
+      }
+
+      // Chase from the DRAWN pose, not the raw sample: the display ease
+      // is what the eye follows, so the camera has to ride the same curve
+      // or it would jitter against the hull it is chasing.
+      if (vessel.mmsi === this.followMmsi) {
+        const carto = Cartographic.fromCartesian(record.displayPosition)
+        this.followCamera.update({
+          lon: CesiumMath.toDegrees(carto.longitude),
+          lat: CesiumMath.toDegrees(carto.latitude),
+          centerHeight: this.host.waterSurfaceHeight + drawnHeight + 2,
+          bearingDeg: record.displayBearing,
+        })
       }
 
       const text = vessel.name || String(vessel.mmsi)
@@ -352,7 +376,46 @@ export class VesselLayer {
     for (const record of this.vessels.values()) {
       if (record.primitive) record.primitive.show = visible
       if (record.model) record.model.show = visible
-      record.labelEntity.show = visible
+      record.labelEntity.show = visible && this.labelsVisible
+    }
+    this.host.requestRender()
+  }
+
+  /**
+   * Follow a ship by MMSI, or nobody. A ship that is not on the map yet
+   * gets no approach flight – the first sync that draws her engages the
+   * chase instead, which is also what happens when she is off screen.
+   */
+  setFollow(mmsi: number | null): void {
+    this.followMmsi = mmsi
+    if (mmsi === null) {
+      this.followCamera.release()
+      return
+    }
+    const record = this.vessels.get(mmsi)
+    if (!record) {
+      this.followCamera.engage(null)
+      return
+    }
+    const carto = Cartographic.fromCartesian(record.displayPosition)
+    this.followCamera.engage({
+      lon: CesiumMath.toDegrees(carto.longitude),
+      lat: CesiumMath.toDegrees(carto.latitude),
+      centerHeight: this.host.waterSurfaceHeight + record.builtHeight + 2,
+      bearingDeg: record.displayBearing,
+    })
+  }
+
+  hasVessel(mmsi: number): boolean {
+    return this.vessels.has(mmsi)
+  }
+
+  /** Ship names off – the fleet's half of the Labels layer toggle. */
+  setLabelsVisible(visible: boolean): void {
+    if (visible === this.labelsVisible) return
+    this.labelsVisible = visible
+    for (const record of this.vessels.values()) {
+      record.labelEntity.show = this.visible && visible
     }
     this.host.requestRender()
   }
@@ -366,15 +429,15 @@ export class VesselLayer {
     const style = vesselStyle(vessel.typeCode)
     const length = vessel.lengthM ?? DEFAULT_LENGTH
     const width = vessel.widthM ?? DEFAULT_WIDTH
-    const reckoned = deadReckon(vessel, nowMs)
+    const sample = playbackSample(vessel, nowMs - AIS_PLAYBACK_DELAY_MS)
     const position = Cartesian3.fromDegrees(
-      reckoned.lon,
-      reckoned.lat,
+      sample.lon,
+      sample.lat,
       this.host.waterSurfaceHeight + style.height / 2,
     )
     const matrix = Transforms.headingPitchRollToFixedFrame(
       position,
-      new HeadingPitchRoll(CesiumMath.toRadians(reckoned.bearingDeg - 90), 0, 0),
+      new HeadingPitchRoll(CesiumMath.toRadians(sample.bearingDeg - 90), 0, 0),
     )
     const color = Color.fromCssColorString(style.color)
     const primitive = new Primitive({
@@ -398,7 +461,7 @@ export class VesselLayer {
     const labelEntity = this.viewer.entities.add({
       id: `vessel:${vessel.mmsi}`,
       position: labelPosition,
-      show: this.visible,
+      show: this.visible && this.labelsVisible,
       label: {
         text: labelText,
         font: '10px "Inter Variable", system-ui, sans-serif',
@@ -427,9 +490,9 @@ export class VesselLayer {
       builtHeight: style.height,
       labelText,
       displayPosition: Cartesian3.clone(position),
-      displayBearing: reckoned.bearingDeg,
+      displayBearing: sample.bearingDeg,
       lastPosition: Cartesian3.clone(position),
-      lastBearing: reckoned.bearingDeg,
+      lastBearing: sample.bearingDeg,
     }
     void this.attachModel(record, vessel.mmsi)
     return record
