@@ -369,7 +369,7 @@ export default function App() {
     }
 
     // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
-    // backdrop, played back 3 minutes behind the wall clock (see
+    // backdrop, played back 4 minutes behind the wall clock (see
     // ais-extract.ts). Off in offline mode and tests, ?ais=0 opts out.
     const aisEnabled =
       config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais

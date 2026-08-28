@@ -17,7 +17,7 @@
  *     lat, lon, sogKn, cogDeg, headingDeg, navStatus, typeCode,
  *     lengthM, widthM, positionAt, track }, ... ] }
  * track is the vessel's recent fixes ([unix ms, lat, lon, sogKn, cogDeg,
- * headingDeg], oldest first): the app renders the fleet 3 minutes behind
+ * headingDeg], oldest first): the app renders the fleet 4 minutes behind
  * the wall clock and interpolates BETWEEN these – see the playback notes
  * in src/lib/ais-extract.ts.
  *

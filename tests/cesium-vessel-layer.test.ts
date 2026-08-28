@@ -4,7 +4,7 @@ import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib
 import { VesselLayer } from '@/map/VesselLayer'
 
 /**
- * AIS backdrop fleet: boxes in real ship dimensions that play back three
+ * AIS backdrop fleet: boxes in real ship dimensions that play back four
  * minutes behind the wall clock along their recorded tracks, labels that
  * fall back to the MMSI until a name arrives, and records that leave
  * with their vessel.
@@ -102,7 +102,7 @@ describe('VesselLayer', () => {
     expect(h.record(211222290)!.labelText).toBe('DENEB')
   })
 
-  it('plays a moving vessel back along its track, three minutes behind', () => {
+  it('plays a moving vessel back along its track, four minutes behind', () => {
     const h = harness()
     h.layer.sync([vessel({ track: underWayTrack() })], NOW)
     const carto = positionOf(h.record(211222290)!.matrix)

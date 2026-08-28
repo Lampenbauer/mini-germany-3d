@@ -62,15 +62,17 @@ export const AIS_EXPIRE_MS = 30 * 60_000
 export const AIS_STATIC_KEEP_MS = 48 * 3600_000
 
 /**
- * How far behind the wall clock the app renders the fleet. Three minutes
+ * How far behind the wall clock the app renders the fleet. Four minutes
  * covers aisstream's ~60 s per-ship cadence plus the poll pipeline
  * (8 s state flush + 10 s client poll) several times over, so even a
- * ship that skips two reports in a row is still played back between two
- * known fixes rather than waiting at the last one. The cost is only that
- * the harbor runs three minutes late – nobody watching the map can tell,
- * and the motion is what sells it.
+ * ship that skips three reports in a row is still played back between
+ * two known fixes rather than waiting at the last one. The cost is only
+ * that the harbor runs four minutes late – nobody watching the map can
+ * tell, and the motion is what sells it. It has to stay well under
+ * AIS_TRACK_KEEP_MS, or the playback would be reading points the state
+ * has already pruned.
  */
-export const AIS_PLAYBACK_DELAY_MS = 180_000
+export const AIS_PLAYBACK_DELAY_MS = 240_000
 /** Track points older than this are pruned from the state. */
 export const AIS_TRACK_KEEP_MS = 10 * 60_000
 /** Hard cap per vessel – a runaway-transmitter backstop. */

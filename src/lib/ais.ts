@@ -2,7 +2,7 @@
  * AIS client: polls the filtered vessel endpoint /api/ais (served by the
  * Vite middleware in dev, by api/ais.php in production – see
  * src/lib/ais-extract.ts for the shared extraction) and hands the vessel
- * list to the app, which plays it back three minutes behind the wall
+ * list to the app, which plays it back four minutes behind the wall
  * clock (playbackSample in ais-extract.ts).
  */
 
