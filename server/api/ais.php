@@ -15,7 +15,11 @@
  * Response (also served while a refresh is still pending):
  *   { "timestamp": <unix ms of the state>, "vessels": [ { mmsi, name,
  *     lat, lon, sogKn, cogDeg, headingDeg, navStatus, typeCode,
- *     lengthM, widthM, positionAt }, ... ] }
+ *     lengthM, widthM, positionAt, track }, ... ] }
+ * track is the vessel's recent fixes ([unix ms, lat, lon, sogKn, cogDeg,
+ * headingDeg], oldest first): the app renders the fleet 3 minutes behind
+ * the wall clock and interpolates BETWEEN these – see the playback notes
+ * in src/lib/ais-extract.ts.
  *
  * The browser is always answered from the state file. When it has gone
  * stale, the request that noticed responds first (stale beats waiting
@@ -85,6 +89,10 @@ const MRT_AIS_EXPIRE_MS = 30 * 60_000;
  *  dimensions, learned only every 6 minutes) must outlive a ferry's
  *  round trip to Gedser. Mirror of ais-extract.ts. */
 const MRT_AIS_STATIC_KEEP_MS = 48 * 3600_000;
+/** Track points older than this are pruned. Mirror of ais-extract.ts. */
+const MRT_AIS_TRACK_KEEP_MS = 10 * 60_000;
+/** Hard cap per vessel – a runaway-transmitter backstop. */
+const MRT_AIS_TRACK_MAX_POINTS = 40;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/ais-extract.ts
@@ -138,6 +146,7 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         'lengthM' => null,
         'widthM' => null,
         'positionAt' => 0,
+        'track' => [],
     ];
 
     // Position: the message payload is authoritative (full precision), the
@@ -147,7 +156,8 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         ?? null;
     $lat = $report['Latitude'] ?? $meta['latitude'] ?? null;
     $lon = $report['Longitude'] ?? $meta['longitude'] ?? null;
-    if (is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90) {
+    $hasFix = is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90;
+    if ($hasFix) {
         $vessel['lat'] = (float) $lat;
         $vessel['lon'] = (float) $lon;
         $vessel['positionAt'] = $nowMs;
@@ -159,6 +169,17 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         if (array_key_exists('NavigationalStatus', $report)) {
             $vessel['navStatus'] = $report['NavigationalStatus'] ?? $vessel['navStatus'];
         }
+    }
+    if ($hasFix) {
+        // Record AFTER the kinematics update, so a MetaData-only fix
+        // (static report) carries the last known speed and course.
+        $vessel['track'][] = [$nowMs, $vessel['lat'], $vessel['lon'],
+            $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg']];
+        $track = [];
+        foreach ($vessel['track'] as $point) {
+            if ($nowMs - $point[0] <= MRT_AIS_TRACK_KEEP_MS) $track[] = $point;
+        }
+        $vessel['track'] = array_slice($track, -MRT_AIS_TRACK_MAX_POINTS);
     }
 
     // Static data: name, type, dimensions – whichever report carries them.
@@ -382,6 +403,9 @@ function mrt_ais_load(string $stateFile): array
     // JSON object keys arrive as strings – vessels are keyed by int MMSI.
     $state = [];
     foreach ($data['state'] as $mmsi => $vessel) {
+        // States written before the track existed migrate to an empty
+        // one – the playback then holds the top-level fix.
+        if (!is_array($vessel['track'] ?? null)) $vessel['track'] = [];
         $state[(int) $mmsi] = $vessel;
     }
     return ['listenedAt' => (int) ($data['listenedAt'] ?? 0), 'state' => $state];
@@ -492,6 +516,10 @@ if (!$haveLock) {
 $listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
 $requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
 $windowStart = mrt_now_ms();
+// Re-read the state now that the lock is ours: a keeper that queued
+// behind another window would otherwise save its pre-wait snapshot and
+// silently drop every track point that window just recorded.
+$data = mrt_ais_load($stateFile);
 $state = $data['state'];
 $flush = function (array $flushState) use ($stateFile, $windowStart): void {
     mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy

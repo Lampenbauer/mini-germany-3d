@@ -2,11 +2,11 @@
  * AIS client: polls the filtered vessel endpoint /api/ais (served by the
  * Vite middleware in dev, by api/ais.php in production – see
  * src/lib/ais-extract.ts for the shared extraction) and hands the vessel
- * list to the app. Plus the ferry override: the simulated FG/FW ferries
- * snap onto their real AIS twins whenever a fresh fix is close by.
+ * list to the app, which plays it back three minutes behind the wall
+ * clock (playbackSample in ais-extract.ts).
  */
 
-import { deadReckon, type AisVessel } from '@/lib/ais-extract'
+import type { AisVessel } from '@/lib/ais-extract'
 
 export interface AisStatus {
   state: 'connecting' | 'live' | 'error'
@@ -76,7 +76,10 @@ export class AisClient {
       // fix look that much fresher than it is.
       const anchor = data.servedAt ?? data.timestamp
       const skewMs = typeof anchor === 'number' ? Date.now() - anchor : 0
-      for (const vessel of data.vessels) vessel.positionAt += skewMs
+      for (const vessel of data.vessels) {
+        vessel.positionAt += skewMs
+        for (const point of vessel.track) point[0] += skewMs
+      }
       this.vessels = data.vessels
       this.status = {
         state: 'live',
@@ -93,79 +96,4 @@ export class AisClient {
       this.onUpdate(this.status, this.vessels)
     }
   }
-}
-
-/** The slice of a vehicle snapshot the ferry override touches. */
-export interface FerrySnapshotLike {
-  lineId: string
-  mode: string
-  lon: number
-  lat: number
-  bearing: number
-}
-
-/**
- * AIS fixes older than this cannot stand in for a ferry. Kept just above
- * the ~60 s grid aisstream delivers, so a ferry normally rides her real
- * fix and only falls back to the timetable when one is genuinely missing.
- * Three minutes was too generous: reckoning a stale fix across a crossing
- * that takes about two – decelerating and turning at the pier – drove the
- * Warnemünde boat straight over the quay onto land.
- */
-const FERRY_FIX_MAX_AGE_MS = 75_000
-/** Beyond this GTFS-to-AIS distance the fix belongs to no simulated trip. */
-const FERRY_SNAP_MAX_METERS = 500
-
-const METERS_PER_DEGREE_LATITUDE = 111_320
-
-function distanceMeters(aLon: number, aLat: number, bLon: number, bLat: number): number {
-  const dLat = (aLat - bLat) * METERS_PER_DEGREE_LATITUDE
-  const dLon = (aLon - bLon) * METERS_PER_DEGREE_LATITUDE * Math.cos((aLat * Math.PI) / 180)
-  return Math.hypot(dLat, dLon)
-}
-
-/**
- * Moves the simulated ferries onto their real AIS positions. Vessels are
- * mapped to lines via `ferryLineByMmsi`; within a line, fixes and active
- * trips pair up greedily by distance, so on the two-vessel Warnemünde
- * crossing each boat corrects its own trip. Snapshots without a fresh fix
- * in range stay on their timetable position – AIS gaps degrade gracefully
- * to the simulation. Returns how many snapshots were overridden.
- */
-export function overrideFerryPositions<T extends FerrySnapshotLike>(
-  snapshots: T[],
-  vessels: AisVessel[],
-  ferryLineByMmsi: Record<number, string>,
-  nowMs: number,
-): number {
-  const pairs: { snapshot: T; vessel: AisVessel; distance: number }[] = []
-  for (const vessel of vessels) {
-    const lineId = ferryLineByMmsi[vessel.mmsi]
-    if (!lineId || nowMs - vessel.positionAt > FERRY_FIX_MAX_AGE_MS) continue
-    for (const snapshot of snapshots) {
-      if (snapshot.mode !== 'ferry' || snapshot.lineId !== lineId) continue
-      const distance = distanceMeters(snapshot.lon, snapshot.lat, vessel.lon, vessel.lat)
-      if (distance <= FERRY_SNAP_MAX_METERS) pairs.push({ snapshot, vessel, distance })
-    }
-  }
-  pairs.sort((a, b) => a.distance - b.distance)
-
-  const usedSnapshots = new Set<T>()
-  const usedVessels = new Set<AisVessel>()
-  let overridden = 0
-  for (const { snapshot, vessel } of pairs) {
-    if (usedSnapshots.has(snapshot) || usedVessels.has(vessel)) continue
-    usedSnapshots.add(snapshot)
-    usedVessels.add(vessel)
-    const reckoned = deadReckon(vessel, nowMs)
-    snapshot.lon = reckoned.lon
-    snapshot.lat = reckoned.lat
-    // A moored ferry reports no usable course – keep the timetable bearing
-    // then, it points along the crossing.
-    if (vessel.headingDeg !== null || vessel.cogDeg !== null) {
-      snapshot.bearing = reckoned.bearingDeg
-    }
-    overridden++
-  }
-  return overridden
 }

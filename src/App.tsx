@@ -27,7 +27,7 @@ import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
-import { AisClient, overrideFerryPositions } from '@/lib/ais'
+import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
 import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -362,19 +362,17 @@ export default function App() {
       realtimeClient.start(120_000)
     }
 
-    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as
-    // backdrop, and the ferries snap onto their AIS twins. Off in offline
-    // mode and tests, ?ais=0 opts out.
+    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
+    // backdrop, played back 3 minutes behind the wall clock (see
+    // ais-extract.ts). Off in offline mode and tests, ?ais=0 opts out.
     const aisEnabled =
       config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais
     let aisClient: AisClient | null = null
-    let aisVessels: AisVessel[] = []
     let aisBackdrop: AisVessel[] = []
     if (aisEnabled) {
       aisClient = new AisClient(config.ais.url, (_status, vessels) => {
-        aisVessels = vessels
-        // The mapped ferries sail as simulated vehicles – drawing them in
-        // the backdrop too would put two boats on one crossing.
+        // The city ferries sail as simulated vehicles on their timetable –
+        // drawing their AIS twins too would put two boats on one crossing.
         aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
       })
       aisClient.start(config.ais.pollIntervalMs)
@@ -574,11 +572,11 @@ export default function App() {
     // tram in view does.
     let lastMovingVesselInView = false
     // Pause freezes the whole picture, ships included: the AIS input and
-    // its clock hold at the moment of pausing, so dead reckoning stands
+    // its clock hold at the moment of pausing, so the playback stands
     // still and later polls cannot move a frozen world. Play unfreezes
     // into live data (and snaps the sim clock to real time, see
     // handleTogglePause) – the display ease glides everything over.
-    let aisFrozen: { vessels: AisVessel[]; backdrop: AisVessel[]; atMs: number } | null = null
+    let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -626,19 +624,13 @@ export default function App() {
             if (clock.paused) {
               // A pause that started before the first poll upgrades once
               // when data lands – frozen, but not needlessly empty.
-              if (aisFrozen === null || (aisFrozen.vessels.length === 0 && aisVessels.length > 0)) {
-                aisFrozen = { vessels: aisVessels, backdrop: aisBackdrop, atMs: Date.now() }
+              if (aisFrozen === null || (aisFrozen.backdrop.length === 0 && aisBackdrop.length > 0)) {
+                aisFrozen = { backdrop: aisBackdrop, atMs: Date.now() }
               }
             } else {
               aisFrozen = null
             }
             const aisNow = aisFrozen?.atMs ?? Date.now()
-            const vesselsForTick = aisFrozen?.vessels ?? aisVessels
-            // Real ferry positions beat simulated ones (realism first);
-            // without a fresh fix the timetable position stands.
-            if (vesselsForTick.length > 0) {
-              overrideFerryPositions(snapshots, vesselsForTick, config.ais.ferryLineByMmsi, aisNow)
-            }
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
             const vesselInfo = aisEnabled
               ? map.syncVessels(aisFrozen?.backdrop ?? aisBackdrop, aisNow)

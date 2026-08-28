@@ -1,12 +1,28 @@
 /**
  * Extraction and state keeping for aisstream.io messages: folds the raw
  * WebSocket JSON (PositionReport, StandardClassBPositionReport,
- * ShipStaticData, StaticDataReport) into one vessel record per MMSI.
+ * ShipStaticData, StaticDataReport) into one vessel record per MMSI –
+ * latest fields for the list, plus a short position TRACK per vessel.
+ *
+ * The track exists because the app does not render AIS live: it plays
+ * the fleet back AIS_PLAYBACK_DELAY_MS behind the wall clock and
+ * interpolates BETWEEN recorded fixes (playbackSample). aisstream
+ * delivers a ship under way only about every 60 s – extrapolating ahead
+ * of the newest fix therefore stalled ships for minutes and teleported
+ * them when the correction landed; with the delay, the next fix has
+ * almost always arrived before the playback needs it.
  *
  * Used by the Vite dev middleware (vite.config.ts) and the unit tests;
  * in production server/api/ais.php does the same job in PHP – the parity
  * test (scripts/test-ais-parity.mjs) holds both to the same fixtures.
  */
+
+/**
+ * One recorded fix: [unix ms, lat, lon, sogKn, cogDeg, headingDeg] –
+ * kinematics as of that moment, nulls as in the vessel record. Compact
+ * tuples keep the JSON payload small (the track ships with every poll).
+ */
+export type AisTrackPoint = [number, number, number, number | null, number | null, number | null]
 
 /** One tracked vessel, merged from its position and static reports. */
 export interface AisVessel {
@@ -29,6 +45,8 @@ export interface AisVessel {
   widthM: number | null
   /** Unix ms of the last message that carried coordinates. */
   positionAt: number
+  /** Recent fixes, oldest first – the playback interpolates these. */
+  track: AisTrackPoint[]
 }
 
 /** Vessels drop out of the LIST after this long without a position. */
@@ -43,8 +61,20 @@ export const AIS_EXPIRE_MS = 30 * 60_000
  */
 export const AIS_STATIC_KEEP_MS = 48 * 3600_000
 
-/** Dead reckoning stops extrapolating beyond this data age. */
-export const AIS_RECKON_CAP_MS = 90_000
+/**
+ * How far behind the wall clock the app renders the fleet. Three minutes
+ * covers aisstream's ~60 s per-ship cadence plus the poll pipeline
+ * (8 s state flush + 10 s client poll) several times over, so even a
+ * ship that skips two reports in a row is still played back between two
+ * known fixes rather than waiting at the last one. The cost is only that
+ * the harbor runs three minutes late – nobody watching the map can tell,
+ * and the motion is what sells it.
+ */
+export const AIS_PLAYBACK_DELAY_MS = 180_000
+/** Track points older than this are pruned from the state. */
+export const AIS_TRACK_KEEP_MS = 10 * 60_000
+/** Hard cap per vessel – a runaway-transmitter backstop. */
+export const AIS_TRACK_MAX_POINTS = 40
 
 interface RawDimension {
   A?: number
@@ -132,6 +162,7 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
     lengthM: null,
     widthM: null,
     positionAt: 0,
+    track: [],
   }
 
   // Position: the message payload is authoritative (full precision), the
@@ -140,7 +171,8 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
   const report = raw.Message?.PositionReport ?? raw.Message?.StandardClassBPositionReport
   const lat = report?.Latitude ?? meta?.latitude
   const lon = report?.Longitude ?? meta?.longitude
-  if (typeof lat === 'number' && typeof lon === 'number' && Math.abs(lat) <= 90) {
+  const hasFix = typeof lat === 'number' && typeof lon === 'number' && Math.abs(lat) <= 90
+  if (hasFix) {
     vessel.lat = lat
     vessel.lon = lon
     vessel.positionAt = nowMs
@@ -153,6 +185,14 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
       const status = (report as { NavigationalStatus?: number }).NavigationalStatus
       vessel.navStatus = status ?? vessel.navStatus
     }
+  }
+  if (hasFix) {
+    // Record AFTER the kinematics update, so a MetaData-only fix (static
+    // report) carries the last known speed and course, not stale nulls.
+    vessel.track.push([nowMs, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg])
+    vessel.track = vessel.track
+      .filter((p) => nowMs - p[0] <= AIS_TRACK_KEEP_MS)
+      .slice(-AIS_TRACK_MAX_POINTS)
   }
 
   // Static data: name, type, dimensions – whichever report carries them.
@@ -192,30 +232,66 @@ export function aisStateVessels(state: AisState, nowMs: number): AisVessel[] {
 }
 
 const METERS_PER_DEGREE_LATITUDE = 111_320
-const KNOTS_TO_METERS_PER_SECOND = 0.514444
+
+/** What the playback knows about a vessel at one rendered instant. */
+export interface AisPlaybackSample {
+  lon: number
+  lat: number
+  bearingDeg: number
+  /** True while the sample sits inside a segment with real movement –
+   *  the layer's render pacing keys on this, stable across ticks. */
+  underWay: boolean
+}
+
+function pointSample(p: AisTrackPoint): AisPlaybackSample {
+  return { lon: p[2], lat: p[1], bearingDeg: p[5] ?? p[4] ?? 0, underWay: false }
+}
 
 /**
- * Position and bearing of a vessel at `nowMs`, moved along its course at
- * its reported speed – AIS fixes arrive every 2 s to 3 min, the frames in
- * between interpolate. Extrapolation is capped (AIS_RECKON_CAP_MS): stale
- * data freezes in place instead of sailing off the chart.
+ * The vessel as the playback shows it at `renderMs` (wall clock minus
+ * AIS_PLAYBACK_DELAY_MS): linear interpolation between the two recorded
+ * fixes around that instant. Outside the track the position CLAMPS to
+ * the nearest end – never extrapolates. A ship whose data dries up
+ * therefore waits at her last reported spot instead of sailing on over
+ * a quay, and moves again the moment the next fix arrives.
  */
-export function deadReckon(
-  vessel: AisVessel,
-  nowMs: number,
-): { lon: number; lat: number; bearingDeg: number } {
-  const bearingDeg = vessel.headingDeg ?? vessel.cogDeg ?? 0
-  const speed = vessel.sogKn ?? 0
-  if (speed < 0.3 || vessel.cogDeg === null) {
-    return { lon: vessel.lon, lat: vessel.lat, bearingDeg }
+export function playbackSample(vessel: AisVessel, renderMs: number): AisPlaybackSample {
+  const track: AisTrackPoint[] =
+    vessel.track.length > 0
+      ? vessel.track
+      : [[vessel.positionAt, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg]]
+  const last = track[track.length - 1]
+  if (renderMs <= track[0][0]) return pointSample(track[0])
+  if (renderMs >= last[0]) return pointSample(last)
+
+  let i = 0
+  while (i + 1 < track.length && track[i + 1][0] <= renderMs) i++
+  const p0 = track[i]
+  const p1 = track[i + 1]
+  const dtMs = p1[0] - p0[0]
+  const u = dtMs > 0 ? (renderMs - p0[0]) / dtMs : 1
+  const lat = p0[1] + (p1[1] - p0[1]) * u
+  const lon = p0[2] + (p1[2] - p0[2]) * u
+
+  const northM = (p1[1] - p0[1]) * METERS_PER_DEGREE_LATITUDE
+  const eastM = (p1[2] - p0[2]) * METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
+  const meters = Math.hypot(northM, eastM)
+  // ~0.3 kn over the segment – below is berth wobble, not movement.
+  const underWay = dtMs > 0 && meters / (dtMs / 1000) >= 0.15
+
+  // Bearing: ease the reported heading (course as fallback) along the
+  // shortest arc; without either, a segment long enough to trust gives
+  // its own azimuth.
+  const h0 = p0[5] ?? p0[4]
+  const h1 = p1[5] ?? p1[4]
+  let bearingDeg: number
+  if (h0 !== null && h1 !== null) {
+    const dh = ((h1 - h0 + 540) % 360) - 180
+    bearingDeg = (h0 + dh * u + 360) % 360
+  } else if (meters > 5) {
+    bearingDeg = ((Math.atan2(eastM, northM) * 180) / Math.PI + 360) % 360
+  } else {
+    bearingDeg = h1 ?? h0 ?? 0
   }
-  const dtSec = Math.max(0, Math.min(nowMs - vessel.positionAt, AIS_RECKON_CAP_MS)) / 1000
-  const meters = speed * KNOTS_TO_METERS_PER_SECOND * dtSec
-  const courseRad = (vessel.cogDeg * Math.PI) / 180
-  const lat = vessel.lat + (meters * Math.cos(courseRad)) / METERS_PER_DEGREE_LATITUDE
-  const lon =
-    vessel.lon +
-    (meters * Math.sin(courseRad)) /
-      (METERS_PER_DEGREE_LATITUDE * Math.cos((vessel.lat * Math.PI) / 180))
-  return { lon, lat, bearingDeg }
+  return { lon, lat, bearingDeg, underWay }
 }

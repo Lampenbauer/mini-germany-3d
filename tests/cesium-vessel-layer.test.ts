@@ -1,15 +1,27 @@
 import { Cartesian3, Cartographic, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
-import type { AisVessel } from '@/lib/ais-extract'
+import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib/ais-extract'
 import { VesselLayer } from '@/map/VesselLayer'
 
 /**
- * AIS backdrop fleet: boxes in real ship dimensions that dead-reckon
- * between polls, labels that fall back to the MMSI until a name arrives,
- * and records that leave with their vessel.
+ * AIS backdrop fleet: boxes in real ship dimensions that play back three
+ * minutes behind the wall clock along their recorded tracks, labels that
+ * fall back to the MMSI until a name arrives, and records that leave
+ * with their vessel.
  */
 
 const NOW = 1_800_000_000_000
+/** The instant the playback renders when the wall clock reads NOW. */
+const REN = NOW - AIS_PLAYBACK_DELAY_MS
+
+/** A track segment straddling the playback instant – a ship under way
+ *  east at ~4 m/s, still inside the segment a few wall seconds later. */
+function underWayTrack(): AisTrackPoint[] {
+  return [
+    [REN - 30_000, 54.0982, 12.106, 8, 90, null],
+    [REN + 30_000, 54.0982, 12.1098, 8, 90, null],
+  ]
+}
 
 function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
   return {
@@ -25,6 +37,7 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     lengthM: 52,
     widthM: 12,
     positionAt: NOW,
+    track: [],
     ...overrides,
   }
 }
@@ -89,13 +102,12 @@ describe('VesselLayer', () => {
     expect(h.record(211222290)!.labelText).toBe('DENEB')
   })
 
-  it('dead-reckons a moving vessel between polls', () => {
+  it('plays a moving vessel back along its track, three minutes behind', () => {
     const h = harness()
-    const moving = vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 30_000 })
-    h.layer.sync([moving], NOW)
+    h.layer.sync([vessel({ track: underWayTrack() })], NOW)
     const carto = positionOf(h.record(211222290)!.matrix)
     const lonDeg = (carto.longitude * 180) / Math.PI
-    // 8 kn east for 30 s ≈ 123 m ≈ 0.0019° at this latitude
+    // Halfway along the 60 s segment straddling the playback instant
     expect(lonDeg).toBeGreaterThan(12.1075)
     expect(lonDeg).toBeLessThan(12.108)
   })
@@ -127,29 +139,29 @@ describe('VesselLayer', () => {
     // The map renders on demand – a vessel sailing far outside the view
     // must not keep the GPU awake (that is the trams' rule too).
     const offScreen = harness({ frustum: Intersect.OUTSIDE })
-    offScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    offScreen.layer.sync([vessel({ track: underWayTrack() })], NOW)
     // Even the arrival stays silent off screen – the next due frame
     // includes the new box anyway.
     expect(offScreen.requestRender).not.toHaveBeenCalled()
-    offScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    offScreen.layer.sync([vessel({ track: underWayTrack() })], NOW + 10_000)
     expect(offScreen.requestRender).not.toHaveBeenCalled()
 
     const beyondRange = harness({ cameraLon: 12.7 }) // ~39 km east, frustum says visible
-    beyondRange.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    beyondRange.layer.sync([vessel({ track: underWayTrack() })], NOW)
     beyondRange.requestRender.mockClear()
-    beyondRange.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    beyondRange.layer.sync([vessel({ track: underWayTrack() })], NOW + 10_000)
     expect(beyondRange.requestRender).not.toHaveBeenCalled()
 
     const onScreen = harness()
-    onScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW)
+    onScreen.layer.sync([vessel({ track: underWayTrack() })], NOW)
     onScreen.requestRender.mockClear()
-    onScreen.layer.sync([vessel({ sogKn: 8, cogDeg: 90, positionAt: NOW - 5_000 })], NOW + 10_000)
+    onScreen.layer.sync([vessel({ track: underWayTrack() })], NOW + 10_000)
     expect(onScreen.requestRender).toHaveBeenCalled()
   })
 
   it('reports a ship under way on screen for the tick pacing – steadily', () => {
     const h = harness()
-    const underWay = () => vessel({ sogKn: 4, cogDeg: 180, positionAt: NOW })
+    const underWay = () => vessel({ track: underWayTrack() })
     expect(h.layer.sync([underWay()], NOW).anyMovingVesselInView).toBe(true)
     // Stable across consecutive 33 ms ticks even though the pose ease
     // advances less than the repaint epsilon per tick – a flickering
