@@ -289,10 +289,15 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    pick the branch, tick **`deploy_preview`**. It passes the same full test suite
    and then goes to the same place – there is only one document root, so the
    branch *replaces the live site for every visitor* until production is put
-   back. Restoring it is the recovery deploy from step 2: run the workflow again
-   on `main`. The run summary of a preview deploy says as much, and the deploy
+   back. The run summary of a preview deploy says as much, and the deploy
    concurrency group keeps a preview and a production deploy from interleaving.
    Without the tick, a manual run on a branch only builds and tests, as before.
+   To put production back, tick **`restore_production`** instead: that skips the
+   test job entirely and rsyncs the artifact of the last successful `main`
+   deploy, so the site is back in a minute or two rather than the ~18 the full
+   suite takes (15 of them E2E). Nothing untested goes up – it is byte for byte
+   the build that passed on the commit it was made from. Deploying `main` the
+   normal way (step 2) remains the option that rebuilds and re-tests.
 4. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).

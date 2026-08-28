@@ -28,6 +28,10 @@ on:
         description: 'Deploy THIS branch to the live site (replaces production until main is deployed again)'
         type: boolean
         default: false
+      restore_production:
+        description: 'Put the last deployed main build back on the live site (no build, no tests – takes a minute)'
+        type: boolean
+        default: false
   schedule:
     # Nightly data refresh: GTFS schedule every night, OSM network and
     # terrain heights only once a week (see the refresh step), then the
@@ -46,7 +50,11 @@ env:
   ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlUxakJsUm82d3hUT0FVZkMiLCJqdGkiOiI2ZDY5OWM3Ny04Mjk5LTQ3ZDktYWQxZS1kZWIyNThiNTcxNGMiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIFJvc3RvY2sgM0QiLCJpYXQiOjE3ODc0ODc5MzZ9.8Fpf1_WzG6N_GT9UiNCOPaSJSmZr01iMI5Wu9r4FP80
 
 jobs:
+  # A restore re-deploys an artifact that already passed all of this on
+  # this very commit – running it again would cost 18 minutes to learn
+  # nothing, and the live site would wear the preview for all of them.
   test:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.restore_production) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -238,12 +246,15 @@ jobs:
           path: dist/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 1
+          # Also the restore job's source, so it has to outlive the run
+          # that made it – a month of main builds to fall back on.
+          retention-days: 30
 
   # Deploys on three occasions: a push or nightly run on main, a manual
   # run on main (the "deploy main again" button), and a manual run on any
   # branch with deploy_preview ticked – the way to try a branch out on the
-  # real hosting without merging it.
+  # real hosting without merging it. Taking a preview back down is the
+  # restore job at the bottom, not this one.
   #
   # There is ONE target: the live docroot. A preview therefore REPLACES the
   # production site for everyone until main is deployed again (deliberate –
@@ -332,3 +343,91 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "\`main\` ($GITHUB_SHA) is on <https://minirostock3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # Undo button for a preview: takes the artifact of the last successful
+  # main deploy and puts it back, without building or testing anything.
+  # Nothing untested reaches the site that way – it is byte for byte the
+  # build that already passed the full suite on the commit it was made
+  # from. That is the whole point: re-running 15 minutes of E2E on a
+  # commit that has already been green buys nothing while the preview is
+  # still standing on the live site.
+  #
+  # The deploy job cannot double as this: it needs `test`, which a restore
+  # skips, so `needs.test.result == 'success'` is false and it stands down
+  # on its own. Both share the deploy concurrency group.
+  restore:
+    name: Restore production (all-inkl)
+    if: github.event_name == 'workflow_dispatch' && inputs.restore_production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Reading and downloading another run's artifact
+      actions: read
+    concurrency:
+      group: deploy-all-inkl
+      cancel-in-progress: false
+    env:
+      KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
+      KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
+      KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+    steps:
+      # Preview deploys upload under the same artifact name, so the branch
+      # is what tells them apart: only a run of main ever built production.
+      - name: Find the last production build
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifacts="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=production-dist&per_page=100" \
+            --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")
+                  | "\(.created_at) \(.workflow_run.id) \(.workflow_run.head_sha)"')"
+          newest="$(printf '%s\n' "$artifacts" | sort -r | head -n 1)"
+          if [ -z "$newest" ]; then
+            echo "::error::No unexpired production-dist artifact from a main run found. Deploy main normally (Run workflow → Branch: main) instead."
+            exit 1
+          fi
+          echo "run_id=$(echo "$newest" | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "$newest" | cut -d' ' -f3)" >> "$GITHUB_OUTPUT"
+          echo "built=$(echo "$newest" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Download it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ steps.find.outputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" --name production-dist --dir dist
+          # A truncated download would rsync --delete a half site into place
+          test -s dist/index.html || { echo "::error::Artifact has no index.html – refusing to deploy it."; exit 1; }
+
+      - name: Upload via rsync over SSH
+        env:
+          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+        run: |
+          if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
+            echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
+            exit 1
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+          echo "✅ Restored to https://minirostock3d.lampenbauer.com"
+
+      - name: Note what is live now
+        if: success()
+        env:
+          RESTORED_SHA: ${{ steps.find.outputs.sha }}
+          BUILT_AT: ${{ steps.find.outputs.built }}
+        run: |
+          {
+            echo "### ✅ Production restored"
+            echo
+            echo "The main build \`$RESTORED_SHA\` (built $BUILT_AT) is back on"
+            echo "<https://minirostock3d.lampenbauer.com>."
+            echo
+            echo "No rebuild and no test run – this is the same artifact that passed"
+            echo "the full suite when that commit was pushed."
+          } >> "$GITHUB_STEP_SUMMARY"
