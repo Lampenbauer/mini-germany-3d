@@ -225,7 +225,10 @@ export class VesselLayer {
    * inside the view – the app's tick and render pacing treat that like a
    * tram in view, otherwise ships glide in 500 ms stop-motion steps.
    */
-  sync(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
+  sync(
+    vessels: AisVessel[],
+    nowMs: number,
+  ): { anyMovingVesselInView: boolean; nearestHullMeters: number } {
     const renderMs = nowMs - AIS_PLAYBACK_DELAY_MS
     const alive = new Set<number>()
     // One culling volume per tick, for every repaint decision below.
@@ -241,6 +244,12 @@ export class VesselLayer {
     const alpha = dtMs > 0 && dtMs < 2000 ? 1 - Math.exp(-dtMs / SMOOTH_TAU_MS) : 1
 
     let anyMovingVesselInView = false
+    /**
+     * Distance to the closest drawn hull – the map's shadow gate needs to
+     * know whether anything is near enough to cast into the shadow map,
+     * and a 200 m freighter matters from much further out than a tram.
+     */
+    let nearestHullMeters = Number.POSITIVE_INFINITY
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -311,6 +320,10 @@ export class VesselLayer {
         Matrix4.multiplyByScale(record.matrix, scaleScratch, record.modelMatrix)
       }
       record.labelPosition.setValue(record.displayPosition)
+      if (this.visible) {
+        const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
+        if (distance < nearestHullMeters) nearestHullMeters = distance
+      }
       // Repaint per tick while the drawn pose still changes – that is what
       // makes a ship under way glide at the render loop's own rate.
       const poseChanged =
@@ -361,7 +374,7 @@ export class VesselLayer {
         this.remove(mmsi)
       }
     }
-    return { anyMovingVesselInView }
+    return { anyMovingVesselInView, nearestHullMeters }
   }
 
   /** Day→night ramp for the window glow (driven by the map's sun state). */

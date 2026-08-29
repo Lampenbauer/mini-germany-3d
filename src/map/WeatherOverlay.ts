@@ -99,6 +99,21 @@ export function cloudOvercastGrade(cloudCoverPercent: number): number {
   return Math.max(0, above) * CLOUD_TINT_MAX
 }
 
+/** Precipitation in mm → overcast grade 0..1; 0 mm is not overcast at all. */
+export function rainOvercastGrade(precipitationMm: number): number {
+  const mm = Math.max(0, precipitationMm)
+  return mm > 0 ? Math.min(1, RAIN_TINT_BASE + mm * RAIN_TINT_PER_MM) : 0
+}
+
+/**
+ * How overcast the sky reads, 0 (clear) to 1 (heavy rain) – the same
+ * value the tiles grade by: rain always implies an overcast sky, so
+ * whichever of the two is stronger wins (see TIME_OF_DAY_SHADER).
+ */
+export function overcastGrade(precipitationMm: number, cloudCoverPercent: number): number {
+  return Math.max(rainOvercastGrade(precipitationMm), cloudOvercastGrade(cloudCoverPercent))
+}
+
 export class WeatherOverlay {
   /** Rain drop field (null while dry or without a 2D canvas). */
   private rainBillboards: BillboardCollection | null = null
@@ -326,7 +341,7 @@ export class WeatherOverlay {
     // frames coming during the transition even after the drops are gone.
     const tintTarget =
       this.rainIntensity > 0
-        ? Math.min(1, RAIN_TINT_BASE + this.rainIntensity * RAIN_TINT_PER_MM)
+        ? rainOvercastGrade(this.rainIntensity)
         : 0
     if (this.rainTint !== tintTarget) {
       const step = dt / RAIN_TINT_FADE_SECONDS

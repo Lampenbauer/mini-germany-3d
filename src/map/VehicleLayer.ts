@@ -36,6 +36,7 @@ import {
   PerInstanceColorAppearance,
   PlaneGeometry,
   Primitive,
+  ShadowMode,
   Transforms,
   UniformType,
   VertexFormat,
@@ -474,7 +475,7 @@ export class VehicleLayer {
   sync(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-  ): { anyVehicleInView: boolean } {
+  ): { anyVehicleInView: boolean; nearestBodyMeters: number } {
     this.frameCounter++
     const alive = new Set<string>()
 
@@ -487,6 +488,14 @@ export class VehicleLayer {
       camera.upWC,
     )
     let anyVehicleInView = false
+    /**
+     * Distance to the closest drawn vehicle BODY – not the same as
+     * anyVehicleInView, which reaches out to the label range. The map's
+     * shadow gate keys on it: with nothing near enough to cast, an
+     * enabled shadow map still makes every fragment of the full-screen
+     * tileset sample four cascade textures for nothing.
+     */
+    let nearestBodyMeters = Number.POSITIVE_INFINITY
     // Resolved once per tick: while a "zoom to line" focus runs, the other
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
@@ -628,6 +637,7 @@ export class VehicleLayer {
       // the instance matrix, which is identity for these boxes since the
       // position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
+      if (showBody && cameraDistance < nearestBodyMeters) nearestBodyMeters = cameraDistance
       let visibilityChanged = false
       if (record.primitive && record.primitive.show !== showBody) {
         record.primitive.show = showBody
@@ -699,7 +709,7 @@ export class VehicleLayer {
       }
     }
 
-    return { anyVehicleInView }
+    return { anyVehicleInView, nearestBodyMeters }
   }
 
   /** Shared radial-gradient sprite of the glow pools (null: no 2D canvas). */
@@ -1007,6 +1017,11 @@ export class VehicleLayer {
         url: `${import.meta.env.BASE_URL}${uri}`,
         id: `vehicle:${vehicleId}`,
         modelMatrix: this.composeWagonMatrix(record, index, new Matrix4()),
+        // Casts onto the tiles, receives nothing: the tileset does not
+        // cast, so a vehicle "in a building's shadow" would be lit
+        // anyway – and self-shadowing a 500-triangle hull buys nothing
+        // but acne on its own flanks.
+        shadows: ShadowMode.CAST_ONLY,
       })
     } catch (error) {
       console.warn('[MiniRostock3D] Vehicle model failed to load:', error)

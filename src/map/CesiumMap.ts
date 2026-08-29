@@ -24,6 +24,7 @@ import {
   Matrix4,
   SceneTransforms,
   ScreenSpaceEventHandler,
+  ShadowMode,
   ScreenSpaceEventType,
   Simon1994PlanetaryPositions,
   Transforms,
@@ -52,6 +53,7 @@ import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
+  overcastGrade,
   RAIN_UNIFORM,
   WeatherOverlay,
 } from './WeatherOverlay'
@@ -129,6 +131,68 @@ const STOP_BOOTSTRAP_SAMPLES = 40
 /** Sine of the sun elevation where the glow starts (dusk) / is fully on. */
 const GLOW_SUN_START = -0.05
 const GLOW_SUN_FULL = -0.17
+
+/**
+ * Sine of the sun elevation below which vehicle shadows are switched off
+ * (~3°). Near the horizon a shadow stretches to the horizon with it,
+ * the shadow map's resolution is spread over that whole length, and what
+ * lands on the street is a smeared band rather than a tram. Below the
+ * horizon there is no light to cast one at all. Switching the map off
+ * also stops paying for it through the night.
+ */
+const SHADOW_SUN_MIN = 0.05
+
+/**
+ * Shadow map tuning – the four knobs this feature has, kept together.
+ *
+ * Cesium's defaults are built for a scene that shadows itself. Here a
+ * handful of vehicle models cast onto photo tiles that already carry the
+ * survey flight's own sun baked into the texture, so the shadow has to
+ * read as a hint rather than as a second, contradicting light.
+ *
+ * SHADOW_DARKNESS is the share of light LEFT INSIDE the shadow, so
+ * higher means fainter. Cesium's default 0.3 punches an almost black
+ * hole into a sunlit street; 0.62 was invisible. Compared side by side
+ * against the same frame at 0.30 / 0.42 / 0.52.
+ *
+ * SHADOW_MAX_DISTANCE keeps the map small in extent rather than large in
+ * pixels: vehicle bodies stop being drawn past VEHICLE_BODY_VISIBLE_RANGE
+ * anyway, so spending the texture on the near field is what keeps the
+ * edge from stair-stepping.
+ */
+const SHADOW_DARKNESS = 0.52
+const SHADOW_MAP_SIZE = 8192
+const SHADOW_MAX_DISTANCE = 2000
+
+/**
+ * How much of the shadow survives the weather, as two anchor points on
+ * the same 0..1 overcast grade the tiles are graded by (see
+ * overcastGrade): rain always implies an overcast sky, so whichever of
+ * rain and cloud cover is stronger decides.
+ *
+ * For orientation on that scale: a fully closed sky without rain reads
+ * 0.5, the lightest drizzle 0.55, and rain from ~3 mm saturates at 1.
+ * So LIGHT is roughly "overcast or drizzling" and HEAVY is "properly
+ * raining". Between and beyond the anchors the strength interpolates
+ * linearly; clear weather is full strength.
+ *
+ * Strength 1 leaves SHADOW_DARKNESS as it is, strength 0 would remove
+ * the shadow entirely.
+ */
+const SHADOW_WEATHER_LIGHT = { overcast: 0.5, strength: 0.5 }
+const SHADOW_WEATHER_HEAVY = { overcast: 1.0, strength: 0.1 }
+
+/** Share of the shadow that survives an overcast grade of 0..1. */
+export function shadowStrengthForOvercast(grade: number): number {
+  const g = Math.min(1, Math.max(0, grade))
+  const { overcast: lightAt, strength: lightStrength } = SHADOW_WEATHER_LIGHT
+  const { overcast: heavyAt, strength: heavyStrength } = SHADOW_WEATHER_HEAVY
+  if (g <= 0) return 1
+  // Clear → light, then light → heavy, flat beyond the heavy anchor
+  if (g <= lightAt) return 1 + (lightStrength - 1) * (g / lightAt)
+  const t = Math.min(1, (g - lightAt) / Math.max(1e-6, heavyAt - lightAt))
+  return lightStrength + (heavyStrength - lightStrength) * t
+}
 
 /**
  * How far the photo tiles are dimmed in the underground view. The value is
@@ -274,6 +338,18 @@ export class CesiumMap {
   private readonly effectivePixelRatio: number
   /** 0 = day … 1 = full night; drives the cabin-glow opacity. */
   private nightFactor = 0
+  /** Sun high enough for a usable shadow (see updateNightFactor). */
+  private sunHighEnoughForShadows = false
+
+  /** Weather as the shadow reads it (see applyShadowDarkness). */
+  private overcast = 0
+  private rainMm = 0
+  private cloudPercent = 0
+
+  /** Distance to the closest drawn caster of each fleet (see applyShadowState). */
+  private nearestVehicleMeters = Number.POSITIVE_INFINITY
+  private nearestVesselMeters = Number.POSITIVE_INFINITY
+
   /** Unit up vector at the city center (sun elevation reference). */
   private cityUp: Cartesian3 | null = null
   /** Time of the last user interaction (mouse/touch/wheel) in ms. */
@@ -324,6 +400,12 @@ export class CesiumMap {
       // scene every frame even without changes and put a constant load on
       // CPU/GPU.
       useDefaultRenderLoop: false,
+      // Vehicles cast a sun shadow onto the photo tiles. Only they do:
+      // the tileset receives but never casts (see loadGoogleTiles), so
+      // the shadow pass draws a few dozen small models instead of the
+      // whole city. Starts off and is switched on per tick only while a
+      // body is actually drawn – see applyShadowState.
+      shadows: false,
     })
 
     // Cap the effective pixel ratio at 2×: beyond that the extra sharpness
@@ -405,6 +487,12 @@ export class CesiumMap {
         this.flyingUntil = performance.now() + durationMs
       },
     })
+    const shadowMap = scene.shadowMap
+    shadowMap.darkness = SHADOW_DARKNESS
+    shadowMap.softShadows = false
+    shadowMap.size = SHADOW_MAP_SIZE
+    shadowMap.maximumDistance = SHADOW_MAX_DISTANCE
+
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
@@ -550,6 +638,11 @@ export class CesiumMap {
       if (this.destroyed) return
       // enableCollision: prevents the camera from getting below the tiles
       tileset.enableCollision = true
+      // Receives the vehicles' shadows, casts none of its own: the photo
+      // texture already contains the survey flight's own shadows, and a
+      // second set from the simulated sun would contradict them building
+      // by building. It is also what keeps the shadow pass cheap.
+      tileset.shadows = ShadowMode.RECEIVE_ONLY
       // Tile LOD budget. Screen-space error is measured in drawing-buffer
       // pixels, so the budget scales with the pixel ratio to stay a
       // constant CSS-pixel tolerance across displays. Cesium's default
@@ -783,10 +876,32 @@ export class CesiumMap {
    */
   setRain(precipitationMm: number): void {
     this.weather.setRain(precipitationMm)
+    this.rainMm = precipitationMm
+    this.applyShadowDarkness()
   }
 
   setCloudCover(cloudCoverPercent: number): void {
     this.weather.setCloudCover(cloudCoverPercent)
+    this.cloudPercent = cloudCoverPercent
+    this.applyShadowDarkness()
+  }
+
+  /**
+   * Weakens the vehicle shadows with the weather. A sunlit street casts
+   * a crisp shadow; under a closed sky the light is diffuse and the
+   * shadow is a hint; in real rain there is barely one at all.
+   *
+   * The shadow map has no per-object strength, so this rides `darkness`
+   * – the share of light left INSIDE the shadow. Full strength keeps
+   * SHADOW_DARKNESS, less strength lifts it toward 1, which is no shadow.
+   */
+  private applyShadowDarkness(): void {
+    const grade = overcastGrade(this.rainMm, this.cloudPercent)
+    if (Math.abs(grade - this.overcast) < 0.005) return
+    this.overcast = grade
+    this.viewer.scene.shadowMap.darkness =
+      1 - (1 - SHADOW_DARKNESS) * shadowStrengthForOvercast(grade)
+    this.requestRender()
   }
 
   /** Open-Meteo attribution (CC-BY 4.0) – call once when weather is enabled. */
@@ -809,9 +924,32 @@ export class CesiumMap {
   syncVehicles(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-  ): { anyVehicleInView: boolean } {
+  ): { anyVehicleInView: boolean; nearestBodyMeters: number } {
     this.stops.update()
-    return this.vehicleLayer.sync(snapshots, visibleLines)
+    const info = this.vehicleLayer.sync(snapshots, visibleLines)
+    this.nearestVehicleMeters = info.nearestBodyMeters
+    this.applyShadowState()
+    return info
+  }
+
+  /**
+   * The sun shadow map is only worth having on while something can cast
+   * into it: a caster within the map's own reach AND a sun high enough
+   * to throw a usable shadow. Off, it costs nothing; on, every fragment
+   * of the full-screen tileset samples four cascade textures whether or
+   * not a caster exists – which is what made the camera feel heavier at
+   * altitudes where nothing is drawn at all.
+   *
+   * Both fleets count. Keying on the vehicles alone left a 200 m
+   * freighter under the camera casting nothing in the harbour, where no
+   * tram is ever within range.
+   */
+  private applyShadowState(): void {
+    const nearest = Math.min(this.nearestVehicleMeters, this.nearestVesselMeters)
+    const wanted = nearest < SHADOW_MAX_DISTANCE && this.sunHighEnoughForShadows
+    if (this.viewer.shadows === wanted) return
+    this.viewer.shadows = wanted
+    this.requestRender()
   }
 
   setSelected(id: string | null): void {
@@ -860,7 +998,9 @@ export class CesiumMap {
    */
   /** Per-tick update of the AIS harbor traffic (see VesselLayer). */
   syncVessels(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
-    return this.vesselLayer.sync(vessels, nowMs)
+    const info = this.vesselLayer.sync(vessels, nowMs)
+    this.nearestVesselMeters = info.nearestHullMeters
+    return info
   }
 
   getVesselCount(): number {
@@ -1097,6 +1237,11 @@ export class CesiumMap {
       sun,
     )
     const sunUp = Cartesian3.dot(Cartesian3.normalize(sun, sun), this.cityUp)
+    // A low sun casts a shadow the length of the horizon and the map's
+    // resolution goes with it; below the horizon there is nothing to cast.
+    // Only recorded here (this runs on the ~1-sim-minute throttle) – the
+    // switch itself happens per tick in applyShadowState.
+    this.sunHighEnoughForShadows = sunUp > SHADOW_SUN_MIN
     const t = CesiumMath.clamp(
       (sunUp - GLOW_SUN_FULL) / (GLOW_SUN_START - GLOW_SUN_FULL),
       0,
