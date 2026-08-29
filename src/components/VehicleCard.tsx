@@ -17,6 +17,11 @@ export interface VehicleCardProps {
   interchangeByStop: ReadonlyMap<string, InterchangeOption[]>
   /** Click on a stop – the camera flies to it. */
   onFlyToStop: (stop: TripStop) => void
+  /**
+   * Click on one of the interchange badges – does what clicking that line
+   * in the control panel does: fly to its route and open its card.
+   */
+  onSelectLine: (lineId: string) => void
   following: boolean
   onToggleFollow: () => void
   onClose: () => void
@@ -92,6 +97,7 @@ export function VehicleCard({
   simSeconds,
   interchangeByStop,
   onFlyToStop,
+  onSelectLine,
   following,
   onToggleFollow,
   onClose,
@@ -277,13 +283,17 @@ export function VehicleCard({
             </span>
             <div className="flex flex-wrap gap-1" data-testid="vehicle-interchange">
               {interchange.map((line) => (
-                <span
+                <button
                   key={line.id}
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 text-xs font-semibold text-white"
+                  type="button"
+                  className="inline-flex h-5 min-w-5 cursor-pointer items-center justify-center rounded px-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-80"
                   style={{ backgroundColor: line.color }}
+                  aria-label={t('lines.flyTo', { name: line.id })}
+                  title={t('lines.flyTo', { name: line.id })}
+                  onClick={() => onSelectLine(line.id)}
                 >
                   {line.id}
-                </span>
+                </button>
               ))}
             </div>
           </div>

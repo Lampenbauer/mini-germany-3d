@@ -119,6 +119,7 @@ describe('VehicleCard trip stops', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -146,6 +147,7 @@ describe('VehicleCard trip stops', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -167,6 +169,7 @@ describe('VehicleCard trip stops', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -190,6 +193,7 @@ describe('VehicleCard trip stops', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={onFlyToStop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -207,6 +211,7 @@ describe('VehicleCard trip stops', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -227,6 +232,7 @@ describe('VehicleCard summary', () => {
         simSeconds={SIM_SECONDS}
         interchangeByStop={interchangeByStop}
         onFlyToStop={noop}
+        onSelectLine={noop}
         following={false}
         onToggleFollow={noop}
         onClose={noop}
@@ -269,6 +275,15 @@ describe('VehicleCard summary', () => {
     const badges = screen.getByTestId('vehicle-interchange')
     expect(badges).toHaveTextContent('6')
     expect(badges).not.toHaveTextContent('1')
+  })
+
+  it('makes each interchange badge a way to that line', () => {
+    // Same thing clicking the line in the control panel does – the badge
+    // names a line a passenger can change to, so it should lead there.
+    const onSelectLine = vi.fn()
+    renderCard({ onSelectLine })
+    fireEvent.click(screen.getByRole('button', { name: 'Fly to 6' }))
+    expect(onSelectLine).toHaveBeenCalledWith('6')
   })
 
   it('moves on to the stop ahead once the vehicle pulls away', () => {

@@ -1301,6 +1301,7 @@ export default function App() {
             simSeconds={simSeconds}
             interchangeByStop={interchangeByStop}
             onFlyToStop={handleFlyToStop}
+            onSelectLine={handleFocusLine}
             following={following}
             onToggleFollow={handleToggleFollow}
             onClose={() => selectVehicle(null)}
