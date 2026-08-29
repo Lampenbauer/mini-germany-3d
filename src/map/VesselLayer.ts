@@ -35,6 +35,7 @@ import {
   Matrix4,
   PerInstanceColorAppearance,
   Primitive,
+  ShadowMode,
   Transforms,
   type Entity,
   type Viewer,
@@ -524,6 +525,10 @@ export class VesselLayer {
         url: `${import.meta.env.BASE_URL}${spec.uri}`,
         id: `vessel:${mmsi}`,
         modelMatrix: Matrix4.clone(record.matrix),
+        // Casts onto the tiles, receives nothing – same reasoning as the
+        // land vehicles. A hull never enters a tunnel, so unlike theirs
+        // this one is set once and never reassigned.
+        shadows: ShadowMode.CAST_ONLY,
       })
     } catch (error) {
       console.warn('[MiniRostock3D] Vessel model failed to load:', error)

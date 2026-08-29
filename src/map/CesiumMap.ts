@@ -143,7 +143,7 @@ const GLOW_SUN_FULL = -0.17
 const SHADOW_SUN_MIN = 0.05
 
 /**
- * Shadow map tuning – the four knobs this feature has, kept together.
+ * Shadow map tuning – the three knobs on the map itself, kept together.
  *
  * Cesium's defaults are built for a scene that shadows itself. Here a
  * handful of vehicle models cast onto photo tiles that already carry the
@@ -155,14 +155,19 @@ const SHADOW_SUN_MIN = 0.05
  * hole into a sunlit street; 0.62 was invisible. Compared side by side
  * against the same frame at 0.30 / 0.42 / 0.52.
  *
- * SHADOW_MAX_DISTANCE keeps the map small in extent rather than large in
- * pixels: vehicle bodies stop being drawn past VEHICLE_BODY_VISIBLE_RANGE
- * anyway, so spending the texture on the near field is what keeps the
- * edge from stair-stepping.
+ * SHADOW_MAX_DISTANCE is how far the shadowed volume reaches, and the
+ * same number decides whether the pass runs at all (applyShadowState):
+ * with no caster inside it there is nothing to draw. It reaches past
+ * VEHICLE_BODY_VISIBLE_RANGE, so every vehicle drawn as a body is
+ * covered; ships stay drawn out to VESSEL_RENDER_RANGE, so theirs is
+ * the shadow that ends at this radius.
+ *
+ * SHADOW_MAP_SIZE is spread over that extent – raising the distance
+ * without the pixels to go with it is what makes the edge stair-step.
  */
 const SHADOW_DARKNESS = 0.52
 const SHADOW_MAP_SIZE = 8192
-const SHADOW_MAX_DISTANCE = 2000
+const SHADOW_MAX_DISTANCE = 4000
 
 /**
  * How much of the shadow survives the weather, as two anchor points on
@@ -400,11 +405,11 @@ export class CesiumMap {
       // scene every frame even without changes and put a constant load on
       // CPU/GPU.
       useDefaultRenderLoop: false,
-      // Vehicles cast a sun shadow onto the photo tiles. Only they do:
-      // the tileset receives but never casts (see loadGoogleTiles), so
-      // the shadow pass draws a few dozen small models instead of the
-      // whole city. Starts off and is switched on per tick only while a
-      // body is actually drawn – see applyShadowState.
+      // Vehicles and ships cast a sun shadow onto the photo tiles. Only
+      // they do: the tileset receives but never casts (see
+      // loadGoogleTiles), so the shadow pass draws a few dozen small
+      // models instead of the whole city. Starts off and is switched on
+      // per tick only while a caster is in reach – see applyShadowState.
       shadows: false,
     })
 
@@ -943,10 +948,15 @@ export class CesiumMap {
    * Both fleets count. Keying on the vehicles alone left a 200 m
    * freighter under the camera casting nothing in the harbour, where no
    * tram is ever within range.
+   *
+   * The underground view switches them off wholesale: down there the sky
+   * is gone, the city is a dark relief, and the surface fleet has left
+   * with it – a sun shadow would be light from a sun nobody can see.
    */
   private applyShadowState(): void {
     const nearest = Math.min(this.nearestVehicleMeters, this.nearestVesselMeters)
-    const wanted = nearest < SHADOW_MAX_DISTANCE && this.sunHighEnoughForShadows
+    const wanted =
+      !this.underground && nearest < SHADOW_MAX_DISTANCE && this.sunHighEnoughForShadows
     if (this.viewer.shadows === wanted) return
     this.viewer.shadows = wanted
     this.requestRender()
@@ -1010,6 +1020,7 @@ export class CesiumMap {
   setUnderground(underground: boolean): void {
     if (underground === this.underground) return
     this.underground = underground
+    this.applyShadowState()
     this.routes.setUnderground(underground)
     this.vehicleLayer.setUnderground(underground)
     // The AIS fleet is surface scenery – it leaves with the sky.

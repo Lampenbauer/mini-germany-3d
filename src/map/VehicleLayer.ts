@@ -637,17 +637,23 @@ export class VehicleLayer {
       // the instance matrix, which is identity for these boxes since the
       // position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
-      if (showBody && cameraDistance < nearestBodyMeters) nearestBodyMeters = cameraDistance
+      // A vehicle under the street is lit by nothing and casts nothing.
+      // It is still DRAWN – ghosted, so the route stays followable – so
+      // without this it threw a sunlit shadow onto the road above it.
+      const castsShadow = showBody && !record.inTunnel
+      if (castsShadow && cameraDistance < nearestBodyMeters) nearestBodyMeters = cameraDistance
       let visibilityChanged = false
       if (record.primitive && record.primitive.show !== showBody) {
         record.primitive.show = showBody
         visibilityChanged = true
       }
+      const wagonShadows = castsShadow ? ShadowMode.CAST_ONLY : ShadowMode.DISABLED
       for (const model of record.models) {
         if (model && model.show !== showBody) {
           model.show = showBody
           visibilityChanged = true
         }
+        if (model && model.shadows !== wagonShadows) model.shadows = wagonShadows
       }
       if (record.labelEntity.show !== showLabel) {
         record.labelEntity.show = showLabel
@@ -1020,7 +1026,8 @@ export class VehicleLayer {
         // Casts onto the tiles, receives nothing: the tileset does not
         // cast, so a vehicle "in a building's shadow" would be lit
         // anyway – and self-shadowing a 500-triangle hull buys nothing
-        // but acne on its own flanks.
+        // but acne on its own flanks. Kept in step with wagonShadows
+        // above, which reassigns this every tick.
         shadows: ShadowMode.CAST_ONLY,
       })
     } catch (error) {
