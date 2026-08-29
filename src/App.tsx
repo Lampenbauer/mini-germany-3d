@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compass, Home, Layers2, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
+import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,7 @@ import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
+import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
@@ -225,6 +227,8 @@ export default function App() {
   const tilesetStatusRef = useRef<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
   const [selectedVessel, setSelectedVessel] = useState<AisVessel | null>(null)
+  /** Line whose profile card is open (id), null = none. */
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
   const realtimeStatusRef = useRef<RealtimeStatus | null>(null)
@@ -300,6 +304,7 @@ export default function App() {
       setSelectedVessel(null)
       mapRef.current?.setFollowVessel(null)
     }
+    if (id !== null) setSelectedLineId(null)
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
     const map = mapRef.current
@@ -333,6 +338,7 @@ export default function App() {
         }
       }
       selectedMmsiRef.current = mmsi
+      if (mmsi !== null) setSelectedLineId(null)
       if (mmsi === null) {
         setSelectedVessel(null)
         if (followingRef.current) {
@@ -353,6 +359,7 @@ export default function App() {
     (id: string | null) => {
       if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
       if (id !== null && selectedMmsiRef.current !== null) selectVessel(null)
+      if (id !== null) setSelectedLineId(null)
       selectedStopIdRef.current = id
       setSelectedStopId(id)
       writeHashRef.current()
@@ -1126,8 +1133,14 @@ export default function App() {
         mapRef.current?.setFollow(null)
       }
       mapRef.current?.focusLine(lineId)
+      // The flight and the pulse say WHERE the line runs; the card says
+      // what it is. One selection at a time, like the other three cards.
+      selectVehicle(null)
+      selectStop(null)
+      selectVessel(null)
+      setSelectedLineId(lineId)
     },
-    [handleSetLinesVisible],
+    [handleSetLinesVisible, selectStop, selectVehicle, selectVessel],
   )
 
   /**
@@ -1138,6 +1151,38 @@ export default function App() {
   const interchangeByStop = useMemo(
     () => buildInterchangeIndex(network, config.interchangeRadiusMeters),
     [network],
+  )
+
+  /**
+   * Profile of the selected line. Pure geometry and timetable arithmetic
+   * over data that does not change while the app runs, so it is computed
+   * once per selection rather than per tick.
+   */
+  const selectedLine = useMemo(
+    () => (selectedLineId ? (network.lineById.get(selectedLineId) ?? null) : null),
+    [network, selectedLineId],
+  )
+  const lineProfile = useMemo(
+    () => (selectedLine ? buildLineProfile(selectedLine, schedule as ScheduleJson) : null),
+    [selectedLine],
+  )
+
+  /**
+   * What the line is doing now. Unlike the profile this rides the UI tick
+   * (simSeconds, ~4×/s) – a filter over the snapshot list the app already
+   * has, plus one departure query per terminus.
+   */
+  const lineActivity = useMemo(
+    () =>
+      selectedLine
+        ? buildLineActivity(
+            selectedLine,
+            schedule as ScheduleJson,
+            snapshotsRef.current,
+            simSeconds,
+          )
+        : null,
+    [selectedLine, simSeconds],
   )
 
   // Stable across the 4×/s clock re-renders so the memoized line list in the
@@ -1208,7 +1253,21 @@ export default function App() {
         />
       </div>
 
-      {selectedVessel && (
+      {selectedLine && lineProfile && (
+        <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <LineCard
+            profile={lineProfile}
+            activity={lineActivity}
+            name={localizeLineName(selectedLine.name)}
+            color={selectedLine.color}
+            onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
+            onSelectVehicle={handleSelectDeparture}
+            onClose={() => setSelectedLineId(null)}
+          />
+        </div>
+      )}
+
+      {!selectedLine && selectedVessel && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VesselCard
             vessel={selectedVessel}
@@ -1220,7 +1279,7 @@ export default function App() {
         </div>
       )}
 
-      {!selected && !selectedVessel && selectedStop && (
+      {!selected && !selectedVessel && !selectedLine && selectedStop && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <StopCard
             stop={selectedStop}
@@ -1234,7 +1293,7 @@ export default function App() {
         </div>
       )}
 
-      {selected && (
+      {selected && !selectedLine && (
         <div className="pointer-events-none absolute right-4 top-4 z-10">
           <VehicleCard
             vehicle={selected}
@@ -1242,6 +1301,7 @@ export default function App() {
             simSeconds={simSeconds}
             interchangeByStop={interchangeByStop}
             onFlyToStop={handleFlyToStop}
+            onSelectLine={handleFocusLine}
             following={following}
             onToggleFollow={handleToggleFollow}
             onClose={() => selectVehicle(null)}
