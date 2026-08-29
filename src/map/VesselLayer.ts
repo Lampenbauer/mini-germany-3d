@@ -51,15 +51,26 @@ export interface VesselLayerHost {
   noteCameraFlight(durationMs: number): void
 }
 
-/** Ship names fade in below this camera distance (meters). */
-const NAME_VISIBLE_RANGE = 15_000
 /**
- * Beyond this camera distance a moving vessel does not request repaints –
- * at 20 km a hull is sub-pixel, and the app's event-driven rendering must
- * stay idle when nothing visible changes (the trams' layer works the same
- * way: movement only costs GPU while it is inside the view).
+ * Beyond this camera distance the hull is not drawn any more and the name
+ * carries the ship alone – the vehicles' split between body and label,
+ * only ten times wider: a 200 m freighter still reads as a ship where a
+ * 30 m tram has long been a smudge. Below NAME_VISIBLE_RANGE, so a ship
+ * never loses her name before her hull.
  */
-const VESSEL_RENDER_RANGE = 20_000
+const VESSEL_BODY_VISIBLE_RANGE = 20_000
+/** Ship names fade in below this camera distance (meters). */
+const NAME_VISIBLE_RANGE = 30_000
+/**
+ * Beyond this camera distance a moving vessel neither requests repaints
+ * nor holds the render loop at its animation rate – the app's
+ * event-driven rendering must stay idle when nothing visible changes (the
+ * trams' layer works the same way: movement only costs GPU while it is
+ * inside the view). Where this is set below VESSEL_BODY_VISIBLE_RANGE,
+ * hulls between the two are still drawn but advance in the loop's slow
+ * heartbeat steps instead of gliding.
+ */
+const VESSEL_RENDER_RANGE = 5_000
 /**
  * Time constant of the display smoothing in ms: the drawn position eases
  * toward the playback target instead of snapping. Between ticks that
@@ -321,9 +332,15 @@ export class VesselLayer {
         Matrix4.multiplyByScale(record.matrix, scaleScratch, record.modelMatrix)
       }
       record.labelPosition.setValue(record.displayPosition)
-      if (this.visible) {
-        const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
-        if (distance < nearestHullMeters) nearestHullMeters = distance
+      const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
+      const showBody = this.visible && distance < VESSEL_BODY_VISIBLE_RANGE
+      if (showBody && distance < nearestHullMeters) nearestHullMeters = distance
+      // Box stand-in or loaded model – attachModel swaps one for the other,
+      // so only ever one of them is on the scene.
+      const body = record.model ?? record.primitive
+      if (body && body.show !== showBody) {
+        body.show = showBody
+        this.host.requestRender()
       }
       // Repaint per tick while the drawn pose still changes – that is what
       // makes a ship under way glide at the render loop's own rate.
@@ -383,13 +400,20 @@ export class VesselLayer {
     this.windowGlowShader.setUniform('u_windowGlow', WINDOW_GLOW_MAX * night)
   }
 
-  /** The underground view hides the surface fleet with the other layers. */
+  /**
+   * The underground view hides the surface fleet with the other layers.
+   * Hiding is applied here so the switch acts at once; bringing the fleet
+   * back is left to the next sync, which knows which hulls are inside
+   * VESSEL_BODY_VISIBLE_RANGE.
+   */
   setVisible(visible: boolean): void {
     if (visible === this.visible) return
     this.visible = visible
     for (const record of this.vessels.values()) {
-      if (record.primitive) record.primitive.show = visible
-      if (record.model) record.model.show = visible
+      if (!visible) {
+        if (record.primitive) record.primitive.show = false
+        if (record.model) record.model.show = false
+      }
       record.labelEntity.show = visible && this.labelsVisible
     }
     this.host.requestRender()
@@ -540,7 +564,12 @@ export class VesselLayer {
       return
     }
     model.customShader = this.windowGlowShader
-    model.show = this.visible
+    // The load lands between ticks, so it applies sync()'s body cutoff
+    // itself instead of showing a hull the next tick would hide again.
+    model.show =
+      this.visible &&
+      Cartesian3.distance(this.viewer.camera.positionWC, record.displayPosition) <
+        VESSEL_BODY_VISIBLE_RANGE
     this.viewer.scene.primitives.add(model)
     if (record.primitive) {
       this.viewer.scene.primitives.remove(record.primitive)

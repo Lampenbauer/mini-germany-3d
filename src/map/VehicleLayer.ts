@@ -148,21 +148,32 @@ interface VehicleRecord {
 const HEIGHT_SAMPLE_INTERVAL = 12
 
 /**
- * Camera distance in meters up to which a vehicle counts as visible: the
- * number label fades out here (see the label's DistanceDisplayCondition),
- * and beyond it the body is only a few pixels. Vehicles farther away must
- * neither hold the 30 fps render pacing nor get tile-height samples –
- * without this cap a camera dozens of kilometers away still "sees" the
- * whole fleet as soon as it faces the network.
+ * The three camera distances (in meters) a drawn vehicle passes through,
+ * innermost first. The ship layer carries the same three – see
+ * VESSEL_BODY_VISIBLE_RANGE / NAME_VISIBLE_RANGE / VESSEL_RENDER_RANGE,
+ * set much wider there because a 200 m freighter stays readable where a
+ * 30 m tram is long gone.
+ *
+ * BODY: up to here the 3D body is drawn. Beyond it the box is sub-pixel
+ * noise while the label still reads fine.
+ *
+ * LABEL: how far the line badge stays up, applied by its own
+ * DistanceDisplayCondition. Past the body range the label alone carries
+ * the vehicle.
+ *
+ * RENDER: how far the layer cares at all. It holds the 30 fps render
+ * pacing (anyVehicleInView) and gates the fallback tile-height sampling;
+ * without it a camera dozens of kilometers away still "sees" the whole
+ * fleet as soon as it faces the network.
+ *
+ * They need not be ordered, but crossing them has a price: past RENDER a
+ * vehicle stops holding the render loop at its animation rate, so a label
+ * still drawn out there follows in the loop's slow heartbeat steps unless
+ * something nearer keeps the frames coming.
  */
-const VEHICLE_VISIBLE_RANGE = 20_000
-
-/**
- * Camera distance in meters up to which the vehicle BODY (the 3D box) is
- * drawn. Beyond this the box is sub-pixel noise while the number label
- * still reads fine, so only the label stays up to VEHICLE_VISIBLE_RANGE.
- */
-const VEHICLE_BODY_VISIBLE_RANGE = 3_000
+const VEHICLE_BODY_VISIBLE_RANGE = 3_500
+const VEHICLE_LABEL_VISIBLE_RANGE = 35_000
+const VEHICLE_RENDER_RANGE = 20_000
 
 interface VehicleModelSpec {
   /** Uniform scale (tuned visually against the photo tiles). */
@@ -490,7 +501,7 @@ export class VehicleLayer {
     let anyVehicleInView = false
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
-     * anyVehicleInView, which reaches out to the label range. The map's
+     * anyVehicleInView, which reaches out to VEHICLE_RENDER_RANGE. The map's
      * shadow gate keys on it: with nothing near enough to cast, an
      * enabled shadow map still makes every fragment of the full-screen
      * tileset sample four cascade textures for nothing.
@@ -565,12 +576,12 @@ export class VehicleLayer {
       )
 
       // Visibility test per shown tram: inside the camera frustum AND within
-      // label range (beyond that the vehicle is only a few pixels). The
+      // render range (beyond that nothing of the vehicle is drawn). The
       // result drives the render pacing (anyVehicleInView) and whether the
       // fallback tile-height sampling below is worth doing at all.
       let inView = false
       const cameraDistance = Cartesian3.distance(camera.positionWC, position)
-      if (show && cameraDistance < VEHICLE_VISIBLE_RANGE) {
+      if (show && cameraDistance < VEHICLE_RENDER_RANGE) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
@@ -632,10 +643,10 @@ export class VehicleLayer {
         if (wagonMatrix) this.composeWagonMatrix(record, k, wagonMatrix)
       }
       // The body is only drawn close up; the number label carries the
-      // vehicle out to VEHICLE_VISIBLE_RANGE. (Checked here on the CPU – a
-      // DistanceDisplayCondition attribute on the Primitive measures from
-      // the instance matrix, which is identity for these boxes since the
-      // position lives in the primitive's own modelMatrix.)
+      // vehicle out to VEHICLE_LABEL_VISIBLE_RANGE. (Checked here on the
+      // CPU – a DistanceDisplayCondition attribute on the Primitive
+      // measures from the instance matrix, which is identity for these
+      // boxes since the position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
       // A vehicle under the street is lit by nothing and casts nothing.
       // It is still DRAWN – ghosted, so the route stays followable – so
@@ -922,7 +933,7 @@ export class VehicleLayer {
               height: badge.height,
               color: Color.WHITE.withAlpha(alpha),
               pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_LABEL_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           }
@@ -936,7 +947,7 @@ export class VehicleLayer {
               outlineWidth: 4,
               style: LabelStyle.FILL_AND_OUTLINE,
               pixelOffset: new Cartesian2(0, -30),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_VISIBLE_RANGE),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_LABEL_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
           }),
