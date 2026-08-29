@@ -152,7 +152,6 @@ describe('buildLineActivity', () => {
       destination: 'B',
       nextStopName: 'Stop 1',
       status: 'moving',
-      inTunnel: false,
       realtime: false,
       delaySeconds: 0,
       ...extra,

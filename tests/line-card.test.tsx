@@ -34,7 +34,6 @@ function vehicle(overrides: Partial<LineVehicle> = {}): LineVehicle {
     destination: 'Hafenallee',
     nextStopName: 'Platz der Jugend',
     status: 'moving',
-    inTunnel: false,
     delaySeconds: 0,
     realtime: false,
     ...overrides,

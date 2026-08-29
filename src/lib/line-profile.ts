@@ -176,7 +176,6 @@ export interface LineVehicle {
   destination: string
   nextStopName: string
   status: 'dwell' | 'moving'
-  inTunnel: boolean
   delaySeconds: number
   realtime: boolean
 }
@@ -231,7 +230,6 @@ export function buildLineActivity(
       destination: s.destination,
       nextStopName: s.nextStopName,
       status: s.status,
-      inTunnel: s.inTunnel,
       delaySeconds: s.delaySeconds,
       realtime: s.realtime,
     }))

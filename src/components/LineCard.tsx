@@ -215,10 +215,7 @@ export function LineCard({
                             destination: group.destination,
                           })}
                         >
-                          <ModeIcon
-                            className={`size-3.5 shrink-0 ${v.inTunnel ? 'opacity-40' : ''}`}
-                            aria-hidden
-                          />
+                          <ModeIcon className="size-3.5 shrink-0" aria-hidden />
                           <span className="min-w-0 flex-1 truncate text-sm">{position}</span>
                           {v.realtime && (
                             <Badge variant="secondary" className="shrink-0 text-[10px]">
