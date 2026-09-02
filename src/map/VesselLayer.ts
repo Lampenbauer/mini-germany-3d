@@ -428,6 +428,11 @@ export class VesselLayer {
    * gets no approach flight – the first sync that draws her engages the
    * chase instead, which is also what happens when she is off screen.
    */
+  /** Chase leash follows the lens (see CesiumMap.applyLensDistance). */
+  applyLensDistance(factor: number): boolean {
+    return this.followCamera.applyLensDistance(factor)
+  }
+
   setFollow(mmsi: number | null): void {
     this.followMmsi = mmsi
     if (mmsi === null) {

@@ -86,15 +86,23 @@ VITE_CESIUM_ION_TOKEN=your-token
   a camera reset ends the follow mode.
 - **Map controls:** 2D/3D pitch toggle, face north, and camera reset sit at the
   lower right edge of the map.
-- **Field of view:** 30° horizontal instead of Cesium's 60° default
-  (`config.camera.fovDeg`). The miniature look lives on the long-lens end: a
+- **Field of view:** 30° horizontal while the miniature look is on, Cesium's
+  60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), eased
+  between the two when the switch is flipped – and the camera walks along the
+  view axis as it goes, so the same ground stays in frame and only the
+  perspective flattens or steepens. A dolly zoom, in other words: the switch
+  shows the lens change the effect is built on instead of jumping somewhere
+  else. The miniature look lives on the long-lens end: a
   narrower angle keeps the foreground from looming and towers from leaning out of
   the frame, and it makes the tilt-shift band a better stand-in for a plane of
   focus – at 60° the blurred edges span 1.5× the depth of the sharp band, at 30°
-  only 1.2×. Every distance measured at 60° follows the setting: the home view,
-  the chase cam and the stop flight keep their framing, and the ranges that decide
-  what is still worth drawing (stop discs and labels, vehicle bodies, badges and
-  ships) keep the same on-screen size. The line flight needs none of it – Cesium
+  only 1.2×. Every distance measured at 60° follows the angle: the home view, the
+  chase cam and the stop flight read it off the camera and keep their framing
+  through either lens. The ranges that decide what is still worth drawing (stop
+  discs and labels, vehicle bodies, badges and ships) stay pinned to the narrow
+  one – they live in DistanceDisplayConditions on thousands of billboards, too
+  many to rebuild on a toggle, so through the plain lens they simply reach a
+  little further than that angle needs. The line flight needs none of it – Cesium
   derives that distance from the frustum itself.
 - **Map bounds:** The camera stays within 25 km of the line network and does not
   zoom out beyond 25 km altitude – there is nothing outside that this map could

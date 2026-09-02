@@ -1199,6 +1199,11 @@ export class VehicleLayer {
    * repositions the camera each frame via camera.lookAt – mouse orbit and
    * zoom remain possible.
    */
+  /** Chase leash follows the lens (see CesiumMap.applyLensDistance). */
+  applyLensDistance(factor: number): boolean {
+    return this.followCamera.applyLensDistance(factor)
+  }
+
   setFollow(vehicleId: string | null): void {
     this.followId = vehicleId
     if (!vehicleId) {

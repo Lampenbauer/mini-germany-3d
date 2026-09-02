@@ -95,9 +95,17 @@ export const config = {
    * the chase cam, and the stop flight all frame the same ground at any
    * setting. Only camera poses in shared URL hashes carry a plain height
    * and therefore open a little closer in than they were saved at.
+   *
+   * Switching the miniature look off puts the plain lens back on, eased
+   * over a few frames with the camera walking along to hold the framing
+   * (see map/CameraLens.ts) – so the switch shows the perspective change
+   * the effect is built on, rather than jumping somewhere else.
    */
   camera: {
+    /** Field of view with the miniature look on. */
     fovDeg: 30,
+    /** Field of view with it off – Cesium's own default. */
+    fovOffDeg: 60,
   },
 
   /**

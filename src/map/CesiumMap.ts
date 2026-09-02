@@ -22,7 +22,6 @@ import {
   Math as CesiumMath,
   Matrix3,
   Matrix4,
-  PerspectiveFrustum,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ShadowMode,
@@ -35,7 +34,8 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import { clampFovDeg, FRAMING_SCALE } from './camera-fov'
+import { CameraLens, cameraFramingScale } from './CameraLens'
+import { FRAMING_SCALE } from './camera-fov'
 import {
   clampCameraPose,
   networkCameraLimits,
@@ -330,6 +330,8 @@ export class CesiumMap {
   private readonly vehicleLayer: VehicleLayer
   /** Miniature look: band blur and toy grade (see TiltShiftEffect). */
   private readonly tiltShift: TiltShiftEffect
+  /** Field of view and its dolly (see CameraLens). */
+  private readonly lens: CameraLens
   /** Underground view (see setUnderground). */
   private underground = false
   /** Camera leash (see limitCameraToNetwork); null = camera unrestricted. */
@@ -510,14 +512,14 @@ export class CesiumMap {
     shadowMap.size = SHADOW_MAP_SIZE
     shadowMap.maximumDistance = SHADOW_MAX_DISTANCE
 
-    // Field of view: narrower than Cesium's 60° default, because the
-    // miniature look lives on the long-lens end (see config.camera). The
-    // 2D button tips the camera to a top-down pitch rather than morphing
-    // the scene, so the frustum stays perspective for the whole session –
-    // the check is for the type, not for a state that changes.
-    if (scene.camera.frustum instanceof PerspectiveFrustum) {
-      scene.camera.frustum.fov = CesiumMath.toRadians(clampFovDeg(config.camera.fovDeg))
-    }
+    // The lens: narrow while the miniature look is on, plain while it is
+    // off (see config.camera and CameraLens). Built before the home view
+    // is flown – that flight measures its distance against the angle in
+    // force.
+    this.lens = new CameraLens(this.viewer, {
+      requestRender: () => this.requestRender(),
+      applyDistanceFactor: (factor) => this.applyLensDistance(factor),
+    })
 
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
@@ -761,7 +763,7 @@ export class CesiumMap {
    * Where the home view's camera stands at the configured field of view.
    *
    * The pose in config.home was framed at Cesium's 60°, and a narrower
-   * angle needs more distance for the same ground (FRAMING_SCALE). That
+   * angle needs more distance for the same ground. That
    * distance has to be added along the VIEW AXIS, not to the height: the
    * pose aims at a ground point (height - ground)/tan(pitch) ahead of the
    * camera, so a taller camera at the same coordinates would push that
@@ -773,9 +775,10 @@ export class CesiumMap {
     const base = Cartesian3.fromDegrees(longitude, latitude, height)
     const above = height - this.defaultGroundHeight
     const forward = above / Math.tan(-pitch)
+    const scale = cameraFramingScale(this.viewer.camera)
     // Nothing to step back from at the reference angle, and nothing to
     // aim at from a camera that looks at the horizon (tan → ∞).
-    if (FRAMING_SCALE === 1 || !Number.isFinite(forward)) return base
+    if (scale === 1 || !Number.isFinite(forward)) return base
     const enu = Transforms.eastNorthUpToFixedFrame(base, undefined, new Matrix4())
     const aim = Matrix4.multiplyByPoint(
       enu,
@@ -783,7 +786,7 @@ export class CesiumMap {
       new Cartesian3(),
     )
     const back = Cartesian3.subtract(base, aim, new Cartesian3())
-    return Cartesian3.add(aim, Cartesian3.multiplyByScalar(back, FRAMING_SCALE, back), back)
+    return Cartesian3.add(aim, Cartesian3.multiplyByScalar(back, scale, back), back)
   }
 
   /**
@@ -920,7 +923,7 @@ export class CesiumMap {
       offset: new HeadingPitchRange(
         this.viewer.camera.heading,
         CesiumMath.toRadians(STOP_FOCUS_PITCH),
-        STOP_FOCUS_RANGE * FRAMING_SCALE,
+        STOP_FOCUS_RANGE * cameraFramingScale(this.viewer.camera),
       ),
     })
   }
@@ -1124,10 +1127,32 @@ export class CesiumMap {
     this.vesselLayer.setLabelsVisible(visible)
   }
 
-  /** Miniature look on/off (see TiltShiftEffect). */
+  /** Miniature look on/off – the effect and the lens it is shot with. */
   setTiltShift(enabled: boolean): void {
     this.tiltShift.setEnabled(enabled)
+    this.lens.setMiniature(enabled)
     this.requestRender()
+  }
+
+  /**
+   * Holds the framing while the lens changes: the camera's distance to
+   * what it looks at is multiplied by the factor the angle just cost.
+   *
+   * A chase cam keeps the camera on a leash of its own and would put back
+   * anything moved here on its next tick, so it scales that leash instead
+   * – and only when no chase is running does the free camera walk.
+   */
+  private applyLensDistance(factor: number): void {
+    const chasingVehicle = this.vehicleLayer.applyLensDistance(factor)
+    const chasingVessel = this.vesselLayer.applyLensDistance(factor)
+    if (chasingVehicle || chasingVessel) return
+    const camera = this.viewer.camera
+    const above = camera.positionCartographic.height - this.defaultGroundHeight
+    const descent = Math.sin(-camera.pitch)
+    // A camera at the horizon aims at nothing this side of it, and one
+    // below the ground has no framing left to hold.
+    if (!(above > 0) || !(descent > 0.02)) return
+    camera.moveBackward((above / descent) * (factor - 1))
   }
 
   /** Line visibility drives which stops stay on the map. */
@@ -1265,6 +1290,7 @@ export class CesiumMap {
     if (this.destroyed) return
     this.routes.updatePulse()
     this.streetLamps.update()
+    this.lens.update()
     this.tiltShift.update()
     this.viewer.render()
   }

@@ -53,9 +53,18 @@ export function framingDistanceScale(fovDeg: number): number {
 }
 
 /**
- * The scale in force, from the configured field of view – the value the
- * app's distances are written against. Multiply, never add: a distance
- * that is not scaled by this is a distance that means something different
- * at every setting of the knob.
+ * The scale at the miniature lens – the one the visibility ranges are
+ * written against.
+ *
+ * They are the distances that cannot follow the lens from frame to frame:
+ * each is baked into a DistanceDisplayCondition on thousands of
+ * billboards, and rebuilding those on a toggle would cost more than the
+ * toggle is worth. So they stay pinned to the narrower angle, the
+ * demanding one. With the plain lens on, things therefore stay drawn
+ * further out than that angle would ask for – a few more discs at the
+ * horizon, never one missing.
+ *
+ * Distances that a flight computes on the spot do follow the lens: they
+ * read it off the camera (see cameraFramingScale in CameraLens.ts).
  */
 export const FRAMING_SCALE = framingDistanceScale(config.camera.fovDeg)
