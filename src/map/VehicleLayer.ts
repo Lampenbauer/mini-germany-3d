@@ -43,6 +43,7 @@ import {
   type Viewer,
 } from 'cesium'
 import { config } from '@/config'
+import { FRAMING_SCALE } from './camera-fov'
 import { FollowCamera } from '@/map/FollowCamera'
 import type { TransitMode } from '@/data/network-types'
 import type { VehicleSnapshot } from '@/engine/simulation'
@@ -170,10 +171,16 @@ const HEIGHT_SAMPLE_INTERVAL = 12
  * vehicle stops holding the render loop at its animation rate, so a label
  * still drawn out there follows in the loop's slow heartbeat steps unless
  * something nearer keeps the frames coming.
+ *
+ * All three say "from here on it is too small to be worth it", which is a
+ * statement about the frame rather than about meters – so they follow the
+ * field of view (see camera-fov.ts). A narrower angle needs a camera that
+ * stands further back, and these ranges keep the same tram the same size
+ * on screen when it does.
  */
-const VEHICLE_BODY_VISIBLE_RANGE = 3_500
-const VEHICLE_LABEL_VISIBLE_RANGE = 35_000
-const VEHICLE_RENDER_RANGE = 20_000
+const VEHICLE_BODY_VISIBLE_RANGE = 3_500 * FRAMING_SCALE
+const VEHICLE_LABEL_VISIBLE_RANGE = 35_000 * FRAMING_SCALE
+const VEHICLE_RENDER_RANGE = 20_000 * FRAMING_SCALE
 
 interface VehicleModelSpec {
   /** Uniform scale (tuned visually against the photo tiles). */

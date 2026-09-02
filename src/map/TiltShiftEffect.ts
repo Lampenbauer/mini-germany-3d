@@ -14,9 +14,9 @@
  * is physically right and reads as a *photograph of a city*, while the
  * band is physically wrong and reads as a *model of one*. The band is
  * also the cheaper of the two – it needs no depth texture, and its blur
- * can run at half resolution.
+ * can run on a smaller copy of the frame.
  *
- * Cost when it is on: two blur passes over a quarter of the pixels each
+ * Cost when it is on: two blur passes over a reduced frame
  * (TEXTURE_SCALE), plus one full-size composite pass. Off – switched off
  * by the user, or ramped to zero by the camera pose (see update) – the
  * stages are disabled, and a disabled stage frees its textures and skips
@@ -49,13 +49,14 @@ import {
 const TEXTURE_SCALE = 0.92
 
 /**
- * Half height of the sharp band, in fractions of the viewport, plus the
- * distance it takes to fade from sharp to fully blurred. Together they
- * cover 0.12 + 0.25 = 0.37 of the half screen, so roughly the top and
- * bottom eighth of the frame sits at full blur.
+ * The band, in fractions of the viewport: how far from the focus line the
+ * frame stays sharp, and how far it then takes to reach full blur. Their
+ * sum is measured against half the screen, so whatever is left over at
+ * the top and bottom edges is the part that carries the blur undiluted –
+ * raising either number leaves less of it.
  */
-const BAND_HALF_HEIGHT = 0.12
-const BAND_FEATHER = 0.25
+const BAND_HALF_HEIGHT = 0.10
+const BAND_FEATHER = 0.30
 
 /**
  * Color grade at full strength. Toy models are painted plastic under a
@@ -83,9 +84,10 @@ in vec2 v_textureCoordinates;
 const float SIGMA = 2.0;
 const float DELTA = 1.0;
 // Spacing of two taps in texels of this stage's own target. czm_viewport
-// is that target rather than the screen, so at TEXTURE_SCALE 0.5 one
-// texel spans two device pixels; together with czm_pixelRatio the kernel
-// comes out the same width in CSS pixels on every display.
+// is that target rather than the screen, so one texel spans 1/TEXTURE_SCALE
+// device pixels – the blur widens as that scale drops. Together with
+// czm_pixelRatio the kernel comes out the same width in CSS pixels on
+// every display.
 const float STEP_TEXELS = 1.5;
 
 void main()

@@ -22,6 +22,7 @@ import {
   Math as CesiumMath,
   Matrix3,
   Matrix4,
+  PerspectiveFrustum,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ShadowMode,
@@ -34,6 +35,7 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
+import { clampFovDeg, FRAMING_SCALE } from './camera-fov'
 import {
   clampCameraPose,
   networkCameraLimits,
@@ -168,7 +170,7 @@ const SHADOW_SUN_MIN = 0.05
  */
 const SHADOW_DARKNESS = 0.52
 const SHADOW_MAP_SIZE = 8192
-const SHADOW_MAX_DISTANCE = 4000
+const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
 
 /**
  * How much of the shadow survives the weather, as two anchor points on
@@ -508,6 +510,15 @@ export class CesiumMap {
     shadowMap.size = SHADOW_MAP_SIZE
     shadowMap.maximumDistance = SHADOW_MAX_DISTANCE
 
+    // Field of view: narrower than Cesium's 60° default, because the
+    // miniature look lives on the long-lens end (see config.camera). The
+    // 2D button tips the camera to a top-down pitch rather than morphing
+    // the scene, so the frustum stays perspective for the whole session –
+    // the check is for the type, not for a state that changes.
+    if (scene.camera.frustum instanceof PerspectiveFrustum) {
+      scene.camera.frustum.fov = CesiumMath.toRadians(clampFovDeg(config.camera.fovDeg))
+    }
+
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')
 
@@ -729,13 +740,13 @@ export class CesiumMap {
   }
 
   setCameraHome(animate = true): void {
-    const { longitude, latitude, height, heading, pitch } = config.home
-    const destination = Cartesian3.fromDegrees(longitude, latitude, height)
+    const { heading, pitch } = config.home
     const orientation = {
       heading: CesiumMath.toRadians(heading),
       pitch: CesiumMath.toRadians(pitch),
       roll: 0,
     }
+    const destination = this.homePosition(orientation.heading, orientation.pitch)
     if (animate) {
       // Render at full rate during the camera flight
       this.flyingUntil = performance.now() + 2600
@@ -744,6 +755,35 @@ export class CesiumMap {
       this.viewer.camera.setView({ destination, orientation })
     }
     this.requestRender()
+  }
+
+  /**
+   * Where the home view's camera stands at the configured field of view.
+   *
+   * The pose in config.home was framed at Cesium's 60°, and a narrower
+   * angle needs more distance for the same ground (FRAMING_SCALE). That
+   * distance has to be added along the VIEW AXIS, not to the height: the
+   * pose aims at a ground point (height - ground)/tan(pitch) ahead of the
+   * camera, so a taller camera at the same coordinates would push that
+   * point north and frame a different part of the city. Aim point first,
+   * then step back from it.
+   */
+  private homePosition(heading: number, pitch: number): Cartesian3 {
+    const { longitude, latitude, height } = config.home
+    const base = Cartesian3.fromDegrees(longitude, latitude, height)
+    const above = height - this.defaultGroundHeight
+    const forward = above / Math.tan(-pitch)
+    // Nothing to step back from at the reference angle, and nothing to
+    // aim at from a camera that looks at the horizon (tan → ∞).
+    if (FRAMING_SCALE === 1 || !Number.isFinite(forward)) return base
+    const enu = Transforms.eastNorthUpToFixedFrame(base, undefined, new Matrix4())
+    const aim = Matrix4.multiplyByPoint(
+      enu,
+      new Cartesian3(forward * Math.sin(heading), forward * Math.cos(heading), -above),
+      new Cartesian3(),
+    )
+    const back = Cartesian3.subtract(base, aim, new Cartesian3())
+    return Cartesian3.add(aim, Cartesian3.multiplyByScalar(back, FRAMING_SCALE, back), back)
   }
 
   /**
@@ -880,7 +920,7 @@ export class CesiumMap {
       offset: new HeadingPitchRange(
         this.viewer.camera.heading,
         CesiumMath.toRadians(STOP_FOCUS_PITCH),
-        STOP_FOCUS_RANGE,
+        STOP_FOCUS_RANGE * FRAMING_SCALE,
       ),
     })
   }

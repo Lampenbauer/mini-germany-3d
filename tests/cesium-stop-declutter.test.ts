@@ -1,6 +1,6 @@
 import { Cartesian2, Cartesian3, Matrix4, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { keepNonOverlappingLabels } from '@/map/StopsLayer'
+import { keepNonOverlappingLabels, STOP_LABEL_RANGE } from '@/map/StopsLayer'
 import { stopsHarness } from './stops-test-harness'
 
 /**
@@ -77,8 +77,10 @@ describe('stop label declutter on the layer', () => {
 
   it('skips stops beyond the label display range entirely', () => {
     const project = projectAllTo(400, 300)
-    // 5 km up – past STOP_LABEL_RANGE, where the label is hidden anyway
-    const { layer } = stopsHarness(stops, { cameraHeight: 5000 })
+    // Above STOP_LABEL_RANGE, where the label is hidden anyway. Taken from
+    // the constant rather than written out: the range follows the field of
+    // view (see camera-fov.ts), so a fixed height would drift inside it.
+    const { layer } = stopsHarness(stops, { cameraHeight: STOP_LABEL_RANGE * 2 })
 
     layer.update()
 

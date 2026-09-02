@@ -25,6 +25,7 @@ import {
   Matrix4,
   type Viewer,
 } from 'cesium'
+import { FRAMING_SCALE } from './camera-fov'
 
 /** Where the camera should be looking, this frame. */
 export interface FollowTarget {
@@ -42,9 +43,14 @@ export interface FollowCameraHost {
   noteCameraFlight(durationMs: number): void
 }
 
-/** Initial offset behind and above the target. */
+/**
+ * Initial offset behind and above the target. The range was measured at
+ * Cesium's 60° field of view and follows the configured one, so the
+ * vehicle fills the same part of the frame whatever it is set to (see
+ * map/camera-fov.ts).
+ */
 const FOLLOW_PITCH_DEG = -16
-const FOLLOW_RANGE = 140
+const FOLLOW_RANGE = 140 * FRAMING_SCALE
 
 /** Duration of the approach flight when following starts, in seconds. */
 const FOLLOW_FLIGHT_SECONDS = 1.4

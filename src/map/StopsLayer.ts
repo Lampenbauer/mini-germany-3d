@@ -23,6 +23,7 @@ import {
   type Viewer,
 } from 'cesium'
 import type { PreparedNetwork } from '@/data/network-types'
+import { FRAMING_SCALE } from './camera-fov'
 import { isInTunnel } from '@/lib/tunnels'
 import { tunnelOpacity } from './tunnel-view'
 
@@ -120,11 +121,16 @@ const STOP_SAMPLE_INTERVAL_MS = 500
 /** How long a stop is skipped for after a measurement found no loaded tile. */
 const STOP_RETRY_MS = 1500
 
-/** Camera distance in meters up to which the stop discs are drawn. */
-const STOP_DISC_RANGE = 20000
-
-/** Camera distance in meters up to which stop name labels are drawn. */
-const STOP_LABEL_RANGE = 2600
+/**
+ * Camera distances in meters up to which the stop discs and their name
+ * labels are drawn. Both are on-screen sizes in disguise and therefore
+ * follow the field of view (see camera-fov.ts): at a narrower angle the
+ * camera stands further back for the same view, and without the scale the
+ * home view loses more than half of its discs.
+ */
+const STOP_DISC_RANGE = 20000 * FRAMING_SCALE
+/** Exported so the declutter test can stand its camera outside it. */
+export const STOP_LABEL_RANGE = 2600 * FRAMING_SCALE
 
 /** Rendered size of a stop disc in CSS px (fill + outline). */
 const STOP_DISC_SIZE = 10

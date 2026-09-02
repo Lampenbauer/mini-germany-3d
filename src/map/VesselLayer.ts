@@ -41,6 +41,7 @@ import {
   type Viewer,
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
+import { FRAMING_SCALE } from './camera-fov'
 import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
@@ -69,8 +70,11 @@ const NAME_VISIBLE_RANGE = 30_000
  * inside the view). Where this is set below VESSEL_BODY_VISIBLE_RANGE,
  * hulls between the two are still drawn but advance in the loop's slow
  * heartbeat steps instead of gliding.
+ *
+ * A distance that means an on-screen size, so it follows the field of
+ * view like the trams' ranges do (see camera-fov.ts).
  */
-const VESSEL_RENDER_RANGE = 5_000
+const VESSEL_RENDER_RANGE = 5_000 * FRAMING_SCALE
 /**
  * Time constant of the display smoothing in ms: the drawn position eases
  * toward the playback target instead of snapping. Between ticks that
