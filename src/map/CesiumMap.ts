@@ -45,6 +45,7 @@ import {
   ROUTE_PULSE_DURATION_MS,
   RoutesLayer,
 } from './RoutesLayer'
+import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
 import { VesselLayer } from './VesselLayer'
@@ -325,6 +326,8 @@ export class CesiumMap {
   private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
+  /** Miniature look: band blur and toy grade (see TiltShiftEffect). */
+  private readonly tiltShift: TiltShiftEffect
   /** Underground view (see setUnderground). */
   private underground = false
   /** Camera leash (see limitCameraToNetwork); null = camera unrestricted. */
@@ -492,6 +495,13 @@ export class CesiumMap {
         this.flyingUntil = performance.now() + durationMs
       },
     })
+    // The miniature look this whole map is named after – on by default,
+    // and switched off from the panel or the URL like the layers are. It
+    // costs nothing at the poses where it would look wrong: the ramps in
+    // TiltShiftEffect.update disable the stages outright.
+    this.tiltShift = new TiltShiftEffect(this.viewer, () => this.defaultGroundHeight)
+    this.tiltShift.setEnabled(true)
+
     const shadowMap = scene.shadowMap
     shadowMap.darkness = SHADOW_DARKNESS
     shadowMap.softShadows = false
@@ -1074,6 +1084,12 @@ export class CesiumMap {
     this.vesselLayer.setLabelsVisible(visible)
   }
 
+  /** Miniature look on/off (see TiltShiftEffect). */
+  setTiltShift(enabled: boolean): void {
+    this.tiltShift.setEnabled(enabled)
+    this.requestRender()
+  }
+
   /** Line visibility drives which stops stay on the map. */
   setVisibleLines(visibleLines: ReadonlySet<string>): void {
     this.stops.setVisibleLines(visibleLines)
@@ -1209,6 +1225,7 @@ export class CesiumMap {
     if (this.destroyed) return
     this.routes.updatePulse()
     this.streetLamps.update()
+    this.tiltShift.update()
     this.viewer.render()
   }
 

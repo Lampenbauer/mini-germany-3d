@@ -20,9 +20,11 @@ const en = {
   'layers.routes': 'Routes',
   'layers.stops': 'Stops',
   'layers.labels': 'Vehicle labels',
+  'layers.tiltShift': 'Miniature effect',
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
+  'layers.showTiltShift': 'Show the miniature effect',
   'lines.title': 'Lines',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Close line',
@@ -159,9 +161,11 @@ const de: Record<MessageKey, string> = {
   'layers.routes': 'Routen',
   'layers.stops': 'Haltestellen',
   'layers.labels': 'Fahrzeugbeschriftungen',
+  'layers.tiltShift': 'Miniatureffekt',
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
+  'layers.showTiltShift': 'Miniatureffekt anzeigen',
   'lines.title': 'Linien',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Linie schließen',

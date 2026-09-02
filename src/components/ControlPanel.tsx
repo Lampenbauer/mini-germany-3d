@@ -52,6 +52,9 @@ export interface ControlPanelProps {
   /** Vehicle numbers and ship names – one switch for every name on the map. */
   showLabels: boolean
   onToggleLabels: (visible: boolean) => void
+  /** Miniature look: the tilt-shift band blur and the toy grade. */
+  tiltShift: boolean
+  onToggleTiltShift: (enabled: boolean) => void
 }
 
 /** Display order and label keys of the transit-mode groups. */
@@ -291,6 +294,14 @@ export function ControlPanel(props: ControlPanelProps) {
                   aria-label={t('layers.showLabels')}
                   checked={props.showLabels}
                   onCheckedChange={props.onToggleLabels}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{t('layers.tiltShift')}</span>
+                <Switch
+                  aria-label={t('layers.showTiltShift')}
+                  checked={props.tiltShift}
+                  onCheckedChange={props.onToggleTiltShift}
                 />
               </div>
             </div>

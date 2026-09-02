@@ -218,6 +218,7 @@ export default function App() {
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
+  const [tiltShift, setTiltShift] = useState(true)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -281,6 +282,7 @@ export default function App() {
   // stale React state): layer toggles and pause travel in the URL.
   const showStopsRef = useRef(showStops)
   const showLabelsRef = useRef(showLabels)
+  const tiltShiftRef = useRef(tiltShift)
   const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
@@ -398,6 +400,10 @@ export default function App() {
       showLabelsRef.current = false
       setShowLabels(false)
     }
+    if (uiState.tiltShiftOff) {
+      tiltShiftRef.current = false
+      setTiltShift(false)
+    }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
     simRef.current = sim
@@ -479,6 +485,7 @@ export default function App() {
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
+          tiltShiftOff: !tiltShiftRef.current,
           paused: pausedRef.current,
         })
       if (hash !== window.location.hash) {
@@ -536,6 +543,7 @@ export default function App() {
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
+    if (uiState.tiltShiftOff) map.setTiltShift(false)
 
     // Rain overlay: live precipitation for the city center (Open-Meteo).
     // Offline mode stays dry (no network, deterministic E2E tests) and
@@ -612,6 +620,12 @@ export default function App() {
         showLabelsRef.current = labelsVisible
         setShowLabels(labelsVisible)
         map.setLabelsVisible(labelsVisible)
+      }
+      const tiltShiftOn = !ui.tiltShiftOff
+      if (tiltShiftOn !== tiltShiftRef.current) {
+        tiltShiftRef.current = tiltShiftOn
+        setTiltShift(tiltShiftOn)
+        map.setTiltShift(tiltShiftOn)
       }
 
       // A selection outranks a camera pose, the same order writeHash
@@ -1007,6 +1021,13 @@ export default function App() {
     writeHashRef.current()
   }, [])
 
+  const handleToggleTiltShift = useCallback((enabled: boolean) => {
+    tiltShiftRef.current = enabled
+    setTiltShift(enabled)
+    mapRef.current?.setTiltShift(enabled)
+    writeHashRef.current()
+  }, [])
+
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
     simRef.current?.clock.setSpeed(value)
@@ -1250,6 +1271,8 @@ export default function App() {
           onToggleStops={handleToggleStops}
           showLabels={showLabels}
           onToggleLabels={handleToggleLabels}
+          tiltShift={tiltShift}
+          onToggleTiltShift={handleToggleTiltShift}
         />
       </div>
 

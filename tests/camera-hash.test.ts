@@ -92,6 +92,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
+        tiltShiftOff: false,
         paused: false,
       }),
     ).toBe('')
@@ -100,9 +101,10 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
+        tiltShiftOff: true,
         paused: true,
       }),
-    ).toBe('&routes=0&stops=0&labels=0&paused=1')
+    ).toBe('&routes=0&stops=0&labels=0&tilt=0&paused=1')
   })
 
   it('round-trips alongside both hash forms', () => {
@@ -110,6 +112,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
+      tiltShiftOff: true,
       paused: true,
     })
     const withCamera = formatCameraHash(view) + suffix
@@ -119,6 +122,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
+        tiltShiftOff: true,
         paused: true,
       })
     }
@@ -132,6 +136,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
+      tiltShiftOff: false,
       paused: false,
     })
   })
