@@ -348,3 +348,86 @@ test('pause button and camera reset are usable', async () => {
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
   await page.getByRole('button', { name: 'Reset camera' }).click()
 })
+
+/**
+ * High-frequency detail in two strips of the rendered frame: the top of
+ * the picture, which the miniature effect blurs away, and the band across
+ * the middle, which it keeps sharp.
+ *
+ * Read out of the canvas rather than through a Playwright screenshot on
+ * purpose. An element screenshot waits for the element to be stable
+ * across two animation frames, and a busy render loop under SwiftShader
+ * starves that check for minutes – it is what made this test time out on
+ * CI when it still took pictures.
+ */
+const frameDetail = () =>
+  page.evaluate(() => {
+    const viewer = window.__cesiumViewer!
+    // The read has to happen in the same task as the render: the drawing
+    // buffer is not preserved, so anything later comes back empty.
+    viewer.render()
+    const source = viewer.canvas
+    const copy = document.createElement('canvas')
+    copy.width = source.width
+    copy.height = source.height
+    const ctx = copy.getContext('2d')!
+    ctx.drawImage(source, 0, 0)
+
+    /** Mean |second derivative| along x – detail, blurred away or not. */
+    const roughness = (fromY: number, toY: number) => {
+      const top = Math.round(source.height * fromY)
+      const height = Math.round(source.height * toY) - top
+      const { data } = ctx.getImageData(0, top, source.width, height)
+      const luma = (i: number) => 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+      let sum = 0
+      let samples = 0
+      for (let y = 0; y < height; y++) {
+        for (let x = 1; x < source.width - 1; x++) {
+          const i = (y * source.width + x) << 2
+          sum += Math.abs(2 * luma(i) - luma(i - 4) - luma(i + 4))
+          samples++
+        }
+      }
+      return sum / samples
+    }
+    return { top: roughness(0.02, 0.1), band: roughness(0.45, 0.55) }
+  })
+
+test('the miniature effect blurs the frame outside its sharp band', async () => {
+  // A GLSL error in the three post-process passes surfaces nowhere else
+  // than as a RuntimeError out of the render loop. Toggling the effect
+  // below releases and rebuilds the stages, so the shaders are compiled
+  // again while this listener is attached.
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  // The camera reset of the test before flies for a moment – measuring
+  // two frames from two different poses would compare the poses, not the
+  // effect.
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting))
+    .toBe(false)
+
+  const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  const withEffect = await frameDetail()
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // Off is a state worth sharing – it rides along in the URL
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tilt=0')
+  const withoutEffect = await frameDetail()
+
+  // The blur takes the top of the picture down to a fraction of its detail
+  expect(withEffect.top).toBeLessThan(withoutEffect.top * 0.5)
+  // …and only with the effect on does the middle of one frame stand out
+  // against its top. Measured as a ratio within each frame, so it says
+  // something about the band rather than about what happens to be in the
+  // two strips – the untouched frame's own ratio is the baseline.
+  const standsOut = (frame: { top: number; band: number }) => frame.band / frame.top
+  expect(standsOut(withEffect)).toBeGreaterThan(standsOut(withoutEffect) * 3)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('tilt=0')
+  expect(pageErrors).toEqual([])
+})

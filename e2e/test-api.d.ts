@@ -58,6 +58,9 @@ declare global {
       } | null
     }
     __cesiumViewer?: {
+      /** One frame, drawn synchronously – see frameDetail in app.spec.ts. */
+      render: () => void
+      canvas: HTMLCanvasElement
       camera: {
         positionCartographic: { longitude: number; latitude: number; height: number }
       }
