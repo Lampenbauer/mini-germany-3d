@@ -1614,23 +1614,14 @@ export default function App() {
           </div>
         )}
 
-        {/* Map controls, from the top: the scene popover (weather and the
-            miniature look) and the underground view, each on its own – they
-            are modes the map stays in, and the popover and the lit button
-            say so. Below them the four that only ever aim the camera or the
-            window, joined into one block: face north, 2D/3D, full screen,
-            and camera reset closest to the thumb, the one that undoes
-            whatever the others did to the view. bottom-8 keeps the column
-            clear of the Cesium attribution line at the lower edge. */}
+        {/* Map controls, from the top: the underground view, then the four
+            that only ever aim the camera or the window, joined into one
+            block – compass, 2D/3D, full screen, and camera reset – and the
+            scene popover last, nearest the thumb, the widest of them and
+            the one that carries a reading rather than only a command.
+            bottom-8 keeps the column clear of the Cesium attribution line
+            at the lower edge. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
-          <ScenePopover
-            weatherMode={weatherMode}
-            onWeatherModeChange={handleWeatherMode}
-            liveWeatherAvailable={liveWeatherAvailable}
-            temperatureC={temperatureC}
-            tiltShift={tiltShift}
-            onToggleTiltShift={handleToggleTiltShift}
-          />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1732,6 +1723,14 @@ export default function App() {
               <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
             </Tooltip>
           </div>
+          <ScenePopover
+            weatherMode={weatherMode}
+            onWeatherModeChange={handleWeatherMode}
+            liveWeatherAvailable={liveWeatherAvailable}
+            temperatureC={temperatureC}
+            tiltShift={tiltShift}
+            onToggleTiltShift={handleToggleTiltShift}
+          />
         </div>
       </div>
     </div>

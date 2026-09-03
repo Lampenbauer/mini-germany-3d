@@ -86,10 +86,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   chases it facing the direction of travel; rotating the camera hands control back
   to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
   a camera reset ends the follow mode.
-- **Map controls:** at the lower right edge of the map. The scene popover and
-  the underground view stand on their own, the four that only aim the camera or
-  the window – compass, 2D/3D pitch toggle, full screen and camera reset – are
-  one block.
+- **Map controls:** at the lower right edge of the map. The underground view
+  stands on its own at the top, the four that only aim the camera or the window
+  – compass, 2D/3D pitch toggle, full screen and camera reset – are one block
+  below it, and the scene popover comes last.
 - **Compass:** its needle points where the camera looks, on a north-up dial, and
   turns with it. Pressing it brings the view onto the nearest quarter – north,
   east, south or west – and on to the next one when it already stands on one, so
