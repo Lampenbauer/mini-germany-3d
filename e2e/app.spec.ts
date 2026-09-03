@@ -348,3 +348,47 @@ test('pause button and camera reset are usable', async () => {
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
   await page.getByRole('button', { name: 'Reset camera' }).click()
 })
+
+test('the compass follows the view and walks it round the quarters', async () => {
+  // The needle turns with the camera, and the button says which quarter it
+  // will bring the view onto – so pressing it is never a guess.
+  const heading = () =>
+    page.evaluate(() => (window.__cesiumViewer!.camera.heading * 180) / Math.PI)
+  const needleDeg = async (label: string) => {
+    const style = await page.locator(`button[aria-label="${label}"] svg`).getAttribute('style')
+    const match = /rotate\((-?[\d.]+)deg\)/.exec(style ?? '')
+    expect(match, `no rotation on the needle: ${style}`).not.toBeNull()
+    return Number(match![1])
+  }
+  /** How far apart two angles are, whichever way round the dial. */
+  const apart = (a: number, b: number) => Math.abs((((a - b) % 360) + 540) % 360 - 180)
+  const facing = (deg: number) =>
+    expect.poll(async () => apart(await heading(), deg), { timeout: 30_000 }).toBeLessThan(1)
+
+  // Looking south-south-east: the needle follows within a UI tick, and the
+  // button offers the quarter the view is nearest to
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.09&lon=12.13&height=3000&heading=190&pitch=-45'
+  })
+  await expect(page.getByRole('button', { name: 'Face south' })).toBeVisible({ timeout: 15_000 })
+  // The needle carries the icon's own angle; what matters is that it stands
+  // at the heading, and keeps standing there as the view turns.
+  const offset = (await needleDeg('Face south')) - 190
+  const needleFacing = (label: string, deg: number) =>
+    expect
+      .poll(async () => apart((await needleDeg(label)) - offset, deg), { timeout: 15_000 })
+      .toBeLessThan(1)
+
+  await page.getByRole('button', { name: 'Face south' }).click()
+  await facing(180)
+  await needleFacing('Face west', 180)
+
+  // Standing on a quarter, the button offers the next one and keeps going
+  await page.getByRole('button', { name: 'Face west' }).click()
+  await facing(270)
+
+  // …and past west it comes round to north instead of stopping there
+  await page.getByRole('button', { name: 'Face north' }).click()
+  await facing(0)
+  await needleFacing('Face east', 0)
+})

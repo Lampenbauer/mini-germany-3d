@@ -63,6 +63,8 @@ declare global {
       canvas: HTMLCanvasElement
       camera: {
         positionCartographic: { longitude: number; latitude: number; height: number }
+        /** Where the camera looks, in radians clockwise from north. */
+        heading: number
       }
       clock: { currentTime: unknown }
       entities: {

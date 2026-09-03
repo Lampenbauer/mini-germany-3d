@@ -32,7 +32,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
-| Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
+| Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); a live compass, 2D/3D, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Weather | Open-Meteo precipitation and cloud cover for one point in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. The live sky is shown only near real time (`?rain=0` opts out); the scene popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
@@ -86,9 +86,15 @@ VITE_CESIUM_ION_TOKEN=your-token
   chases it facing the direction of travel; rotating the camera hands control back
   to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
   a camera reset ends the follow mode.
-- **Map controls:** the underground view, a 2D/3D pitch toggle, face north, the
-  scene popover, camera reset and full screen sit at the lower right edge of the
-  map.
+- **Map controls:** at the lower right edge of the map. The scene popover and
+  the underground view stand on their own, the four that only aim the camera or
+  the window – compass, 2D/3D pitch toggle, full screen and camera reset – are
+  one block.
+- **Compass:** its needle points where the camera looks, on a north-up dial, and
+  turns with it. Pressing it brings the view onto the nearest quarter – north,
+  east, south or west – and on to the next one when it already stands on one, so
+  pressing on walks the map round the dial and past north. The button says which
+  quarter it will turn to before you press it.
 - **Scene popover:** the sky and the miniature look, the two things that change
   how the city reads rather than what is on it. Four skies – the live weather
   and a sunny, an overcast and a rainy one – of which exactly one is in force;

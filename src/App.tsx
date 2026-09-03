@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, Compass, Home, Maximize, Minimize, TrainFrontTunnel } from 'lucide-react'
+import { Building2, Home, Maximize, Minimize, TrainFrontTunnel } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
+import { CompassIcon } from '@/components/CompassIcon'
 import { ScenePopover } from '@/components/ScenePopover'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
@@ -33,7 +34,8 @@ import {
   onFullscreenChange,
   toggleFullscreen,
 } from '@/lib/fullscreen'
-import { getLanguage, localizeLineName, t } from '@/lib/i18n'
+import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
+import { getLanguage, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
@@ -214,6 +216,14 @@ function readUrlOptions(): UrlOptions {
 const GROUPED_CONTROL =
   'rounded-none border-t border-border/60 bg-transparent shadow-none first:border-t-0'
 
+/** What the compass button says it will do, by the quarter it aims at. */
+const CARDINAL_KEY: Record<number, MessageKey> = {
+  0: 'camera.faceNorth',
+  90: 'camera.faceEast',
+  180: 'camera.faceSouth',
+  270: 'camera.faceWest',
+}
+
 export default function App() {
   /**
    * The ?query options, read once. Nothing changes them while the app runs
@@ -321,6 +331,14 @@ export default function App() {
   const realtimeStatusRef = useRef<RealtimeStatus | null>(null)
   // Top-down view (pitch ≈ -90°)? Drives the 2D/3D toggle button's face.
   const [cameraIs2D, setCameraIs2D] = useState(false)
+  /**
+   * Where the camera looks, in degrees clockwise from north – wound on
+   * rather than wrapped to 0..360 (see windAngleTo), so the needle turns
+   * the short way across north instead of unwinding the whole dial.
+   * Refreshed with the rest of the UI four times a second, which the
+   * needle's transition smooths into a turn.
+   */
+  const [cameraHeading, setCameraHeading] = useState(0)
   /** Sim clock in seconds of day – drives the vehicle card's countdown. */
   const [simSeconds, setSimSeconds] = useState(0)
   /** Underground view: tunnels solid, the surface ghosted (see CesiumMap). */
@@ -866,7 +884,12 @@ export default function App() {
               lastUiUpdate = now
               setClockText(clock.formatted())
               setSimSeconds(clock.secondsOfDay())
-              setCameraIs2D(map.getCameraView().pitch < -85)
+              const cameraView = map.getCameraView()
+              setCameraIs2D(cameraView.pitch < -85)
+              // Whole degrees: finer than the needle can show, and the
+              // float jitter of a camera at rest would re-render the app
+              // four times a second for nothing.
+              setCameraHeading((wound) => windAngleTo(wound, Math.round(cameraView.heading)))
               // Rain: only with live precipitation AND a sim clock near the
               // real time – time travel must not show today's weather.
               const nearRealTime = weatherIsCurrent(
@@ -1164,6 +1187,9 @@ export default function App() {
     cloudRef.current = { percent: preset.cloudCoverPercent, forced: true }
   }, [])
 
+  /** What the compass button will do from here (see CARDINAL_KEY). */
+  const alignHeadingLabel = t(CARDINAL_KEY[nextQuarterHeading(cameraHeading)])
+
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
     simRef.current?.clock.setSpeed(value)
@@ -1333,7 +1359,15 @@ export default function App() {
     setCameraIs2D(!is2D)
   }, [])
 
-  const handleFaceNorth = useCallback(() => {
+  /**
+   * The compass button: brings the view onto the nearest quarter – north,
+   * east, south or west – and on to the next one when it already stands
+   * on one, so pressing on walks the map round the dial. The heading comes
+   * from the camera rather than from the state behind the needle, which
+   * trails it by up to a quarter second and would aim at the wrong
+   * quarter mid-turn.
+   */
+  const handleAlignHeading = useCallback(() => {
     const map = mapRef.current
     if (!map) return
     if (followingRef.current) {
@@ -1341,7 +1375,7 @@ export default function App() {
       setFollowing(false)
       map.setFollow(null)
     }
-    map.setCameraOrientation({ headingDeg: 0 })
+    map.setCameraOrientation({ headingDeg: nextQuarterHeading(map.getCameraView().heading) })
   }, [])
 
   /**
@@ -1624,13 +1658,19 @@ export default function App() {
                   variant="secondary"
                   size="icon"
                   className={GROUPED_CONTROL}
-                  aria-label={t('camera.faceNorth')}
-                  onClick={handleFaceNorth}
+                  aria-label={alignHeadingLabel}
+                  onClick={handleAlignHeading}
                 >
-                  <Compass aria-hidden />
+                  {/* The needle points where the camera looks on a
+                      north-up dial, so the icon reads as the view's own
+                      compass – solid end north, hollow end south. */}
+                  <CompassIcon
+                    className="size-4 transition-transform duration-300 ease-out"
+                    style={{ transform: `rotate(${cameraHeading}deg)` }}
+                  />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+              <TooltipContent side="left">{alignHeadingLabel}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>

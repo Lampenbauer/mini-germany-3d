@@ -4,8 +4,10 @@ import {
   cumulativeDistances,
   haversineMeters,
   heightAtDistance,
+  nextQuarterHeading,
   projectOntoPath,
   sampleAtDistance,
+  windAngleTo,
   type LonLat,
 } from '@/lib/geo'
 
@@ -23,6 +25,93 @@ describe('haversineMeters', () => {
     const b: LonLat = [12.2, 54.05]
     expect(haversineMeters(a, b)).toBeCloseTo(haversineMeters(b, a), 6)
     expect(haversineMeters(a, a)).toBe(0)
+  })
+})
+
+describe('windAngleTo', () => {
+  it('leaves an angle that has not moved alone', () => {
+    // The compass state is set from this on every UI tick – an unchanged
+    // heading has to come back identical, or the app re-renders for nothing
+    expect(windAngleTo(37, 37)).toBe(37)
+    expect(windAngleTo(397, 37)).toBe(397)
+    expect(windAngleTo(-323, 37)).toBe(-323)
+  })
+
+  it('takes the short way across north instead of unwinding the dial', () => {
+    expect(windAngleTo(359, 1)).toBe(361)
+    expect(windAngleTo(1, 359)).toBe(-1)
+    expect(windAngleTo(361, 359)).toBe(359)
+  })
+
+  it('keeps turning in one direction as the dial is dragged round', () => {
+    let wound = 0
+    for (const heading of [90, 180, 270, 0, 90, 180, 270, 0]) {
+      wound = windAngleTo(wound, heading)
+    }
+    // Two full turns forward, never a jump back through the dial
+    expect(wound).toBe(720)
+  })
+
+  it('always lands on the angle it was given, modulo a full turn', () => {
+    for (const [from, to] of [
+      [0, 137],
+      [720, 45],
+      [-90, 300],
+      [12.5, 200],
+    ]) {
+      const wound = windAngleTo(from, to)
+      expect(((wound % 360) + 360) % 360).toBeCloseTo(((to % 360) + 360) % 360, 6)
+      expect(Math.abs(wound - from)).toBeLessThanOrEqual(180)
+    }
+  })
+})
+
+describe('nextQuarterHeading', () => {
+  it('snaps to the quarter the view is closest to', () => {
+    expect(nextQuarterHeading(20)).toBe(0)
+    expect(nextQuarterHeading(46)).toBe(90)
+    expect(nextQuarterHeading(100)).toBe(90)
+    expect(nextQuarterHeading(170)).toBe(180)
+    expect(nextQuarterHeading(250)).toBe(270)
+  })
+
+  it('reads the far side of north as north, not as a fourth quarter', () => {
+    expect(nextQuarterHeading(316)).toBe(0)
+    expect(nextQuarterHeading(359)).toBe(0)
+  })
+
+  it('moves on when the view already stands on a quarter', () => {
+    // A press has to turn the map, or it reads as a dead button
+    expect(nextQuarterHeading(0)).toBe(90)
+    expect(nextQuarterHeading(90)).toBe(180)
+    expect(nextQuarterHeading(180)).toBe(270)
+    // …round past north, which is where it used to stop
+    expect(nextQuarterHeading(270)).toBe(0)
+    expect(nextQuarterHeading(360)).toBe(90)
+  })
+
+  it('counts a hair off a quarter as standing on it', () => {
+    // Snapping back by a third of a degree would look like nothing happened
+    expect(nextQuarterHeading(270.3)).toBe(0)
+    expect(nextQuarterHeading(269.7)).toBe(0)
+    // …but a visible tilt is still worth straightening
+    expect(nextQuarterHeading(272)).toBe(270)
+    expect(nextQuarterHeading(268)).toBe(270)
+  })
+
+  it('answers within the dial for a wound or negative angle', () => {
+    // The needle's angle is wound on rather than wrapped (see windAngleTo)
+    expect(nextQuarterHeading(720)).toBe(90)
+    expect(nextQuarterHeading(721)).toBe(0)
+    expect(nextQuarterHeading(700)).toBe(0)
+    expect(nextQuarterHeading(-90)).toBe(0)
+    expect(nextQuarterHeading(-100)).toBe(270)
+  })
+
+  it('walks the whole dial round when pressed over and over', () => {
+    let heading = 0
+    const visited = [0, 1, 2, 3, 4].map(() => (heading = nextQuarterHeading(heading)))
+    expect(visited).toEqual([90, 180, 270, 0, 90])
   })
 })
 

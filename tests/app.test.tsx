@@ -83,6 +83,22 @@ describe('App (UI shell)', () => {
     expect(window.__mrt?.dataSource).toBe(loadBundledNetwork().meta.source)
   })
 
+  it('points the compass needle where the camera looks', () => {
+    render(<App />)
+    const controls = screen.getByRole('group', { name: 'View controls' })
+    const needle = within(controls).getAllByRole('button')[0].querySelector('svg')
+    // The view opens facing north, and the arrow is drawn pointing north –
+    // so it stands as drawn, and every later heading is a plain rotation.
+    expect(needle).toHaveAttribute('style', expect.stringContaining('rotate(0deg)'))
+  })
+
+  it('offers the compass as the turn it will make', () => {
+    render(<App />)
+    // Facing north already, so the press ahead is the quarter after it
+    expect(screen.getByRole('button', { name: 'Face east' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Face north' })).not.toBeInTheDocument()
+  })
+
   it('shows all lines with their switch enabled', () => {
     render(<App />)
     const network = loadBundledNetwork()

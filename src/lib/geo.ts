@@ -28,6 +28,42 @@ export function haversineMeters(a: LonLat, b: LonLat): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
+/**
+ * `to` (degrees) expressed as the angle nearest to `from`, which may lie
+ * outside 0..360. Winding an angle on rather than wrapping it is what
+ * lets a rotating dial take the short way: 359° → 1° reads as 361°, so
+ * it turns one degree forward instead of spinning back through the dial.
+ */
+export function windAngleTo(from: number, to: number): number {
+  return from + ((((to - from) % 360) + 540) % 360) - 180
+}
+
+/**
+ * How close to a quarter counts as standing on it, in degrees. Below what
+ * a needle can show, so a press that would turn the view by less than
+ * this reads as a press that did nothing.
+ */
+const QUARTER_TOLERANCE_DEG = 0.5
+
+/** An angle in degrees, brought into 0..360. */
+function wrapDegrees(deg: number): number {
+  return ((deg % 360) + 360) % 360
+}
+
+/**
+ * The quarter the compass button turns the view to: the nearest of 0, 90,
+ * 180 and 270 degrees – or, when the view already stands on one, the next
+ * one clockwise. So a press always turns the map, and pressing on walks
+ * it round the dial and past north (270° → 0°) rather than stopping.
+ * Exact halves round up, so 45° faces east and 315° faces north.
+ */
+export function nextQuarterHeading(headingDeg: number): number {
+  const heading = wrapDegrees(headingDeg)
+  const nearest = wrapDegrees(Math.round(heading / 90) * 90)
+  const off = Math.abs(wrapDegrees(heading - nearest + 180) - 180)
+  return off < QUARTER_TOLERANCE_DEG ? wrapDegrees(nearest + 90) : nearest
+}
+
 /** Initial bearing from a to b in degrees (0° = north, clockwise). */
 export function bearingDegrees(a: LonLat, b: LonLat): number {
   const φ1 = toRadians(a[1])
