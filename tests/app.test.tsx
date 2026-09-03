@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { config } from '@/config'
 
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
@@ -94,7 +95,12 @@ describe('App (UI shell)', () => {
     // one mode)
     expect(switches).toHaveLength(lineCount + 4 + (modeCount > 1 ? modeCount : 0))
     for (const sw of switches) {
-      expect(sw).toHaveAttribute('aria-checked', 'true')
+      // Every layer and line is on; the miniature effect starts as configured
+      const miniature = sw.getAttribute('aria-label') === 'Show the miniature effect'
+      expect(sw).toHaveAttribute(
+        'aria-checked',
+        String(miniature ? config.camera.miniatureDefault : true),
+      )
     }
   })
 

@@ -108,6 +108,13 @@ export const config = {
     fovDeg: 25,
     /** Field of view with it off – Cesium's own default. */
     fovOffDeg: 60,
+    /**
+     * Whether the miniature look is on when the app opens and the URL has
+     * no say. The panel switch changes it, and the URL hash carries only
+     * the deviation from this default (tiltshift=1 or tiltshift=0, see
+     * lib/camera-hash.ts), so links keep working when this flips.
+     */
+    miniatureDefault: false,
   },
 
   /**

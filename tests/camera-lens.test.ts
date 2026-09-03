@@ -15,15 +15,19 @@ afterEach(() => {
 })
 
 /** Real lens on a camera that is nothing but its frustum. */
-function lensHarness() {
+function lensHarness(miniature = true) {
   const frustum = new PerspectiveFrustum()
   const viewer = { camera: { frustum } } as unknown as Viewer
   /** Every distance factor the lens asked for, in order. */
   const factors: number[] = []
-  const lens = new CameraLens(viewer, {
-    requestRender: vi.fn(),
-    applyDistanceFactor: (factor) => factors.push(factor),
-  })
+  const lens = new CameraLens(
+    viewer,
+    {
+      requestRender: vi.fn(),
+      applyDistanceFactor: (factor) => factors.push(factor),
+    },
+    miniature,
+  )
   return {
     lens,
     factors,
@@ -43,12 +47,24 @@ const framingFactor = (fromDeg: number, toDeg: number) =>
   Math.tan(CesiumMath.toRadians(fromDeg) / 2) / Math.tan(CesiumMath.toRadians(toDeg) / 2)
 
 describe('CameraLens', () => {
-  it('starts on the miniature lens', () => {
-    const { fovDeg, lens, factors } = lensHarness()
+  it('starts on the lens of the look it is built with', () => {
+    const { fovDeg, lens, factors } = lensHarness(true)
     expect(fovDeg()).toBeCloseTo(config.camera.fovDeg, 6)
     expect(lens.fovDeg).toBeCloseTo(config.camera.fovDeg, 6)
     // Nothing to hold in place before anything was framed
     expect(factors).toEqual([])
+
+    const plain = lensHarness(false)
+    expect(plain.fovDeg()).toBeCloseTo(config.camera.fovOffDeg, 6)
+    expect(plain.factors).toEqual([])
+  })
+
+  it('wears the configured default look when not told otherwise', () => {
+    const frustum = new PerspectiveFrustum()
+    const viewer = { camera: { frustum } } as unknown as Viewer
+    new CameraLens(viewer, { requestRender: vi.fn(), applyDistanceFactor: vi.fn() })
+    const expected = config.camera.miniatureDefault ? config.camera.fovDeg : config.camera.fovOffDeg
+    expect(CesiumMath.toDegrees(frustum.fov ?? 0)).toBeCloseTo(expected, 6)
   })
 
   it('swaps without an ease before the first frame', () => {

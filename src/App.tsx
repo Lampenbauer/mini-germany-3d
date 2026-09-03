@@ -254,7 +254,7 @@ export default function App() {
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
-  const [tiltShift, setTiltShift] = useState(true)
+  const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
@@ -446,9 +446,9 @@ export default function App() {
       showLabelsRef.current = false
       setShowLabels(false)
     }
-    if (uiState.tiltShiftOff) {
-      tiltShiftRef.current = false
-      setTiltShift(false)
+    if (uiState.tiltShift !== tiltShiftRef.current) {
+      tiltShiftRef.current = uiState.tiltShift
+      setTiltShift(uiState.tiltShift)
     }
 
     const sim = new Simulation(network, clock, schedule as ScheduleJson)
@@ -530,7 +530,7 @@ export default function App() {
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
-          tiltShiftOff: !tiltShiftRef.current,
+          tiltShift: tiltShiftRef.current,
           paused: pausedRef.current,
         })
       if (hash !== window.location.hash) {
@@ -561,6 +561,9 @@ export default function App() {
 
     const map = new CesiumMap(container, {
       offline: urlOpts.offline,
+      // The map is built wearing the look the URL asked for (or the
+      // default), so no swap has to run before the first frame.
+      tiltShift: tiltShiftRef.current,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
@@ -588,7 +591,6 @@ export default function App() {
     if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
-    if (uiState.tiltShiftOff) map.setTiltShift(false)
 
     // Rain overlay: live precipitation for the city center (Open-Meteo).
     // Offline mode stays dry (no network, deterministic E2E tests) and
@@ -666,7 +668,7 @@ export default function App() {
         setShowLabels(labelsVisible)
         map.setLabelsVisible(labelsVisible)
       }
-      const tiltShiftOn = !ui.tiltShiftOff
+      const tiltShiftOn = ui.tiltShift
       if (tiltShiftOn !== tiltShiftRef.current) {
         tiltShiftRef.current = tiltShiftOn
         setTiltShift(tiltShiftOn)

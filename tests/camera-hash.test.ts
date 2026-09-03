@@ -9,6 +9,7 @@ import {
   parseStopHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
+import { config } from '@/config'
 
 describe('formatCameraHash / parseCameraHash', () => {
   it('formats using the documented scheme', () => {
@@ -86,13 +87,17 @@ describe('vehicle selection in the hash', () => {
 describe('layer and pause state in the hash', () => {
   const view = { latitude: 54.0901, longitude: 12.1405, height: 800, heading: 61, pitch: -57 }
 
+  const miniatureDefault = config.camera.miniatureDefault
+  /** What the hash says when the miniature look deviates from its default. */
+  const tiltDeviation = miniatureDefault ? '&tiltshift=0' : '&tiltshift=1'
+
   it('appends only deviations from the defaults', () => {
     expect(
       formatUiStateHash({
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
-        tiltShiftOff: false,
+        tiltShift: miniatureDefault,
         paused: false,
       }),
     ).toBe('')
@@ -101,10 +106,10 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
-        tiltShiftOff: true,
+        tiltShift: !miniatureDefault,
         paused: true,
       }),
-    ).toBe('&routes=0&stops=0&labels=0&tilt=0&paused=1')
+    ).toBe(`&routes=0&stops=0&labels=0${tiltDeviation}&paused=1`)
   })
 
   it('round-trips alongside both hash forms', () => {
@@ -112,7 +117,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
-      tiltShiftOff: true,
+      tiltShift: !miniatureDefault,
       paused: true,
     })
     const withCamera = formatCameraHash(view) + suffix
@@ -122,7 +127,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
-        tiltShiftOff: true,
+        tiltShift: !miniatureDefault,
         paused: true,
       })
     }
@@ -136,9 +141,14 @@ describe('layer and pause state in the hash', () => {
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
-      tiltShiftOff: false,
+      tiltShift: miniatureDefault,
       paused: false,
     })
+  })
+
+  it('reads the miniature look from either spelling, whatever the default', () => {
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=1').tiltShift).toBe(true)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=0').tiltShift).toBe(false)
   })
 })
 

@@ -86,6 +86,12 @@ export interface CesiumMapOptions {
    * software renderer; a small pool exercises the same paths far cheaper.
    */
   maxRainDrops?: number
+  /**
+   * Whether the miniature look is on from the first frame; default
+   * config.camera.miniatureDefault. A restored URL hash passes its own
+   * answer here rather than switching after the fact.
+   */
+  tiltShift?: boolean
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
@@ -499,12 +505,14 @@ export class CesiumMap {
         this.flyingUntil = performance.now() + durationMs
       },
     })
-    // The miniature look this whole map is named after – on by default,
-    // and switched off from the panel or the URL like the layers are. It
-    // costs nothing at the poses where it would look wrong: the ramps in
-    // TiltShiftEffect.update disable the stages outright.
+    // The miniature look this whole map is named after – on or off from
+    // the start as the URL or config.camera.miniatureDefault says, and
+    // switched from the panel like the layers are. It costs nothing at the
+    // poses where it would look wrong: the ramps in TiltShiftEffect.update
+    // disable the stages outright.
+    const miniature = opts.tiltShift ?? config.camera.miniatureDefault
     this.tiltShift = new TiltShiftEffect(this.viewer, () => this.defaultGroundHeight)
-    this.tiltShift.setEnabled(true)
+    this.tiltShift.setEnabled(miniature)
 
     const shadowMap = scene.shadowMap
     shadowMap.darkness = SHADOW_DARKNESS
@@ -513,13 +521,17 @@ export class CesiumMap {
     shadowMap.maximumDistance = SHADOW_MAX_DISTANCE
 
     // The lens: narrow while the miniature look is on, plain while it is
-    // off (see config.camera and CameraLens). Built before the home view
-    // is flown – that flight measures its distance against the angle in
-    // force.
-    this.lens = new CameraLens(this.viewer, {
-      requestRender: () => this.requestRender(),
-      applyDistanceFactor: (factor) => this.applyLensDistance(factor),
-    })
+    // off (see config.camera and CameraLens). Built wearing the starting
+    // look, before the home view is flown – that flight measures its
+    // distance against the angle in force.
+    this.lens = new CameraLens(
+      this.viewer,
+      {
+        requestRender: () => this.requestRender(),
+        applyDistanceFactor: (factor) => this.applyLensDistance(factor),
+      },
+      miniature,
+    )
 
     scene.globe.baseColor = Color.fromCssColorString('#0c1322')
     scene.backgroundColor = Color.fromCssColorString('#05080f')

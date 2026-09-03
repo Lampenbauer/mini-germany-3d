@@ -27,7 +27,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleet – the tram a five-section Vossloh 6N2 (32 m), the S-Bahn a three-car Talent 2 (57 m), buses 12 m solos, the ferries their real double-enders (19.9 m Gehlsdorf passenger ferry, 39 m Breitling car ferry with ramps), each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
-| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down; the panel switch and `tilt=0` turn it off |
+| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the panel switch and `tiltshift=1` turn it on |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
@@ -126,8 +126,8 @@ VITE_CESIUM_ION_TOKEN=your-token
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
   opening such a link re-selects the vehicle and starts following it. The
   Routes/Stops layer toggles, the miniature look and the pause state ride along
-  as `routes=0`, `stops=0`, `tilt=0`, `paused=1` whenever they deviate from the
-  defaults.
+  as `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they deviate from the
+  defaults (layers on, miniature look off, clock running).
 
 ### Useful URL parameters
 
@@ -146,7 +146,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `#stop=…` | Shared stop selection – opens the stop's departure board and flies to it |
-| `…&routes=0&stops=0&tilt=0&paused=1` | Layer toggles, the miniature look and the pause state (only present when off/paused) |
+| `…&routes=0&stops=0&tiltshift=1&paused=1` | Layer toggles, the miniature look and the pause state (only present when they deviate from the defaults: layers off, miniature look on, paused) |
 
 ## Tests
 

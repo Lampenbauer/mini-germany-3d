@@ -1,3 +1,5 @@
+import { config } from '@/config'
+
 /**
  * Persists the view in the URL hash in one of three forms:
  *   camera pose  #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
@@ -76,25 +78,28 @@ export function parseStopHash(hash: string): string | null {
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
  * the Routes/Stops/Labels layer toggles, the miniature look and the pause
- * state. Only deviations from the defaults (all layers on, miniature look
- * on, clock running) appear in the URL, so default sessions keep clean
- * hashes.
+ * state. Only deviations from the defaults (all layers on, the miniature
+ * look at config.camera.miniatureDefault, clock running) appear in the
+ * URL, so default sessions keep clean hashes.
  */
 export interface HashUiState {
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
-  tiltShiftOff: boolean
+  /** The miniature look, as it is – the hash carries it only when it deviates. */
+  tiltShift: boolean
   paused: boolean
 }
 
 /** Suffix appended to a camera or vehicle hash ('' when all defaults). */
 export function formatUiStateHash(state: HashUiState): string {
+  const tilt =
+    state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
   return (
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
-    (state.tiltShiftOff ? '&tilt=0' : '') +
+    tilt +
     (state.paused ? '&paused=1' : '')
   )
 }
@@ -102,11 +107,12 @@ export function formatUiStateHash(state: HashUiState): string {
 export function parseUiStateHash(hash: string): HashUiState {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const params = new URLSearchParams(raw)
+  const tilt = params.get('tiltshift')
   return {
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
-    tiltShiftOff: params.get('tilt') === '0',
+    tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
     paused: params.get('paused') === '1',
   }
 }

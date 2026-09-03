@@ -79,11 +79,13 @@ export class CameraLens {
   constructor(
     private readonly viewer: Viewer,
     private readonly host: CameraLensHost,
+    /** Whether the miniature look is on from the start (see config.camera). */
+    miniature: boolean = config.camera.miniatureDefault,
   ) {
-    // The miniature look starts on, so its lens is the one the camera is
-    // built with – and the home view, flown right after this, measures
-    // its distance against exactly that.
-    this.applied = clampFovDeg(config.camera.fovDeg)
+    // The camera is built wearing the lens of the starting look – and
+    // the home view, flown right after this, measures its distance
+    // against exactly that.
+    this.applied = clampFovDeg(miniature ? config.camera.fovDeg : config.camera.fovOffDeg)
     this.target = this.applied
     this.from = this.applied
     const frustum = this.viewer.camera.frustum

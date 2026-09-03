@@ -109,16 +109,17 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
       .toBe(false)
   await settled()
 
+  // The look starts off (config.camera.miniatureDefault) and is switched
+  // on from the panel; on is the deviation, so it rides along in the URL.
   const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  const withEffect = await frameDetail()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  const withoutEffect = await frameDetail()
 
   await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'false')
-  // Off is a state worth sharing – it rides along in the URL
-  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tilt=0')
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tiltshift=1')
   await settled()
-  const withoutEffect = await frameDetail()
+  const withEffect = await frameDetail()
 
   // The blur takes the top of the picture down to a fraction of its detail
   expect(withEffect.top).toBeLessThan(withoutEffect.top * 0.5)
@@ -130,7 +131,7 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   expect(standsOut(withEffect)).toBeGreaterThan(standsOut(withoutEffect) * 3)
 
   await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('tilt=0')
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('tiltshift=')
   expect(pageErrors).toEqual([])
 })
