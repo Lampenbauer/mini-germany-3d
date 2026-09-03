@@ -59,7 +59,13 @@ jobs:
   test:
     if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.restore_production) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The E2E suite is what fills this: 35 tests that each boot Cesium
+    # under SwiftShader, ~21 minutes of the run on a good day, and a single
+    # failure adds the retry of that spec's whole file on top (app.spec is
+    # 7 minutes of it). At 30 the cap cut a green run one test short of the
+    # finish; 45 leaves room for the retry the `retries: 1` setting exists
+    # for, instead of turning one flake into a cancelled run.
+    timeout-minutes: 45
     permissions:
       # The nightly run pushes the refreshed src/data files back to main
       contents: write
