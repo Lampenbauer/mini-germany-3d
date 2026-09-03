@@ -30,6 +30,9 @@ const en = {
   'traffic.ais': 'AIS ships',
   'traffic.aisHint': 'Live harbour traffic',
   'traffic.showAis': 'Show the AIS ships',
+  'traffic.aisClockLabel': 'What the clock does to the ships',
+  'traffic.aisClockNote':
+    'The ships sail in real time. Neither the time-lapse nor a simulation time you set moves them – only pausing holds them.',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Close line',
   'line.service': 'Service',
@@ -172,6 +175,9 @@ const de: Record<MessageKey, string> = {
   'traffic.ais': 'AIS-Schiffe',
   'traffic.aisHint': 'Echter Schiffsverkehr im Hafen',
   'traffic.showAis': 'AIS-Schiffe anzeigen',
+  'traffic.aisClockLabel': 'Was die Uhr mit den Schiffen macht',
+  'traffic.aisClockNote':
+    'Die Schiffe fahren in Echtzeit. Weder der Zeitraffer noch eine eingestellte Uhrzeit bewegt sie – nur die Pause hält sie an.',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Linie schließen',
   'line.service': 'Betrieb',

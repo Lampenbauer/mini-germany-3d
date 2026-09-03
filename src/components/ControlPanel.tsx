@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  Info,
   Layers,
   Pause,
   Play,
@@ -348,10 +349,29 @@ export function ControlPanel(props: ControlPanelProps) {
                       />
                     </div>
                     {/* pl-5 lines the hint up with the label above it, past
-                        the icon (size-3.5) and its gap-1.5. */}
-                    <span className="pl-5 text-xs leading-tight text-muted-foreground">
+                        the icon (size-3.5) and its gap-1.5. The note behind
+                        the ⓘ is the one thing about this layer that surprises
+                        people: every other moving thing on the map obeys the
+                        panel's clock, and the ships do not. A real button, so
+                        the keyboard reaches the note too – Radix opens the
+                        tooltip on focus as well as on hover. */}
+                    <div className="flex items-center gap-1 pl-5 text-xs leading-tight text-muted-foreground">
                       {t('traffic.aisHint')}
-                    </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="cursor-help rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+                            aria-label={t('traffic.aisClockLabel')}
+                          >
+                            <Info className="size-3.5" aria-hidden />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-56">
+                          {t('traffic.aisClockNote')}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                 )}
               </div>
