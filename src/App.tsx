@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, Home, Layers2, Mountain } from 'lucide-react'
+import { Compass, Home, Layers2, Maximize, Minimize, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
@@ -26,6 +26,12 @@ import {
 } from '@/lib/camera-hash'
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
+import {
+  fullscreenElement,
+  fullscreenSupported,
+  onFullscreenChange,
+  toggleFullscreen,
+} from '@/lib/fullscreen'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
@@ -193,6 +199,24 @@ function readUrlOptions(): UrlOptions {
 }
 
 export default function App() {
+  /**
+   * The ?query options, read once. Nothing changes them while the app runs
+   * – a shared view travels in the hash, which applyHash picks up – so the
+   * render and the init effect can both read this one parse. First in the
+   * component, because the refs and the state below seed themselves from it.
+   */
+  const [urlOpts] = useState(readUrlOptions)
+  /**
+   * Whether the live AIS fleet is reachable at all. Without a configured
+   * endpoint, in the tests and in offline mode there is no harbor traffic
+   * for a switch to reach, and the panel leaves its row out.
+   *
+   * ?ais=0 is deliberately NOT part of this: it decides whether the fleet
+   * opens switched on, and the switch can still bring it back.
+   */
+  const aisAvailable =
+    config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline
+
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<CesiumMap | null>(null)
   const simRef = useRef<Simulation | null>(null)
@@ -201,8 +225,20 @@ export default function App() {
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
   const selectedMmsiRef = useRef<number | null>(null)
-  /** Latest AIS list, so a selected ship's card refreshes with the polls. */
+  /**
+   * Latest AIS list – the one copy of it. The render loop draws from it,
+   * a selected ship's card refreshes from it, and the panel switch empties
+   * it when the fleet is turned back on (see handleToggleAisVessels).
+   */
   const aisVesselsRef = useRef<AisVessel[]>([])
+  /** The AIS poller, so the panel switch can stop and restart it. */
+  const aisClientRef = useRef<AisClient | null>(null)
+  /**
+   * Panel switch for the AIS fleet, as the render loop reads it. Seeded
+   * from ?ais=0 like the state it mirrors – a link that opens with the
+   * ships off must not have the loop draw them anyway.
+   */
+  const showAisVesselsRef = useRef(urlOpts.ais)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
@@ -219,6 +255,17 @@ export default function App() {
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
   const [tiltShift, setTiltShift] = useState(true)
+  const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
+  /** H: the whole interface out of the way (see the effect below). */
+  const [uiHidden, setUiHidden] = useState(false)
+  /** Whether the page is full screen right now – the button's face. */
+  const [fullscreen, setFullscreen] = useState(false)
+  /**
+   * Whether this browser can go full screen at all. Read once: it is a
+   * property of the browser, not of the session. False leaves the button
+   * out instead of offering one that cannot work (iOS Safari).
+   */
+  const [fullscreenAvailable] = useState(fullscreenSupported)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -377,7 +424,6 @@ export default function App() {
     // Mirror the detected UI language for screen readers/translators
     document.documentElement.lang = getLanguage()
 
-    const urlOpts = readUrlOptions()
     // Layer/pause state restored from a shared URL. The ?paused search
     // param stays the boot flag (tests); the hash marks a user pause.
     const uiState = parseUiStateHash(window.location.hash)
@@ -431,27 +477,26 @@ export default function App() {
 
     // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
     // backdrop, played back 4 minutes behind the wall clock (see
-    // ais-extract.ts). Off in offline mode and tests, ?ais=0 opts out.
-    const aisEnabled =
-      config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais
-    let aisClient: AisClient | null = null
-    let aisBackdrop: AisVessel[] = []
-    if (aisEnabled) {
-      aisClient = new AisClient(config.ais.url, (_status, vessels) => {
+    // ais-extract.ts). The poller is built wherever AIS is reachable at
+    // all, and started only if the fleet opens switched on – ?ais=0 and
+    // the panel switch share the one state (see handleToggleAisVessels).
+    if (aisAvailable) {
+      const aisClient = new AisClient(config.ais.url, (_status, vessels) => {
         // The city ferries sail as simulated vehicles on their timetable –
         // drawing their AIS twins too would put two boats on one crossing.
-        aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
-        aisVesselsRef.current = aisBackdrop
+        const backdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
+        aisVesselsRef.current = backdrop
         // An open ship card follows its ship's fixes; a ship that has left
         // the picture closes it rather than freezing at her last position.
         const mmsi = selectedMmsiRef.current
         if (mmsi !== null) {
-          const fresh = aisBackdrop.find((v) => v.mmsi === mmsi) ?? null
+          const fresh = backdrop.find((v) => v.mmsi === mmsi) ?? null
           if (fresh === null) selectVessel(null)
           else setSelectedVessel(fresh)
         }
       })
-      aisClient.start(config.ais.pollIntervalMs)
+      aisClientRef.current = aisClient
+      if (showAisVesselsRef.current) aisClient.start(config.ais.pollIntervalMs)
     }
 
     const allLines = new Set(network.lines.map((l) => l.id))
@@ -672,6 +717,10 @@ export default function App() {
     // into live data (and snaps the sim clock to real time, see
     // handleTogglePause) – the display ease glides everything over.
     let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
+    /** Ships on the map right now – false before the first sync and while
+        the panel switch is off, which is what tells the tick below that
+        there is a fleet left to take down. */
+    let aisDrawn = false
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -716,20 +765,36 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
+            const wantAis = aisAvailable && showAisVesselsRef.current
+            // The switch coming back drops whatever was frozen: it emptied
+            // the vessel list with it, and a stale freeze would put the old
+            // harbor back up. The upgrade below re-freezes on fresh data.
+            if (wantAis && !aisDrawn) aisFrozen = null
             if (clock.paused) {
               // A pause that started before the first poll upgrades once
               // when data lands – frozen, but not needlessly empty.
-              if (aisFrozen === null || (aisFrozen.backdrop.length === 0 && aisBackdrop.length > 0)) {
-                aisFrozen = { backdrop: aisBackdrop, atMs: Date.now() }
+              if (
+                aisFrozen === null ||
+                (aisFrozen.backdrop.length === 0 && aisVesselsRef.current.length > 0)
+              ) {
+                aisFrozen = { backdrop: aisVesselsRef.current, atMs: Date.now() }
               }
             } else {
               aisFrozen = null
             }
             const aisNow = aisFrozen?.atMs ?? Date.now()
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
-            const vesselInfo = aisEnabled
-              ? map.syncVessels(aisFrozen?.backdrop ?? aisBackdrop, aisNow)
-              : null
+            // Switched off, one sync with an empty list takes the hulls,
+            // their models and their names off the map; after that there is
+            // nothing left to sync and the layer costs nothing per tick.
+            let vesselInfo: { anyMovingVesselInView: boolean } | null = null
+            if (wantAis) {
+              vesselInfo = map.syncVessels(aisFrozen?.backdrop ?? aisVesselsRef.current, aisNow)
+              aisDrawn = true
+            } else if (aisDrawn) {
+              map.syncVessels([], aisNow)
+              aisDrawn = false
+            }
             lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
 
@@ -953,7 +1018,8 @@ export default function App() {
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
-      aisClient?.stop()
+      aisClientRef.current?.stop()
+      aisClientRef.current = null
       weatherClient?.stop()
       window.__mrt = undefined
       map.destroy()
@@ -1045,6 +1111,102 @@ export default function App() {
       writeHashRef.current()
       return next
     })
+  }, [])
+
+  /**
+   * The AIS fleet on or off. Off stops the polling along with the drawing –
+   * a layer nobody is looking at has no business calling the endpoint every
+   * ten seconds – and closes an open ship card, whose ship is about to leave
+   * the map.
+   *
+   * On, the list in hand is dropped first. It is as old as the switch was
+   * off, and an AIS fix stays drawable for half an hour (AIS_EXPIRE_MS), so
+   * keeping it would raise a harbor full of ghosts for one poll interval.
+   * Empty water for a few seconds is the honest picture.
+   */
+  const handleToggleAisVessels = useCallback(
+    (visible: boolean) => {
+      showAisVesselsRef.current = visible
+      setShowAisVessels(visible)
+      if (visible) {
+        aisVesselsRef.current = []
+        aisClientRef.current?.start(config.ais.pollIntervalMs)
+      } else {
+        aisClientRef.current?.stop()
+        if (selectedMmsiRef.current !== null) selectVessel(null)
+      }
+    },
+    [selectVessel],
+  )
+
+  /**
+   * H takes the whole interface away and brings it back: the panel,
+   * whichever card is open, and the map controls. For a screenshot of the
+   * city with nothing on top of it.
+   *
+   * A bare letter rather than a modifier combination, because there is no
+   * modifier combination that is free everywhere. Ctrl+Shift+letter is
+   * crowded in both Chrome and Firefox, differently per browser, per
+   * platform and per installed extension – Ctrl+Shift+H itself opens
+   * Firefox's history library. Browsers reserve almost no unmodified
+   * letters, so a bare key sidesteps that whole class, and it costs the
+   * same keystroke on every keyboard layout. Not Tab, which every creative
+   * tool uses for this: in a browser Tab is how the keyboard reaches the
+   * switches and buttons in the panel, and taking it would shut those
+   * users out.
+   *
+   * What the MAP draws is deliberately untouched – stop plates, vehicle
+   * numbers, ship names and routes all live in the WebGL scene rather than
+   * in the DOM, and the Layers switches are what turn those off. Cesium's
+   * credit line stays for the same reason plus a better one: it belongs to
+   * the map widget, and the Google and Cesium terms want it visible
+   * wherever their data is (see README, "Attribution").
+   *
+   * Not persisted in the URL. A shared link that opened with no interface
+   * would leave the recipient hunting for a shortcut nobody told them
+   * about; a reload is the way back for anyone who forgets it here.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Bare H only: with a modifier this is somebody else's shortcut, and
+      // a held key would flicker the interface rather than toggle it.
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+      if (event.repeat) return
+      // key, not code: the shortcut is the letter H as the reader sees it
+      // on the keycap. On Dvorak the physical KeyH carries a D, and hiding
+      // the interface on D would be a surprise nobody asked for.
+      if (event.key.toLowerCase() !== 'h') return
+      // Where a letter means a letter, it is not a shortcut. Only the time
+      // field qualifies today, and it refuses typing anyway, but a bare key
+      // has to check rather than assume that stays true.
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable) return
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      // Nothing of the browser's own hangs on a bare letter, except
+      // Firefox's opt-in type-ahead find.
+      event.preventDefault()
+      setUiHidden((hidden) => !hidden)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  /**
+   * Full screen is state the browser owns: Escape and F11 change it behind
+   * the app's back, so the button's face comes from the change event
+   * rather than from what was last clicked.
+   */
+  useEffect(() => {
+    const sync = () => setFullscreen(fullscreenElement() !== null)
+    sync()
+    return onFullscreenChange(sync)
+  }, [])
+
+  const handleToggleFullscreen = useCallback(() => {
+    // The whole page, so the map and the interface over it fill the screen
+    // together. A refused request is the helper's business, not this one's.
+    void toggleFullscreen(document.documentElement)
   }, [])
 
   const handleSetTime = useCallback((hhmm: string) => {
@@ -1242,9 +1404,7 @@ export default function App() {
     [selected],
   )
 
-  const offlineMode =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('offline') === '1'
+  const offlineMode = urlOpts.offline
 
   return (
     <div
@@ -1252,157 +1412,190 @@ export default function App() {
     >
       <div ref={containerRef} className="absolute inset-0" data-testid="cesium-container" />
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10">
-        <ControlPanel
-          clockText={clockText}
-          speed={speed}
-          paused={paused}
-          onSpeedChange={handleSpeedChange}
-          onTogglePause={handleTogglePause}
-          onSetTime={handleSetTime}
-          onResetTime={handleResetTime}
-          lines={lineInfos}
-          onToggleLine={handleToggleLine}
-          onFocusLine={handleFocusLine}
-          onSetLinesVisible={handleSetLinesVisible}
-          showRoutes={showRoutes}
-          onToggleRoutes={handleToggleRoutes}
-          showStops={showStops}
-          onToggleStops={handleToggleStops}
-          showLabels={showLabels}
-          onToggleLabels={handleToggleLabels}
-          tiltShift={tiltShift}
-          onToggleTiltShift={handleToggleTiltShift}
-        />
-      </div>
-
-      {selectedLine && lineProfile && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <LineCard
-            profile={lineProfile}
-            activity={lineActivity}
-            name={localizeLineName(selectedLine.name)}
-            color={selectedLine.color}
-            onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
-            onSelectVehicle={handleSelectDeparture}
-            onClose={() => setSelectedLineId(null)}
+      {/* Everything the app draws over the map, in one wrapper so H can
+          take the interface away in a single stroke (see the effect above). display:contents keeps the wrapper out of the
+          layout – each overlay below still positions against the map
+          container exactly as it did – and switching it to display:none
+          hides all of them at once without unmounting any: the panel keeps
+          whether it was collapsed, an open card stays open, and the time
+          field keeps what was picked in it. */}
+      <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
+        <div className="pointer-events-none absolute left-4 top-4 z-10">
+          <ControlPanel
+            clockText={clockText}
+            speed={speed}
+            paused={paused}
+            onSpeedChange={handleSpeedChange}
+            onTogglePause={handleTogglePause}
+            onSetTime={handleSetTime}
+            onResetTime={handleResetTime}
+            lines={lineInfos}
+            onToggleLine={handleToggleLine}
+            onFocusLine={handleFocusLine}
+            onSetLinesVisible={handleSetLinesVisible}
+            showRoutes={showRoutes}
+            onToggleRoutes={handleToggleRoutes}
+            showStops={showStops}
+            onToggleStops={handleToggleStops}
+            showLabels={showLabels}
+            onToggleLabels={handleToggleLabels}
+            aisAvailable={aisAvailable}
+            showAisVessels={showAisVessels}
+            onToggleAisVessels={handleToggleAisVessels}
+            tiltShift={tiltShift}
+            onToggleTiltShift={handleToggleTiltShift}
           />
         </div>
-      )}
 
-      {!selectedLine && selectedVessel && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <VesselCard
-            vessel={selectedVessel}
-            nowMs={Date.now()}
-            following={following}
-            onToggleFollow={handleToggleFollow}
-            onClose={() => selectVessel(null)}
-          />
+        {selectedLine && lineProfile && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <LineCard
+              profile={lineProfile}
+              activity={lineActivity}
+              name={localizeLineName(selectedLine.name)}
+              color={selectedLine.color}
+              onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
+              onSelectVehicle={handleSelectDeparture}
+              onClose={() => setSelectedLineId(null)}
+            />
+          </div>
+        )}
+
+        {!selectedLine && selectedVessel && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <VesselCard
+              vessel={selectedVessel}
+              nowMs={Date.now()}
+              following={following}
+              onToggleFollow={handleToggleFollow}
+              onClose={() => selectVessel(null)}
+            />
+          </div>
+        )}
+
+        {!selected && !selectedVessel && !selectedLine && selectedStop && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <StopCard
+              stop={selectedStop}
+              departures={stopDepartures}
+              simSeconds={simSeconds}
+              interchange={interchangeByStop.get(selectedStop.id) ?? []}
+              onSelectVehicle={handleSelectDeparture}
+              onFlyTo={handleFlyToStop}
+              onClose={() => selectStop(null)}
+            />
+          </div>
+        )}
+
+        {selected && !selectedLine && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <VehicleCard
+              vehicle={selected}
+              tripProgress={tripProgress}
+              simSeconds={simSeconds}
+              interchangeByStop={interchangeByStop}
+              onFlyToStop={handleFlyToStop}
+              onSelectLine={handleFocusLine}
+              following={following}
+              onToggleFollow={handleToggleFollow}
+              onClose={() => selectVehicle(null)}
+            />
+          </div>
+        )}
+
+        {/* Map controls: underground, 2D/3D, face north, camera reset, and
+            full screen last – the one button here that moves the window
+            rather than the camera. bottom-8 keeps the column clear of the
+            Cesium attribution line at the lower edge. */}
+        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                // The active state has to beat the shared bg-card/85 below,
+                // which tailwind-merge would otherwise let win over a variant.
+                className={cn(
+                  'pointer-events-auto border border-border/60 backdrop-blur-md',
+                  underground
+                    ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+                    : 'bg-card/85',
+                )}
+                aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
+                aria-pressed={underground}
+                onClick={handleToggleUnderground}
+              >
+                {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
+                aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                onClick={handleToggleViewMode}
+              >
+                {cameraIs2D ? '3D' : '2D'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                aria-label={t('camera.faceNorth')}
+                onClick={handleFaceNorth}
+              >
+                <Compass aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                aria-label={t('camera.reset')}
+                onClick={handleResetCamera}
+              >
+                <Home aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+          </Tooltip>
+          {fullscreenAvailable && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                  aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                  aria-pressed={fullscreen}
+                  onClick={handleToggleFullscreen}
+                >
+                  {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                {fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
-      )}
-
-      {!selected && !selectedVessel && !selectedLine && selectedStop && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <StopCard
-            stop={selectedStop}
-            departures={stopDepartures}
-            simSeconds={simSeconds}
-            interchange={interchangeByStop.get(selectedStop.id) ?? []}
-            onSelectVehicle={handleSelectDeparture}
-            onFlyTo={handleFlyToStop}
-            onClose={() => selectStop(null)}
-          />
-        </div>
-      )}
-
-      {selected && !selectedLine && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <VehicleCard
-            vehicle={selected}
-            tripProgress={tripProgress}
-            simSeconds={simSeconds}
-            interchangeByStop={interchangeByStop}
-            onFlyToStop={handleFlyToStop}
-            onSelectLine={handleFocusLine}
-            following={following}
-            onToggleFollow={handleToggleFollow}
-            onClose={() => selectVehicle(null)}
-          />
-        </div>
-      )}
-
-      {/* Map controls: underground, 2D/3D, face north, camera reset. bottom-8
-          keeps them clear of the Cesium attribution line at the lower edge. */}
-      <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              // The active state has to beat the shared bg-card/85 below,
-              // which tailwind-merge would otherwise let win over a variant.
-              className={cn(
-                'pointer-events-auto border border-border/60 backdrop-blur-md',
-                underground
-                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
-                  : 'bg-card/85',
-              )}
-              aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
-              aria-pressed={underground}
-              onClick={handleToggleUnderground}
-            >
-              {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            {underground ? t('camera.toSurface') : t('camera.toUnderground')}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-              aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-              onClick={handleToggleViewMode}
-            >
-              {cameraIs2D ? '3D' : '2D'}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-              aria-label={t('camera.faceNorth')}
-              onClick={handleFaceNorth}
-            >
-              <Compass aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-              aria-label={t('camera.reset')}
-              onClick={handleResetCamera}
-            >
-              <Home aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
-        </Tooltip>
       </div>
     </div>
   )

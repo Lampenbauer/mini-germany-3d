@@ -25,7 +25,16 @@ const en = {
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
   'layers.showTiltShift': 'Show the miniature effect',
-  'lines.title': 'Lines',
+  // The scrolling section at the bottom of the panel. It holds the
+  // scheduled lines AND the AIS ships, which run to no timetable at all –
+  // "Traffic" is the word that covers both.
+  'traffic.title': 'Traffic',
+  'traffic.ais': 'AIS ships',
+  'traffic.aisHint': 'Live harbour traffic',
+  'traffic.showAis': 'Show the AIS ships',
+  'traffic.aisClockLabel': 'What the clock does to the ships',
+  'traffic.aisClockNote':
+    'The ships sail in real time. Neither the time-lapse nor a simulation time you set moves them – only pausing holds them.',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Close line',
   'line.service': 'Service',
@@ -145,6 +154,8 @@ const en = {
   'camera.to3d': 'Switch to 3D view',
   'camera.faceNorth': 'Face north',
   'camera.reset': 'Reset camera',
+  'view.fullscreen': 'Full screen',
+  'view.exitFullscreen': 'Leave full screen',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -166,7 +177,13 @@ const de: Record<MessageKey, string> = {
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
   'layers.showTiltShift': 'Miniatureffekt anzeigen',
-  'lines.title': 'Linien',
+  'traffic.title': 'Verkehr',
+  'traffic.ais': 'AIS-Schiffe',
+  'traffic.aisHint': 'Echter Schiffsverkehr im Hafen',
+  'traffic.showAis': 'AIS-Schiffe anzeigen',
+  'traffic.aisClockLabel': 'Was die Uhr mit den Schiffen macht',
+  'traffic.aisClockNote':
+    'Die Schiffe fahren in Echtzeit. Weder der Zeitraffer noch eine eingestellte Uhrzeit bewegt sie – nur die Pause hält sie an.',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Linie schließen',
   'line.service': 'Betrieb',
@@ -283,6 +300,8 @@ const de: Record<MessageKey, string> = {
   'camera.to3d': 'Zur 3D-Ansicht wechseln',
   'camera.faceNorth': 'Nach Norden ausrichten',
   'camera.reset': 'Kamera zurücksetzen',
+  'view.fullscreen': 'Vollbild',
+  'view.exitFullscreen': 'Vollbild verlassen',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }

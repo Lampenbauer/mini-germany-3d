@@ -184,10 +184,99 @@ describe('App (UI shell)', () => {
     ).toBeInTheDocument()
   })
 
+  it('takes the whole interface away on H and brings it back', () => {
+    render(<App />)
+    const overlay = screen.getByTestId('ui-overlay')
+    expect(overlay.className).toContain('contents')
+    expect(overlay.className).not.toContain('hidden')
+
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+    // The map is not interface: it keeps its canvas, its labels and the
+    // credit line Cesium draws into it.
+    expect(screen.getByTestId('cesium-container')).toBeInTheDocument()
+    expect(screen.getByTestId('cesium-container').className).not.toContain('hidden')
+
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
+  it('takes an upper-case H too, for whoever has caps lock on', () => {
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'H', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+  })
+
+  it('keeps the panel mounted while it is hidden, so its state survives', () => {
+    // display:none rather than an unmount – a collapsed panel must not
+    // spring open again just because the interface was away for a moment.
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse panel' }))
+    expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument()
+  })
+
+  it('leaves the interface alone for anything that is not a bare H', () => {
+    render(<App />)
+    for (const event of [
+      // Every one of these is somebody else's shortcut: Ctrl+H and Cmd+H
+      // belong to the browser and to macOS, the rest are not H at all.
+      { key: 'h', code: 'KeyH', ctrlKey: true },
+      { key: 'h', code: 'KeyH', metaKey: true },
+      { key: 'h', code: 'KeyH', altKey: true },
+      { key: 'H', code: 'KeyH', shiftKey: true },
+      { key: 'g', code: 'KeyG' },
+      // Dvorak: the physical H key carries a D there, and D is not the
+      // shortcut – the letter on the cap is what counts, not the position.
+      { key: 'd', code: 'KeyH' },
+      // A held key would flicker the interface instead of toggling it
+      { key: 'h', code: 'KeyH', repeat: true },
+    ]) {
+      fireEvent.keyDown(window, event)
+      expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+    }
+  })
+
+  it('lets a letter be a letter while a field has the focus', () => {
+    // The one bare-key risk worth guarding: typing an h somewhere must not
+    // take the interface away.
+    render(<App />)
+    const field = screen.getByLabelText('Set simulation time')
+    field.focus()
+    fireEvent.keyDown(field, { key: 'h', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
+  it('offers a full-screen button where the browser can do it', () => {
+    // jsdom implements no Fullscreen API, so the flag has to be faked –
+    // which is also the case the button is guarded for (iOS Safari).
+    const original = Object.getOwnPropertyDescriptor(document, 'fullscreenEnabled')
+    Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true })
+    try {
+      render(<App />)
+      const button = screen.getByRole('button', { name: 'Full screen' })
+      expect(button).toHaveAttribute('aria-pressed', 'false')
+      const request = vi.fn().mockResolvedValue(undefined)
+      document.documentElement.requestFullscreen = request
+      fireEvent.click(button)
+      expect(request).toHaveBeenCalled()
+    } finally {
+      if (original) Object.defineProperty(document, 'fullscreenEnabled', original)
+      else delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled
+    }
+  })
+
+  it('leaves the full-screen button out where the browser cannot', () => {
+    render(<App />)
+    expect(screen.queryByRole('button', { name: 'Full screen' })).not.toBeInTheDocument()
+  })
+
   it('renders the interface in German when the browser prefers German', () => {
     setLanguage('de')
     render(<App />)
-    expect(screen.getByText('Linien')).toBeInTheDocument()
+    expect(screen.getByText('Verkehr')).toBeInTheDocument()
     expect(screen.getByText('Ebenen')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()

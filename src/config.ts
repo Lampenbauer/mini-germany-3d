@@ -52,8 +52,10 @@ export const config = {
    * AIS vessel positions (aisstream.io, via the filtered /api/ais
    * endpoint – Vite middleware in dev, api/ais.php in production). Real
    * harbor traffic as backdrop, and the city ferries snap onto their AIS
-   * twins. An empty URL disables the layer; offline mode and ?ais=0 do
-   * too.
+   * twins. An empty URL disables the layer, and so does offline mode –
+   * neither has live traffic to reach. ?ais=0 is softer: it opens with the
+   * fleet switched off, and the panel's "AIS ships" switch turns it back
+   * on (see handleToggleAisVessels in App.tsx).
    */
   ais: {
     url: (import.meta.env?.VITE_AIS_URL as string | undefined) ?? '/api/ais',
