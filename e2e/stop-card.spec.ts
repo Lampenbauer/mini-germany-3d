@@ -68,17 +68,31 @@ test('a real click on a stop disc opens the card', async ({ page }) => {
   // The one test that exercises the actual pick path (scene.pick on a
   // billboard) instead of the test API. The home view has hundreds of
   // stops in frame – find one comfortably inside the viewport, clear of
-  // the control panel on the left and the buttons on the right.
+  // the control panel on the left and the buttons on the right, and
+  // standing on its own: a hub puts its platforms' discs within a few
+  // pixels of each other at this height, and a click into that pile
+  // selects whichever disc is drawn on top, which is a fact about the
+  // pile rather than about the pick path. The first stop inside the box
+  // used to be enough; with the narrower lens (config.camera.fovDeg) it
+  // came out at the edge of the box and in a pile of four.
   const ids = await stopIds(page)
   expect(ids.length).toBeGreaterThan(0)
-  let clickable: { id: string; x: number; y: number } | null = null
+  const positions: { id: string; x: number; y: number }[] = []
   for (const id of ids) {
     const pos = await page.evaluate((sid) => window.__mrt!.stopScreenPosition(sid), id)
-    if (pos && pos.x > 400 && pos.x < 1180 && pos.y > 60 && pos.y < 740) {
-      clickable = { id, ...pos }
-      break
-    }
+    if (pos) positions.push({ id, ...pos })
   }
+  const clickable =
+    positions.find(
+      (stop) =>
+        stop.x > 420 &&
+        stop.x < 1160 &&
+        stop.y > 80 &&
+        stop.y < 720 &&
+        positions.every(
+          (other) => other.id === stop.id || Math.hypot(other.x - stop.x, other.y - stop.y) >= 24,
+        ),
+    ) ?? null
   expect(clickable).not.toBeNull()
 
   await page.mouse.click(clickable!.x, clickable!.y)
