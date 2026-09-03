@@ -115,6 +115,27 @@ body {
   opacity: 0.85;
 }
 
+/*
+ * The two credit logos (Cesium ion, Google) ship as bitmaps and are drawn
+ * at their natural size – 138x28 and 98x18 – which next to the 10px credit
+ * text is a banner rather than a footnote. Scaled to 60 %, so they read as
+ * part of the same line while staying legible, which is what both
+ * attributions have to be (see README, "Attribution").
+ *
+ * zoom rather than transform: scale(), because zoom shrinks the layout box
+ * with the image. A transform would leave the full-size footprint behind,
+ * and the credit line would keep a 28px gap around a 17px logo. It also
+ * scales the inline `vertical-align: -7px` Cesium sets on each image, so
+ * the logos keep sitting on the text baseline the way they were meant to.
+ *
+ * Scoped to the bar at the bottom because that is where the bitmaps are:
+ * the "Data attribution" lightbox behind the link spells its credits out
+ * as text ("Google", not the logo) and has no image to scale.
+ */
+.cesium-viewer-bottom img {
+  zoom: 0.7;
+}
+
 /* Render native time/date pickers in the dark theme */
 input[type='time'] {
   color-scheme: dark;
