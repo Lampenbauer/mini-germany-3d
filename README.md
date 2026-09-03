@@ -34,7 +34,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
-| Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
+| Live weather | Open-Meteo precipitation and cloud cover for the center of the Rostock bounding box in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
@@ -106,10 +106,16 @@ VITE_CESIUM_ION_TOKEN=your-token
   many to rebuild on a toggle, so through the plain lens they simply reach a
   little further than that angle needs. The line flight needs none of it – Cesium
   derives that distance from the frustum itself.
-- **Map bounds:** The camera stays within 25 km of the line network and does not
-  zoom out beyond 25 km altitude – there is nothing outside that this map could
-  show, and every place the camera visits pulls its own 3D tiles. A shared link
-  pointing further away opens at the border (see `config.cameraLimits`).
+- **Map bounds:** The camera stays inside the Rostock bounding box – the city
+  limits ([OSM relation 62405](https://www.openstreetmap.org/relation/62405))
+  widened by 15 km on every side, the one rectangle the data pipeline, the AIS
+  subscription, the PHP proxy and the camera share
+  (`src/data/rostock-bounding-box.json`, typed by
+  `src/lib/rostock-bounding-box.ts`) – and
+  does not zoom out beyond 25 km altitude: there is nothing outside that this
+  map could show, and every place the camera visits pulls its own 3D tiles. A
+  shared link pointing further away opens at the border (see
+  `config.cameraLimits`).
 - **Night lighting:** From dusk the streets along the routes light up – one
   light pool per OSM street lamp, the same effect the vehicles' cabin glow
   uses. Nothing is built until the pools would actually show, so a daytime
@@ -218,7 +224,9 @@ npm test               # validates the new datasets
   including tunnel and bridge sections as meter ranges along each path.
   Stop-position nodes without a `name` tag are resolved via their OSM
   `stop_area` relation, then via the nearest named stop within 60 m; only
-  after that does the "Stop" placeholder remain.
+  after that does the "Stop" placeholder remain. The Overpass queries (here
+  and in `data:lamps`) are limited to the Rostock bounding box – the city
+  limits plus 15 km, defined once in `src/data/rostock-bounding-box.json`.
 - `data:heights` samples the official digital terrain model of
   Mecklenburg-Vorpommern (open WCS at geodaten-mv.de, © GeoBasis-DE/M-V,
   5 m grid) at every route vertex and stop. Bridge sections get a straight
@@ -241,10 +249,12 @@ npm test               # validates the new datasets
   all lines in `network.json` (tram `route_type` 0, S-Bahn 2/106/109, bus 3,
   ferry 4; ferries are matched via the pier names in `route_long_name`).
   Departure times and direction detection use each trip's first/last stop
-  **within the Rostock bounding box**, so S2/S3 trips from Güstrow depart the
-  truncated network at their real Rostock Hbf times. Rostock relevance is
-  established via the stop coordinates; a per-line agency overview in the log
-  reveals route-number collisions. Lines without a GTFS match stay off the map
+  **within the Rostock city limits** (`cityBounds` of
+  `src/data/rostock-bounding-box.json`, without the padding – with the 15 km
+  the first stop of an S2/S3 would be Schwaan or Laage), so S2/S3 trips from
+  Güstrow depart the truncated network at their real Rostock Hbf times. Rostock
+  relevance is established via the stop coordinates; a per-line agency
+  overview in the log reveals route-number collisions. Lines without a GTFS match stay off the map
   (they are considered not running that day). **Important:** re-run `data:gtfs`
   after every `data:update` so the new bus lines get timetables.
 - The unit tests adapt to the data source: the strict RSAG checks only run
@@ -303,9 +313,9 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    sits in the workflow in the clear.
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
-   build, and E2E tests. Only then are `dist/`, `api/realtime.php`, and
-   `api/schedule.json` rsynced to the document root from the
-   `KAS_TARGET_DIR` secret. PR checks, feature-branch pushes,
+   build, and E2E tests. Only then are `dist/`, `api/realtime.php`,
+   `api/ais.php`, `api/schedule.json`, and `api/rostock-bounding-box.json`
+   rsynced to the document root from the `KAS_TARGET_DIR` secret. PR checks, feature-branch pushes,
    and failed tests do not deploy. A manual run of the CI workflow on `main` also
    goes through all tests first, which makes it suitable as a recovery deploy.
 3. **Trying a branch out on the real hosting:** Actions → CI → `Run workflow`,
@@ -361,9 +371,11 @@ src/
 │   ├── network.json        # Line network (generated; see scripts below)
 │   ├── schedule.json       # optional real departure times (GTFS)
 │   ├── street-lamps.json   # OSM street lamps along the routes (generated)
+│   ├── rostock-bounding-box.json # THE Rostock rectangle (city limits + 15 km): pipeline, camera, AIS, PHP
 │   └── network.ts          # Loading + preparation (distances, direction mirroring)
 ├── lib/
 │   ├── geo.ts              # Haversine, bearing, polyline interpolation/projection
+│   ├── rostock-bounding-box.ts # Types + helpers around that rectangle
 │   ├── clock.ts            # Simulation clock (time-lapse, pause, Europe/Berlin)
 │   ├── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
 │   ├── tunnels.ts          # Tunnel meter-ranges → path pieces / mirroring

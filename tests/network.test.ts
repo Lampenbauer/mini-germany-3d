@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { loadBundledNetwork } from '@/data/network'
+import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
 
 /**
  * Validates the bundled network dataset: if these tests are green,
@@ -45,14 +46,14 @@ describe('Network dataset (structural, source-independent)', () => {
     }
   })
 
-  it('all coordinates lie within the Rostock city area', () => {
+  it('all coordinates lie within the Rostock bounding box', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const [lon, lat] of dir.path) {
-          expect(lon).toBeGreaterThan(11.9)
-          expect(lon).toBeLessThan(12.4)
-          expect(lat).toBeGreaterThan(53.9)
-          expect(lat).toBeLessThan(54.25)
+          expect(lon).toBeGreaterThan(rostockBoundingBox.west)
+          expect(lon).toBeLessThan(rostockBoundingBox.east)
+          expect(lat).toBeGreaterThan(rostockBoundingBox.south)
+          expect(lat).toBeLessThan(rostockBoundingBox.north)
         }
       }
     }

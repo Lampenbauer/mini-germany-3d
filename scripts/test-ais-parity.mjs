@@ -6,13 +6,20 @@
  * order. Runs locally and in CI (requires php in PATH). The TS side is
  * imported directly (Node strips the types since 22.18), so this always
  * tests the real implementation, never a copy of it.
+ *
+ * Second check: the bounding box PHP subscribes with (php ais.php --bbox)
+ * must be the one rostock-bounding-box.ts reads – from the repository's
+ * src/data file, and from a copy next to the script, the layout the deploy
+ * leaves behind.
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { aisStateVessels, mergeAisMessage } from '../src/lib/ais-extract.ts'
+import { rostockBoundingBox } from '../src/lib/rostock-bounding-box.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = join(root, 'tests/fixtures/ais-messages.json')
@@ -50,3 +57,36 @@ if (JSON.stringify(actual) !== JSON.stringify(expected)) {
   process.exit(1)
 }
 console.log(`✅ PHP AIS extraction matches ais-extract.ts: ${expected.vessels.length} vessels identical`)
+
+// --- Bounding box ----------------------------------------------------------
+const { west, south, east, north } = rostockBoundingBox
+const expectedBbox = JSON.stringify([
+  [south, west],
+  [north, east],
+])
+const phpBbox = (script) =>
+  JSON.stringify(JSON.parse(execFileSync('php', [script, '--bbox'], { encoding: 'utf8' })))
+
+const fromRepo = phpBbox(join(root, 'server/api/ais.php'))
+if (fromRepo !== expectedBbox) {
+  console.error(`❌ ais.php subscribes with ${fromRepo}, rostock-bounding-box.ts says ${expectedBbox}`)
+  process.exit(1)
+}
+
+// Deployed layout: script and JSON side by side, no src/ around.
+const deployDir = mkdtempSync(join(tmpdir(), 'mrt-ais-deploy-'))
+try {
+  copyFileSync(join(root, 'server/api/ais.php'), join(deployDir, 'ais.php'))
+  copyFileSync(
+    join(root, 'src/data/rostock-bounding-box.json'),
+    join(deployDir, 'rostock-bounding-box.json'),
+  )
+  const deployed = phpBbox(join(deployDir, 'ais.php'))
+  if (deployed !== expectedBbox) {
+    console.error(`❌ Deployed ais.php subscribes with ${deployed}, expected ${expectedBbox}`)
+    process.exit(1)
+  }
+} finally {
+  rmSync(deployDir, { recursive: true, force: true })
+}
+console.log(`✅ PHP AIS proxy subscribes with the shared Rostock bounding box: ${fromRepo}`)

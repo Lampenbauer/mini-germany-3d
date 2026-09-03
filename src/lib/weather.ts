@@ -1,9 +1,10 @@
 /**
  * Live weather client for the rain and overcast overlays: polls the
- * Open-Meteo current-weather API (CC-BY 4.0, free, no key) for the
- * city-center point and reports the current precipitation in mm plus the
- * cloud cover in percent. Errors report 0 mm – the map must never keep
- * raining on stale data.
+ * Open-Meteo current-weather API (CC-BY 4.0, free, no key) for one point
+ * – the center of the Rostock bounding box, see config.weather – and
+ * reports the current precipitation in mm plus the cloud cover in
+ * percent. Errors report 0 mm – the map must never keep raining on stale
+ * data.
  */
 
 export interface WeatherStatus {

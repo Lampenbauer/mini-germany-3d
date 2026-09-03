@@ -5,6 +5,8 @@
  * Data license: © OpenStreetMap contributors, ODbL 1.0 (https://osm.org/copyright)
  */
 
+import { rostockBoundingBox } from '../../src/lib/rostock-bounding-box.ts'
+
 /** Public Overpass instances; tried in order. */
 export const OVERPASS_MIRRORS = process.env.OVERPASS_URL
   ? [process.env.OVERPASS_URL]
@@ -23,8 +25,17 @@ export const REQUEST_HEADERS = {
     'mini-rostock-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
 }
 
-/** Bounding box for Rostock (south, west, north, east). */
-export const BBOX = '53.95,11.95,54.22,12.35'
+/**
+ * The Rostock bounding box in Overpass notation (south,west,north,east):
+ * the city limits widened by 15 km, shared with the camera fence and the
+ * AIS subscription – see src/lib/rostock-bounding-box.ts.
+ */
+export const BBOX = [
+  rostockBoundingBox.south,
+  rostockBoundingBox.west,
+  rostockBoundingBox.north,
+  rostockBoundingBox.east,
+].join(',')
 
 /**
  * Runs a query against the mirrors in order and returns the first usable

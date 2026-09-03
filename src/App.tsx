@@ -573,12 +573,10 @@ export default function App() {
       onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
-    // Restore the saved camera orientation from the URL hash
+    // Restore the saved camera orientation from the URL hash – the fence
+    // (see CesiumMap) pulls a pose from anywhere on the globe back in.
     const hashView = parseCameraHash(window.location.hash)
     if (hashView) map.setView(hashView)
-    // Fence the camera in around the network – a shared link may carry a
-    // pose from anywhere on the globe, so this runs after the restore.
-    map.limitCameraToNetwork(network)
     map.addRoutes(network)
     map.addStops(network)
     // Night-time street lighting. Nothing is built until the pools would

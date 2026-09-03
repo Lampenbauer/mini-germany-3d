@@ -285,6 +285,9 @@ jobs:
           cp server/api/realtime.php dist/api/
           cp server/api/ais.php dist/api/
           cp src/data/schedule.json dist/api/schedule.json
+          # The Rostock bounding box ais.php subscribes with – the same
+          # file the app and the pipeline read.
+          cp src/data/rostock-bounding-box.json dist/api/rostock-bounding-box.json
 
       - name: Upload deployment artifact
         if: >-

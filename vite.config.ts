@@ -8,6 +8,7 @@ import GtfsRealtimeBindings from 'gtfs-realtime-bindings'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
+import { rostockBoundingBox } from './src/lib/rostock-bounding-box'
 
 const UPSTREAM_RT_URL = 'https://realtime.gtfs.de/realtime-free.pb'
 const RT_CACHE_TTL_MS = 60_000
@@ -119,8 +120,20 @@ function aisLivePlugin(): Plugin {
   const connect = (): void => {
     const ws = new WebSocket('wss://stream.aisstream.io/v0/stream')
     ws.onopen = () => {
+      // aisstream takes [[lat, lon] SW, [lat, lon] NE]; api/ais.php reads
+      // the same rostock-bounding-box.json (scripts/test-ais-parity.mjs
+      // checks that both subscribe alike).
+      const { west, south, east, north } = rostockBoundingBox
       ws.send(
-        JSON.stringify({ APIKey: apiKey, BoundingBoxes: [[[53.83, 11.64], [54.43, 12.61]]] }),
+        JSON.stringify({
+          APIKey: apiKey,
+          BoundingBoxes: [
+            [
+              [south, west],
+              [north, east],
+            ],
+          ],
+        }),
       )
     }
     ws.onmessage = async (event) => {

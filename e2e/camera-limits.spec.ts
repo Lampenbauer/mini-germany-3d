@@ -1,15 +1,13 @@
 import { expect, test } from '@playwright/test'
+import { rostockBoundingBox } from '../src/lib/rostock-bounding-box'
 
 /**
- * The camera leash (see src/map/camera-limits.ts): the view stays within
- * ~100 km of the network and does not zoom out past 25 km.
+ * The camera leash (see src/map/camera-limits.ts): the view stays inside
+ * the Rostock bounding box and does not zoom out past 25 km.
  */
 
-/**
- * The fence in degrees: the network's bounding box (12.030–12.225 °E /
- * 54.056–54.203 °N) padded by config.cameraLimits.paddingMeters.
- */
-const FENCE = { west: 11.643, east: 12.611, south: 53.831, north: 54.428 }
+/** The fence in degrees: the city limits widened by 15 km. */
+const FENCE = rostockBoundingBox
 const MAX_HEIGHT = 25_000
 /** Slack for the assertions – the camera may sit right on the border. */
 const SLACK = 0.01
