@@ -41,6 +41,43 @@ test('camera pose is saved to and restored from the URL hash', async ({
   expect(view.height).toBeLessThan(900)
 })
 
+test('a pose saved with the miniature look off survives a reload unmoved', async ({
+  page,
+}) => {
+  test.setTimeout(240_000)
+
+  // The pose in the hash was written through the plain lens (tilt=0). The
+  // app opens it through that lens again – and must not walk the camera
+  // for the lens swap, or every reload would land a step closer.
+  await page.goto(
+    '/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=3000&heading=0&pitch=-45&tilt=0',
+  )
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+  const cameraView = () =>
+    page.evaluate(() => {
+      const camera = window.__cesiumViewer!.camera.positionCartographic
+      return {
+        lat: (camera.latitude * 180) / Math.PI,
+        lon: (camera.longitude * 180) / Math.PI,
+        height: camera.height,
+      }
+    })
+  const opened = await cameraView()
+  expect(opened.lat).toBeCloseTo(54.0901, 3)
+  expect(opened.height).toBeCloseTo(3000, 0)
+
+  await page.reload()
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+  const reloaded = await cameraView()
+  expect(reloaded.lat).toBeCloseTo(opened.lat, 4)
+  expect(reloaded.lon).toBeCloseTo(opened.lon, 4)
+  expect(reloaded.height).toBeCloseTo(opened.height, 0)
+})
+
 test('a selected vehicle is shared and restored via the URL', async ({ page }) => {
   test.setTimeout(240_000)
 

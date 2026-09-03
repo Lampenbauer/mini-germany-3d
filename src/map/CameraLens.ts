@@ -97,10 +97,14 @@ export class CameraLens {
     const target = clampFovDeg(on ? config.camera.fovDeg : config.camera.fovOffDeg)
     if (target === this.target) return
     this.target = target
-    // Before the first frame there is nothing to ease in front of: a hash
-    // that opens with the effect off should simply open at its lens.
+    // Before the first frame there is nothing to ease in front of, and
+    // nothing to walk either: the pose the camera holds now was saved
+    // through the lens it is about to get (a hash that opens with the
+    // effect off was written with the effect off), or it is the default
+    // pose a flight is about to replace. Walking it as well would push a
+    // restored pose closer on every reload.
     if (!this.everUpdated) {
-      this.applyFov(target)
+      this.writeFov(target)
       return
     }
     this.from = this.applied
@@ -125,17 +129,21 @@ export class CameraLens {
     return this.applied
   }
 
+  /** Sets the angle and walks the camera by what the change cost. */
   private applyFov(fovDeg: number): void {
-    const frustum = this.viewer.camera.frustum
-    if (!(frustum instanceof PerspectiveFrustum)) {
-      this.applied = fovDeg
-      return
-    }
     const factor =
       Math.tan(CesiumMath.toRadians(this.applied) / 2) /
       Math.tan(CesiumMath.toRadians(fovDeg) / 2)
-    frustum.fov = CesiumMath.toRadians(fovDeg)
-    this.applied = fovDeg
+    if (!this.writeFov(fovDeg)) return
     if (factor !== 1) this.host.applyDistanceFactor(factor)
+  }
+
+  /** Sets the angle alone; false when the camera has no perspective frustum. */
+  private writeFov(fovDeg: number): boolean {
+    this.applied = fovDeg
+    const frustum = this.viewer.camera.frustum
+    if (!(frustum instanceof PerspectiveFrustum)) return false
+    frustum.fov = CesiumMath.toRadians(fovDeg)
+    return true
   }
 }
