@@ -27,7 +27,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleet – the tram a five-section Vossloh 6N2 (32 m), the S-Bahn a three-car Talent 2 (57 m), buses 12 m solos, the ferries their real double-enders (19.9 m Gehlsdorf passenger ferry, 39 m Breitling car ferry with ramps), each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
-| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it, plus a gentle toy-plastic grade – the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a reduced frame), ramped down by the camera pose and off at street level or looking straight down; the panel switch and `tilt=0` turn it off |
+| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down; the panel switch and `tilt=0` turn it off |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
@@ -86,7 +86,7 @@ VITE_CESIUM_ION_TOKEN=your-token
   a camera reset ends the follow mode.
 - **Map controls:** 2D/3D pitch toggle, face north, and camera reset sit at the
   lower right edge of the map.
-- **Field of view:** 30° horizontal while the miniature look is on, Cesium's
+- **Field of view:** 25° horizontal while the miniature look is on, Cesium's
   60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), eased
   between the two when the switch is flipped – and the camera walks along the
   view axis as it goes, so the same ground stays in frame and only the
@@ -95,8 +95,8 @@ VITE_CESIUM_ION_TOKEN=your-token
   else. The miniature look lives on the long-lens end: a
   narrower angle keeps the foreground from looming and towers from leaning out of
   the frame, and it makes the tilt-shift band a better stand-in for a plane of
-  focus – at 60° the blurred edges span 1.5× the depth of the sharp band, at 30°
-  only 1.2×. Every distance measured at 60° follows the angle: the home view, the
+  focus – at 60° the blurred edges span 1.5× the depth of the sharp band, at 25°
+  well under half of that. Every distance measured at 60° follows the angle: the home view, the
   chase cam and the stop flight read it off the camera and keep their framing
   through either lens. The ranges that decide what is still worth drawing (stop
   discs and labels, vehicle bodies, badges and ships) stay pinned to the narrow

@@ -85,8 +85,8 @@ export const config = {
    * plane of focus, and how well it stands in depends on how much depth
    * one band of screen rows spans: at 60° and a -35° pitch the fully
    * blurred edges sit about a quarter further and a sixth nearer than the
-   * sharp band, at 30° it is a tenth either way – a band that a real lens
-   * could almost have drawn. A narrower angle also stops the foreground
+   * sharp band, at 25° it is well under half of that either way – a band
+   * that a real lens could almost have drawn. A narrower angle also stops the foreground
    * from looming and keeps towers from leaning out of the frame – the
    * long-lens look every fake-miniature photograph is shot with.
    *
@@ -103,7 +103,7 @@ export const config = {
    */
   camera: {
     /** Field of view with the miniature look on. */
-    fovDeg: 30,
+    fovDeg: 25,
     /** Field of view with it off – Cesium's own default. */
     fovOffDeg: 60,
   },
@@ -115,11 +115,11 @@ export const config = {
    * of view when the camera flies home.
    */
   home: {
-    longitude: 12.103892,
-    latitude: 54.047534,
-    height: 7881,
+    longitude: 12.110623,
+    latitude: 54.039949,
+    height: 4415,
     heading: 0,
-    pitch: -60,
+    pitch: -40,
   },
 
   /**
