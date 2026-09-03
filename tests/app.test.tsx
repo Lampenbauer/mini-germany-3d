@@ -246,6 +246,30 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
   })
 
+  it('offers a full-screen button where the browser can do it', () => {
+    // jsdom implements no Fullscreen API, so the flag has to be faked –
+    // which is also the case the button is guarded for (iOS Safari).
+    const original = Object.getOwnPropertyDescriptor(document, 'fullscreenEnabled')
+    Object.defineProperty(document, 'fullscreenEnabled', { value: true, configurable: true })
+    try {
+      render(<App />)
+      const button = screen.getByRole('button', { name: 'Full screen' })
+      expect(button).toHaveAttribute('aria-pressed', 'false')
+      const request = vi.fn().mockResolvedValue(undefined)
+      document.documentElement.requestFullscreen = request
+      fireEvent.click(button)
+      expect(request).toHaveBeenCalled()
+    } finally {
+      if (original) Object.defineProperty(document, 'fullscreenEnabled', original)
+      else delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled
+    }
+  })
+
+  it('leaves the full-screen button out where the browser cannot', () => {
+    render(<App />)
+    expect(screen.queryByRole('button', { name: 'Full screen' })).not.toBeInTheDocument()
+  })
+
   it('renders the interface in German when the browser prefers German', () => {
     setLanguage('de')
     render(<App />)

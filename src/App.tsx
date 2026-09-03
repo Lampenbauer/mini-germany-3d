@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, Home, Layers2, Mountain } from 'lucide-react'
+import { Compass, Home, Layers2, Maximize, Minimize, Mountain } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
@@ -26,6 +26,12 @@ import {
 } from '@/lib/camera-hash'
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
+import {
+  fullscreenElement,
+  fullscreenSupported,
+  onFullscreenChange,
+  toggleFullscreen,
+} from '@/lib/fullscreen'
 import { getLanguage, localizeLineName, t } from '@/lib/i18n'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
@@ -251,6 +257,14 @@ export default function App() {
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
+  /** Whether the page is full screen right now – the button's face. */
+  const [fullscreen, setFullscreen] = useState(false)
+  /**
+   * Whether this browser can go full screen at all. Read once: it is a
+   * property of the browser, not of the session. False leaves the button
+   * out instead of offering one that cannot work (iOS Safari).
+   */
+  const [fullscreenAvailable] = useState(fullscreenSupported)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -1157,6 +1171,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  /**
+   * Full screen is state the browser owns: Escape and F11 change it behind
+   * the app's back, so the button's face comes from the change event
+   * rather than from what was last clicked.
+   */
+  useEffect(() => {
+    const sync = () => setFullscreen(fullscreenElement() !== null)
+    sync()
+    return onFullscreenChange(sync)
+  }, [])
+
+  const handleToggleFullscreen = useCallback(() => {
+    // The whole page, so the map and the interface over it fill the screen
+    // together. A refused request is the helper's business, not this one's.
+    void toggleFullscreen(document.documentElement)
+  }, [])
+
   const handleSetTime = useCallback((hhmm: string) => {
     const sec = parseTimeOfDay(hhmm)
     if (sec !== null) simRef.current?.clock.setSecondsOfDay(sec)
@@ -1449,9 +1480,10 @@ export default function App() {
           </div>
         )}
 
-        {/* Map controls: underground, 2D/3D, face north, camera reset.
-            bottom-8 keeps them clear of the Cesium attribution line at the
-            lower edge. */}
+        {/* Map controls: underground, 2D/3D, face north, camera reset, and
+            full screen last – the one button here that moves the window
+            rather than the camera. bottom-8 keeps the column clear of the
+            Cesium attribution line at the lower edge. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1521,6 +1553,25 @@ export default function App() {
             </TooltipTrigger>
             <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
           </Tooltip>
+          {fullscreenAvailable && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                  aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                  aria-pressed={fullscreen}
+                  onClick={handleToggleFullscreen}
+                >
+                  {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                {fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
     </div>

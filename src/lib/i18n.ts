@@ -152,6 +152,8 @@ const en = {
   'camera.to3d': 'Switch to 3D view',
   'camera.faceNorth': 'Face north',
   'camera.reset': 'Reset camera',
+  'view.fullscreen': 'Full screen',
+  'view.exitFullscreen': 'Leave full screen',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -294,6 +296,8 @@ const de: Record<MessageKey, string> = {
   'camera.to3d': 'Zur 3D-Ansicht wechseln',
   'camera.faceNorth': 'Nach Norden ausrichten',
   'camera.reset': 'Kamera zurücksetzen',
+  'view.fullscreen': 'Vollbild',
+  'view.exitFullscreen': 'Vollbild verlassen',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }
