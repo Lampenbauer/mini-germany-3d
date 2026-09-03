@@ -20,9 +20,11 @@ const en = {
   'layers.routes': 'Routes',
   'layers.stops': 'Stops',
   'layers.labels': 'Vehicle labels',
+  'layers.tiltShift': 'Miniature effect',
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
+  'layers.showTiltShift': 'Show the miniature effect',
   // The scrolling section at the bottom of the panel. It holds the
   // scheduled lines AND the AIS ships, which run to no timetable at all –
   // "Traffic" is the word that covers both.
@@ -170,9 +172,11 @@ const de: Record<MessageKey, string> = {
   'layers.routes': 'Routen',
   'layers.stops': 'Haltestellen',
   'layers.labels': 'Fahrzeugbeschriftungen',
+  'layers.tiltShift': 'Miniatureffekt',
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
+  'layers.showTiltShift': 'Miniatureffekt anzeigen',
   'traffic.title': 'Verkehr',
   'traffic.ais': 'AIS-Schiffe',
   'traffic.aisHint': 'Echter Schiffsverkehr im Hafen',

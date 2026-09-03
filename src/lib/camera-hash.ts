@@ -75,14 +75,16 @@ export function parseStopHash(hash: string): string | null {
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the Routes/Stops/Labels layer toggles and the pause state. Only
- * deviations from the defaults (all layers on, clock running) appear in
- * the URL, so default sessions keep clean hashes.
+ * the Routes/Stops/Labels layer toggles, the miniature look and the pause
+ * state. Only deviations from the defaults (all layers on, miniature look
+ * on, clock running) appear in the URL, so default sessions keep clean
+ * hashes.
  */
 export interface HashUiState {
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
+  tiltShiftOff: boolean
   paused: boolean
 }
 
@@ -92,6 +94,7 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
+    (state.tiltShiftOff ? '&tilt=0' : '') +
     (state.paused ? '&paused=1' : '')
   )
 }
@@ -103,6 +106,7 @@ export function parseUiStateHash(hash: string): HashUiState {
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
+    tiltShiftOff: params.get('tilt') === '0',
     paused: params.get('paused') === '1',
   }
 }

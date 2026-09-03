@@ -25,6 +25,7 @@ import {
   Matrix4,
   type Viewer,
 } from 'cesium'
+import { cameraFramingScale } from './CameraLens'
 
 /** Where the camera should be looking, this frame. */
 export interface FollowTarget {
@@ -42,9 +43,14 @@ export interface FollowCameraHost {
   noteCameraFlight(durationMs: number): void
 }
 
-/** Initial offset behind and above the target. */
+/**
+ * Initial offset behind and above the target. The range was measured at
+ * Cesium's 60° field of view and follows the lens in force, so the
+ * vehicle fills the same part of the frame through either one (see
+ * map/CameraLens.ts).
+ */
 const FOLLOW_PITCH_DEG = -16
-const FOLLOW_RANGE = 140
+const FOLLOW_RANGE_AT_REFERENCE = 140
 
 /** Duration of the approach flight when following starts, in seconds. */
 const FOLLOW_FLIGHT_SECONDS = 1.4
@@ -93,6 +99,11 @@ export class FollowCamera {
     private readonly host: FollowCameraHost,
   ) {}
 
+  /** Chase distance for the lens the camera wears right now. */
+  private get followRange(): number {
+    return FOLLOW_RANGE_AT_REFERENCE * cameraFramingScale(this.viewer.camera)
+  }
+
   /**
    * Start following. `target` is where the subject stands right now; pass
    * null when it is not on the map yet – the chase then simply engages on
@@ -116,13 +127,25 @@ export class FollowCamera {
         offset: new HeadingPitchRange(
           CesiumMath.toRadians(target.bearingDeg),
           CesiumMath.toRadians(FOLLOW_PITCH_DEG),
-          FOLLOW_RANGE,
+          this.followRange,
         ),
         complete: endFlight,
         cancel: endFlight,
       })
     }
     this.host.requestRender()
+  }
+
+  /**
+   * Keeps the chase framing when the lens changes: the leash the camera
+   * hangs on is multiplied by the factor the new angle costs in distance.
+   * Answers whether a chase is running at all – if none is, the map walks
+   * the free camera instead.
+   */
+  applyLensDistance(factor: number): boolean {
+    if (!this.engaged) return false
+    if (this.offset) this.offset.range *= factor
+    return true
   }
 
   /** Stop following and give the camera back to the user. */
@@ -157,7 +180,7 @@ export class FollowCamera {
       this.offset = new HeadingPitchRange(
         camera.heading,
         CesiumMath.toRadians(FOLLOW_PITCH_DEG),
-        FOLLOW_RANGE,
+        this.followRange,
       )
     } else if (this.chase) {
       // Chase: any camera pose that deviates from what the chase applied

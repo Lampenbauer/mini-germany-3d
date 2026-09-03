@@ -81,15 +81,47 @@ export const config = {
   },
 
   /**
+   * Camera optics: the horizontal field of view in degrees. Cesium's own
+   * default is 60°, a ~30 mm wide angle – and the wide end is where the
+   * miniature look works worst. The tilt-shift band is a stand-in for a
+   * plane of focus, and how well it stands in depends on how much depth
+   * one band of screen rows spans: at 60° and a -35° pitch the fully
+   * blurred edges sit about a quarter further and a sixth nearer than the
+   * sharp band, at 25° it is well under half of that either way – a band
+   * that a real lens could almost have drawn. A narrower angle also stops the foreground
+   * from looming and keeps towers from leaning out of the frame – the
+   * long-lens look every fake-miniature photograph is shot with.
+   *
+   * The distances tuned at 60° follow the angle rather than staying put
+   * (see framingDistanceScale in map/camera-fov.ts): the home view below,
+   * the chase cam, and the stop flight all frame the same ground at any
+   * setting. Only camera poses in shared URL hashes carry a plain height
+   * and therefore open a little closer in than they were saved at.
+   *
+   * Switching the miniature look off puts the plain lens back on, eased
+   * over a few frames with the camera walking along to hold the framing
+   * (see map/CameraLens.ts) – so the switch shows the perspective change
+   * the effect is built on, rather than jumping somewhere else.
+   */
+  camera: {
+    /** Field of view with the miniature look on. */
+    fovDeg: 25,
+    /** Field of view with it off – Cesium's own default. */
+    fovOffDeg: 60,
+  },
+
+  /**
    * Initial camera position (also the "Reset camera" home view). A URL hash
-   * (#lat=…&lon=…) still takes precedence when present.
+   * (#lat=…&lon=…) still takes precedence when present. The height is the
+   * one that framed the city at 60° – it is scaled to the configured field
+   * of view when the camera flies home.
    */
   home: {
-    longitude: 12.103892,
-    latitude: 54.047534,
-    height: 7881,
+    longitude: 12.110623,
+    latitude: 54.039949,
+    height: 4415,
     heading: 0,
-    pitch: -60,
+    pitch: -40,
   },
 
   /**
