@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
+import { containsLonLat, rostockCityBounds } from '../src/lib/rostock-bounding-box.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../src/data/schedule.json')
@@ -35,8 +36,18 @@ const CACHE_DIR = resolve(__dirname, '.cache')
 // regional-rail split, so the local-transit feed alone has no trains.
 const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/free/latest.zip'
 
-// Rough bounding box for Rostock to filter the stops
-const BBOX = { minLon: 11.95, maxLon: 12.35, minLat: 53.95, maxLat: 54.22 }
+// The rectangle that decides which stops are Rostock stops – deliberately
+// the bare city limits (rostockCityBounds), NOT the padded
+// rostockBoundingBox the rest of the project uses: a trip's departure
+// time and geometry anchors are read at its first/last stop INSIDE this
+// rectangle (see the stop_times scan), and the S-Bahn network is truncated
+// at Rostock Hbf. With 15 km of padding the first stop of an S2/S3 from
+// Güstrow would be Schwaan or Laage, and the trains would leave Hbf some
+// twenty minutes early – the rough box used until 2026-09-03 already read
+// them at Huckstorf and Scharstorf, 16–20 minutes before Hbf. Every stop
+// of the network lies inside the city rectangle; the check in main() says
+// so when one day one does not.
+const BBOX = rostockCityBounds
 
 // GTFS route_types per mode of transport (basic and extended types)
 const ROUTE_TYPES = {
@@ -242,13 +253,29 @@ async function main() {
     }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
-    if (lon > BBOX.minLon && lon < BBOX.maxLon && lat > BBOX.minLat && lat < BBOX.maxLat) {
+    if (containsLonLat(BBOX, lon, lat)) {
       rostockStopCoords.set(get('stop_id'), [lon, lat])
       rostockStopNames.set(get('stop_id'), name)
     }
   })
   const stopsInRostock = rostockStopCoords
   console.log(`${stopsInRostock.size} stops within the Rostock city area`)
+  // A network stop outside the rectangle means its line's departure time
+  // is read one or more stops down the route – say so rather than let the
+  // schedule quietly drift.
+  const networkStopsOutside = Object.entries(networkJson.stops ?? {}).filter(
+    ([, stop]) => !containsLonLat(BBOX, stop.coord[0], stop.coord[1]),
+  )
+  if (networkStopsOutside.length > 0) {
+    console.warn(
+      `⚠ ${networkStopsOutside.length} network stops lie outside the Rostock city rectangle ` +
+        `(${networkStopsOutside
+          .slice(0, 5)
+          .map(([id, stop]) => `${stop.name} [${id}]`)
+          .join(', ')}${networkStopsOutside.length > 5 ? ', …' : ''}) – ` +
+        'their lines depart at the first stop inside it.',
+    )
+  }
 
   // ---- agency.txt (optional): diagnostic output only -----------------------
   const agencyNames = new Map() // agency_id → name

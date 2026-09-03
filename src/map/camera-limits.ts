@@ -1,20 +1,16 @@
 /**
  * The camera leash: which area the camera may be in and how far it may
- * zoom out. The area is the bounding box of all route paths widened by a
- * fixed padding, the ceiling a maximum height above the ellipsoid.
+ * zoom out. The area is the Rostock bounding box – the city limits widened
+ * by 15 km, the same rectangle the data pipeline and the AIS subscription
+ * use (see lib/rostock-bounding-box.ts) – the ceiling a maximum height
+ * above the ellipsoid.
  *
  * Deliberately free of Cesium – the rule is plain geometry and is unit
  * tested as such; CesiumMap only wires it into the render loop.
  */
 
 import { toRadians } from '@/lib/geo'
-import type { PreparedNetwork } from '@/data/network-types'
-
-/**
- * Mean length of a degree of latitude on WGS84 (110.57 km at the equator,
- * 111.69 km at the pole). A fence does not care about the ~0.5 % spread.
- */
-const METERS_PER_DEGREE_LATITUDE = 111_132
+import type { BoundingBox } from '@/lib/rostock-bounding-box'
 
 /**
  * Tolerance for "already inside": a clamped pose travels through a
@@ -45,52 +41,13 @@ function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
 }
 
-/**
- * Fence around the network: the bounding box of every route path, widened
- * by `paddingMeters` on all four sides. The longitude padding is converted
- * at the padded box's outermost latitude, so the fence is at least that
- * wide everywhere inside it – meridians converge toward the poles.
- *
- * A network without any path (nothing to fence in) yields the whole globe;
- * the height ceiling still applies.
- */
-export function networkCameraLimits(
-  network: PreparedNetwork,
-  paddingMeters: number,
-  maxHeightMeters: number,
-): CameraLimits {
-  let west = Infinity
-  let south = Infinity
-  let east = -Infinity
-  let north = -Infinity
-  for (const line of network.lines) {
-    for (const direction of line.directions) {
-      for (const [lon, lat] of direction.path) {
-        if (lon < west) west = lon
-        if (lon > east) east = lon
-        if (lat < south) south = lat
-        if (lat > north) north = lat
-      }
-    }
-  }
-  if (!Number.isFinite(west)) {
-    return {
-      west: toRadians(-180),
-      south: toRadians(-90),
-      east: toRadians(180),
-      north: toRadians(90),
-      maxHeight: maxHeightMeters,
-    }
-  }
-
-  const latPadding = paddingMeters / METERS_PER_DEGREE_LATITUDE
-  const outermostLat = Math.min(89, Math.max(Math.abs(south), Math.abs(north)) + latPadding)
-  const lonPadding = latPadding / Math.cos(toRadians(outermostLat))
+/** The fence: `box` (degrees) as radians, plus the height ceiling. */
+export function boundingBoxCameraLimits(box: BoundingBox, maxHeightMeters: number): CameraLimits {
   return {
-    west: toRadians(Math.max(-180, west - lonPadding)),
-    south: toRadians(Math.max(-90, south - latPadding)),
-    east: toRadians(Math.min(180, east + lonPadding)),
-    north: toRadians(Math.min(90, north + latPadding)),
+    west: toRadians(box.west),
+    south: toRadians(box.south),
+    east: toRadians(box.east),
+    north: toRadians(box.north),
     maxHeight: maxHeightMeters,
   }
 }

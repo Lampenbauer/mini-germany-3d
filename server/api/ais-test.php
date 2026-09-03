@@ -19,8 +19,29 @@ declare(strict_types=1);
 
 const AIS_HOST = 'stream.aisstream.io';
 const AIS_PATH = '/v0/stream';
-/** Rostock camera fence: network bbox + 25 km padding ([[lat,lon] SW, NE]). */
-const AIS_BBOX = [[53.83, 11.64], [54.43, 12.61]];
+/**
+ * The Rostock bounding box as aisstream wants it ([[lat, lon] SW,
+ * [lat, lon] NE]), from rostock-bounding-box.json – the one definition
+ * the whole project shares (src/data/rostock-bounding-box.json). Looked
+ * for next to this script (copy it along to the host) and in a repository
+ * checkout two levels up.
+ */
+function aisBbox(): array
+{
+    $files = [__DIR__ . '/rostock-bounding-box.json', __DIR__ . '/../../src/data/rostock-bounding-box.json'];
+    foreach ($files as $file) {
+        if (!is_file($file)) continue;
+        $data = json_decode((string) file_get_contents($file), true);
+        $box = is_array($data) ? ($data['boundingBox'] ?? null) : null;
+        if (is_array($box) && isset($box['west'], $box['south'], $box['east'], $box['north'])) {
+            return [
+                [(float) $box['south'], (float) $box['west']],
+                [(float) $box['north'], (float) $box['east']],
+            ];
+        }
+    }
+    exit("rostock-bounding-box.json not found - copy src/data/rostock-bounding-box.json next to this script.\n");
+}
 
 // Shortest round-trip floats in json_encode – some hosts pin
 // serialize_precision high, which turns 53.83 into a 48-digit monster.
@@ -47,6 +68,7 @@ if ($key === '') {
     exit("Usage:\n  CLI:   php ais-test.php <api-key> [seconds]\n" .
         "  HTTP:  curl -X POST -d 'key=<api-key>' -d 'seconds=20' https://<domain>/api/ais-test.php\n");
 }
+$bbox = aisBbox();
 
 function say(string $line): void
 {
@@ -220,8 +242,8 @@ if (!$is101) {
 }
 
 // --- Subscribe and listen -------------------------------------------------
-wsSend($fp, 0x1, json_encode(['APIKey' => $key, 'BoundingBoxes' => [AIS_BBOX]]));
-step('Subscription sent', true, 'bbox ' . json_encode(AIS_BBOX) . ', listening ' . $listenSeconds . ' s');
+wsSend($fp, 0x1, json_encode(['APIKey' => $key, 'BoundingBoxes' => [$bbox]]));
+step('Subscription sent', true, 'bbox ' . json_encode($bbox) . ', listening ' . $listenSeconds . ' s');
 
 $stats = [
     'messages' => 0, 'types' => [], 'ships' => [], 'samples' => [],

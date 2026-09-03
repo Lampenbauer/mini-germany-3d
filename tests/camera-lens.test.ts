@@ -67,13 +67,15 @@ describe('CameraLens', () => {
     expect(CesiumMath.toDegrees(frustum.fov ?? 0)).toBeCloseTo(expected, 6)
   })
 
-  it('swaps without an ease before the first frame', () => {
+  it('swaps without an ease and without walking before the first frame', () => {
     // A shared link that opens with the effect off has no view yet to ease
-    // in front of – it should simply open through the plain lens.
+    // in front of – it should simply open through the plain lens. And it
+    // must not walk the camera: the restored pose was saved through that
+    // very lens, so walking it would bring every reload a step closer.
     const { lens, fovDeg, factors } = lensHarness()
     lens.setMiniature(false)
     expect(fovDeg()).toBeCloseTo(config.camera.fovOffDeg, 6)
-    expect(factors).toHaveLength(1)
+    expect(factors).toEqual([])
   })
 
   it('eases to the plain lens and lands on it exactly', () => {

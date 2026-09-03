@@ -1,73 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
-import { loadBundledNetwork, prepareNetwork } from '@/data/network'
-import { haversineMeters, toDegrees, type LonLat } from '@/lib/geo'
-import { clampCameraPose, networkCameraLimits } from '@/map/camera-limits'
-import { testNetworkJson } from './fixtures'
+import { toDegrees } from '@/lib/geo'
+import { padBoundingBox, rostockBoundingBox } from '@/lib/rostock-bounding-box'
+import { boundingBoxCameraLimits, clampCameraPose } from '@/map/camera-limits'
 
-const PADDING_M = 100_000
 const MAX_HEIGHT_M = 25_000
 
-/** Limits of the synthetic test network (straight north–south at 12.1°E). */
+/** A fence 100 km around a straight north–south route at 12.1 °E. */
 function testLimits() {
-  return networkCameraLimits(prepareNetwork(testNetworkJson), PADDING_M, MAX_HEIGHT_M)
+  return boundingBoxCameraLimits(
+    padBoundingBox({ west: 12.1, south: 54.0, east: 12.1, north: 54.018 }, 100_000),
+    MAX_HEIGHT_M,
+  )
 }
 
-function degrees(limits: ReturnType<typeof testLimits>) {
-  return {
-    west: toDegrees(limits.west),
-    south: toDegrees(limits.south),
-    east: toDegrees(limits.east),
-    north: toDegrees(limits.north),
-  }
-}
-
-describe('networkCameraLimits', () => {
-  it('pads the route bounding box by the requested distance', () => {
-    const box = degrees(testLimits())
-    // Route: 12.1°E, 54.000–54.018°N
-    const north: LonLat = [12.1, 54.018]
-    const south: LonLat = [12.1, 54.0]
-    expect(haversineMeters(north, [12.1, box.north])).toBeGreaterThan(PADDING_M * 0.99)
-    expect(haversineMeters(north, [12.1, box.north])).toBeLessThan(PADDING_M * 1.01)
-    expect(haversineMeters(south, [12.1, box.south])).toBeGreaterThan(PADDING_M * 0.99)
-    expect(haversineMeters(south, [12.1, box.south])).toBeLessThan(PADDING_M * 1.01)
-  })
-
-  it('keeps the east–west padding at least that wide at every latitude', () => {
-    const box = degrees(testLimits())
-    // Meridians converge northwards – the padding is dimensioned for the
-    // box's outermost latitude and is therefore wider further south.
-    for (const lat of [box.south, 54.0, box.north]) {
-      expect(haversineMeters([12.1, lat], [box.east, lat])).toBeGreaterThan(PADDING_M)
-      expect(haversineMeters([12.1, lat], [box.west, lat])).toBeGreaterThan(PADDING_M)
-    }
-  })
-
-  it('encloses the whole Rostock network with the configured padding', () => {
-    const padding = config.cameraLimits.paddingMeters
-    const limits = networkCameraLimits(
-      loadBundledNetwork(),
-      padding,
-      config.cameraLimits.maxHeightMeters,
-    )
-    const box = degrees(limits)
-    // The network spans 12.030–12.225 °E / 54.056–54.203 °N …
-    expect(box.west).toBeLessThan(12.03)
-    expect(box.east).toBeGreaterThan(12.225)
-    expect(box.south).toBeLessThan(54.056)
-    expect(box.north).toBeGreaterThan(54.203)
-    // … and the fence sits exactly the configured distance beyond it
-    expect(haversineMeters([12.13, 54.203], [12.13, box.north])).toBeCloseTo(padding, -2)
-    expect(haversineMeters([12.13, 54.056], [12.13, box.south])).toBeCloseTo(padding, -2)
+describe('boundingBoxCameraLimits', () => {
+  it('is the Rostock bounding box in radians plus the ceiling', () => {
+    const limits = boundingBoxCameraLimits(rostockBoundingBox, config.cameraLimits.maxHeightMeters)
+    expect(toDegrees(limits.west)).toBeCloseTo(rostockBoundingBox.west, 9)
+    expect(toDegrees(limits.south)).toBeCloseTo(rostockBoundingBox.south, 9)
+    expect(toDegrees(limits.east)).toBeCloseTo(rostockBoundingBox.east, 9)
+    expect(toDegrees(limits.north)).toBeCloseTo(rostockBoundingBox.north, 9)
     expect(limits.maxHeight).toBe(config.cameraLimits.maxHeightMeters)
-  })
-
-  it('falls back to the whole globe for a network without routes', () => {
-    const limits = networkCameraLimits({ lines: [] } as never, PADDING_M, MAX_HEIGHT_M)
-    expect(toDegrees(limits.west)).toBe(-180)
-    expect(toDegrees(limits.east)).toBe(180)
-    expect(limits.maxHeight).toBe(MAX_HEIGHT_M)
   })
 })
 

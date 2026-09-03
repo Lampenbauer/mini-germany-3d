@@ -39,6 +39,14 @@
  *   - aisstream.io-api-key.txt two levels up – above the docroot, where the
  *     rsync --delete deploy (ci.yml) can never touch it
  *
+ * Bounding box: rostock-bounding-box.json next to this script – the one
+ * definition the whole project shares (src/data/rostock-bounding-box.json,
+ * see src/lib/rostock-bounding-box.ts), copied here by the deploy – or, in
+ * a repository checkout, that src/data file two levels up.
+ *   php ais.php --bbox
+ * prints the box the script subscribes with; scripts/test-ais-parity.mjs
+ * compares it against the TypeScript side.
+ *
  * Self-test (CLI, no network):
  *   php ais.php --selftest messages.json <now-ms>
  * replays a captured message file (JSON array) at a fixed clock and
@@ -55,8 +63,11 @@ ini_set('serialize_precision', '-1');
 
 const MRT_AIS_HOST = 'stream.aisstream.io';
 const MRT_AIS_PATH = '/v0/stream';
-/** Rostock camera fence: network bbox + 25 km padding ([[lat,lon] SW, NE]). */
-const MRT_AIS_BBOX = [[53.83, 11.64], [54.43, 12.61]];
+/** Where rostock-bounding-box.json is looked for, in order (see the header). */
+const MRT_AIS_BBOX_FILES = [
+    __DIR__ . '/rostock-bounding-box.json',
+    __DIR__ . '/../../src/data/rostock-bounding-box.json',
+];
 /**
  * State age at which a BROWSER request triggers the next listen window –
  * it bounds the blind gap the browser-driven path leaves when no keeper
@@ -295,6 +306,31 @@ function mrt_ws_parse(string &$buffer): ?array
 }
 
 /**
+ * The Rostock bounding box as aisstream wants it ([[lat, lon] SW,
+ * [lat, lon] NE]), from rostock-bounding-box.json – or null when no copy
+ * is found or it carries no box, which is a deployment error and gets a
+ * log line, unlike the transient failures around it.
+ */
+function mrt_ais_bbox(): ?array
+{
+    foreach (MRT_AIS_BBOX_FILES as $file) {
+        if (!is_file($file)) continue;
+        $data = json_decode((string) file_get_contents($file), true);
+        $box = is_array($data) ? ($data['boundingBox'] ?? null) : null;
+        if (is_array($box) && isset($box['west'], $box['south'], $box['east'], $box['north'])) {
+            return [
+                [(float) $box['south'], (float) $box['west']],
+                [(float) $box['north'], (float) $box['east']],
+            ];
+        }
+        error_log('ais.php: ' . $file . ' carries no usable boundingBox');
+        return null;
+    }
+    error_log('ais.php: rostock-bounding-box.json not found (' . implode(', ', MRT_AIS_BBOX_FILES) . ')');
+    return null;
+}
+
+/**
  * One listen window: connect, subscribe, merge everything heard into
  * $state. Failures are silent by design – the previous state stays.
  */
@@ -305,6 +341,8 @@ function mrt_ais_listen(
     ?callable $onFlush = null,
     ?float $hardDeadline = null
 ): bool {
+    $bbox = mrt_ais_bbox();
+    if ($bbox === null) return false;
     $context = stream_context_create(['ssl' => ['peer_name' => MRT_AIS_HOST]]);
     $fp = @stream_socket_client(
         'ssl://' . MRT_AIS_HOST . ':443', $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context
@@ -337,7 +375,7 @@ function mrt_ais_listen(
     // Bytes past the header block are already frames – keep them.
     $buffer = substr($buffer, $headerEnd + 4);
 
-    mrt_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => [MRT_AIS_BBOX]]));
+    mrt_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => [$bbox]]));
 
     $fragment = '';
     $heard = false;
@@ -452,6 +490,15 @@ function mrt_ais_respond(array $state, int $listenedAt): void
         'servedAt' => $nowMs,
         'vessels' => mrt_ais_vessels($state, $nowMs),
     ]);
+}
+
+// --- CLI: the box this script subscribes with ------------------------------
+// scripts/test-ais-parity.mjs compares it against rostock-bounding-box.ts.
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--bbox') {
+    $bbox = mrt_ais_bbox();
+    if ($bbox === null) exit(1);
+    echo json_encode($bbox), "\n";
+    exit(0);
 }
 
 // --- CLI self-test: state migration ----------------------------------------

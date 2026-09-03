@@ -2,6 +2,25 @@
  * Central configuration of Mini Rostock 3D.
  */
 
+import { offsetLonLat } from '@/lib/geo'
+import { boundingBoxCenter, rostockBoundingBox } from '@/lib/rostock-bounding-box'
+
+/**
+ * How far the home view's center is moved from the center of the Rostock
+ * bounding box, in meters – east and north, negative is west and south.
+ * The plain center lies on the Warnow north of the old town; a kilometer
+ * south brings more of the city into the frame.
+ */
+export const HOME_VIEW_OFFSET_METERS = { east: -2000, north: -7000 }
+
+const boxCenter = boundingBoxCenter(rostockBoundingBox)
+/** The ground point the home view is centered on (see `home` below). */
+const [homeLongitude, homeLatitude] = offsetLonLat(
+  [boxCenter.longitude, boxCenter.latitude],
+  HOME_VIEW_OFFSET_METERS.east,
+  HOME_VIEW_OFFSET_METERS.north,
+)
+
 export const config = {
   /**
    * Cesium Ion token, always from the environment – no token lives in the
@@ -29,15 +48,17 @@ export const config = {
    * Live precipitation and cloud cover for the rain and overcast overlays:
    * the Open-Meteo forecast API (CC-BY 4.0, free, no key) – both values
    * come from one request. An empty string disables the live weather.
-   * The weather is queried for a single city-center point – Rostock is
-   * small enough that one value covers the visible map.
+   * The weather is queried for a single point, the center of the Rostock
+   * bounding box (lib/rostock-bounding-box.ts) – the camera cannot leave
+   * that box, and Rostock is small enough that one value covers the
+   * visible map.
    */
   weather: {
     url:
       (import.meta.env?.VITE_WEATHER_URL as string | undefined) ??
       'https://api.open-meteo.com/v1/forecast',
-    longitude: 12.14,
-    latitude: 54.09,
+    /** longitude/latitude of the point the weather is queried for. */
+    ...boundingBoxCenter(rostockBoundingBox),
     /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
     pollIntervalMs: 600_000,
     /**
@@ -118,29 +139,34 @@ export const config = {
   },
 
   /**
-   * Initial camera position (also the "Reset camera" home view). A URL hash
-   * (#lat=…&lon=…) still takes precedence when present. The height is the
-   * one that framed the city at 60° – it is scaled to the configured field
-   * of view when the camera flies home.
+   * The home view (also the "Reset camera" view): the camera looks at the
+   * center of the Rostock bounding box (lib/rostock-bounding-box.ts),
+   * moved by HOME_VIEW_OFFSET_METERS, from `height` meters up, with this
+   * heading and pitch – where the camera itself stands follows from that
+   * (see homePosition in map/CesiumMap.ts). A URL hash (#lat=…&lon=…)
+   * still takes precedence when present. The height is the one that
+   * framed the city at 60° – it is scaled to the configured field of view
+   * when the camera flies home.
    */
   home: {
-    longitude: 12.110623,
-    latitude: 54.039949,
-    height: 4415,
+    /** The ground point the view is centered on. */
+    longitude: homeLongitude,
+    latitude: homeLatitude,
+    height: 5800,
     heading: 0,
     pitch: -40,
   },
 
   /**
    * Camera leash: the view stays over Rostock instead of roaming the
-   * globe. `paddingMeters` widens the bounding box of all routes on every
-   * side – that padded box is the area the camera may be in – and
-   * `maxHeightMeters` is the ceiling it may not zoom out past. Beyond the
-   * city there is nothing this app can show, and every place the camera
-   * visits pulls its own photorealistic tiles.
+   * globe. The area the camera may be in is the Rostock bounding box –
+   * the city limits widened by 15 km, the one rectangle the data pipeline
+   * and the AIS subscription use too (see lib/rostock-bounding-box.ts) –
+   * and `maxHeightMeters` is the ceiling it may not zoom out past. Beyond
+   * the city there is nothing this app can show, and every place the
+   * camera visits pulls its own photorealistic tiles.
    */
   cameraLimits: {
-    paddingMeters: 25_000,
     maxHeightMeters: 25_000,
   },
 

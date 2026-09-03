@@ -34,13 +34,10 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
+import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
-import {
-  clampCameraPose,
-  networkCameraLimits,
-  type CameraLimits,
-} from './camera-limits'
+import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import {
   FERRY_ROUTE_EXTRA_LIFT,
   ROUTE_HEIGHT_OFFSET_FALLBACK,
@@ -340,8 +337,8 @@ export class CesiumMap {
   private readonly lens: CameraLens
   /** Underground view (see setUnderground). */
   private underground = false
-  /** Camera leash (see limitCameraToNetwork); null = camera unrestricted. */
-  private cameraLimits: CameraLimits | null = null
+  /** Camera leash (see enforceCameraLimits). */
+  private readonly cameraLimits: CameraLimits
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
   private lastHoverPickAt = 0
   private hoverPickTimer: number | null = null
@@ -557,9 +554,16 @@ export class CesiumMap {
     // per frame (see enforceCameraLimits).
     scene.screenSpaceCameraController.maximumZoomDistance =
       config.cameraLimits.maxHeightMeters
-    // The fence runs after the camera controller has moved the camera
-    // (scene.initializeFrame) and before the frame is drawn, so a pose
-    // outside the leash never reaches the screen.
+    // The leash itself: the Rostock bounding box (the city limits plus
+    // 15 km – the rectangle the data pipeline and the AIS subscription
+    // share) and the height ceiling. The fence runs after the camera
+    // controller has moved the camera (scene.initializeFrame) and before
+    // the frame is drawn, so a pose outside the leash never reaches the
+    // screen.
+    this.cameraLimits = boundingBoxCameraLimits(
+      rostockBoundingBox,
+      config.cameraLimits.maxHeightMeters,
+    )
     scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
 
     if (opts.offline) {
@@ -772,57 +776,47 @@ export class CesiumMap {
   }
 
   /**
-   * Where the home view's camera stands at the configured field of view.
+   * Where the home view's camera stands. config.home names the ground
+   * point the view is centered on – the center of the Rostock bounding
+   * box, moved by the offset configured there – and the camera sits
+   * behind it against the heading, `above` meters up and above/tan(pitch)
+   * meters back: the pitch's own triangle.
    *
-   * The pose in config.home was framed at Cesium's 60°, and a narrower
-   * angle needs more distance for the same ground. That
-   * distance has to be added along the VIEW AXIS, not to the height: the
-   * pose aims at a ground point (height - ground)/tan(pitch) ahead of the
-   * camera, so a taller camera at the same coordinates would push that
-   * point north and frame a different part of the city. Aim point first,
-   * then step back from it.
+   * The height was framed at Cesium's 60°, and a narrower angle needs
+   * more distance for the same ground. That distance is added along the
+   * VIEW AXIS, so the aim point stays put and only the camera steps back
+   * – a taller camera over the same spot would frame a different part of
+   * the city instead.
    */
   private homePosition(heading: number, pitch: number): Cartesian3 {
     const { longitude, latitude, height } = config.home
-    const base = Cartesian3.fromDegrees(longitude, latitude, height)
     const above = height - this.defaultGroundHeight
     const forward = above / Math.tan(-pitch)
+    // A camera looking at the horizon (tan → ∞) has no ground point to
+    // aim at – stand it over the center instead.
+    if (!Number.isFinite(forward)) return Cartesian3.fromDegrees(longitude, latitude, height)
     const scale = cameraFramingScale(this.viewer.camera)
-    // Nothing to step back from at the reference angle, and nothing to
-    // aim at from a camera that looks at the horizon (tan → ∞).
-    if (scale === 1 || !Number.isFinite(forward)) return base
-    const enu = Transforms.eastNorthUpToFixedFrame(base, undefined, new Matrix4())
-    const aim = Matrix4.multiplyByPoint(
+    const aim = Cartesian3.fromDegrees(longitude, latitude, this.defaultGroundHeight)
+    const enu = Transforms.eastNorthUpToFixedFrame(aim, undefined, new Matrix4())
+    return Matrix4.multiplyByPoint(
       enu,
-      new Cartesian3(forward * Math.sin(heading), forward * Math.cos(heading), -above),
+      new Cartesian3(
+        -forward * scale * Math.sin(heading),
+        -forward * scale * Math.cos(heading),
+        above * scale,
+      ),
       new Cartesian3(),
     )
-    const back = Cartesian3.subtract(base, aim, new Cartesian3())
-    return Cartesian3.add(aim, Cartesian3.multiplyByScalar(back, scale, back), back)
   }
 
   /**
-   * Leashes the camera to the network: it may leave the bounding box of
-   * all routes by at most config.cameraLimits.paddingMeters and never
-   * rises above config.cameraLimits.maxHeightMeters. Applies right away,
-   * so a pose restored from the URL hash is pulled in too.
-   */
-  limitCameraToNetwork(network: PreparedNetwork): void {
-    this.cameraLimits = networkCameraLimits(
-      network,
-      config.cameraLimits.paddingMeters,
-      config.cameraLimits.maxHeightMeters,
-    )
-    this.enforceCameraLimits()
-  }
-
-  /**
-   * Pulls the camera back inside the leash (see limitCameraToNetwork).
-   * Runs per frame, and in the normal case – camera inside – costs three
-   * comparisons and nothing else.
+   * Pulls the camera back inside the leash – the Rostock bounding box and
+   * the height ceiling (see the constructor). Runs per frame, and in the
+   * normal case – camera inside – costs three comparisons and nothing
+   * else. setView calls it too, so a pose restored from a shared link
+   * never stands outside the fence, not even for a frame.
    */
   private enforceCameraLimits(): void {
-    if (!this.cameraLimits) return
     const camera = this.viewer.camera
     // Follow mode parks the camera in the followed vehicle's local frame
     // (camera.lookAt), where setView would read world coordinates as local
@@ -1424,6 +1418,8 @@ export class CesiumMap {
         roll: 0,
       },
     })
+    // A shared link may carry a pose from anywhere on the globe.
+    this.enforceCameraLimits()
     this.requestRender()
   }
 

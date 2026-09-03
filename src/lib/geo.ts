@@ -64,6 +64,20 @@ export function nextQuarterHeading(headingDeg: number): number {
   return off < QUARTER_TOLERANCE_DEG ? wrapDegrees(nearest + 90) : nearest
 }
 
+/**
+ * The point `eastMeters` east and `northMeters` north of `a` (negative
+ * values go west and south). Flat-earth arithmetic on the local degree
+ * lengths – exact to well under a meter over the few kilometers this is
+ * used for.
+ */
+export function offsetLonLat(a: LonLat, eastMeters: number, northMeters: number): LonLat {
+  const metersPerDegree = toRadians(1) * EARTH_RADIUS_M
+  return [
+    a[0] + eastMeters / (metersPerDegree * Math.cos(toRadians(a[1]))),
+    a[1] + northMeters / metersPerDegree,
+  ]
+}
+
 /** Initial bearing from a to b in degrees (0° = north, clockwise). */
 export function bearingDegrees(a: LonLat, b: LonLat): number {
   const φ1 = toRadians(a[1])

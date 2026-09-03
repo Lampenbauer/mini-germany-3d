@@ -5,6 +5,7 @@ import {
   haversineMeters,
   heightAtDistance,
   nextQuarterHeading,
+  offsetLonLat,
   projectOntoPath,
   sampleAtDistance,
   windAngleTo,
@@ -112,6 +113,29 @@ describe('nextQuarterHeading', () => {
     let heading = 0
     const visited = [0, 1, 2, 3, 4].map(() => (heading = nextQuarterHeading(heading)))
     expect(visited).toEqual([90, 180, 270, 0, 90])
+  })
+})
+
+describe('offsetLonLat', () => {
+  const origin: LonLat = [12.1469, 54.1477]
+
+  it('moves a point by the requested distance in each direction', () => {
+    for (const [east, north, bearing] of [
+      [0, 1000, 0],
+      [1000, 0, 90],
+      [0, -1000, 180],
+      [-1000, 0, 270],
+    ]) {
+      const moved = offsetLonLat(origin, east, north)
+      expect(haversineMeters(origin, moved)).toBeCloseTo(1000, 0)
+      // The flat-earth step east or west leaves a parallel, whose initial
+      // great-circle bearing at 54° differs from 90°/270° by ~0.006°
+      expect(bearingDegrees(origin, moved)).toBeCloseTo(bearing, 1)
+    }
+  })
+
+  it('leaves the point alone for a zero offset', () => {
+    expect(offsetLonLat(origin, 0, 0)).toEqual(origin)
   })
 })
 

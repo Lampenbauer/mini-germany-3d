@@ -6,6 +6,7 @@ import {
   type LonLat,
 } from '../scripts/lib/street-lamps.mjs'
 import { loadStreetLamps } from '@/data/street-lamps'
+import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
 import networkJson from '@/data/network.json'
 
 /**
@@ -118,10 +119,10 @@ describe('the generated street-lamps.json', () => {
   it('holds plausible Rostock lamps with terrain heights', () => {
     expect(data.lamps.length).toBeGreaterThan(1000)
     for (const [lon, lat, nhn] of data.lamps) {
-      expect(lon).toBeGreaterThan(11.95)
-      expect(lon).toBeLessThan(12.35)
-      expect(lat).toBeGreaterThan(53.95)
-      expect(lat).toBeLessThan(54.22)
+      expect(lon).toBeGreaterThan(rostockBoundingBox.west)
+      expect(lon).toBeLessThan(rostockBoundingBox.east)
+      expect(lat).toBeGreaterThan(rostockBoundingBox.south)
+      expect(lat).toBeLessThan(rostockBoundingBox.north)
       // Rostock's terrain: Warnow lowland to the southern hills. The
       // Warnow tunnel ramps genuinely dip below sea level.
       expect(nhn).toBeGreaterThan(-10)
