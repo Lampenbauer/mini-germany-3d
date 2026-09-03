@@ -44,10 +44,14 @@ describe('WeatherClient', () => {
       statuses.push({ ...status }),
     )
 
-  it('polls the endpoint and reports precipitation and cloud cover', async () => {
+  it('polls the endpoint and reports precipitation, cloud cover and temperature', async () => {
     const fetchMock = vi.fn(
       async (_url: string | URL, _init?: RequestInit) =>
-        new Response(JSON.stringify({ current: { precipitation: 1.4, cloud_cover: 82 } })),
+        new Response(
+          JSON.stringify({
+            current: { precipitation: 1.4, cloud_cover: 82, temperature_2m: 11.7 },
+          }),
+        ),
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -59,11 +63,12 @@ describe('WeatherClient', () => {
     expect(statuses[0].state).toBe('live')
     expect(statuses[0].precipitationMm).toBe(1.4)
     expect(statuses[0].cloudCoverPercent).toBe(82)
+    expect(statuses[0].temperatureC).toBe(11.7)
     const url = String(fetchMock.mock.calls[0][0])
     expect(url).toContain('latitude=54.09')
     expect(url).toContain('longitude=12.14')
-    // Both values ride on the same request – no extra call for the sky
-    expect(url).toContain('current=precipitation,cloud_cover')
+    // All three values ride on the same request – no extra call for either
+    expect(url).toContain('current=precipitation,cloud_cover,temperature_2m')
     expect(fetchMock).toHaveBeenCalledOnce()
 
     // Next poll only after the interval; stop() cancels it
@@ -86,6 +91,8 @@ describe('WeatherClient', () => {
     expect(statuses[0].state).toBe('error')
     expect(statuses[0].precipitationMm).toBe(0)
     expect(statuses[0].cloudCoverPercent).toBe(0)
+    // …and the button drops the reading rather than showing a stale one
+    expect(statuses[0].temperatureC).toBeNull()
     client.stop()
   })
 
@@ -116,6 +123,26 @@ describe('WeatherClient', () => {
     expect(statuses[0].state).toBe('live')
     expect(statuses[0].precipitationMm).toBe(0.8)
     expect(statuses[0].cloudCoverPercent).toBe(0)
+    // …and a missing temperature is a button without a number, no more
+    expect(statuses[0].temperatureC).toBeNull()
+    client.stop()
+  })
+
+  it('reads a temperature below zero as one', async () => {
+    // The obvious way to reject a missing value would take -0.5 °C with it
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ current: { precipitation: 0, cloud_cover: 90, temperature_2m: -4.2 } }),
+          ),
+      ),
+    )
+    const client = makeClient()
+    client.start(600_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(statuses[0].temperatureC).toBe(-4.2)
     client.stop()
   })
 

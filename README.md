@@ -34,7 +34,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); a live compass, 2D/3D, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
-| Weather | Open-Meteo precipitation and cloud cover for one point in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. The live sky is shown only near real time (`?rain=0` opts out); the scene popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says |
+| Weather | Open-Meteo precipitation, cloud cover and temperature for one point in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the scene button. The live sky is shown only near real time (`?rain=0` opts out); the scene popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
@@ -100,9 +100,11 @@ VITE_CESIUM_ION_TOKEN=your-token
   and a sunny, an overcast and a rainy one – of which exactly one is in force;
   a picked one is set rather than polled, so it works offline and survives a
   time-traveled clock, and the button wears its icon and lights up while it is
-  not the sky the session opened on. Where there is no live weather to reach
-  (offline, `?rain=0`, no endpoint) the session opens on the clear sky and the
-  live tile is greyed out.
+  not the sky the session opened on. Beside the icon it carries the temperature
+  over Rostock, which stays the live reading under a picked sky – that sky is a
+  way to look at the city, not a claim about the weather. Where there is no live
+  weather to reach (offline, `?rain=0`, no endpoint) the session opens on the
+  clear sky, the live tile is greyed out and the button shows its icon alone.
 - **Field of view:** 25° horizontal while the miniature look is on, Cesium's
   60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), eased
   between the two when the switch is flipped – and the camera walks along the

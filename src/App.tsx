@@ -304,6 +304,14 @@ export default function App() {
   const [showLabels, setShowLabels] = useState(true)
   const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
+  /**
+   * Air temperature over Rostock in °C, straight from the weather client
+   * (every ten minutes), or null while there is none. The scene button
+   * shows it whichever sky is picked – unlike the sky it is not gated on
+   * the simulation clock, because it is a reading in a control rather
+   * than something drawn into the scene.
+   */
+  const [temperatureC, setTemperatureC] = useState<number | null>(null)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
@@ -670,6 +678,7 @@ export default function App() {
             precipitationMm: status.precipitationMm,
             cloudCoverPercent: status.cloudCoverPercent,
           }
+          setTemperatureC(status.temperatureC)
           // A picked sky outranks the live one until the viewer asks for
           // it back (see handleWeatherMode).
           if (weatherModeRef.current !== 'live') return
@@ -1613,11 +1622,12 @@ export default function App() {
             and camera reset closest to the thumb, the one that undoes
             whatever the others did to the view. bottom-8 keeps the column
             clear of the Cesium attribution line at the lower edge. */}
-        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
           <ScenePopover
             weatherMode={weatherMode}
             onWeatherModeChange={handleWeatherMode}
             liveWeatherAvailable={liveWeatherAvailable}
+            temperatureC={temperatureC}
             tiltShift={tiltShift}
             onToggleTiltShift={handleToggleTiltShift}
           />

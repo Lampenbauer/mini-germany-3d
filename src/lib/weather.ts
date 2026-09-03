@@ -1,9 +1,9 @@
 /**
  * Live weather client for the rain and overcast overlays: polls the
  * Open-Meteo current-weather API (CC-BY 4.0, free, no key) for the
- * city-center point and reports the current precipitation in mm plus the
- * cloud cover in percent. Errors report 0 mm – the map must never keep
- * raining on stale data.
+ * city-center point and reports the current precipitation in mm, the
+ * cloud cover in percent and the temperature in °C. Errors report 0 mm –
+ * the map must never keep raining on stale data.
  */
 
 export interface WeatherStatus {
@@ -16,6 +16,12 @@ export interface WeatherStatus {
    * unlike the rain it must not fail the whole poll.
    */
   cloudCoverPercent: number
+  /**
+   * Current air temperature in °C, or null when the feed did not carry
+   * one (and after an error). Nothing in the scene is drawn from it – it
+   * is the number the scene button shows.
+   */
+  temperatureC: number | null
   lastSuccessAt: number | null
   lastError: string | null
 }
@@ -79,6 +85,7 @@ export class WeatherClient {
     state: 'connecting',
     precipitationMm: 0,
     cloudCoverPercent: 0,
+    temperatureC: null,
     lastSuccessAt: null,
     lastError: null,
   }
@@ -114,11 +121,11 @@ export class WeatherClient {
     try {
       const url =
         `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
-        `&current=precipitation,cloud_cover`
+        `&current=precipitation,cloud_cover,temperature_2m`
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = (await response.json()) as {
-        current?: { precipitation?: unknown; cloud_cover?: unknown }
+        current?: { precipitation?: unknown; cloud_cover?: unknown; temperature_2m?: unknown }
       }
       const precipitation = Number(data?.current?.precipitation)
       if (!Number.isFinite(precipitation) || precipitation < 0) {
@@ -127,11 +134,16 @@ export class WeatherClient {
       // Cloud cover is graceful: a feed that ever drops the field leaves the
       // city under an open sky instead of failing the rain overlay with it.
       const cloudCover = Number(data?.current?.cloud_cover)
+      // The temperature is graceful in the same way, and it is nothing but
+      // a label: a feed without one leaves the scene button showing its
+      // icon alone rather than failing the poll the sky depends on.
+      const temperature = Number(data?.current?.temperature_2m)
       this.status = {
         state: 'live',
         precipitationMm: precipitation,
         cloudCoverPercent:
           Number.isFinite(cloudCover) && cloudCover >= 0 ? Math.min(100, cloudCover) : 0,
+        temperatureC: Number.isFinite(temperature) ? temperature : null,
         lastSuccessAt: Date.now(),
         lastError: null,
       }
@@ -143,6 +155,7 @@ export class WeatherClient {
         state: 'error',
         precipitationMm: 0,
         cloudCoverPercent: 0,
+        temperatureC: null,
         lastError: String(error),
       }
       this.onUpdate(this.status)

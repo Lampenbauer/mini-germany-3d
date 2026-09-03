@@ -20,6 +20,7 @@ function scene(overrides: Partial<ScenePopoverProps> = {}) {
     weatherMode: 'live',
     onWeatherModeChange,
     liveWeatherAvailable: true,
+    temperatureC: null,
     tiltShift: false,
     onToggleTiltShift,
     ...overrides,
@@ -84,6 +85,41 @@ describe('the scene popover', () => {
     // The other three still work offline: they are set, not polled
     fireEvent.click(screen.getByRole('radio', { name: 'Rain' }))
     expect(onWeatherModeChange).toHaveBeenCalledWith('rain')
+  })
+
+  it('carries the temperature beside the icon, and nothing when there is none', () => {
+    const { rerender } = render(
+      <ScenePopover
+        weatherMode="live"
+        onWeatherModeChange={vi.fn()}
+        liveWeatherAvailable
+        temperatureC={12.4}
+        tiltShift={false}
+        onToggleTiltShift={vi.fn()}
+      />,
+    )
+    // Whole degrees on the button, the exact reading in its label
+    expect(screen.getByRole('button', { name: 'Scene, 12 °C' })).toHaveTextContent('12°')
+
+    rerender(
+      <ScenePopover
+        weatherMode="live"
+        onWeatherModeChange={vi.fn()}
+        liveWeatherAvailable
+        temperatureC={null}
+        tiltShift={false}
+        onToggleTiltShift={vi.fn()}
+      />,
+    )
+    const bare = screen.getByRole('button', { name: 'Scene' })
+    expect(bare).toHaveTextContent('')
+  })
+
+  it('keeps showing the temperature under a picked sky', () => {
+    // A picked sky is a way to look at the city, not a claim about the
+    // weather – the reading beside it stays the real one.
+    scene({ weatherMode: 'rain', temperatureC: -3.2 })
+    expect(screen.getByRole('button', { name: 'Scene, -3 °C' })).toHaveTextContent('-3°')
   })
 
   it('switches the miniature look', () => {

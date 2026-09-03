@@ -7,9 +7,14 @@
  * they do not add or remove anything from the map, they change how the
  * same city reads, which is why they are here rather than there.
  *
- * The button wears the icon of the sky in force, and lights up like the
- * underground button whenever that sky is not the one the session opens
- * on – a hand-set sky is a state worth seeing from outside the popover.
+ * The button wears the icon of the sky in force and the temperature over
+ * Rostock beside it, and lights up like the underground button whenever
+ * that sky is not the one the session opens on – a hand-set sky is a
+ * state worth seeing from outside the popover.
+ *
+ * The temperature stays the live reading whichever sky is picked: a
+ * chosen sky is a way to look at the city, not a claim about the weather,
+ * and inventing a temperature to go with it would be one.
  */
 
 import { Cloudy, CloudRain, CloudSun, Sun, type LucideIcon } from 'lucide-react'
@@ -38,6 +43,8 @@ export interface ScenePopoverProps {
    * out with the reason rather than silently doing nothing.
    */
   liveWeatherAvailable: boolean
+  /** Live air temperature in °C, or null while there is none to show. */
+  temperatureC: number | null
   tiltShift: boolean
   onToggleTiltShift: (enabled: boolean) => void
 }
@@ -48,6 +55,12 @@ export function ScenePopover(props: ScenePopoverProps) {
   // Lit like the underground button: the sky is one the viewer picked,
   // not the one this session opens on.
   const picked = props.weatherMode !== defaultWeatherMode(props.liveWeatherAvailable)
+  const temperature =
+    props.temperatureC === null ? null : `${Math.round(props.temperatureC)}°`
+  const buttonLabel =
+    temperature === null
+      ? t('scene.title')
+      : `${t('scene.title')}, ${t('weather.temperature', { degrees: Math.round(props.temperatureC!) })}`
 
   return (
     <Popover>
@@ -60,17 +73,27 @@ export function ScenePopover(props: ScenePopoverProps) {
               // The picked-sky state has to beat the shared bg-card/85,
               // which tailwind-merge would otherwise let win over a variant.
               className={cn(
-                'pointer-events-auto border border-border/60 backdrop-blur-md',
+                'pointer-events-auto h-9 border border-border/60 backdrop-blur-md',
+                // With a reading beside the icon the button grows into a
+                // pill; the column is aligned on its right edge, so the
+                // square buttons below it keep their size (see App.tsx).
+                temperature !== null && 'w-auto gap-1.5 px-2.5',
                 picked
                   ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
                   : 'bg-card/85',
               )}
-              aria-label={t('scene.title')}
+              aria-label={buttonLabel}
             >
               <ActiveIcon aria-hidden />
+              {temperature !== null && (
+                <span className="text-xs font-medium tabular-nums">{temperature}</span>
+              )}
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
+        {/* The reading stands in the button itself; the tooltip only has
+            to name what the button opens. It stays in the button's label,
+            which is what a screen reader announces in its place. */}
         <TooltipContent side="left">{t('scene.title')}</TooltipContent>
       </Tooltip>
       <PopoverContent side="left" className="pointer-events-auto">
