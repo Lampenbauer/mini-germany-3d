@@ -110,7 +110,10 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   await settled()
 
   // The look starts off (config.camera.miniatureDefault) and is switched
-  // on from the panel; on is the deviation, so it rides along in the URL.
+  // on from the scene popover in the map controls; on is the deviation, so
+  // it rides along in the URL. The popover stays open for the whole test –
+  // it is DOM over the map, and the measurement reads the canvas.
+  await page.getByRole('button', { name: 'Scene' }).click()
   const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   const withoutEffect = await frameDetail()

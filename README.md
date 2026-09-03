@@ -27,14 +27,14 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleet – the tram a five-section Vossloh 6N2 (32 m), the S-Bahn a three-car Talent 2 (57 m), buses 12 m solos, the ferries their real double-enders (19.9 m Gehlsdorf passenger ferry, 39 m Breitling car ferry with ramps), each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
-| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the panel switch and `tiltshift=1` turn it on |
+| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the switch in the scene popover and `tiltshift=1` turn it on |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every one of ~7000 OSM street lamps along the routes – Rostock's real lighting from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); 2D/3D, face-north, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
-| Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
+| Weather | Open-Meteo precipitation and cloud cover for one point in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. The live sky is shown only near real time (`?rain=0` opts out); the scene popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
@@ -86,8 +86,17 @@ VITE_CESIUM_ION_TOKEN=your-token
   chases it facing the direction of travel; rotating the camera hands control back
   to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
   a camera reset ends the follow mode.
-- **Map controls:** 2D/3D pitch toggle, face north, and camera reset sit at the
-  lower right edge of the map.
+- **Map controls:** the underground view, a 2D/3D pitch toggle, face north, the
+  scene popover, camera reset and full screen sit at the lower right edge of the
+  map.
+- **Scene popover:** the sky and the miniature look, the two things that change
+  how the city reads rather than what is on it. Four skies – the live weather
+  and a sunny, an overcast and a rainy one – of which exactly one is in force;
+  a picked one is set rather than polled, so it works offline and survives a
+  time-traveled clock, and the button wears its icon and lights up while it is
+  not the sky the session opened on. Where there is no live weather to reach
+  (offline, `?rain=0`, no endpoint) the session opens on the clear sky and the
+  live tile is greyed out.
 - **Field of view:** 25° horizontal while the miniature look is on, Cesium's
   60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), eased
   between the two when the switch is flipped – and the camera walks along the

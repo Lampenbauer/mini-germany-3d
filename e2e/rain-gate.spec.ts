@@ -39,3 +39,30 @@ test('the underground view stops the rain', async ({ page }) => {
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
   await page.evaluate(() => window.__mrt!.setRain(0))
 })
+
+/**
+ * The weather picker in the scene popover, on the same cheap page: a
+ * picked sky is set rather than polled, so it works offline – and it has
+ * to reach the map through the same per-tick path the live weather uses.
+ */
+test('a picked sky puts rain in the air and takes it out again', async ({ page }) => {
+  test.setTimeout(240_000)
+  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
+  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
+
+  await page.goto('/?offline=1&time=08:30&paused=1&drops=40#routes=0&stops=0')
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+    timeout: 120_000,
+  })
+
+  await page.getByRole('button', { name: 'Scene' }).click()
+  // Offline there is nothing to poll, so live weather is not on offer
+  await expect(page.getByRole('radio', { name: 'Live weather' })).toBeDisabled()
+
+  await page.getByRole('radio', { name: 'Rain' }).click()
+  await expect(page.getByRole('radio', { name: 'Rain' })).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(drops, slowPoll).toBeGreaterThan(0)
+
+  await page.getByRole('radio', { name: 'Sunny' }).click()
+  await expect.poll(drops, slowPoll).toBe(0)
+})

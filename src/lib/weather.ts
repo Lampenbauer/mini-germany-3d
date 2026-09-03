@@ -23,6 +23,42 @@ export interface WeatherStatus {
 export type WeatherUpdateHandler = (status: WeatherStatus) => void
 
 /**
+ * Which sky the map shows: the live weather over Rostock, or one the
+ * viewer picked from the scene controls. A picked sky is shown whatever
+ * the simulation clock says – it is not a claim about right now, so the
+ * near-real-time gate the live weather runs behind does not apply to it.
+ */
+export type WeatherMode = 'live' | 'clear' | 'cloudy' | 'rain'
+
+/**
+ * What each picked sky is made of. 'live' has no entry – it is whatever
+ * the client last reported.
+ *
+ * The rain figure is a steady, unmistakable rain rather than a downpour:
+ * it puts ~2300 drops in the air and grades the tiles about three
+ * quarters of the way to the heaviest sky (see WeatherOverlay).
+ */
+/**
+ * The sky a session opens on: the live one wherever it can be reached,
+ * and otherwise the clear one the map would show anyway – offering the
+ * live sky where nothing can be polled would promise what it cannot
+ * deliver. It is also the mark the scene button lights up against: a sky
+ * other than this one is a viewer's choice.
+ */
+export function defaultWeatherMode(liveWeatherAvailable: boolean): WeatherMode {
+  return liveWeatherAvailable ? 'live' : 'clear'
+}
+
+export const WEATHER_PRESETS: Record<
+  Exclude<WeatherMode, 'live'>,
+  { precipitationMm: number; cloudCoverPercent: number }
+> = {
+  clear: { precipitationMm: 0, cloudCoverPercent: 0 },
+  cloudy: { precipitationMm: 0, cloudCoverPercent: 100 },
+  rain: { precipitationMm: 1.5, cloudCoverPercent: 100 },
+}
+
+/**
  * The live overlays only make sense near real time: the current weather
  * knows nothing about time-traveled simulation clocks. Both times are
  * seconds of day; the comparison wraps across midnight.

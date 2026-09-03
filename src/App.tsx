@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, Home, Layers2, Maximize, Minimize, Mountain } from 'lucide-react'
+import { Building2, Compass, Home, Maximize, Minimize, TrainFrontTunnel } from 'lucide-react'
 import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
+import { ScenePopover } from '@/components/ScenePopover'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
@@ -38,7 +39,13 @@ import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
-import { weatherIsCurrent, WeatherClient } from '@/lib/weather'
+import {
+  defaultWeatherMode,
+  weatherIsCurrent,
+  WeatherClient,
+  WEATHER_PRESETS,
+  type WeatherMode,
+} from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
@@ -198,6 +205,15 @@ function readUrlOptions(): UrlOptions {
   }
 }
 
+/**
+ * A button inside the view-control group at the lower right: the group
+ * draws the frame and the glass, each button only its own hairline to the
+ * one above it. Everything here has to beat the secondary variant, which
+ * tailwind-merge lets the later class win.
+ */
+const GROUPED_CONTROL =
+  'rounded-none border-t border-border/60 bg-transparent shadow-none first:border-t-0'
+
 export default function App() {
   /**
    * The ?query options, read once. Nothing changes them while the app runs
@@ -216,6 +232,17 @@ export default function App() {
    */
   const aisAvailable =
     config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline
+  /**
+   * Whether there is live weather to poll at all. Without an endpoint, in
+   * the tests, offline and with ?rain=0 there is none – the scene popover
+   * then offers its "Live weather" tile greyed out rather than as a
+   * choice that would quietly leave the sky clear.
+   */
+  const liveWeatherAvailable =
+    config.weather.url !== '' &&
+    import.meta.env.MODE !== 'test' &&
+    !urlOpts.offline &&
+    urlOpts.rain
 
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<CesiumMap | null>(null)
@@ -243,10 +270,21 @@ export default function App() {
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
-  /** Live precipitation in mm; forced = set via the test API (skips gating). */
+  /**
+   * The sky in force: precipitation in mm and cloud cover in percent.
+   * forced = not the live weather but a value set on purpose (a picked
+   * sky, or the test API), which skips the near-real-time gate.
+   */
   const rainRef = useRef({ mm: 0, forced: false })
-  /** Live cloud cover in percent; forced works like the rain's. */
   const cloudRef = useRef({ percent: 0, forced: false })
+  /**
+   * What the weather client last reported, whichever sky is picked – so
+   * switching back to live shows the real weather at once instead of
+   * waiting out the poll interval.
+   */
+  const liveWeatherRef = useRef({ precipitationMm: 0, cloudCoverPercent: 0 })
+  /** Which sky is in force (see defaultWeatherMode for what it opens on). */
+  const weatherModeRef = useRef<WeatherMode>(defaultWeatherMode(liveWeatherAvailable))
   /** Rain currently visible – keeps the render loop at animation rate. */
   const rainActiveRef = useRef(false)
 
@@ -255,6 +293,7 @@ export default function App() {
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
   const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
+  const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
@@ -609,6 +648,13 @@ export default function App() {
         config.weather.longitude,
         config.weather.latitude,
         (status) => {
+          liveWeatherRef.current = {
+            precipitationMm: status.precipitationMm,
+            cloudCoverPercent: status.cloudCoverPercent,
+          }
+          // A picked sky outranks the live one until the viewer asks for
+          // it back (see handleWeatherMode).
+          if (weatherModeRef.current !== 'live') return
           rainRef.current = { mm: status.precipitationMm, forced: false }
           cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
         },
@@ -1096,6 +1142,28 @@ export default function App() {
     writeHashRef.current()
   }, [])
 
+  /**
+   * Which sky to show. A picked one is written straight into the values
+   * the UI tick reads, marked as set on purpose so it survives a
+   * time-traveled clock; live puts the weather client's latest reading
+   * back, whatever the sky was in between. The map is not touched here –
+   * the tick applies both values a few times a second, and it is also
+   * what keeps the sky off while the camera sits underground.
+   */
+  const handleWeatherMode = useCallback((mode: WeatherMode) => {
+    weatherModeRef.current = mode
+    setWeatherMode(mode)
+    if (mode === 'live') {
+      const live = liveWeatherRef.current
+      rainRef.current = { mm: live.precipitationMm, forced: false }
+      cloudRef.current = { percent: live.cloudCoverPercent, forced: false }
+      return
+    }
+    const preset = WEATHER_PRESETS[mode]
+    rainRef.current = { mm: preset.precipitationMm, forced: true }
+    cloudRef.current = { percent: preset.cloudCoverPercent, forced: true }
+  }, [])
+
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
     simRef.current?.clock.setSpeed(value)
@@ -1444,8 +1512,6 @@ export default function App() {
             aisAvailable={aisAvailable}
             showAisVessels={showAisVessels}
             onToggleAisVessels={handleToggleAisVessels}
-            tiltShift={tiltShift}
-            onToggleTiltShift={handleToggleTiltShift}
           />
         </div>
 
@@ -1505,11 +1571,22 @@ export default function App() {
           </div>
         )}
 
-        {/* Map controls: underground, 2D/3D, face north, camera reset, and
-            full screen last – the one button here that moves the window
-            rather than the camera. bottom-8 keeps the column clear of the
-            Cesium attribution line at the lower edge. */}
+        {/* Map controls, from the top: the scene popover (weather and the
+            miniature look) and the underground view, each on its own – they
+            are modes the map stays in, and the popover and the lit button
+            say so. Below them the four that only ever aim the camera or the
+            window, joined into one block: face north, 2D/3D, full screen,
+            and camera reset closest to the thumb, the one that undoes
+            whatever the others did to the view. bottom-8 keeps the column
+            clear of the Cesium attribution line at the lower edge. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+          <ScenePopover
+            weatherMode={weatherMode}
+            onWeatherModeChange={handleWeatherMode}
+            liveWeatherAvailable={liveWeatherAvailable}
+            tiltShift={tiltShift}
+            onToggleTiltShift={handleToggleTiltShift}
+          />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1527,76 +1604,84 @@ export default function App() {
                 aria-pressed={underground}
                 onClick={handleToggleUnderground}
               >
-                {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
+                {/* Where the button takes you: up into the city, or down
+                    into the tunnels. */}
+                {underground ? <Building2 aria-hidden /> : <TrainFrontTunnel aria-hidden />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="left">
               {underground ? t('camera.toSurface') : t('camera.toUnderground')}
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-                aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-                onClick={handleToggleViewMode}
-              >
-                {cameraIs2D ? '3D' : '2D'}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-                aria-label={t('camera.faceNorth')}
-                onClick={handleFaceNorth}
-              >
-                <Compass aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-                aria-label={t('camera.reset')}
-                onClick={handleResetCamera}
-              >
-                <Home aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
-          </Tooltip>
-          {fullscreenAvailable && (
+          <div
+            role="group"
+            aria-label={t('view.controls')}
+            className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md"
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="secondary"
                   size="icon"
-                  className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-                  aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
-                  aria-pressed={fullscreen}
-                  onClick={handleToggleFullscreen}
+                  className={GROUPED_CONTROL}
+                  aria-label={t('camera.faceNorth')}
+                  onClick={handleFaceNorth}
                 >
-                  {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
+                  <Compass aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className={cn(GROUPED_CONTROL, 'font-bold')}
+                  aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                  onClick={handleToggleViewMode}
+                >
+                  {cameraIs2D ? '3D' : '2D'}
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
-                {fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
               </TooltipContent>
             </Tooltip>
-          )}
+            {fullscreenAvailable && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={GROUPED_CONTROL}
+                    aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                    aria-pressed={fullscreen}
+                    onClick={handleToggleFullscreen}
+                  >
+                    {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className={GROUPED_CONTROL}
+                  aria-label={t('camera.reset')}
+                  onClick={handleResetCamera}
+                >
+                  <Home aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </div>
     </div>

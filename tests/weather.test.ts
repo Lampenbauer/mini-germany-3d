@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { weatherIsCurrent, WeatherClient, type WeatherStatus } from '@/lib/weather'
+import {
+  defaultWeatherMode,
+  weatherIsCurrent,
+  WeatherClient,
+  WEATHER_PRESETS,
+  type WeatherStatus,
+} from '@/lib/weather'
+import { overcastGrade } from '@/map/WeatherOverlay'
 
 describe('weatherIsCurrent', () => {
   it('accepts sim times near the real clock', () => {
@@ -127,3 +134,29 @@ describe('WeatherClient', () => {
     client.stop()
   })
 })
+
+describe('the picked skies', () => {
+  it('opens on the live sky, and on the clear one where there is none', () => {
+    expect(defaultWeatherMode(true)).toBe('live')
+    expect(defaultWeatherMode(false)).toBe('clear')
+  })
+
+  it('holds a sky for every mode but the live one', () => {
+    expect(Object.keys(WEATHER_PRESETS).sort()).toEqual(['clear', 'cloudy', 'rain'])
+  })
+
+  it('reads as clear, overcast and rainy on the grade the tiles use', () => {
+    const grade = (mode: keyof typeof WEATHER_PRESETS) =>
+      overcastGrade(
+        WEATHER_PRESETS[mode].precipitationMm,
+        WEATHER_PRESETS[mode].cloudCoverPercent,
+      )
+    expect(grade('clear')).toBe(0)
+    expect(grade('cloudy')).toBeGreaterThan(0)
+    expect(grade('rain')).toBeGreaterThan(grade('cloudy'))
+    // Rain is rain, not a drizzle that reads as a grey day
+    expect(WEATHER_PRESETS.rain.precipitationMm).toBeGreaterThan(0.5)
+    expect(grade('rain')).toBeLessThan(1)
+  })
+})
+

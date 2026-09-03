@@ -46,8 +46,6 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     onToggleStops: vi.fn(),
     showLabels: true,
     onToggleLabels: vi.fn(),
-    tiltShift: true,
-    onToggleTiltShift: vi.fn(),
     aisAvailable: true,
     showAisVessels: true,
     onToggleAisVessels,
