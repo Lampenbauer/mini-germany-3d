@@ -1638,9 +1638,9 @@ export default function App() {
                 aria-pressed={underground}
                 onClick={handleToggleUnderground}
               >
-                {/* Where the button takes you: up into the city, or down
-                    into the tunnels. */}
-                {underground ? <Building2 aria-hidden /> : <TrainFrontTunnel aria-hidden />}
+                {/* Where the camera stands: in the city, or down among the
+                    tunnels. The label says what the press does. */}
+                {underground ? <TrainFrontTunnel aria-hidden /> : <Building2 aria-hidden />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="left">
