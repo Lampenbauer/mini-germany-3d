@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { haversineMeters } from '@/lib/geo'
-import { config } from '@/config'
+import { haversineMeters, offsetLonLat } from '@/lib/geo'
+import { config, HOME_VIEW_OFFSET_METERS } from '@/config'
 import {
   ROSTOCK_BOUNDING_BOX_PADDING_METERS,
   boundingBoxCenter,
@@ -91,6 +91,20 @@ describe('rostockBoundingBox', () => {
     expect(center.latitude).toBe(Math.round(center.latitude * 1e4) / 1e4)
     expect(config.weather.longitude).toBe(center.longitude)
     expect(config.weather.latitude).toBe(center.latitude)
+  })
+
+  it('has the home view centered the configured offset away from its center', () => {
+    const center = boundingBoxCenter(box)
+    const { east, north } = HOME_VIEW_OFFSET_METERS
+    const [longitude, latitude] = offsetLonLat([center.longitude, center.latitude], east, north)
+    expect(config.home.longitude).toBeCloseTo(longitude, 9)
+    expect(config.home.latitude).toBeCloseTo(latitude, 9)
+    expect(
+      haversineMeters(
+        [center.longitude, center.latitude],
+        [config.home.longitude, config.home.latitude],
+      ),
+    ).toBeCloseTo(Math.hypot(east, north), -1)
   })
 
   it('is what cityBounds and paddingMeters of the JSON give', () => {

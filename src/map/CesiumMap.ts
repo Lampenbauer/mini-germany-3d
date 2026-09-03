@@ -764,33 +764,37 @@ export class CesiumMap {
   }
 
   /**
-   * Where the home view's camera stands at the configured field of view.
+   * Where the home view's camera stands. config.home names the ground
+   * point the view is centered on – the center of the Rostock bounding
+   * box, moved by the offset configured there – and the camera sits
+   * behind it against the heading, `above` meters up and above/tan(pitch)
+   * meters back: the pitch's own triangle.
    *
-   * The pose in config.home was framed at Cesium's 60°, and a narrower
-   * angle needs more distance for the same ground. That
-   * distance has to be added along the VIEW AXIS, not to the height: the
-   * pose aims at a ground point (height - ground)/tan(pitch) ahead of the
-   * camera, so a taller camera at the same coordinates would push that
-   * point north and frame a different part of the city. Aim point first,
-   * then step back from it.
+   * The height was framed at Cesium's 60°, and a narrower angle needs
+   * more distance for the same ground. That distance is added along the
+   * VIEW AXIS, so the aim point stays put and only the camera steps back
+   * – a taller camera over the same spot would frame a different part of
+   * the city instead.
    */
   private homePosition(heading: number, pitch: number): Cartesian3 {
     const { longitude, latitude, height } = config.home
-    const base = Cartesian3.fromDegrees(longitude, latitude, height)
     const above = height - this.defaultGroundHeight
     const forward = above / Math.tan(-pitch)
+    // A camera looking at the horizon (tan → ∞) has no ground point to
+    // aim at – stand it over the center instead.
+    if (!Number.isFinite(forward)) return Cartesian3.fromDegrees(longitude, latitude, height)
     const scale = cameraFramingScale(this.viewer.camera)
-    // Nothing to step back from at the reference angle, and nothing to
-    // aim at from a camera that looks at the horizon (tan → ∞).
-    if (scale === 1 || !Number.isFinite(forward)) return base
-    const enu = Transforms.eastNorthUpToFixedFrame(base, undefined, new Matrix4())
-    const aim = Matrix4.multiplyByPoint(
+    const aim = Cartesian3.fromDegrees(longitude, latitude, this.defaultGroundHeight)
+    const enu = Transforms.eastNorthUpToFixedFrame(aim, undefined, new Matrix4())
+    return Matrix4.multiplyByPoint(
       enu,
-      new Cartesian3(forward * Math.sin(heading), forward * Math.cos(heading), -above),
+      new Cartesian3(
+        -forward * scale * Math.sin(heading),
+        -forward * scale * Math.cos(heading),
+        above * scale,
+      ),
       new Cartesian3(),
     )
-    const back = Cartesian3.subtract(base, aim, new Cartesian3())
-    return Cartesian3.add(aim, Cartesian3.multiplyByScalar(back, scale, back), back)
   }
 
   /**

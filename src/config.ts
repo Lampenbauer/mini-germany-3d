@@ -2,7 +2,24 @@
  * Central configuration of Mini Rostock 3D.
  */
 
+import { offsetLonLat } from '@/lib/geo'
 import { boundingBoxCenter, rostockBoundingBox } from '@/lib/rostock-bounding-box'
+
+/**
+ * How far the home view's center is moved from the center of the Rostock
+ * bounding box, in meters – east and north, negative is west and south.
+ * The plain center lies on the Warnow north of the old town; a kilometer
+ * south brings more of the city into the frame.
+ */
+export const HOME_VIEW_OFFSET_METERS = { east: -2000, north: -7000 }
+
+const boxCenter = boundingBoxCenter(rostockBoundingBox)
+/** The ground point the home view is centered on (see `home` below). */
+const [homeLongitude, homeLatitude] = offsetLonLat(
+  [boxCenter.longitude, boxCenter.latitude],
+  HOME_VIEW_OFFSET_METERS.east,
+  HOME_VIEW_OFFSET_METERS.north,
+)
 
 export const config = {
   /**
@@ -115,15 +132,20 @@ export const config = {
   },
 
   /**
-   * Initial camera position (also the "Reset camera" home view). A URL hash
-   * (#lat=…&lon=…) still takes precedence when present. The height is the
-   * one that framed the city at 60° – it is scaled to the configured field
-   * of view when the camera flies home.
+   * The home view (also the "Reset camera" view): the camera looks at the
+   * center of the Rostock bounding box (lib/rostock-bounding-box.ts),
+   * moved by HOME_VIEW_OFFSET_METERS, from `height` meters up, with this
+   * heading and pitch – where the camera itself stands follows from that
+   * (see homePosition in map/CesiumMap.ts). A URL hash (#lat=…&lon=…)
+   * still takes precedence when present. The height is the one that
+   * framed the city at 60° – it is scaled to the configured field of view
+   * when the camera flies home.
    */
   home: {
-    longitude: 12.110623,
-    latitude: 54.039949,
-    height: 4415,
+    /** The ground point the view is centered on. */
+    longitude: homeLongitude,
+    latitude: homeLatitude,
+    height: 5800,
     heading: 0,
     pitch: -40,
   },

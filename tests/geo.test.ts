@@ -4,6 +4,7 @@ import {
   cumulativeDistances,
   haversineMeters,
   heightAtDistance,
+  offsetLonLat,
   projectOntoPath,
   sampleAtDistance,
   type LonLat,
@@ -23,6 +24,29 @@ describe('haversineMeters', () => {
     const b: LonLat = [12.2, 54.05]
     expect(haversineMeters(a, b)).toBeCloseTo(haversineMeters(b, a), 6)
     expect(haversineMeters(a, a)).toBe(0)
+  })
+})
+
+describe('offsetLonLat', () => {
+  const origin: LonLat = [12.1469, 54.1477]
+
+  it('moves a point by the requested distance in each direction', () => {
+    for (const [east, north, bearing] of [
+      [0, 1000, 0],
+      [1000, 0, 90],
+      [0, -1000, 180],
+      [-1000, 0, 270],
+    ]) {
+      const moved = offsetLonLat(origin, east, north)
+      expect(haversineMeters(origin, moved)).toBeCloseTo(1000, 0)
+      // The flat-earth step east or west leaves a parallel, whose initial
+      // great-circle bearing at 54° differs from 90°/270° by ~0.006°
+      expect(bearingDegrees(origin, moved)).toBeCloseTo(bearing, 1)
+    }
+  })
+
+  it('leaves the point alone for a zero offset', () => {
+    expect(offsetLonLat(origin, 0, 0)).toEqual(origin)
   })
 })
 
