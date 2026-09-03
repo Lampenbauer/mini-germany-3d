@@ -249,6 +249,8 @@ export default function App() {
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
+  /** H: the whole interface out of the way (see the effect below). */
+  const [uiHidden, setUiHidden] = useState(false)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -1102,6 +1104,59 @@ export default function App() {
     [selectVessel],
   )
 
+  /**
+   * H takes the whole interface away and brings it back: the panel,
+   * whichever card is open, and the map controls. For a screenshot of the
+   * city with nothing on top of it.
+   *
+   * A bare letter rather than a modifier combination, because there is no
+   * modifier combination that is free everywhere. Ctrl+Shift+letter is
+   * crowded in both Chrome and Firefox, differently per browser, per
+   * platform and per installed extension – Ctrl+Shift+H itself opens
+   * Firefox's history library. Browsers reserve almost no unmodified
+   * letters, so a bare key sidesteps that whole class, and it costs the
+   * same keystroke on every keyboard layout. Not Tab, which every creative
+   * tool uses for this: in a browser Tab is how the keyboard reaches the
+   * switches and buttons in the panel, and taking it would shut those
+   * users out.
+   *
+   * What the MAP draws is deliberately untouched – stop plates, vehicle
+   * numbers, ship names and routes all live in the WebGL scene rather than
+   * in the DOM, and the Layers switches are what turn those off. Cesium's
+   * credit line stays for the same reason plus a better one: it belongs to
+   * the map widget, and the Google and Cesium terms want it visible
+   * wherever their data is (see README, "Attribution").
+   *
+   * Not persisted in the URL. A shared link that opened with no interface
+   * would leave the recipient hunting for a shortcut nobody told them
+   * about; a reload is the way back for anyone who forgets it here.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Bare H only: with a modifier this is somebody else's shortcut, and
+      // a held key would flicker the interface rather than toggle it.
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+      if (event.repeat) return
+      // key, not code: the shortcut is the letter H as the reader sees it
+      // on the keycap. On Dvorak the physical KeyH carries a D, and hiding
+      // the interface on D would be a surprise nobody asked for.
+      if (event.key.toLowerCase() !== 'h') return
+      // Where a letter means a letter, it is not a shortcut. Only the time
+      // field qualifies today, and it refuses typing anyway, but a bare key
+      // has to check rather than assume that stays true.
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable) return
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      // Nothing of the browser's own hangs on a bare letter, except
+      // Firefox's opt-in type-ahead find.
+      event.preventDefault()
+      setUiHidden((hidden) => !hidden)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const handleSetTime = useCallback((hhmm: string) => {
     const sec = parseTimeOfDay(hhmm)
     if (sec !== null) simRef.current?.clock.setSecondsOfDay(sec)
@@ -1305,158 +1360,168 @@ export default function App() {
     >
       <div ref={containerRef} className="absolute inset-0" data-testid="cesium-container" />
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10">
-        <ControlPanel
-          clockText={clockText}
-          speed={speed}
-          paused={paused}
-          onSpeedChange={handleSpeedChange}
-          onTogglePause={handleTogglePause}
-          onSetTime={handleSetTime}
-          onResetTime={handleResetTime}
-          lines={lineInfos}
-          onToggleLine={handleToggleLine}
-          onFocusLine={handleFocusLine}
-          onSetLinesVisible={handleSetLinesVisible}
-          showRoutes={showRoutes}
-          onToggleRoutes={handleToggleRoutes}
-          showStops={showStops}
-          onToggleStops={handleToggleStops}
-          showLabels={showLabels}
-          onToggleLabels={handleToggleLabels}
-          aisAvailable={aisAvailable}
-          showAisVessels={showAisVessels}
-          onToggleAisVessels={handleToggleAisVessels}
-        />
-      </div>
-
-      {selectedLine && lineProfile && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <LineCard
-            profile={lineProfile}
-            activity={lineActivity}
-            name={localizeLineName(selectedLine.name)}
-            color={selectedLine.color}
-            onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
-            onSelectVehicle={handleSelectDeparture}
-            onClose={() => setSelectedLineId(null)}
+      {/* Everything the app draws over the map, in one wrapper so H can
+          take the interface away in a single stroke (see the effect above). display:contents keeps the wrapper out of the
+          layout – each overlay below still positions against the map
+          container exactly as it did – and switching it to display:none
+          hides all of them at once without unmounting any: the panel keeps
+          whether it was collapsed, an open card stays open, and the time
+          field keeps what was picked in it. */}
+      <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
+        <div className="pointer-events-none absolute left-4 top-4 z-10">
+          <ControlPanel
+            clockText={clockText}
+            speed={speed}
+            paused={paused}
+            onSpeedChange={handleSpeedChange}
+            onTogglePause={handleTogglePause}
+            onSetTime={handleSetTime}
+            onResetTime={handleResetTime}
+            lines={lineInfos}
+            onToggleLine={handleToggleLine}
+            onFocusLine={handleFocusLine}
+            onSetLinesVisible={handleSetLinesVisible}
+            showRoutes={showRoutes}
+            onToggleRoutes={handleToggleRoutes}
+            showStops={showStops}
+            onToggleStops={handleToggleStops}
+            showLabels={showLabels}
+            onToggleLabels={handleToggleLabels}
+            aisAvailable={aisAvailable}
+            showAisVessels={showAisVessels}
+            onToggleAisVessels={handleToggleAisVessels}
           />
         </div>
-      )}
 
-      {!selectedLine && selectedVessel && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <VesselCard
-            vessel={selectedVessel}
-            nowMs={Date.now()}
-            following={following}
-            onToggleFollow={handleToggleFollow}
-            onClose={() => selectVessel(null)}
-          />
+        {selectedLine && lineProfile && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <LineCard
+              profile={lineProfile}
+              activity={lineActivity}
+              name={localizeLineName(selectedLine.name)}
+              color={selectedLine.color}
+              onFlyTo={() => mapRef.current?.focusLine(selectedLine.id)}
+              onSelectVehicle={handleSelectDeparture}
+              onClose={() => setSelectedLineId(null)}
+            />
+          </div>
+        )}
+
+        {!selectedLine && selectedVessel && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <VesselCard
+              vessel={selectedVessel}
+              nowMs={Date.now()}
+              following={following}
+              onToggleFollow={handleToggleFollow}
+              onClose={() => selectVessel(null)}
+            />
+          </div>
+        )}
+
+        {!selected && !selectedVessel && !selectedLine && selectedStop && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <StopCard
+              stop={selectedStop}
+              departures={stopDepartures}
+              simSeconds={simSeconds}
+              interchange={interchangeByStop.get(selectedStop.id) ?? []}
+              onSelectVehicle={handleSelectDeparture}
+              onFlyTo={handleFlyToStop}
+              onClose={() => selectStop(null)}
+            />
+          </div>
+        )}
+
+        {selected && !selectedLine && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <VehicleCard
+              vehicle={selected}
+              tripProgress={tripProgress}
+              simSeconds={simSeconds}
+              interchangeByStop={interchangeByStop}
+              onFlyToStop={handleFlyToStop}
+              onSelectLine={handleFocusLine}
+              following={following}
+              onToggleFollow={handleToggleFollow}
+              onClose={() => selectVehicle(null)}
+            />
+          </div>
+        )}
+
+        {/* Map controls: underground, 2D/3D, face north, camera reset.
+            bottom-8 keeps them clear of the Cesium attribution line at the
+            lower edge. */}
+        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                // The active state has to beat the shared bg-card/85 below,
+                // which tailwind-merge would otherwise let win over a variant.
+                className={cn(
+                  'pointer-events-auto border border-border/60 backdrop-blur-md',
+                  underground
+                    ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+                    : 'bg-card/85',
+                )}
+                aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
+                aria-pressed={underground}
+                onClick={handleToggleUnderground}
+              >
+                {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
+                aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                onClick={handleToggleViewMode}
+              >
+                {cameraIs2D ? '3D' : '2D'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                aria-label={t('camera.faceNorth')}
+                onClick={handleFaceNorth}
+              >
+                <Compass aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
+                aria-label={t('camera.reset')}
+                onClick={handleResetCamera}
+              >
+                <Home aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+          </Tooltip>
         </div>
-      )}
-
-      {!selected && !selectedVessel && !selectedLine && selectedStop && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <StopCard
-            stop={selectedStop}
-            departures={stopDepartures}
-            simSeconds={simSeconds}
-            interchange={interchangeByStop.get(selectedStop.id) ?? []}
-            onSelectVehicle={handleSelectDeparture}
-            onFlyTo={handleFlyToStop}
-            onClose={() => selectStop(null)}
-          />
-        </div>
-      )}
-
-      {selected && !selectedLine && (
-        <div className="pointer-events-none absolute right-4 top-4 z-10">
-          <VehicleCard
-            vehicle={selected}
-            tripProgress={tripProgress}
-            simSeconds={simSeconds}
-            interchangeByStop={interchangeByStop}
-            onFlyToStop={handleFlyToStop}
-            onSelectLine={handleFocusLine}
-            following={following}
-            onToggleFollow={handleToggleFollow}
-            onClose={() => selectVehicle(null)}
-          />
-        </div>
-      )}
-
-      {/* Map controls: underground, 2D/3D, face north, camera reset. bottom-8
-          keeps them clear of the Cesium attribution line at the lower edge. */}
-      <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              // The active state has to beat the shared bg-card/85 below,
-              // which tailwind-merge would otherwise let win over a variant.
-              className={cn(
-                'pointer-events-auto border border-border/60 backdrop-blur-md',
-                underground
-                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
-                  : 'bg-card/85',
-              )}
-              aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
-              aria-pressed={underground}
-              onClick={handleToggleUnderground}
-            >
-              {underground ? <Mountain aria-hidden /> : <Layers2 aria-hidden />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            {underground ? t('camera.toSurface') : t('camera.toUnderground')}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 font-bold backdrop-blur-md"
-              aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-              onClick={handleToggleViewMode}
-            >
-              {cameraIs2D ? '3D' : '2D'}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-              aria-label={t('camera.faceNorth')}
-              onClick={handleFaceNorth}
-            >
-              <Compass aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{t('camera.faceNorth')}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="pointer-events-auto border border-border/60 bg-card/85 backdrop-blur-md"
-              aria-label={t('camera.reset')}
-              onClick={handleResetCamera}
-            >
-              <Home aria-hidden />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
-        </Tooltip>
       </div>
     </div>
   )

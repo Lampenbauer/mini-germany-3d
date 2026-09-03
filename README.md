@@ -35,6 +35,7 @@ night-time cabin glow under the vehicles), and a UI styled after
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Live weather | Open-Meteo precipitation and cloud cover for the city center in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain. Shown only near real time (`?rain=0` opts out) |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider) |
+| Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
 
 ## Quick start
