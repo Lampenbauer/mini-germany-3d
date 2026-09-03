@@ -193,6 +193,24 @@ function readUrlOptions(): UrlOptions {
 }
 
 export default function App() {
+  /**
+   * The ?query options, read once. Nothing changes them while the app runs
+   * – a shared view travels in the hash, which applyHash picks up – so the
+   * render and the init effect can both read this one parse. First in the
+   * component, because the refs and the state below seed themselves from it.
+   */
+  const [urlOpts] = useState(readUrlOptions)
+  /**
+   * Whether the live AIS fleet is reachable at all. Without a configured
+   * endpoint, in the tests and in offline mode there is no harbor traffic
+   * for a switch to reach, and the panel leaves its row out.
+   *
+   * ?ais=0 is deliberately NOT part of this: it decides whether the fleet
+   * opens switched on, and the switch can still bring it back.
+   */
+  const aisAvailable =
+    config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline
+
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<CesiumMap | null>(null)
   const simRef = useRef<Simulation | null>(null)
@@ -201,8 +219,20 @@ export default function App() {
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
   const selectedMmsiRef = useRef<number | null>(null)
-  /** Latest AIS list, so a selected ship's card refreshes with the polls. */
+  /**
+   * Latest AIS list – the one copy of it. The render loop draws from it,
+   * a selected ship's card refreshes from it, and the panel switch empties
+   * it when the fleet is turned back on (see handleToggleAisVessels).
+   */
   const aisVesselsRef = useRef<AisVessel[]>([])
+  /** The AIS poller, so the panel switch can stop and restart it. */
+  const aisClientRef = useRef<AisClient | null>(null)
+  /**
+   * Panel switch for the AIS fleet, as the render loop reads it. Seeded
+   * from ?ais=0 like the state it mirrors – a link that opens with the
+   * ships off must not have the loop draw them anyway.
+   */
+  const showAisVesselsRef = useRef(urlOpts.ais)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the init effect – selection changes write the URL immediately. */
@@ -218,6 +248,7 @@ export default function App() {
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
+  const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
@@ -375,7 +406,6 @@ export default function App() {
     // Mirror the detected UI language for screen readers/translators
     document.documentElement.lang = getLanguage()
 
-    const urlOpts = readUrlOptions()
     // Layer/pause state restored from a shared URL. The ?paused search
     // param stays the boot flag (tests); the hash marks a user pause.
     const uiState = parseUiStateHash(window.location.hash)
@@ -425,27 +455,26 @@ export default function App() {
 
     // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
     // backdrop, played back 4 minutes behind the wall clock (see
-    // ais-extract.ts). Off in offline mode and tests, ?ais=0 opts out.
-    const aisEnabled =
-      config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && urlOpts.ais
-    let aisClient: AisClient | null = null
-    let aisBackdrop: AisVessel[] = []
-    if (aisEnabled) {
-      aisClient = new AisClient(config.ais.url, (_status, vessels) => {
+    // ais-extract.ts). The poller is built wherever AIS is reachable at
+    // all, and started only if the fleet opens switched on – ?ais=0 and
+    // the panel switch share the one state (see handleToggleAisVessels).
+    if (aisAvailable) {
+      const aisClient = new AisClient(config.ais.url, (_status, vessels) => {
         // The city ferries sail as simulated vehicles on their timetable –
         // drawing their AIS twins too would put two boats on one crossing.
-        aisBackdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
-        aisVesselsRef.current = aisBackdrop
+        const backdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
+        aisVesselsRef.current = backdrop
         // An open ship card follows its ship's fixes; a ship that has left
         // the picture closes it rather than freezing at her last position.
         const mmsi = selectedMmsiRef.current
         if (mmsi !== null) {
-          const fresh = aisBackdrop.find((v) => v.mmsi === mmsi) ?? null
+          const fresh = backdrop.find((v) => v.mmsi === mmsi) ?? null
           if (fresh === null) selectVessel(null)
           else setSelectedVessel(fresh)
         }
       })
-      aisClient.start(config.ais.pollIntervalMs)
+      aisClientRef.current = aisClient
+      if (showAisVesselsRef.current) aisClient.start(config.ais.pollIntervalMs)
     }
 
     const allLines = new Set(network.lines.map((l) => l.id))
@@ -658,6 +687,10 @@ export default function App() {
     // into live data (and snaps the sim clock to real time, see
     // handleTogglePause) – the display ease glides everything over.
     let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
+    /** Ships on the map right now – false before the first sync and while
+        the panel switch is off, which is what tells the tick below that
+        there is a fleet left to take down. */
+    let aisDrawn = false
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -702,20 +735,36 @@ export default function App() {
 
             const snapshots = sim.snapshots()
             snapshotsRef.current = snapshots
+            const wantAis = aisAvailable && showAisVesselsRef.current
+            // The switch coming back drops whatever was frozen: it emptied
+            // the vessel list with it, and a stale freeze would put the old
+            // harbor back up. The upgrade below re-freezes on fresh data.
+            if (wantAis && !aisDrawn) aisFrozen = null
             if (clock.paused) {
               // A pause that started before the first poll upgrades once
               // when data lands – frozen, but not needlessly empty.
-              if (aisFrozen === null || (aisFrozen.backdrop.length === 0 && aisBackdrop.length > 0)) {
-                aisFrozen = { backdrop: aisBackdrop, atMs: Date.now() }
+              if (
+                aisFrozen === null ||
+                (aisFrozen.backdrop.length === 0 && aisVesselsRef.current.length > 0)
+              ) {
+                aisFrozen = { backdrop: aisVesselsRef.current, atMs: Date.now() }
               }
             } else {
               aisFrozen = null
             }
             const aisNow = aisFrozen?.atMs ?? Date.now()
             const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
-            const vesselInfo = aisEnabled
-              ? map.syncVessels(aisFrozen?.backdrop ?? aisBackdrop, aisNow)
-              : null
+            // Switched off, one sync with an empty list takes the hulls,
+            // their models and their names off the map; after that there is
+            // nothing left to sync and the layer costs nothing per tick.
+            let vesselInfo: { anyMovingVesselInView: boolean } | null = null
+            if (wantAis) {
+              vesselInfo = map.syncVessels(aisFrozen?.backdrop ?? aisVesselsRef.current, aisNow)
+              aisDrawn = true
+            } else if (aisDrawn) {
+              map.syncVessels([], aisNow)
+              aisDrawn = false
+            }
             lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
 
@@ -939,7 +988,8 @@ export default function App() {
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
       realtimeClient?.stop()
-      aisClient?.stop()
+      aisClientRef.current?.stop()
+      aisClientRef.current = null
       weatherClient?.stop()
       window.__mrt = undefined
       map.destroy()
@@ -1025,6 +1075,32 @@ export default function App() {
       return next
     })
   }, [])
+
+  /**
+   * The AIS fleet on or off. Off stops the polling along with the drawing –
+   * a layer nobody is looking at has no business calling the endpoint every
+   * ten seconds – and closes an open ship card, whose ship is about to leave
+   * the map.
+   *
+   * On, the list in hand is dropped first. It is as old as the switch was
+   * off, and an AIS fix stays drawable for half an hour (AIS_EXPIRE_MS), so
+   * keeping it would raise a harbor full of ghosts for one poll interval.
+   * Empty water for a few seconds is the honest picture.
+   */
+  const handleToggleAisVessels = useCallback(
+    (visible: boolean) => {
+      showAisVesselsRef.current = visible
+      setShowAisVessels(visible)
+      if (visible) {
+        aisVesselsRef.current = []
+        aisClientRef.current?.start(config.ais.pollIntervalMs)
+      } else {
+        aisClientRef.current?.stop()
+        if (selectedMmsiRef.current !== null) selectVessel(null)
+      }
+    },
+    [selectVessel],
+  )
 
   const handleSetTime = useCallback((hhmm: string) => {
     const sec = parseTimeOfDay(hhmm)
@@ -1221,9 +1297,7 @@ export default function App() {
     [selected],
   )
 
-  const offlineMode =
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('offline') === '1'
+  const offlineMode = urlOpts.offline
 
   return (
     <div
@@ -1250,6 +1324,9 @@ export default function App() {
           onToggleStops={handleToggleStops}
           showLabels={showLabels}
           onToggleLabels={handleToggleLabels}
+          aisAvailable={aisAvailable}
+          showAisVessels={showAisVessels}
+          onToggleAisVessels={handleToggleAisVessels}
         />
       </div>
 

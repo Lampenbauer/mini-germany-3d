@@ -120,6 +120,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?lamps=0` | Disable the night-time street lighting |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
+| `?ais=0` | Open with the live AIS ships switched off – the "AIS ships" switch at the end of the traffic list turns them back on |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `#stop=…` | Shared stop selection – opens the stop's departure board and flies to it |

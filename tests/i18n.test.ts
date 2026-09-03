@@ -35,13 +35,13 @@ describe('detectLanguage', () => {
 describe('t', () => {
   it('returns English by default and interpolates parameters', () => {
     expect(getLanguage()).toBe('en')
-    expect(t('lines.title')).toBe('Lines')
+    expect(t('traffic.title')).toBe('Traffic')
     expect(t('vehicle.late', { count: 3 })).toBe('3 min late')
   })
 
   it('switches every message to German', () => {
     setLanguage('de')
-    expect(t('lines.title')).toBe('Linien')
+    expect(t('traffic.title')).toBe('Verkehr')
     expect(t('layers.stops')).toBe('Haltestellen')
     expect(t('vehicle.late', { count: 3 })).toBe('3 min Verspätung')
     expect(t('lines.flyTo', { name: 'Linie 1' })).toBe('Zu Linie 1 fliegen')

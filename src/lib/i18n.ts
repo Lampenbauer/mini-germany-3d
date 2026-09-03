@@ -23,7 +23,13 @@ const en = {
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
-  'lines.title': 'Lines',
+  // The scrolling section at the bottom of the panel. It holds the
+  // scheduled lines AND the AIS ships, which run to no timetable at all –
+  // "Traffic" is the word that covers both.
+  'traffic.title': 'Traffic',
+  'traffic.ais': 'AIS ships',
+  'traffic.aisHint': 'Live harbour traffic',
+  'traffic.showAis': 'Show the AIS ships',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Close line',
   'line.service': 'Service',
@@ -162,7 +168,10 @@ const de: Record<MessageKey, string> = {
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
-  'lines.title': 'Linien',
+  'traffic.title': 'Verkehr',
+  'traffic.ais': 'AIS-Schiffe',
+  'traffic.aisHint': 'Echter Schiffsverkehr im Hafen',
+  'traffic.showAis': 'AIS-Schiffe anzeigen',
   // Line card (the profile behind a line name in the panel)
   'line.close': 'Linie schließen',
   'line.service': 'Betrieb',

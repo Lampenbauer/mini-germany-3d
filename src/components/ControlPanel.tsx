@@ -6,6 +6,7 @@ import {
   Layers,
   Pause,
   Play,
+  Ship,
   TimerReset,
   TramFront,
 } from 'lucide-react'
@@ -52,6 +53,14 @@ export interface ControlPanelProps {
   /** Vehicle numbers and ship names – one switch for every name on the map. */
   showLabels: boolean
   onToggleLabels: (visible: boolean) => void
+  /**
+   * Whether the AIS fleet can be shown at all. False leaves its row out
+   * entirely – offline, in the tests, and without a configured endpoint
+   * there is no live traffic for a switch to reach.
+   */
+  aisAvailable: boolean
+  showAisVessels: boolean
+  onToggleAisVessels: (visible: boolean) => void
 }
 
 /** Display order and label keys of the transit-mode groups. */
@@ -73,7 +82,7 @@ const LineGroup = memo(function LineGroup(props: {
   const Icon = MODE_ICON[props.mode]
   const allVisible = props.lines.every((l) => l.visible)
   return (
-    <div className="flex flex-col gap-1.5 mb-1.5 last:mb-0">
+    <div className="flex flex-col gap-1.5 mb-2 last:mb-0">
       {props.showHeader && (
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -297,12 +306,13 @@ export function ControlPanel(props: ControlPanelProps) {
 
             <div className="h-px bg-border" role="separator" />
 
-            {/* Lines, grouped by transit mode (headers only when >1 group).
+            {/* Traffic: the lines grouped by transit mode (headers only when
+                >1 group), and the AIS fleet after them.
                 The only scrolling part of the panel: its heading stays, the
                 groups scroll under it, and scroll-fade-y (the same utility
                 the vehicle card's stop list uses) signals what is cut off. */}
             <div className="flex min-h-0 flex-1 flex-col gap-2">
-              <div className="text-sm font-medium">{t('lines.title')}</div>
+              <div className="text-sm font-medium">{t('traffic.title')}</div>
               <div
                 className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
                 data-testid="line-list"
@@ -318,6 +328,32 @@ export function ControlPanel(props: ControlPanelProps) {
                     onSetLinesVisible={props.onSetLinesVisible}
                   />
                 ))}
+                {/* The AIS fleet closes the list, after the ferries it
+                    shares the water with. Styled as a group header rather
+                    than a line row because that is what it is – a whole
+                    category behind one switch – and it carries a subtitle
+                    the mode groups do not need: "AIS" says nothing to
+                    anyone who has not met the acronym. */}
+                {props.aisAvailable && (
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        <Ship className="size-3.5" aria-hidden />
+                        {t('traffic.ais')}
+                      </span>
+                      <Switch
+                        aria-label={t('traffic.showAis')}
+                        checked={props.showAisVessels}
+                        onCheckedChange={props.onToggleAisVessels}
+                      />
+                    </div>
+                    {/* pl-5 lines the hint up with the label above it, past
+                        the icon (size-3.5) and its gap-1.5. */}
+                    <span className="pl-5 text-xs leading-tight text-muted-foreground">
+                      {t('traffic.aisHint')}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

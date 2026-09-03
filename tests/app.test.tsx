@@ -184,7 +184,7 @@ describe('App (UI shell)', () => {
   it('renders the interface in German when the browser prefers German', () => {
     setLanguage('de')
     render(<App />)
-    expect(screen.getByText('Linien')).toBeInTheDocument()
+    expect(screen.getByText('Verkehr')).toBeInTheDocument()
     expect(screen.getByText('Ebenen')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()
