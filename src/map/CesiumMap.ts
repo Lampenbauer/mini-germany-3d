@@ -22,6 +22,7 @@ import {
   Math as CesiumMath,
   Matrix3,
   Matrix4,
+  Rectangle,
   SceneTransforms,
   ScreenSpaceEventHandler,
   ShadowMode,
@@ -34,7 +35,7 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import type { City } from '@/lib/city'
+import { boundingBoxCenter, type BoundingBox, type City } from '@/lib/city'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
@@ -132,6 +133,44 @@ function plausibleGroundHeight(height: number): boolean {
 function cityFlightSeconds(distanceMeters: number): number {
   return Math.min(8, Math.max(2.5, distanceMeters / 40_000))
 }
+
+/**
+ * The rectangle the plan view frames: the drawn network with a margin
+ * around it, never smaller than CITY_PLAN_MIN_HALF_SPAN in either axis.
+ */
+function planViewBounds(box: BoundingBox): BoundingBox {
+  const lon = boundingBoxCenter(box).longitude
+  const lat = boundingBoxCenter(box).latitude
+  const halfWidth = Math.max(((box.east - box.west) / 2) * (1 + CITY_PLAN_MARGIN), CITY_PLAN_MIN_HALF_SPAN)
+  const halfHeight = Math.max(((box.north - box.south) / 2) * (1 + CITY_PLAN_MARGIN), CITY_PLAN_MIN_HALF_SPAN)
+  return {
+    west: lon - halfWidth,
+    east: lon + halfWidth,
+    south: lat - halfHeight,
+    north: lat + halfHeight,
+  }
+}
+
+/**
+ * Seconds the climb to the plan view takes before the lines are pulled
+ * straight (see flyToCityPlan). Long enough to read as a move to another
+ * way of looking at the city, short enough that it never delays it.
+ */
+const CITY_PLAN_FLIGHT_SECONDS = 1.4
+
+/**
+ * Air left around the drawn network in the plan view, as a share of its
+ * own extent per side. Enough that a terminus does not sit on the frame
+ * edge, little enough that the network still fills the view.
+ */
+const CITY_PLAN_MARGIN = 0.12
+
+/**
+ * Smallest half-extent the plan view frames, in degrees (~150 m). A
+ * single short ferry route would otherwise be framed from a few meters
+ * up, where the flight is all descent and nothing is recognizable.
+ */
+const CITY_PLAN_MIN_HALF_SPAN = 0.0015
 
 
 
@@ -907,6 +946,66 @@ export class CesiumMap {
   }
 
   /**
+   * Puts the camera straight above the city, looking down at as much of
+   * it as the height ceiling allows.
+   *
+   * This is the view the linear diagram is entered from. The morph starts
+   * from where the map has each line on screen, so the lines want to be
+   * on screen when it begins – and a plan of the whole city is also the
+   * reading closest to the diagram, which is what makes the straightening
+   * legible rather than a jump (see map/LinearView.ts).
+   *
+   * The compass heading is kept, like every other flight here; only the
+   * pitch and the position change. `onArrive` runs whether the flight
+   * finished or the viewer cut it short, so nothing waits on a camera
+   * that has stopped moving.
+   */
+  flyToCityPlan(lineIds: Iterable<string>, onArrive?: () => void, animate = true): void {
+    const camera = this.viewer.camera
+    // What is drawn, not what the city limits say – with two lines
+    // switched on the diagram is about those two, and framing their city
+    // would start the morph from a network the size of a thumbnail. The
+    // limits are the fallback for a map that has no routes on it yet.
+    const bounds = planViewBounds(this.routes.linesExtent(lineIds) ?? this.city.cityBounds)
+    const center = boundingBoxCenter(bounds)
+    // The height the whole city fits at, as Cesium derives it from the
+    // frustum – then held under the ceiling the leash enforces per frame,
+    // which for a city the size of Hamburg is where it lands.
+    const framed = Cartographic.fromCartesian(
+      camera.getRectangleCameraCoordinates(
+        Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north),
+      ),
+    )
+    const height = Math.min(framed.height, config.cameraLimits.maxHeightMeters)
+    const destination = Cartesian3.fromDegrees(center.longitude, center.latitude, height)
+    const orientation = { heading: camera.heading, pitch: -CesiumMath.PI_OVER_TWO, roll: 0 }
+    if (!animate) {
+      camera.setView({ destination, orientation })
+      this.enforceCameraLimits()
+      this.requestRender()
+      onArrive?.()
+      return
+    }
+    this.flyingUntil = performance.now() + CITY_PLAN_FLIGHT_SECONDS * 1000 + 200
+    this.requestRender()
+    const arrive = () => {
+      if (this.destroyed) return
+      onArrive?.()
+    }
+    camera.flyTo({
+      destination,
+      orientation,
+      duration: CITY_PLAN_FLIGHT_SECONDS,
+      // Straight there: Cesium arcs a long flight upwards, and a peak
+      // above the ceiling would be pulled back down by the leash on every
+      // frame of it.
+      maximumHeight: Math.max(height, camera.positionCartographic.height),
+      complete: arrive,
+      cancel: arrive,
+    })
+  }
+
+  /**
    * Where the home view's camera stands. city.home names the ground
    * point the view is centered on, and the camera sits behind it against
    * the heading, `above` meters up and above/tan(pitch) meters back: the
@@ -1642,6 +1741,31 @@ export class CesiumMap {
     if (!position) return null
     const window = SceneTransforms.worldToWindowCoordinates(this.viewer.scene, position)
     return window ? { x: window.x, y: window.y } : null
+  }
+
+  /**
+   * Projects ground points to screen pixels, at the height the layers
+   * draw them at – the route profile where the dataset has one, the
+   * measured ground otherwise. Points behind the camera come back null.
+   *
+   * One call for a whole network: this seeds the linear view's morph
+   * with where the map has each line at the moment the switch is
+   * pressed, which is what lets the lines straighten out of their real
+   * course instead of appearing somewhere else (see map/LinearView.ts).
+   */
+  projectToScreen(
+    points: readonly { lon: number; lat: number; nhn?: number }[],
+  ): ({ x: number; y: number } | null)[] {
+    const scene = this.viewer.scene
+    const useProfile = this.opts.fixedGroundHeight === undefined && !this.opts.offline
+    const offset = this.routes.heightOffset
+    return points.map((point) => {
+      const height =
+        useProfile && point.nhn !== undefined ? point.nhn + offset : this.defaultGroundHeight
+      const world = Cartesian3.fromDegrees(point.lon, point.lat, height)
+      const window = SceneTransforms.worldToWindowCoordinates(scene, world)
+      return window ? { x: window.x, y: window.y } : null
+    })
   }
 
   /** Debug: current ground heights of the vehicles (for diagnosing tile heights). */

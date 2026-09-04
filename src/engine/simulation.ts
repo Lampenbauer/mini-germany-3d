@@ -23,6 +23,12 @@ export interface VehicleSnapshot {
   /** glTF consist the vehicle is drawn with (see VehicleLayer); undefined = box. */
   model?: string
   direction: 0 | 1
+  /**
+   * How far along its direction the vehicle stands, in meters. The map
+   * needs it for the height and the tunnel state; the linear view draws
+   * the whole vehicle from it (see lib/linear-layout.ts).
+   */
+  distance: number
   lon: number
   lat: number
   bearing: number
@@ -313,6 +319,7 @@ export class Simulation {
         vehicle: line.vehicle,
         model: line.model,
         direction: trip.direction,
+        distance: state.distance,
         lon: state.lon,
         lat: state.lat,
         bearing: state.bearing,

@@ -20,6 +20,7 @@ function snapshot(overrides: Partial<VehicleSnapshot> = {}): VehicleSnapshot {
     mode: 'tram',
     vehicle: config.vehicles.tram,
     direction: 0,
+    distance: 0,
     lon: 12.1,
     lat: 54.0,
     bearing: 0,

@@ -95,6 +95,7 @@ describe('layer and pause state in the hash', () => {
     expect(
       formatUiStateHash({
         city: null,
+      linear: false,
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
@@ -105,6 +106,7 @@ describe('layer and pause state in the hash', () => {
     expect(
       formatUiStateHash({
         city: null,
+      linear: false,
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
@@ -116,13 +118,15 @@ describe('layer and pause state in the hash', () => {
 
   it('names the city first, and only when it is not the default', () => {
     const state = {
+      city: null,
+      linear: false,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
       tiltShift: miniatureDefault,
       paused: false,
     }
-    expect(formatUiStateHash({ ...state, city: null })).toBe('')
+    expect(formatUiStateHash(state)).toBe('')
     expect(formatUiStateHash({ ...state, city: 'hamburg', routesHidden: true })).toBe(
       '&city=hamburg&routes=0',
     )
@@ -130,9 +134,25 @@ describe('layer and pause state in the hash', () => {
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
   })
 
+  it('carries the linear view, and only while it is on', () => {
+    const state = {
+      city: null,
+      linear: false,
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      tiltShift: miniatureDefault,
+      paused: false,
+    }
+    expect(formatUiStateHash({ ...state, linear: true })).toBe('&view=linear')
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&view=linear').linear).toBe(true)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').linear).toBe(false)
+  })
+
   it('round-trips alongside both hash forms', () => {
     const suffix = formatUiStateHash({
       city: null,
+      linear: false,
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
@@ -144,6 +164,7 @@ describe('layer and pause state in the hash', () => {
     for (const hash of [withCamera, withVehicle]) {
       expect(parseUiStateHash(hash)).toEqual({
         city: null,
+      linear: false,
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
@@ -159,6 +180,7 @@ describe('layer and pause state in the hash', () => {
   it('defaults everything when absent', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
       city: null,
+      linear: false,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,

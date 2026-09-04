@@ -23,6 +23,9 @@ declare global {
       /** Slug of the city on the map, and the picker's way to another one. */
       city: () => string
       setCity: (slug: string) => void
+      /** Whether the lines are drawn pulled straight instead of on the map. */
+      linear: () => boolean
+      setLinear: (linear: boolean) => void
       setRain: (precipitationMm: number) => void
       setCloudCover: (cloudCoverPercent: number) => void
       rainDropsVisible: () => number
@@ -62,6 +65,8 @@ declare global {
         surfaceTime: number
       } | null
     }
+    /** Per-frame samples a spec collects from inside the page (linear-view.spec.ts). */
+    __linearProbe?: { drawnByMap: number; drawnByDiagram: number; diagramShown: boolean }[]
     __cesiumViewer?: {
       /** One frame, drawn synchronously – see frameDetail in app.spec.ts. */
       render: () => void
@@ -70,11 +75,19 @@ declare global {
         positionCartographic: { longitude: number; latitude: number; height: number }
         /** Where the camera looks, in radians clockwise from north. */
         heading: number
+        /** How far it looks down, in radians (0 = horizon, -π/2 = straight down). */
+        pitch: number
+        /** The ground rectangle currently in view, in radians. */
+        computeViewRectangle: () =>
+          | { west: number; south: number; east: number; north: number }
+          | undefined
       }
       clock: { currentTime: unknown }
       entities: {
         values: {
           id: string
+          /** Whether the entity is drawn at all. */
+          show: boolean
           polyline?: {
             material?: {
               color?: {

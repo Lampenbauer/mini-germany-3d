@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, Home, Maximize, Minimize, TrainFrontTunnel } from 'lucide-react'
+import {
+  Building2,
+  Home,
+  Map as MapIcon,
+  Maximize,
+  Minimize,
+  Rows3,
+  TrainFrontTunnel,
+} from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { CompassIcon } from '@/components/CompassIcon'
 import { ScenePopover } from '@/components/ScenePopover'
@@ -56,6 +64,7 @@ import {
 } from '@/lib/weather'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
+import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
 
 /** Debug/test API that the E2E tests use under window.__mrt. */
 export interface MrtTestApi {
@@ -89,6 +98,9 @@ export interface MrtTestApi {
   dataSource: string
   /** Slug of the city on the map. */
   city: () => string
+  /** Whether the lines are drawn pulled straight instead of on the map. */
+  linear: () => boolean
+  setLinear: (linear: boolean) => void
   /** Switches to another city the way the panel's picker does (flies there). */
   setCity: (slug: string) => void
   /** Which basemap the map ended up on ('offline' with ?offline=1). */
@@ -198,6 +210,23 @@ const RAF_STALL_MS = 500
 
 /** Poll interval of that watchdog (a timestamp comparison while rAF is healthy). */
 const RAF_WATCHDOG_INTERVAL_MS = 250
+
+/**
+ * How long the map takes to become the diagram, in ms. Long enough to
+ * read the lines straightening out of their own course, short enough
+ * that it is a transition and not a title sequence.
+ */
+const LINEAR_MORPH_MS = 900
+
+/** No line at all – what the map's vehicles are filtered by while the diagram has them. */
+const NO_LINES: ReadonlySet<string> = new Set()
+
+/**
+ * Frames a map raised behind an open diagram is still drawn for – about
+ * four seconds at the animation rate, enough for a big city's route
+ * polylines to compile (see mapWarmupRef).
+ */
+const LINEAR_MAP_WARMUP_FRAMES = 120
 
 /** How long a shared vehicle (#vehicle=…) is waited for before the link is given up on. */
 const SHARED_VEHICLE_TIMEOUT_MS = 20_000
@@ -349,7 +378,13 @@ export default function App() {
     urlOpts.rain
 
   const containerRef = useRef<HTMLDivElement>(null)
+  /** The whole stage – the diagram is laid over the map inside it. */
+  const stageRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<CesiumMap | null>(null)
+  const linearViewRef = useRef<LinearView | null>(null)
+  /** 0 = the map, 1 = the diagram; the render loop reads it per frame. */
+  const morphRef = useRef(0)
+  const morphFrameRef = useRef(0)
   const clockRef = useRef<SimClock | null>(null)
   const simRef = useRef<Simulation | null>(null)
   const visibleLinesRef = useRef<Set<string>>(new Set())
@@ -374,6 +409,27 @@ export default function App() {
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the viewer effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
+  /** The map/diagram switch, so the test API can reach it from the viewer effect. */
+  const handleToggleLinearRef = useRef<() => void>(() => {})
+  /** Raises the diagram without a morph, for a link that opens into it. */
+  const showLinearRef = useRef<() => void>(() => {})
+  /** A boot hash asked for the diagram before there was a network. */
+  const pendingLinearRef = useRef(false)
+  /** Whether the map still draws the network (see setMapNetworkDrawn). */
+  const mapNetworkDrawnRef = useRef(true)
+  /**
+   * Frames the map still owes the city it holds. A city raised behind an
+   * open diagram is never drawn, and its route polylines only compile as
+   * they are rendered – Hamburg's are twelve hundred primitives. Without
+   * this the map comes back empty and fills in over several seconds; with
+   * it those frames are drawn into the hidden canvas instead. Counted
+   * down by the render loop.
+   */
+  const mapWarmupRef = useRef(0)
+  /** Measures the space the rows are laid out in (see linearBox). */
+  const linearBoxRef = useRef<() => LinearBox>(() => ({ width: 0 }))
+  /** The control panel, so the diagram can lay its rows out beside it. */
+  const panelRef = useRef<HTMLDivElement>(null)
   /** The test API, so the city session can flip its ready flag. */
   const apiRef = useRef<MrtTestApi | null>(null)
   /**
@@ -457,6 +513,9 @@ export default function App() {
   const [underground, setUnderground] = useState(false)
   /** Same value for the render loop, which never sees the state updates. */
   const undergroundRef = useRef(false)
+  /** The lines pulled straight instead of drawn on the city (see LinearView). */
+  const [linear, setLinear] = useState(false)
+  const linearRef = useRef(false)
 
   const network = cityData?.network ?? null
 
@@ -509,8 +568,11 @@ export default function App() {
     const map = mapRef.current
     const lines = cityDataRef.current?.network.lines
     if (!map || !lines) return
+    // Nothing goes back onto the map while the diagram is holding the
+    // network (see setMapNetworkDrawn); it puts it back itself.
+    const drawn = mapNetworkDrawnRef.current && showRoutesRef.current
     for (const line of lines) {
-      map.setLineRouteVisible(line.id, showRoutesRef.current && visibleLinesRef.current.has(line.id))
+      map.setLineRouteVisible(line.id, drawn && visibleLinesRef.current.has(line.id))
     }
   }, [])
 
@@ -532,6 +594,7 @@ export default function App() {
     writeHashRef.current()
     const map = mapRef.current
     map?.setSelected(id)
+    linearViewRef.current?.setSelected(id)
     if (!id) {
       setSelected(null)
       if (followingRef.current) {
@@ -638,6 +701,10 @@ export default function App() {
       tiltShiftRef.current = uiState.tiltShift
       setTiltShift(uiState.tiltShift)
     }
+    // A shared link may open straight into the diagram. There is no
+    // network to lay out yet and nothing to morph from, so it is only
+    // remembered here; the city session raises it when its data lands.
+    if (uiState.linear) pendingLinearRef.current = true
 
     // Event-driven URL persistence: camera events debounce into one write
     // shortly after the pose settles; during sustained motion (flights,
@@ -664,6 +731,7 @@ export default function App() {
             : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
           city: citySlugRef.current === DEFAULT_CITY_SLUG ? null : citySlugRef.current,
+          linear: linearRef.current,
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
@@ -714,6 +782,24 @@ export default function App() {
       onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
+
+    // The diagram lives over the map inside the same stage, so the morph
+    // can start from where the map has each line on screen right now.
+    const stage = stageRef.current
+    if (stage) {
+      linearViewRef.current = new LinearView(stage, {
+        onSelectVehicle: selectVehicle,
+        onSelectStop: selectStop,
+      })
+    }
+    // A narrower window – or the panel folding away – re-lays the rows
+    const stageResize =
+      stage && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => linearViewRef.current?.resize(linearBoxRef.current()))
+        : null
+    if (stage && stageResize) stageResize.observe(stage)
+    if (stageResize && panelRef.current) stageResize.observe(panelRef.current)
+
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
@@ -742,13 +828,13 @@ export default function App() {
       if (stopsVisible !== showStopsRef.current) {
         showStopsRef.current = stopsVisible
         setShowStops(stopsVisible)
-        map.setStopsVisible(stopsVisible)
+        map.setStopsVisible(mapNetworkDrawnRef.current && stopsVisible)
       }
       const labelsVisible = !ui.labelsHidden
       if (labelsVisible !== showLabelsRef.current) {
         showLabelsRef.current = labelsVisible
         setShowLabels(labelsVisible)
-        map.setLabelsVisible(labelsVisible)
+        map.setLabelsVisible(mapNetworkDrawnRef.current && labelsVisible)
       }
       const tiltShiftOn = ui.tiltShift
       if (tiltShiftOn !== tiltShiftRef.current) {
@@ -756,6 +842,8 @@ export default function App() {
         setTiltShift(tiltShiftOn)
         map.setTiltShift(tiltShiftOn)
       }
+      // The map/diagram switch morphs either way, the same as the button
+      if (ui.linear !== linearRef.current) handleToggleLinearRef.current()
 
       // Another city: the rest of the hash – a pose, a vehicle, a stop –
       // refers to it, so the city session applies it once that city is
@@ -794,6 +882,15 @@ export default function App() {
       if (view) map.setView(view)
     }
     window.addEventListener('hashchange', applyHash)
+
+    /**
+     * Whether the diagram has taken the map's place entirely – during the
+     * morph both are on screen, so this only turns true once it is over.
+     * A map that still owes its city its first frames is not hidden yet:
+     * see mapWarmupRef.
+     */
+    const mapIsHidden = () =>
+      linearRef.current && morphRef.current >= 1 && mapWarmupRef.current <= 0
 
     let rafId = 0
     let lastUiUpdate = 0
@@ -875,7 +972,19 @@ export default function App() {
               aisFrozen = null
             }
             const aisNow = aisFrozen?.atMs ?? Date.now()
-            const viewInfo = map.syncVehicles(snapshots, visibleLinesRef.current)
+            // A map nobody can see is not worth moving the models on: the
+            // first tick after the diagram closes syncs them, and that is
+            // still before the frame that would show them.
+            const viewInfo = mapIsHidden()
+              ? null
+              : map.syncVehicles(
+                  snapshots,
+                  mapNetworkDrawnRef.current ? visibleLinesRef.current : NO_LINES,
+                )
+            // The diagram reads the same snapshots on its own axis
+            if (linearRef.current || morphRef.current > 0) {
+              linearViewRef.current?.sync(snapshots)
+            }
             // Switched off, one sync with an empty list takes the hulls,
             // their models and their names off the map; after that there is
             // nothing left to sync and the layer costs nothing per tick.
@@ -887,7 +996,14 @@ export default function App() {
               map.syncVessels([], aisNow)
               aisDrawn = false
             }
-            lastAnyVehicleInView = viewInfo?.anyVehicleInView ?? false
+            // A diagram full of dots is vehicles in view, whatever the map is
+            // drawing: the tick rate below is what moves them, and at the
+            // 2 fps of an empty map they would step rather than run. It buys
+            // no frames – a covered map is not rendered either way (see
+            // mapIsHidden), this is the simulation's own rate.
+            const diagramHasVehicles =
+              (linearRef.current || morphRef.current > 0) && snapshots.length > 0
+            lastAnyVehicleInView = (viewInfo?.anyVehicleInView ?? false) || diagramHasVehicles
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
 
             // After syncVehicles, so the selection highlight and the follow
@@ -899,9 +1015,15 @@ export default function App() {
             if (pendingSharedVehicle) {
               if (snapshots.some((s) => s.id === pendingSharedVehicle)) {
                 selectVehicle(pendingSharedVehicle)
-                followingRef.current = true
-                setFollowing(true)
-                map.setFollow(pendingSharedVehicle)
+                // A link into the diagram carries its selection too (the
+                // hash holds both). There the vehicle is a dot on its row,
+                // and a chase camera under a hidden map would only put the
+                // Follow button and the view at odds.
+                if (!linearRef.current) {
+                  followingRef.current = true
+                  setFollowing(true)
+                  map.setFollow(pendingSharedVehicle)
+                }
                 pendingSharedVehicleRef.current = null
               } else if (now > sharedVehicleDeadlineRef.current) {
                 pendingSharedVehicleRef.current = null
@@ -971,9 +1093,11 @@ export default function App() {
           //   slow heartbeat runs. A truly idle map renders nothing – even
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
-          const hints = render
-            ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
-            : null
+          // A map behind a finished diagram is not worth a frame either
+          const hints =
+            render && !mapIsHidden()
+              ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+              : null
           // Falling rain is an animation too – even with the sim paused
           const animating =
             (lastAnyVehicleInView && !clock.paused) ||
@@ -989,6 +1113,7 @@ export default function App() {
           if (hints && (map.consumeRenderRequest() || now - lastRender >= renderInterval)) {
             lastRender = now
             map.render()
+            if (mapWarmupRef.current > 0) mapWarmupRef.current--
             renderTimes.push(now)
             while (renderTimes.length > 0 && renderTimes[0] < now - 5000) {
               renderTimes.shift()
@@ -1057,6 +1182,10 @@ export default function App() {
       dataSource: '',
       city: () => citySlugRef.current,
       setCity: selectCity,
+      linear: () => linearRef.current,
+      setLinear: (want: boolean) => {
+        if (want !== linearRef.current) handleToggleLinearRef.current()
+      },
       tilesetStatus: () => tilesetStatusRef.current,
       realtimeStatus: () => realtimeStatusRef.current,
       lineIds: () => cityDataRef.current?.network.lines.map((l) => l.id) ?? [],
@@ -1118,6 +1247,10 @@ export default function App() {
 
     return () => {
       cancelAnimationFrame(rafId)
+      cancelAnimationFrame(morphFrameRef.current)
+      stageResize?.disconnect()
+      linearViewRef.current?.destroy()
+      linearViewRef.current = null
       window.clearInterval(rafWatchdog)
       window.removeEventListener('pagehide', writeHash)
       window.removeEventListener('hashchange', applyHash)
@@ -1293,6 +1426,16 @@ export default function App() {
         }
       }
 
+      // The diagram belongs to a network: a shared link opens into it
+      // here, and a city switch redraws it for the city that arrived.
+      if (pendingLinearRef.current) {
+        pendingLinearRef.current = false
+        showLinearRef.current()
+      } else if (linearRef.current) {
+        linearViewRef.current?.setSeed(null)
+        showLinearRef.current()
+      }
+
       const api = apiRef.current
       if (api) {
         api.dataSource = data.network.meta.source
@@ -1341,6 +1484,142 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citySlug])
 
+  /**
+   * Whether the map draws the network itself. It stops the moment a morph
+   * starts: its routes, stops, vehicles and their names would otherwise
+   * stay put on the city while their copies straighten away from them,
+   * and two networks at once read as a smear rather than as one being
+   * pulled straight. Nothing is lost by it – at rest the diagram's lines
+   * lie exactly on the map's routes, so both handovers are invisible.
+   *
+   * The switches the reader set are never touched, only suspended: what
+   * comes back is what the panel says, not everything.
+   */
+  const setMapNetworkDrawn = useCallback(
+    (drawn: boolean) => {
+      const map = mapRef.current
+      if (!map) return
+      mapNetworkDrawnRef.current = drawn
+      applyRouteVisibility()
+      map.setStopsVisible(drawn && showStopsRef.current)
+      map.setLabelsVisible(drawn && showLabelsRef.current)
+      // The vehicles go the way a switched-off line's do – see syncVehicles
+      // in the render loop, which hands over an empty set meanwhile.
+    },
+    [applyRouteVisibility],
+  )
+
+  /**
+   * The space the rows are laid out in. The control panel sits over the
+   * left of the stage, so the rows start where it ends – a diagram whose
+   * first third is behind a panel is not a diagram. When the panel folds
+   * away, or the interface is hidden entirely, the rows take the width.
+   */
+  const linearBox = useCallback((): LinearBox => {
+    const width = stageRef.current?.clientWidth ?? 0
+    const panel = panelRef.current?.getBoundingClientRect()
+    // The line badge hangs to the left of the row, so the gap has to
+    // hold it as well as keep the rows off the panel.
+    const clear = panel && panel.width > 0 ? panel.right + 46 : 0
+    return { width, paddingLeft: Math.max(40, clear) }
+  }, [])
+  linearBoxRef.current = linearBox
+
+  /**
+   * Runs the transition between the two readings: 1 straightens the
+   * lines, 0 lays them back onto the map. Both start from where the map
+   * has each line on screen at this moment, so nothing may move the
+   * camera while it runs – whatever should happen afterwards is `onDone`.
+   */
+  const morphTo = useCallback(
+    (target: 0 | 1, onDone?: () => void) => {
+      const view = linearViewRef.current
+      const map = mapRef.current
+      const container = containerRef.current
+      const network = cityDataRef.current?.network
+      if (!view || !map || !container || !network) return
+
+      const drawn = network.lines.filter((line) => visibleLinesRef.current.has(line.id))
+      view.setLines(drawn, linearBox())
+      view.setSeed(
+        buildLinearSeed((points) => map.projectToScreen(points), drawn, snapshotsRef.current),
+      )
+      view.setSelected(selectedIdRef.current)
+
+      const from = morphRef.current
+      // Drawn where it stands before it is shown: the diagram must not be
+      // put on screen for even one frame in a pose it has not reached yet.
+      view.setMorph(from)
+      // On screen for the whole transition, either way round
+      view.setActive(true)
+      // The map lets go of the network now that the diagram holds a copy
+      // of it, standing exactly where the map's own was.
+      setMapNetworkDrawn(false)
+
+      const started = performance.now()
+      cancelAnimationFrame(morphFrameRef.current)
+      const step = (now: number) => {
+        const progress = Math.min(1, (now - started) / LINEAR_MORPH_MS)
+        const eased = progress * progress * (3 - 2 * progress)
+        const value = from + (target - from) * eased
+        morphRef.current = value
+        view.setMorph(value)
+        // The city goes as the lines straighten, and comes back as they fold
+        container.style.opacity = String(1 - value)
+        if (progress < 1) {
+          morphFrameRef.current = requestAnimationFrame(step)
+          return
+        }
+        morphRef.current = target
+        container.style.visibility = target === 1 ? 'hidden' : 'visible'
+        if (target === 0) {
+          // The lines have landed on their routes: the map takes the
+          // network back where the diagram is holding it, and only then
+          // does the diagram get out of the way.
+          setMapNetworkDrawn(true)
+          view.setActive(false)
+          // A map that went unrendered while it was hidden owes a frame
+          map.requestRender()
+        }
+        onDone?.()
+      }
+      container.style.visibility = 'visible'
+      morphFrameRef.current = requestAnimationFrame(step)
+    },
+    [linearBox, setMapNetworkDrawn],
+  )
+
+  /**
+   * Leaves the diagram because something was aimed at on it – a stop to
+   * fly to, a vehicle to follow, a line to look at. The flight waits for
+   * the lines to be back on the map: it moves the very ground the morph
+   * measures itself against. Off the diagram it is simply the flight.
+   */
+  const leaveLinearFor = useCallback(
+    (fly: () => void) => {
+      if (!linearRef.current) {
+        fly()
+        return
+      }
+      linearRef.current = false
+      setLinear(false)
+      writeHashRef.current()
+      morphTo(0, fly)
+    },
+    [morphTo],
+  )
+
+  /** The diagram draws the lines the panel shows – the same filter. */
+  const applyLinearLines = useCallback(() => {
+    const view = linearViewRef.current
+    const network = cityDataRef.current?.network
+    if (!view || !network || !linearRef.current) return
+    view.setLines(
+      network.lines.filter((line) => visibleLinesRef.current.has(line.id)),
+      linearBoxRef.current(),
+    )
+  }, [])
+
   const handleToggleLine = useCallback(
     (lineId: string) => {
       setVisibleLines((prev) => {
@@ -1348,13 +1627,17 @@ export default function App() {
         if (next.has(lineId)) next.delete(lineId)
         else next.add(lineId)
         visibleLinesRef.current = next
-        mapRef.current?.setLineRouteVisible(lineId, showRoutesRef.current && next.has(lineId))
+        mapRef.current?.setLineRouteVisible(
+          lineId,
+          mapNetworkDrawnRef.current && showRoutesRef.current && next.has(lineId),
+        )
         // Stops no shown line serves disappear along with their lines
         mapRef.current?.setVisibleLines(next)
+        applyLinearLines()
         return next
       })
     },
-    [],
+    [applyLinearLines],
   )
 
   /** Show/hide several lines at once (group switches in the panel). */
@@ -1369,10 +1652,11 @@ export default function App() {
         }
         visibleLinesRef.current = next
         mapRef.current?.setVisibleLines(next)
+        applyLinearLines()
         return next
       })
     },
-    [],
+    [applyLinearLines],
   )
 
   const handleToggleRoutes = useCallback(
@@ -1389,14 +1673,15 @@ export default function App() {
   const handleToggleStops = useCallback((visible: boolean) => {
     showStopsRef.current = visible
     setShowStops(visible)
-    mapRef.current?.setStopsVisible(visible)
+    // Suspended while the diagram has the network – see applyRouteVisibility
+    mapRef.current?.setStopsVisible(mapNetworkDrawnRef.current && visible)
     writeHashRef.current()
   }, [])
 
   const handleToggleLabels = useCallback((visible: boolean) => {
     showLabelsRef.current = visible
     setShowLabels(visible)
-    mapRef.current?.setLabelsVisible(visible)
+    mapRef.current?.setLabelsVisible(mapNetworkDrawnRef.current && visible)
     writeHashRef.current()
   }, [])
 
@@ -1563,9 +1848,14 @@ export default function App() {
     const next = !followingRef.current
     followingRef.current = next
     setFollowing(next)
-    if (mmsi !== null) mapRef.current?.setFollowVessel(next ? mmsi : null)
-    else mapRef.current?.setFollow(next && id !== null ? id : null)
-  }, [])
+    // Chasing a vehicle is something to watch, so it brings the map back
+    const chase = () => {
+      if (mmsi !== null) mapRef.current?.setFollowVessel(next ? mmsi : null)
+      else mapRef.current?.setFollow(next && id !== null ? id : null)
+    }
+    if (next) leaveLinearFor(chase)
+    else chase()
+  }, [leaveLinearFor])
 
   const handleResetCamera = useCallback(() => {
     if (followingRef.current) {
@@ -1576,6 +1866,87 @@ export default function App() {
     }
     mapRef.current?.setCameraHome(true)
   }, [])
+
+  /**
+   * The map becomes the diagram and back. Both readings share one
+   * number – the distance along the route – so the switch is a morph
+   * rather than a cut (see map/LinearView.ts and morphTo above).
+   *
+   * Both directions put the camera somewhere first or afterwards, and
+   * never during: on the way in it climbs straight above the city and
+   * only then do the lines straighten, because a line the camera does
+   * not have on screen has no position to leave from; on the way out the
+   * lines fold back onto the map they were taken off, and the camera
+   * flies home once they are down.
+   */
+  const handleToggleLinear = useCallback(() => {
+    const map = mapRef.current
+    if (!map || !linearViewRef.current || !cityDataRef.current) return
+
+    const next = !linearRef.current
+    linearRef.current = next
+    setLinear(next)
+    writeHashRef.current()
+
+    // Following a vehicle steers the camera, and the camera is what the
+    // morph is measured against – let go of it before anything moves.
+    if (next && followingRef.current) {
+      followingRef.current = false
+      setFollowing(false)
+      map.setFollow(null)
+      map.setFollowVessel(null)
+    }
+
+    if (!next) {
+      // The plan view the diagram was left on is a working position, not
+      // a place to put the reader down in.
+      morphTo(0, () => mapRef.current?.setCameraHome())
+      return
+    }
+    // The plan is of the lines the diagram is about to draw, not of the city
+    map.flyToCityPlan(visibleLinesRef.current, () => {
+      // Pressed again while the camera was still climbing – that press
+      // has drawn its own conclusion.
+      if (linearRef.current) morphTo(1)
+    })
+  }, [morphTo])
+  // The viewer effect's test API reaches the switch through this
+  handleToggleLinearRef.current = handleToggleLinear
+
+  /**
+   * The diagram, already finished. A link that opens into it has no map
+   * pose worth morphing from, and a city switch has a network that never
+   * was on the map – both want the end state, not the transition.
+   */
+  const showLinear = useCallback(() => {
+    const view = linearViewRef.current
+    const container = containerRef.current
+    const network = cityDataRef.current?.network
+    if (!view || !container || !network) return
+    linearRef.current = true
+    setLinear(true)
+    // The map under a raised diagram is the plan view too, so coming back
+    // from a shared link lands where pressing the switch would have. No
+    // flight: nobody is watching this one.
+    mapRef.current?.flyToCityPlan(visibleLinesRef.current, undefined, false)
+    // This city has never been on screen – let the map draw itself behind
+    // the diagram, so it is finished when the reader comes back to it.
+    mapWarmupRef.current = LINEAR_MAP_WARMUP_FRAMES
+    cancelAnimationFrame(morphFrameRef.current)
+    view.setLines(
+      network.lines.filter((line) => visibleLinesRef.current.has(line.id)),
+      linearBox(),
+    )
+    view.setSeed(null)
+    view.setSelected(selectedIdRef.current)
+    view.setActive(true)
+    setMapNetworkDrawn(false)
+    morphRef.current = 1
+    view.setMorph(1)
+    container.style.opacity = '0'
+    container.style.visibility = 'hidden'
+  }, [linearBox, setMapNetworkDrawn])
+  showLinearRef.current = showLinear
 
   /** Toggle between the normal view and the underground one. */
   const handleToggleUnderground = useCallback(() => {
@@ -1630,23 +2001,27 @@ export default function App() {
       selectVehicle(tripId)
       followingRef.current = true
       setFollowing(true)
-      mapRef.current?.setFollow(tripId)
+      leaveLinearFor(() => mapRef.current?.setFollow(tripId))
     },
-    [selectVehicle],
+    [selectVehicle, leaveLinearFor],
   )
 
   /** Fly the camera to a stop of the selected vehicle's trip. */
-  const handleFlyToStop = useCallback((stop: { lon: number; lat: number; nhn?: number }) => {
-    const map = mapRef.current
-    if (!map) return
-    // A camera flight and the follow chase would fight – stop following
-    if (followingRef.current) {
-      followingRef.current = false
-      setFollowing(false)
-      map.setFollow(null)
-    }
-    map.flyToStop(stop.lon, stop.lat, stop.nhn)
-  }, [])
+  const handleFlyToStop = useCallback(
+    (stop: { lon: number; lat: number; nhn?: number }) => {
+      const map = mapRef.current
+      if (!map) return
+      // A camera flight and the follow chase would fight – stop following
+      if (followingRef.current) {
+        followingRef.current = false
+        setFollowing(false)
+        map.setFollow(null)
+      }
+      // Flying somewhere means wanting to see it, which the diagram cannot
+      leaveLinearFor(() => map.flyToStop(stop.lon, stop.lat, stop.nhn))
+    },
+    [leaveLinearFor],
+  )
 
   /** Fly the camera to a line's route (keeps the compass heading). */
   const handleFocusLine = useCallback(
@@ -1661,7 +2036,8 @@ export default function App() {
         setFollowing(false)
         mapRef.current?.setFollow(null)
       }
-      mapRef.current?.focusLine(lineId)
+      // Same as a stop: the flight and the route pulse are on the map
+      leaveLinearFor(() => mapRef.current?.focusLine(lineId))
       // The flight and the pulse say WHERE the line runs; the card says
       // what it is. One selection at a time, like the other three cards.
       selectVehicle(null)
@@ -1669,7 +2045,7 @@ export default function App() {
       selectVessel(null)
       setSelectedLineId(lineId)
     },
-    [handleSetLinesVisible, selectStop, selectVehicle, selectVessel],
+    [handleSetLinesVisible, leaveLinearFor, selectStop, selectVehicle, selectVessel],
   )
 
   /**
@@ -1757,6 +2133,15 @@ export default function App() {
     >
       <div ref={containerRef} className="absolute inset-0" data-testid="cesium-container" />
 
+      {/* The diagram mounts in here (see map/LinearView.ts): over the map,
+          under the interface, and the full width the rows are laid out
+          for. Clicks pass through until the diagram itself takes them. */}
+      <div
+        ref={stageRef}
+        className="pointer-events-none absolute inset-0 z-[5]"
+        data-testid="linear-stage"
+      />
+
       {/* Everything the app draws over the map, in one wrapper so H can
           take the interface away in a single stroke (see the effect above). display:contents keeps the wrapper out of the
           layout – each overlay below still positions against the map
@@ -1765,7 +2150,7 @@ export default function App() {
           whether it was collapsed, an open card stays open, and the time
           field keeps what was picked in it. */}
       <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
-        <div className="pointer-events-none absolute left-4 top-4 z-10">
+        <div ref={panelRef} className="pointer-events-none absolute left-4 top-4 z-10">
           <ControlPanel
             city={{ slug: city.slug, name: city.name, modes: city.network.modes }}
             cities={CITY_CHOICES}
@@ -1850,81 +2235,116 @@ export default function App() {
           </div>
         )}
 
-        {/* Map controls, from the top: the underground view, then the four
-            that only ever aim the camera or the window, joined into one
-            block – compass, 2D/3D, full screen, and camera reset – and the
-            scene popover last, nearest the thumb, the widest of them and
-            the one that carries a reading rather than only a command.
-            bottom-8 keeps the column clear of the Cesium attribution line
-            at the lower edge. */}
+        {/* Map controls, from the top: which reading of the network is
+            on screen, the underground view, then the four that only ever
+            aim the camera or the window, joined into one block – compass,
+            2D/3D, full screen, and camera reset – and the scene popover
+            last, nearest the thumb, the widest of them and the one that
+            carries a reading rather than only a command. bottom-8 keeps
+            the column clear of the Cesium attribution line at the lower
+            edge. Everything below the first button belongs to the map:
+            the diagram has no camera to aim and no scene to dress. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="secondary"
                 size="icon"
-                // The active state has to beat the shared bg-card/85 below,
-                // which tailwind-merge would otherwise let win over a variant.
                 className={cn(
                   'pointer-events-auto border border-border/60 backdrop-blur-md',
-                  underground
+                  linear
                     ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
                     : 'bg-card/85',
                 )}
-                aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
-                aria-pressed={underground}
-                onClick={handleToggleUnderground}
+                aria-label={linear ? t('view.geographic') : t('view.linear')}
+                aria-pressed={linear}
+                // There is nothing to pull straight until a network is in
+                disabled={cityData === null}
+                onClick={handleToggleLinear}
               >
-                {/* Where the camera stands: in the city, or down among the
-                    tunnels. The label says what the press does. */}
-                {underground ? <TrainFrontTunnel aria-hidden /> : <Building2 aria-hidden />}
+                {/* Where the lines are: through the city, or straightened
+                    into rows. The label says what the press does. */}
+                {linear ? <MapIcon aria-hidden /> : <Rows3 aria-hidden />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="left">
-              {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+              {linear ? t('view.geographic') : t('view.linear')}
             </TooltipContent>
           </Tooltip>
+          {!linear && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  // The active state has to beat the shared bg-card/85 below,
+                  // which tailwind-merge would otherwise let win over a variant.
+                  className={cn(
+                    'pointer-events-auto border border-border/60 backdrop-blur-md',
+                    underground
+                      ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+                      : 'bg-card/85',
+                  )}
+                  aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
+                  aria-pressed={underground}
+                  onClick={handleToggleUnderground}
+                >
+                  {/* Where the camera stands: in the city, or down among the
+                      tunnels. The label says what the press does. */}
+                  {underground ? <TrainFrontTunnel aria-hidden /> : <Building2 aria-hidden />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                {underground ? t('camera.toSurface') : t('camera.toUnderground')}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <div
             role="group"
             aria-label={t('view.controls')}
             className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md"
           >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={GROUPED_CONTROL}
-                  aria-label={alignHeadingLabel}
-                  onClick={handleAlignHeading}
-                >
-                  {/* The needle points where the camera looks on a
-                      north-up dial, so the icon reads as the view's own
-                      compass – solid end north, hollow end south. */}
-                  <CompassIcon
-                    className="size-4 transition-transform duration-300 ease-out"
-                    style={{ transform: `rotate(${cameraHeading}deg)` }}
-                  />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">{alignHeadingLabel}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={cn(GROUPED_CONTROL, 'font-bold')}
-                  aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-                  onClick={handleToggleViewMode}
-                >
-                  {cameraIs2D ? '3D' : '2D'}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-              </TooltipContent>
-            </Tooltip>
+            {!linear && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={GROUPED_CONTROL}
+                    aria-label={alignHeadingLabel}
+                    onClick={handleAlignHeading}
+                  >
+                    {/* The needle points where the camera looks on a
+                        north-up dial, so the icon reads as the view's own
+                        compass – solid end north, hollow end south. */}
+                    <CompassIcon
+                      className="size-4 transition-transform duration-300 ease-out"
+                      style={{ transform: `rotate(${cameraHeading}deg)` }}
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{alignHeadingLabel}</TooltipContent>
+              </Tooltip>
+            )}
+            {!linear && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={cn(GROUPED_CONTROL, 'font-bold')}
+                    aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                    onClick={handleToggleViewMode}
+                  >
+                    {cameraIs2D ? '3D' : '2D'}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Full screen is the window's, not the camera's – it stays */}
             {fullscreenAvailable && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1944,29 +2364,33 @@ export default function App() {
                 </TooltipContent>
               </Tooltip>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={GROUPED_CONTROL}
-                  aria-label={t('camera.reset')}
-                  onClick={handleResetCamera}
-                >
-                  <Home aria-hidden />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
-            </Tooltip>
+            {!linear && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={GROUPED_CONTROL}
+                    aria-label={t('camera.reset')}
+                    onClick={handleResetCamera}
+                  >
+                    <Home aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
-          <ScenePopover
-            weatherMode={weatherMode}
-            onWeatherModeChange={handleWeatherMode}
-            liveWeatherAvailable={liveWeatherAvailable}
-            temperatureC={temperatureC}
-            tiltShift={tiltShift}
-            onToggleTiltShift={handleToggleTiltShift}
-          />
+          {!linear && (
+            <ScenePopover
+              weatherMode={weatherMode}
+              onWeatherModeChange={handleWeatherMode}
+              liveWeatherAvailable={liveWeatherAvailable}
+              temperatureC={temperatureC}
+              tiltShift={tiltShift}
+              onToggleTiltShift={handleToggleTiltShift}
+            />
+          )}
         </div>
       </div>
     </div>

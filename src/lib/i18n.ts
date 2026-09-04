@@ -194,6 +194,8 @@ const en = {
   'view.controls': 'View controls',
   'view.fullscreen': 'Full screen',
   'view.exitFullscreen': 'Leave full screen',
+  'view.linear': 'Pull the lines straight',
+  'view.geographic': 'Back to the map',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -371,6 +373,8 @@ const de: Record<MessageKey, string> = {
   'view.controls': 'Ansichtssteuerung',
   'view.fullscreen': 'Vollbild',
   'view.exitFullscreen': 'Vollbild verlassen',
+  'view.linear': 'Linien geradeziehen',
+  'view.geographic': 'Zurück zur Karte',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }

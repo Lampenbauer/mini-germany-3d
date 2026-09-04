@@ -89,6 +89,8 @@ export interface HashUiState {
    * vehicle and stop ids are only meaningful inside it.
    */
   city: string | null
+  /** The lines pulled straight instead of drawn on the map (see LinearView). */
+  linear: boolean
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
@@ -103,6 +105,7 @@ export function formatUiStateHash(state: HashUiState): string {
     state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
   return (
     (state.city ? `&city=${encodeURIComponent(state.city)}` : '') +
+    (state.linear ? '&view=linear' : '') +
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
@@ -120,6 +123,7 @@ export function parseUiStateHash(hash: string): HashUiState {
     // Whether the slug names a city this build knows is the caller's
     // business – the hash module only carries it.
     city: city && city.length <= 64 ? city : null,
+    linear: params.get('view') === 'linear',
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',

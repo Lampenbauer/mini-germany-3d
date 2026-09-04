@@ -15,6 +15,7 @@ const vehicle: VehicleSnapshot = {
   mode: 'tram',
   vehicle: config.vehicles.tram,
   direction: 0,
+  distance: 0,
   lon: 12.13,
   lat: 54.08,
   bearing: 90,
