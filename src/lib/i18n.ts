@@ -194,9 +194,11 @@ const en = {
   'view.exitFullscreen': 'Leave full screen',
   /** The view tabs name what they show, not what pressing them does. */
   'view.readings': 'View',
-  'view.surface': 'Surface view',
-  'view.underground': 'Underground view',
-  'view.straight': 'Straightened lines',
+  'view.surface': 'Surface',
+  'view.underground': 'Underground',
+  /** What a transit operator calls the strip over the door: one line drawn
+      straight with its stops along it, geography left out entirely. */
+  'view.diagram': 'Line diagram',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -375,7 +377,7 @@ const de: Record<MessageKey, string> = {
   'view.readings': 'Ansicht',
   'view.surface': 'Oberfläche',
   'view.underground': 'Untergrund',
-  'view.straight': 'Gerade Linien',
+  'view.diagram': 'Linienband',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }

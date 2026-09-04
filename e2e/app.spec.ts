@@ -192,12 +192,12 @@ test('the underground view swaps ghosted and solid vehicles', async () => {
 
   await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
 
-  const underground = page.getByRole('tab', { name: 'Underground view' })
+  const underground = page.getByRole('tab', { name: 'Underground' })
   await underground.click()
   await expect(underground).toHaveAttribute('aria-selected', 'true')
   await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(1)
 
-  await page.getByRole('tab', { name: 'Surface view' }).click()
+  await page.getByRole('tab', { name: 'Surface' }).click()
   await expect(underground).toHaveAttribute('aria-selected', 'false')
   await expect.poll(opacity, { timeout: 30_000 }).toBeCloseTo(0.2)
 })

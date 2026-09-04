@@ -37,11 +37,11 @@ test('street lamps follow the sun and the underground view', async ({ page }) =>
 
   // Down there the surface is a dark relief the tunnels show through – a
   // lit street grid over it would only muddy them.
-  await page.getByRole('tab', { name: 'Underground view' }).click()
+  await page.getByRole('tab', { name: 'Underground' }).click()
   await expect.poll(alpha, slowPoll).toBe(0)
 
   // ... and back on when the view returns to the surface
-  await page.getByRole('tab', { name: 'Surface view' }).click()
+  await page.getByRole('tab', { name: 'Surface' }).click()
   await expect.poll(alpha, slowPoll).toBeGreaterThan(0)
 
   // Back to day: the pools stay built but go dark again

@@ -227,7 +227,7 @@ type MapView = 'surface' | 'underground' | 'linear'
 const VIEW_TABS = [
   { value: 'surface', labelKey: 'view.surface', Icon: Building2 },
   { value: 'underground', labelKey: 'view.underground', Icon: TrainFrontTunnel },
-  { value: 'linear', labelKey: 'view.straight', Icon: Rows3 },
+  { value: 'linear', labelKey: 'view.diagram', Icon: Rows3 },
 ] as const satisfies readonly { value: MapView; labelKey: MessageKey; Icon: typeof Building2 }[]
 
 /** No line at all – what the map's vehicles are filtered by while the diagram has them. */
@@ -2293,26 +2293,39 @@ export default function App() {
         >
           <TabsList aria-label={t('view.readings')} className="pointer-events-auto">
             {VIEW_TABS.map(({ value, labelKey, Icon }) => (
-              <Tooltip key={value}>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value={value} aria-label={t(labelKey)}>
-                    <Icon aria-hidden />
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top">{t(labelKey)}</TooltipContent>
-              </Tooltip>
+              <TabsTrigger key={value} value={value}>
+                <Icon aria-hidden />
+                {/* Named at every width, spelled out only where the three
+                    of them fit beside the panel. Centred at the foot of the
+                    map the group is ~377px wide, so its left edge clears
+                    the panel's 336 from about 1080px up; 1120 leaves a gap
+                    rather than a graze, and it is a width Tailwind has no
+                    name for. sr-only rather than hidden, so the label stays
+                    the tab's own accessible name at every width. */}
+                <span className="sr-only min-[1120px]:not-sr-only">{t(labelKey)}</span>
+              </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
-        {/* Map controls at the lower right: the four that only ever aim the
-            camera or the window, joined into one block – compass, 2D/3D,
-            full screen, and camera reset – and the scene popover last,
-            nearest the thumb, the widest of them and the one that carries
-            a reading rather than only a command. Everything here belongs
-            to the map: the diagram has no camera to aim and no scene to
-            dress, so it keeps only full screen. */}
+        {/* Map controls at the lower right: the scene popover on top, the
+            one that carries a reading rather than only a command, and
+            below it the four that only ever aim the camera or the window,
+            joined into one block – compass, 2D/3D, camera reset, and full
+            screen last. Everything here belongs to the map: the diagram
+            has no camera to aim and no scene to dress, so it keeps only
+            full screen, which is the window's. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
+          {!linear && (
+            <ScenePopover
+              weatherMode={weatherMode}
+              onWeatherModeChange={handleWeatherMode}
+              liveWeatherAvailable={liveWeatherAvailable}
+              temperatureC={temperatureC}
+              tiltShift={tiltShift}
+              onToggleTiltShift={handleToggleTiltShift}
+            />
+          )}
           <div
             role="group"
             aria-label={t('view.controls')}
@@ -2358,6 +2371,22 @@ export default function App() {
                 </TooltipContent>
               </Tooltip>
             )}
+            {!linear && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={GROUPED_CONTROL}
+                    aria-label={t('camera.reset')}
+                    onClick={handleResetCamera}
+                  >
+                    <Home aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+              </Tooltip>
+            )}
             {/* Full screen is the window's, not the camera's – it stays */}
             {fullscreenAvailable && (
               <Tooltip>
@@ -2378,33 +2407,7 @@ export default function App() {
                 </TooltipContent>
               </Tooltip>
             )}
-            {!linear && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className={GROUPED_CONTROL}
-                    aria-label={t('camera.reset')}
-                    onClick={handleResetCamera}
-                  >
-                    <Home aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
-              </Tooltip>
-            )}
           </div>
-          {!linear && (
-            <ScenePopover
-              weatherMode={weatherMode}
-              onWeatherModeChange={handleWeatherMode}
-              liveWeatherAvailable={liveWeatherAvailable}
-              temperatureC={temperatureC}
-              tiltShift={tiltShift}
-              onToggleTiltShift={handleToggleTiltShift}
-            />
-          )}
         </div>
       </div>
     </div>
