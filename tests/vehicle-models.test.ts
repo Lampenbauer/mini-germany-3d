@@ -23,6 +23,12 @@ const EXPECTED: Record<string, { length: number; width: number; height: number }
   // Per-line vessel dimensions from network.json (FG and FW)
   'ferry-fg': { length: 19.9, width: 6.6, height: 3.5 },
   'ferry-fw': { length: 39, width: 11, height: 6 },
+  // Hamburg: DT5 sections, ET 490 cars, HADAG Typ 2000 ferry
+  'ubahn-end': { length: 13.0, width: 2.6, height: HEIGHTS.subway },
+  'ubahn-mid': { length: 13.0, width: 2.6, height: HEIGHTS.subway },
+  'sbahn490-end': { length: 21.4, width: 3.0, height: HEIGHTS.sbahn490 },
+  'sbahn490-mid': { length: 22.4, width: 3.0, height: HEIGHTS.sbahn490 },
+  'ferry-hadag': { length: 29.9, width: 8.2, height: 6.5 },
 }
 
 /** Face normals must point away from the enclosed volume – a face wound
@@ -103,6 +109,12 @@ describe('mesh primitives', () => {
 })
 
 describe('the generated fleet', () => {
+  it('has expected dimensions declared for every mesh', () => {
+    // A new mesh without a row above would otherwise fail three tests
+    // with a TypeError instead of saying what is missing
+    expect(Object.keys(EXPECTED).sort()).toEqual(Object.keys(FLEET).sort())
+  })
+
   for (const [name, buildMesh] of Object.entries(FLEET)) {
     describe(name, () => {
       const mesh = buildMesh()
