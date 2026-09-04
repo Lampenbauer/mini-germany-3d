@@ -22,7 +22,8 @@ test('GTFS-Realtime endpoint is fetched and shown in the panel', async ({ page }
     }),
   )
 
-  await page.goto('/?offline=1&rt=1&time=08:30&paused=1')
+  // The panel is the subject; the scene behind it only costs frames
+  await page.goto('/?offline=1&rt=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
   await page.waitForFunction(() => window.__mrt?.ready === true)
 
   // The panel used to show this as a badge; the feed reaching the app and

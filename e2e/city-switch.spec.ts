@@ -6,7 +6,15 @@ import { cityBySlug } from '../src/cities/definitions'
  * the panel title, and a link that names the city. Both must leave the
  * old city's lines behind, put the new city's up, name it in the title
  * and the URL, and land the camera inside the new city's leash.
+ *
+ * Both boots keep the routes, stops and labels off. What is asserted here
+ * is which lines the app holds and where the camera stands, and under
+ * SwiftShader those layers are what a frame is spent on (see the note in
+ * tilt-shift.spec.ts).
  */
+
+/** Layers off – see the note above. */
+const CHEAP = 'routes=0&stops=0&labels=0'
 
 const HAMBURG = cityBySlug('hamburg')!.boundingBox
 const ROSTOCK = cityBySlug('rostock')!.boundingBox
@@ -27,7 +35,7 @@ const inside = (view: { lat: number; lon: number }, box: typeof HAMBURG) =>
 
 test('the picker flies from Rostock to Hamburg', async ({ page }) => {
   test.setTimeout(300_000)
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}`)
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
@@ -75,7 +83,7 @@ test('the picker flies from Rostock to Hamburg', async ({ page }) => {
 
 test('a link naming the city opens it', async ({ page }) => {
   test.setTimeout(240_000)
-  await page.goto('/?offline=1&time=08:30&paused=1#city=hamburg')
+  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}&city=hamburg`)
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.city() === 'hamburg',
     undefined,

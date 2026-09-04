@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
 /**
@@ -6,6 +8,21 @@ import { expect, test } from '@playwright/test'
  * vehicle tests use – a real scene.pick per click is an offscreen render,
  * ruinous under SwiftShader.
  */
+
+/**
+ * A stop id from the committed network – the same ids the app builds its
+ * stops from, so a link carrying one opens on that stop. Taken off a
+ * line's own stop list rather than from the loose stop table: those are
+ * the stops the simulation really serves.
+ */
+function sharedStopId(): string {
+  const file = fileURLToPath(new URL('../src/cities/rostock/network.json', import.meta.url))
+  const network = JSON.parse(readFileSync(file, 'utf8')) as {
+    lines: { directions: { stops: string[] }[] }[]
+  }
+  const stops = network.lines[0].directions[0].stops
+  return stops[Math.floor(stops.length / 2)]
+}
 
 /** All stop ids in the scene's billboards (they carry "stop:<id>" ids). */
 async function stopIds(page: import('@playwright/test').Page): Promise<string[]> {
@@ -29,7 +46,7 @@ async function stopIds(page: import('@playwright/test').Page): Promise<string[]>
 test('selecting a stop opens its departure board', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
@@ -61,7 +78,7 @@ test('selecting a stop opens its departure board', async ({ page }) => {
 test('a real click on a stop disc opens the card', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -77,11 +94,18 @@ test('a real click on a stop disc opens the card', async ({ page }) => {
   // came out at the edge of the box and in a pile of four.
   const ids = await stopIds(page)
   expect(ids.length).toBeGreaterThan(0)
-  const positions: { id: string; x: number; y: number }[] = []
-  for (const id of ids) {
-    const pos = await page.evaluate((sid) => window.__mrt!.stopScreenPosition(sid), id)
-    if (pos) positions.push({ id, ...pos })
-  }
+  // All six hundred positions in ONE call into the page. Asking per stop
+  // meant six hundred round trips, and on a loaded CI runner that alone
+  // was three minutes – the most expensive test in the suite, for
+  // arithmetic that takes a millisecond.
+  const positions = await page.evaluate(
+    (stopIdList) =>
+      stopIdList.flatMap((sid) => {
+        const pos = window.__mrt!.stopScreenPosition(sid)
+        return pos ? [{ id: sid, x: pos.x, y: pos.y }] : []
+      }),
+    ids,
+  )
   const clickable =
     positions.find(
       (stop) =>
@@ -105,17 +129,12 @@ test('a real click on a stop disc opens the card', async ({ page }) => {
 test('a shared stop link restores the card and flies to the stop', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
-    timeout: 120_000,
-  })
-  const stopId = (await stopIds(page))[0]
-  expect(stopId).toBeTruthy()
+  // The stop comes from the dataset rather than from a first boot of the
+  // app: this test is about opening a link, and booting the whole scene
+  // once just to read an id back out of it cost a second full startup.
+  const stopId = sharedStopId()
 
-  // Fresh boot from the shared link (about:blank tears down the first
-  // WebGL context, same pattern as the vehicle-hash spec)
-  await page.goto('about:blank')
-  await page.goto(`/?offline=1&time=08:30&paused=1#stop=${encodeURIComponent(stopId!)}`)
+  await page.goto(`/?offline=1&time=08:30&paused=1#routes=0&stop=${encodeURIComponent(stopId)}`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -128,7 +147,7 @@ test('a shared stop link restores the card and flies to the stop', async ({ page
 test('a departure click follows its vehicle', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
