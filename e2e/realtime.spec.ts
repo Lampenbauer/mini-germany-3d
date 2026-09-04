@@ -11,15 +11,27 @@ test('GTFS-Realtime endpoint is fetched and shown in the panel', async ({ page }
 
   // Mock the filtered JSON endpoint – verifies the chain
   // fetch → validation → status badge in the panel.
-  await page.route('**/api/realtime', (route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        timestamp: 1700000000,
-        total: 42,
-        delays: { 'some-trip': 120 },
-      }),
-    }),
+  //
+  // Matched on the path rather than by a glob over the whole URL: the app
+  // asks per city (/api/realtime?city=rostock), and a glob written for the
+  // bare path stops matching the moment a query string appears. A mock
+  // that misses does not fail – the request goes to the real endpoint
+  // instead, and the test quietly turns into one about whether the
+  // upstream feed happens to be up. Hence the count below.
+  let served = 0
+  await page.route(
+    (url) => url.pathname === '/api/realtime',
+    (route) => {
+      served++
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          timestamp: 1700000000,
+          total: 42,
+          delays: { 'some-trip': 120 },
+        }),
+      })
+    },
   )
 
   // The panel is the subject; the scene behind it only costs frames
@@ -32,4 +44,7 @@ test('GTFS-Realtime endpoint is fetched and shown in the panel', async ({ page }
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.realtimeStatus()?.state))
     .toBe('live')
+
+  // ... and it really was our JSON that got there, not the internet's
+  expect(served).toBeGreaterThan(0)
 })
