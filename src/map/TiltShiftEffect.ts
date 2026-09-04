@@ -71,8 +71,8 @@ const TEXTURE_SCALE = 0.8
  * plane of focus. An eased ramp would keep the rows next to the band
  * nearly sharp and make the band look wider than it is set to.
  */
-const BAND_HALF_HEIGHT = 0.16
-const BAND_FEATHER = 0.4
+const BAND_HALF_HEIGHT = 0.18
+const BAND_FEATHER = 0.44
 
 /**
  * Blur radius at the top and bottom edges, as a fraction of the viewport
