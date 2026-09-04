@@ -109,6 +109,13 @@ export interface MrtTestApi {
    * Why the render loop is (not) idling – the four inputs of the pacing
    * gate. Diagnosing "the GPU stays busy" is guesswork without them.
    */
+  /**
+   * The miniature effect as the map has it: switched on, how much of it
+   * the camera pose carries, and whether its passes are compiled and
+   * running. The last one is what a test has to wait on before it can
+   * judge a frame (see tilt-shift.spec.ts).
+   */
+  tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
   renderPacing: () => {
     animating: boolean
     rainActive: boolean
@@ -1068,6 +1075,7 @@ export default function App() {
         while (renderTimes.length > 0 && renderTimes[0] < cutoff) renderTimes.shift()
         return renderTimes.length / 5
       },
+      tiltShiftState: () => map.tiltShiftState(),
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating =

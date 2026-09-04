@@ -107,6 +107,27 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
         timeout: 60_000,
       })
       .toBe(false)
+
+  /**
+   * A reading of a picture that has stopped changing. The camera settling
+   * is not the whole of it: Cesium compiles a post-process stage's shader
+   * asynchronously and skips the stage until it is done, and under
+   * SwiftShader that takes frames – so the first frame after the switch
+   * can still be the unblurred one. Two readings that agree are the
+   * evidence that the frame is the finished one, and the assertions below
+   * then judge the effect rather than the moment they were made in.
+   */
+  const steadyFrameDetail = async () => {
+    let previous = await frameDetail()
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const current = await frameDetail()
+      const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(a, b) * 0.02
+      if (close(previous.top, current.top) && close(previous.band, current.band)) return current
+      previous = current
+    }
+    return previous
+  }
+
   await settled()
 
   // The look starts off (config.camera.miniatureDefault) and is switched
@@ -116,13 +137,19 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   await page.getByRole('button', { name: 'Scene' }).click()
   const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
-  const withoutEffect = await frameDetail()
+  const withoutEffect = await steadyFrameDetail()
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
   await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tiltshift=1')
+  // The three passes are compiled and running, and the camera pose is one
+  // that carries the effect at all – without both, the frame below would
+  // be the unblurred one and the failure would point at the shader.
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.tiltShiftState()), { timeout: 60_000 })
+    .toEqual({ enabled: true, strength: 1, ready: true })
   await settled()
-  const withEffect = await frameDetail()
+  const withEffect = await steadyFrameDetail()
 
   // The blur takes the top of the picture down to a fraction of its detail
   expect(withEffect.top).toBeLessThan(withoutEffect.top * 0.5)

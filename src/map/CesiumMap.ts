@@ -1265,6 +1265,19 @@ export class CesiumMap {
     this.vesselLayer.setLabelsVisible(visible)
   }
 
+  /**
+   * What the miniature effect is currently doing: whether it is switched
+   * on, how much of it the camera pose carries, and whether its passes
+   * are compiled and running (see TiltShiftEffect).
+   */
+  tiltShiftState(): { enabled: boolean; strength: number; ready: boolean } {
+    return {
+      enabled: this.tiltShift.enabled,
+      strength: this.tiltShift.strength,
+      ready: this.tiltShift.ready,
+    }
+  }
+
   /** Miniature look on/off – the effect and the lens it is shot with. */
   setTiltShift(enabled: boolean): void {
     this.tiltShift.setEnabled(enabled)

@@ -99,8 +99,30 @@ jobs:
           node-version: 22
           cache: npm
 
+      # `npm ci` is the same unpack on every run – 553 packages out of an
+      # already warm download cache, 23 000 files of which Cesium alone is
+      # a seventh. It is disk, not network, and the hosted runners vary
+      # wildly at it: the identical lockfile has taken 50 seconds on one
+      # run and 7 minutes on the next. Caching the unpacked tree keys that
+      # work to the lockfile, so it happens once per dependency change
+      # instead of once per run, and a restore is one tar stream.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci
+
+      # npm runs this as a postinstall, so a cache hit skips it – and
+      # public/cesium is git-ignored, generated, and needed by the build
+      # and by every test. Cheap enough (a tenth of a second) to just do
+      # unconditionally rather than to branch on.
+      - name: Copy Cesium static assets
+        run: node scripts/copy-cesium-assets.mjs
 
       # Nightly only: fetch the current OSM geometry and GTFS departures,
       # city by city. The scripts write their output files only after

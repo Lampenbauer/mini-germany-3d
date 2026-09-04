@@ -46,6 +46,8 @@ declare global {
       renderRate: () => number
       anyVehicleInView: () => boolean
       streetLamps: () => { drawn: number; alpha: number }
+      /** The miniature effect: on, how much the pose carries, passes compiled. */
+      tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

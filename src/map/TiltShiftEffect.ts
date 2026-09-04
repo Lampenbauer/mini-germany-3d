@@ -436,6 +436,17 @@ export class TiltShiftEffect {
   }
 
   /**
+   * Whether the three passes are compiled and actually running. Cesium
+   * builds a post-process stage's shader asynchronously and skips the
+   * stage until it is done, so a frame drawn right after the switch can
+   * still be the unblurred one – which looks like the effect failing
+   * rather than like it not being there yet. Tests wait on this.
+   */
+  get ready(): boolean {
+    return this.composite.enabled && this.composite.ready
+  }
+
+  /**
    * Re-derives the strength from the current camera pose. Called once per
    * rendered frame, before the frame is drawn: the pose is what the ramps
    * depend on, and a pose change always brings a frame with it – so this
