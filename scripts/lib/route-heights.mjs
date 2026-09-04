@@ -97,11 +97,42 @@ export function normalizeRanges(raw, totalLength) {
 /**
  * Index over a previously enriched network.json for height reuse: terrain
  * never changes, so a direction whose path is identical to the previous
- * run keeps its heights without any WCS request, and a stop keeps its
+ * run keeps its heights without any tile request, and a stop keeps its
  * `nhn` as long as its coordinate is unchanged. Directions are keyed by
  * their full path geometry (not by line id) – renamed or renumbered lines
  * still reuse, while any geometry change forces a fresh sample.
  */
+/**
+ * Whether a previously generated file may lend its heights: only when the
+ * terrain line it records (meta.terrainAttribution) is the one this run
+ * samples under. Heights of another model must not survive a source
+ * change on the strength of unchanged geometry – the whole city is
+ * sampled afresh once, then the reuse resumes. Files from before the
+ * field existed were sampled from the state services, so they rightly
+ * fail the test.
+ */
+export function sameTerrainSource(prev, attribution) {
+  return prev?.meta?.terrainAttribution === attribution
+}
+
+/**
+ * The meta block of an enriched file: the attribution with the terrain
+ * line at its end, and that line on its own (meta.terrainAttribution) so
+ * the next run can tell the source apart. Rerunning on an enriched file
+ * replaces the line it recorded rather than joining a second one, and a
+ * file from before the field existed that already carries the very line
+ * is not given it twice – so the output is byte-stable across reruns,
+ * which the nightly "anything new?" check relies on.
+ */
+export function withTerrainAttribution(meta, line) {
+  let base = meta.attribution ?? ''
+  for (const previous of [meta.terrainAttribution, line]) {
+    if (previous) base = base.replace(previous, '')
+  }
+  base = base.replace(/\s+/g, ' ').trim()
+  return { ...meta, attribution: base ? `${base} ${line}` : line, terrainAttribution: line }
+}
+
 export function indexPreviousHeights(prevNetwork) {
   const heightsByPath = new Map()
   const nhnByStop = new Map()
@@ -125,7 +156,7 @@ export function indexPreviousHeights(prevNetwork) {
 export const BRIDGE_PROFILE_DEFAULTS = {
   /**
    * Anchor heights are sampled this far OUTSIDE the bridge range: exactly
-   * at the range boundary the DGM's 5 m bilinear footprint already mixes
+   * at the range boundary the terrain's bilinear footprint already mixes
    * in cells under the bridge (water, embankment foot) and pulls the whole
    * interpolated span down.
    */

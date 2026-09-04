@@ -5,14 +5,15 @@
  * src/cities/<slug>/street-lamps.json – the source for the night-time
  * light pools on the map (see src/map/StreetLampsLayer.ts).
  *
- * Only for cities that ask for it (city.json `lamps.enabled`) and have a
- * terrain provider: Rostock's lamps come from an official open-data
- * import (source=OpenData.HRO, lamp_operator=Hansestadt Rostock), so this
- * is the real lighting of the real streets, not a decorative sprinkle –
- * a city whose OSM lamps are patchy is better off without the layer.
+ * Every city gets the layer, however sparse its lamps: Rostock's come
+ * from an official open-data import (source=OpenData.HRO,
+ * lamp_operator=Hansestadt Rostock, sixteen per kilometer of line),
+ * Kiel's from community mapping (two per kilometer) – sparse light is
+ * still the real light, not a decorative sprinkle.
  *
- * Each lamp keeps a terrain height in meters NHN from the same DGM the
- * route heights use, so the pools sit on the ground the routes run on.
+ * Each lamp keeps a terrain height in meters NHN from the same terrain
+ * tiles the route heights use (lib/terrain.mjs), so the pools sit on the
+ * ground the routes run on.
  * Lamps beside a bridge or tunnel section are skipped: there the route's
  * height profile is the deck (or the surface above the tube) and not the
  * ground a lamp beside it stands on.
@@ -30,10 +31,10 @@
  *   LAMPS_OUT      – alternative output path (one city only)
  *   PREV_LAMPS     – previously generated street-lamps.json (e.g. the git
  *                    HEAD version in CI): lamps with identical coordinates
- *                    reuse their height, so an unchanged set causes zero
- *                    WCS requests
- *   DGM_WCS_URL    – alternative WCS endpoint
- *   DGM_COVERAGE   – coverage id (default mv_dgm5, the 5 m grid)
+ *                    reuse their height, so an unchanged set fetches no
+ *                    tiles at all – as long as the file names the same
+ *                    terrain source; after a source change every lamp is
+ *                    sampled afresh once
  *
  * Data licenses: © OpenStreetMap contributors, ODbL 1.0 (lamp positions);
  * the city's terrain attribution (heights).
@@ -44,7 +45,8 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forEachRequestedCity } from './lib/city.mjs'
 import { overpassBbox, postOverpass } from './lib/overpass.mjs'
-import { createTerrainSampler, terrainSummary } from './lib/terrain.mjs'
+import { createTerrainSampler, terrainAttribution, terrainSummary } from './lib/terrain.mjs'
+import { sameTerrainSource } from './lib/route-heights.mjs'
 import { selectLampsAlongRoutes } from './lib/street-lamps.mjs'
 
 /**
@@ -66,11 +68,9 @@ const round5 = (v) => Math.round(v * 1e5) / 1e5
 const round1 = (v) => Math.round(v * 10) / 10
 
 /**
- * Fewer lamps than the city's `lamps.minPlausible` are treated as a mirror
- * failure rather than data: Rostock's lamps come from an official
- * open-data import and number in the tens of thousands; a handful of them
- * means the instance is overloaded or half-synced, and taking that at
- * face value would quietly wipe the lamp set.
+ * An empty answer is a mirror failure, not a city without lamps (the
+ * next mirror is tried); a half-synced answer is caught further down by
+ * comparing with the previous run.
  */
 async function fetchLampNodes(city) {
   if (process.env.OVERPASS_FILE) {
@@ -80,37 +80,41 @@ async function fetchLampNodes(city) {
   const query =
     `[out:json][timeout:300];node["highway"="street_lamp"](${overpassBbox(city.boundingBox)});out skel qt;`
   return postOverpass(query, {
-    validate: (data) => (data?.elements?.length ?? 0) >= city.lamps.minPlausible,
+    validate: (data) => (data?.elements?.length ?? 0) > 0,
   })
 }
 
-/** "lon:lat" → height, from a previously generated file. */
-function indexPreviousHeights() {
-  const index = new Map()
-  if (!process.env.PREV_LAMPS) return index
+/** The previously generated street-lamps.json (PREV_LAMPS), or null. */
+function loadPreviousLamps() {
+  if (!process.env.PREV_LAMPS) return null
   try {
-    const prev = JSON.parse(readFileSync(resolve(process.env.PREV_LAMPS), 'utf8'))
-    for (const [lon, lat, nhn] of prev.lamps ?? []) index.set(`${lon}:${lat}`, nhn)
+    return JSON.parse(readFileSync(resolve(process.env.PREV_LAMPS), 'utf8'))
   } catch (err) {
     console.warn(`⚠ PREV_LAMPS not usable (${err.message}) – sampling everything fresh`)
+    return null
   }
+}
+
+/**
+ * "lon:lat" → height, from the previous file – provided it was sampled
+ * from the terrain source this run uses.
+ */
+function indexPreviousHeights(prev, attribution) {
+  const index = new Map()
+  if (!prev) return index
+  if (!sameTerrainSource(prev, attribution)) {
+    console.log('PREV_LAMPS holds heights from another terrain source – sampling everything fresh')
+    return index
+  }
+  for (const [lon, lat, nhn] of prev.lamps ?? []) index.set(`${lon}:${lat}`, nhn)
   return index
 }
 
 async function main(city, paths) {
   const NETWORK = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
   const OUT = process.env.LAMPS_OUT ? resolve(process.env.LAMPS_OUT) : paths.lamps
-  if (!city.lamps.enabled) {
-    console.log(`${city.name}: street lamps are not enabled for this city – nothing to fetch.`)
-    return
-  }
-  if (city.terrain.provider === 'none') {
-    console.log(`${city.name}: no terrain provider – lamps need heights, skipping.`)
-    return
-  }
-  const ATTRIBUTION =
-    'Street lamps © OpenStreetMap contributors (ODbL). ' +
-    (city.terrain.attribution ?? 'Terrain heights from the city\'s digital terrain model.')
+  const TERRAIN_ATTRIBUTION = terrainAttribution(city)
+  const ATTRIBUTION = `Street lamps © OpenStreetMap contributors (ODbL). ${TERRAIN_ATTRIBUTION}`
   const network = JSON.parse(readFileSync(NETWORK, 'utf8'))
   const data = await fetchLampNodes(city)
   const nodes = (data.elements ?? []).filter((el) => el.type === 'node')
@@ -127,9 +131,21 @@ async function main(city, paths) {
   if (selected.length === 0) {
     throw new Error('No lamp matched a route – is network.json up to date?')
   }
+  // A mirror that is overloaded or half-synced answers with a fraction of
+  // the lamps; taken at face value that would quietly wipe most of the
+  // set. Measured against the previous run rather than a fixed number, so
+  // a city with few lamps is as welcome as one with an import.
+  const prevFile = loadPreviousLamps()
+  const prevCount = prevFile?.lamps?.length ?? 0
+  if (prevCount > 0 && selected.length < prevCount / 2) {
+    throw new Error(
+      `Only ${selected.length} lamps along the routes where the previous run had ${prevCount} – ` +
+        'an incomplete Overpass answer, street-lamps.json left unchanged',
+    )
+  }
 
   const sampler = createTerrainSampler(city)
-  const previous = indexPreviousHeights()
+  const previous = indexPreviousHeights(prevFile, TERRAIN_ATTRIBUTION)
   const lamps = []
   let reused = 0
   let withoutHeight = 0
@@ -159,6 +175,7 @@ async function main(city, paths) {
   const out = {
     meta: {
       attribution: ATTRIBUTION,
+      terrainAttribution: TERRAIN_ATTRIBUTION,
       maxDistanceMeters: MAX_DISTANCE_METERS,
       minSpacingMeters: MIN_SPACING_METERS,
     },
@@ -180,9 +197,9 @@ async function main(city, paths) {
   )
   if (reused > 0) console.log(`   Reused from PREV_LAMPS: ${reused} height(s)`)
   if (withoutHeight > 0) {
-    console.log(`   Dropped without DGM height: ${withoutHeight}`)
+    console.log(`   Dropped without terrain height: ${withoutHeight}`)
   }
-  console.log(`   DGM: ${terrainSummary(sampler)}`)
+  console.log(`   Terrain: ${terrainSummary(sampler)}`)
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

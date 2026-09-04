@@ -209,12 +209,9 @@ interface VehicleModelSpec {
  *
  *   tram-6n2         Vossloh 6N2 – five sections, cab / panto / mid / mid / cab
  *   sbahn-talent2    Talent 2 – cab car / pantograph middle car / cab car
- *   sbahn-et490      Hamburg ET 490 – cab car / middle car / cab car
- *   ubahn-dt5        Hamburg DT5 subway – cab / mid / cab, third-rail powered
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
- *   ferry-hadag      HADAG harbour ferry, Hamburg (29.9 m double-ender)
  *
  * baseLift is half the overall height (origin sits mid-height, the same
  * halfHeight semantics the boxes had). The models are tinted in the line
@@ -245,26 +242,6 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/sbahn-end.glb', length: 18.6, flipped: true },
     ],
   },
-  'sbahn-et490': {
-    scale: 1,
-    baseLift: 2.05,
-    gap: 0.4,
-    wagons: [
-      { uri: 'models/sbahn490-end.glb', length: 21.4 },
-      { uri: 'models/sbahn490-mid.glb', length: 22.4 },
-      { uri: 'models/sbahn490-end.glb', length: 21.4, flipped: true },
-    ],
-  },
-  'ubahn-dt5': {
-    scale: 1,
-    baseLift: 1.7,
-    gap: 0.3,
-    wagons: [
-      { uri: 'models/ubahn-end.glb', length: 13 },
-      { uri: 'models/ubahn-mid.glb', length: 13 },
-      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
-    ],
-  },
   'bus-12m': {
     scale: 1,
     baseLift: 1.55,
@@ -286,12 +263,6 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
     baseLift: 1.75 + 0.8,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fg.glb', length: 19.9 }],
-  },
-  'ferry-hadag': {
-    scale: 1,
-    baseLift: 3.25 + 0.8,
-    gap: 0,
-    wagons: [{ uri: 'models/ferry-hadag.glb', length: 29.9 }],
   },
 }
 

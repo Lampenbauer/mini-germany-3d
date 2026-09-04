@@ -11,6 +11,8 @@ export type StreetLamp = [number, number, number]
 export interface StreetLampData {
   meta: {
     attribution: string
+    /** The terrain line inside `attribution` – the pipeline reuses heights only under the same one. */
+    terrainAttribution?: string
     /** Distance to a route within which a lamp was kept, in meters. */
     maxDistanceMeters: number
     /** Minimum spacing the set was thinned to (0 = every lamp kept). */

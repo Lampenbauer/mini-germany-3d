@@ -436,7 +436,7 @@ export default function App() {
   /**
    * Frames the map still owes the city it holds. A city raised behind an
    * open diagram is never drawn, and its route polylines only compile as
-   * they are rendered – Hamburg's are twelve hundred primitives. Without
+   * they are rendered – a big city's are over a thousand primitives. Without
    * this the map comes back empty and fills in over several seconds; with
    * it those frames are drawn into the hidden canvas instead. Counted
    * down by the render loop.

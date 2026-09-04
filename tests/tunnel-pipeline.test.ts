@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clipPathAt, stitchWays } from '../scripts/fetch-osm-network.mjs'
+import { boundToFixedLine, clipPathAt, nearestOnPath, stitchWays } from '../scripts/fetch-osm-network.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
 
 /**
@@ -202,5 +202,72 @@ describe('clipPathAt (S-Bahn truncation at Rostock Hbf)', () => {
       [250, 300], // entirely after the cut → dropped
     ])
     expect(ranges).toEqual([[100, 200]])
+  })
+})
+
+describe('nearestOnPath', () => {
+  // A path that goes out east and comes back the same way: every point is
+  // passed twice.
+  const path = [
+    [12.0, 54.0],
+    [12.01, 54.0],
+    [12.02, 54.0],
+    [12.01, 54.0],
+    [12.0, 54.0],
+  ]
+  const cum = [0, 654, 1308, 1962, 2616]
+
+  it('measures the offset beside the path in meters', () => {
+    const { offsetMeters } = nearestOnPath(path, cum, [12.005, 54.001])
+    expect(offsetMeters).toBeCloseTo(111, 0)
+  })
+
+  it('takes the first pass only when asked to', () => {
+    const pier = [12.02, 54.0]
+    expect(nearestOnPath(path, cum, pier, { firstPass: true }).along).toBeCloseTo(1308, 0)
+    // The plain nearest point is the first exact hit too – but a point a
+    // hair off the turnaround must not jump to the first pass:
+    const beside = [12.0105, 54.0]
+    const plain = nearestOnPath(path, cum, beside)
+    expect(plain.offsetMeters).toBeCloseTo(0, 0)
+  })
+})
+
+describe('boundToFixedLine (Kiel F1 relation runs on past Laboe)', () => {
+  const node = (id: number, lon: number, lat: number) => ({ id, lon, lat, tags: {} })
+  // Bahnhof → Laboe → Falckenstein → back to Laboe
+  const path = [
+    [10.135, 54.315],
+    [10.17, 54.35],
+    [10.216, 54.403],
+    [10.186, 54.404],
+    [10.216, 54.403],
+  ]
+  const cum = [0, 4500, 7500, 9500, 11500]
+  const stopNodes = [
+    { node: node(1, 10.135, 54.315), name: 'Bahnhof' },
+    { node: node(2, 10.17, 54.35), name: 'Mönkeberg' },
+    { node: node(3, 10.216, 54.403), name: 'Laboe' },
+    { node: node(4, 10.186, 54.404), name: 'Falckenstein' },
+  ]
+
+  it('cuts the path at the first pass of the "to" pier and drops the stops after it', () => {
+    const cut = boundToFixedLine(path, cum, stopNodes, { from: 'Bahnhof', to: 'Laboe' }, [], [[8000, 9000]])!
+    expect(cut).not.toBeNull()
+    expect(cut.path).toHaveLength(3)
+    expect(cut.path[2]).toEqual([10.216, 54.403])
+    expect(cut.stopNodes.map((s) => s.name)).toEqual(['Bahnhof', 'Mönkeberg', 'Laboe'])
+    // The bridge range beyond the cut is gone
+    expect(cut.bridges).toEqual([])
+  })
+
+  it('reads a relation that runs the other way round', () => {
+    const cut = boundToFixedLine(path, cum, stopNodes, { from: 'Laboe', to: 'Bahnhof' }, [], [])!
+    expect(cut.stopNodes.map((s) => s.name)).toEqual(['Bahnhof', 'Mönkeberg', 'Laboe'])
+  })
+
+  it('leaves a relation alone whose ends are the named piers', () => {
+    expect(boundToFixedLine(path.slice(0, 3), cum.slice(0, 3), stopNodes.slice(0, 3), { from: 'Bahnhof', to: 'Laboe' }, [], [])).toBeNull()
+    expect(boundToFixedLine(path, cum, stopNodes, { from: 'Nowhere', to: 'Elsewhere' }, [], [])).toBeNull()
   })
 })

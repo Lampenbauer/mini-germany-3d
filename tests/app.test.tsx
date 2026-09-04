@@ -201,23 +201,23 @@ describe('App (UI shell)', () => {
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
     expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('option', { name: 'Switch to Hamburg' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Switch to Kiel' })).toBeInTheDocument()
   })
 
   it('switches the city from the picker and remembers it', async () => {
     render(<App />)
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
-    fireEvent.click(screen.getByRole('option', { name: 'Switch to Hamburg' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
     // The old city's session ends at once …
-    expect(window.__mrt!.city()).toBe('hamburg')
-    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Hamburg 3D')
+    expect(window.__mrt!.city()).toBe('kiel')
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Kiel 3D')
     // … and the new one is ready once its data is in
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    expect(window.__mrt!.lineIds()).toContain('U1')
+    expect(window.__mrt!.lineIds()).toContain('F1')
     expect(window.__mrt!.lineIds()).not.toContain('FG')
-    expect(window.location.hash).toContain('city=hamburg')
-    expect(window.localStorage.getItem('mg3d.city')).toBe('hamburg')
+    expect(window.location.hash).toContain('city=kiel')
+    expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
   })
 
   it('sets the simulation time via the time input and restores real time', () => {

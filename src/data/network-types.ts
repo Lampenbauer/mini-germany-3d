@@ -23,6 +23,8 @@ export interface NetworkMeta {
   /** "approximated" = bundled demo geometry, "osm" = generated via Overpass. */
   source: 'approximated' | 'osm'
   attribution: string
+  /** The terrain line inside `attribution` – the pipeline reuses heights only under the same one. */
+  terrainAttribution?: string
 }
 
 export interface StopJson {

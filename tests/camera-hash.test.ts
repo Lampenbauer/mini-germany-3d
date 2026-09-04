@@ -128,10 +128,10 @@ describe('layer and pause state in the hash', () => {
       paused: false,
     }
     expect(formatUiStateHash(state)).toBe('')
-    expect(formatUiStateHash({ ...state, city: 'hamburg', routesHidden: true })).toBe(
-      '&city=hamburg&routes=0',
+    expect(formatUiStateHash({ ...state, city: 'kiel', routesHidden: true })).toBe(
+      '&city=kiel&routes=0',
     )
-    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=hamburg').city).toBe('hamburg')
+    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=kiel').city).toBe('kiel')
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
   })
 
