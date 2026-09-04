@@ -22,7 +22,7 @@ import { lonLatToUtm } from './dgm.mjs'
 
 const REQUEST_HEADERS = {
   'User-Agent':
-    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-germany-3d)',
 }
 
 /**

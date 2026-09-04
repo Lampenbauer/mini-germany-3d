@@ -23,7 +23,7 @@ export const REQUEST_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
   Accept: 'application/json',
   'User-Agent':
-    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-germany-3d)',
 }
 
 /**

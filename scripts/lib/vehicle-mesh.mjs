@@ -363,7 +363,7 @@ export function toGlb(mesh, { name }) {
   }
 
   const json = {
-    asset: { version: '2.0', generator: 'mini-rostock-3d vehicle-mesh' },
+    asset: { version: '2.0', generator: 'mini-germany-3d vehicle-mesh' },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0, name }],

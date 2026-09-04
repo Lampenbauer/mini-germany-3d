@@ -336,7 +336,7 @@ try {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => MRT_UPSTREAM_TIMEOUT,
-            CURLOPT_USERAGENT => 'mini-germany-3d/1.0 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+            CURLOPT_USERAGENT => 'mini-germany-3d/1.0 (+https://github.com/Lampenbauer/mini-germany-3d)',
             CURLOPT_ENCODING => '', // allow gzip
         ]);
         $feedData = curl_exec($ch);
