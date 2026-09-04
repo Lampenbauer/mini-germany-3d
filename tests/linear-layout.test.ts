@@ -124,7 +124,7 @@ describe('buildLinearLayout', () => {
   it('handles an empty network and a network of zero length', () => {
     const empty = buildLinearLayout([], { width: 1040 })
     expect(empty.rows).toEqual([])
-    expect(empty.height).toBe(190)
+    expect(empty.height).toBe(254)
     const degenerate = buildLinearLayout([line('A', 0, [0])], { width: 1040 })
     expect(degenerate.rows[0].x1).toBe(degenerate.rows[0].x0)
   })

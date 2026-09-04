@@ -83,7 +83,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   const diagram = page.getByTestId('linear-view')
   await expect(diagram).toBeHidden()
 
-  await page.getByRole('button', { name: 'Pull the lines straight' }).click()
+  await page.getByRole('tab', { name: 'Straightened lines' }).click()
 
   // The camera climbs straight above the middle of the drawn network
   await expect
@@ -127,8 +127,14 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   await diagram.locator('circle[data-vehicle]').first().click()
   await expect(page.getByTestId('vehicle-card')).toBeVisible()
 
-  // ... and the camera controls went with it
-  await expect(page.getByRole('button', { name: 'Show underground view' })).toHaveCount(0)
+  // The camera controls went with the map – the diagram has no camera to
+  // aim – but the tabs stay: a view you cannot leave by is not a tab.
+  await expect(page.getByRole('button', { name: 'Reset camera' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Straightened lines' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(page.getByRole('tab', { name: 'Underground view' })).toBeVisible()
 
   // The URL carries the view, so the diagram can be shared
   expect(await page.evaluate(() => window.location.hash)).toContain('view=linear')
@@ -136,19 +142,22 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   // Back to the map: the globe returns, the diagram gets out of the way,
   // and the camera flies home – the plan view is a working position, not
   // a place to be put down in.
-  await page.getByRole('button', { name: 'Back to the map' }).click()
+  await page.getByRole('tab', { name: 'Surface view' }).click()
   await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
   await expect(diagram).toBeHidden({ timeout: 10_000 })
   expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
-  await expect(page.getByRole('button', { name: 'Show underground view' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reset camera' })).toBeVisible()
 
-  // The home view: its height and pitch, aimed at the city's home point.
+  // The home view, read once the flight has actually landed rather than
+  // while it is still easing: the pitch is the last component to arrive,
+  // so it is the one worth waiting on.
   await expect
-    .poll(async () => (await cameraPose(page)).height, { timeout: 30_000 })
-    .toBeLessThan(CITY.home.height * 1.2)
+    .poll(async () => (await cameraPose(page)).pitch, { timeout: 30_000 })
+    .toBeGreaterThan(CITY.home.pitch - 0.5)
   const home = await cameraPose(page)
   expect(home.pitch).toBeCloseTo(CITY.home.pitch, 0)
+  expect(home.height).toBeLessThan(CITY.home.height * 1.2)
   expect(home.height).toBeGreaterThan(CITY.home.height * 0.8)
   expect(home.lon).toBeCloseTo(CITY.home.longitude, 1)
 })
@@ -199,7 +208,7 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 
   // Into the diagram
   await watch()
-  await page.getByRole('button', { name: 'Pull the lines straight' }).click()
+  await page.getByRole('tab', { name: 'Straightened lines' }).click()
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,
   })
@@ -217,12 +226,48 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 
   // Back to the map, same claim in reverse
   await watch()
-  await page.getByRole('button', { name: 'Back to the map' }).click()
+  await page.getByRole('tab', { name: 'Surface view' }).click()
   await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 30_000 })
   const goingOut = await samples()
   expect(goingOut.some((f) => f.drawnByMap > 0)).toBe(true)
   expect(goingOut.filter((f) => f.diagramShown && f.drawnByMap > 0)).toEqual([])
   expect(goingOut.filter((f) => !f.diagramShown && f.drawnByMap === 0)).toEqual([])
+})
+
+/**
+ * The three readings are tabs, so every one of them is reachable from
+ * every other. Picking the tunnels while the diagram is up is the one
+ * that has to do two things in order: bring the lines back down onto the
+ * map, and only then take the camera under the city.
+ */
+test('the underground tab is reachable from the diagram', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto(`/?offline=1&time=08:30${VIEW}`)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+
+  await page.getByRole('tab', { name: 'Straightened lines' }).click()
+  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
+    timeout: 30_000,
+  })
+
+  await page.getByRole('tab', { name: 'Underground view' }).click()
+
+  // The diagram is down, the map is back, and the map is the underground one
+  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 20_000 }).toBe(false)
+  await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 20_000 })
+  await expect(page.getByRole('tab', { name: 'Underground view' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
+
+  // ... and back up the other way, without passing through the diagram
+  await page.getByRole('tab', { name: 'Surface view' }).click()
+  await expect(page.getByRole('tab', { name: 'Surface view' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
 })
 
 /**
@@ -238,7 +283,7 @@ test('following a vehicle from the diagram brings the map back', async ({ page }
     .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
     .toBeGreaterThan(0)
 
-  await page.getByRole('button', { name: 'Pull the lines straight' }).click()
+  await page.getByRole('tab', { name: 'Straightened lines' }).click()
   const diagram = page.getByTestId('linear-view')
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,

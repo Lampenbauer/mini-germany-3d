@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Building2,
-  Home,
-  Map as MapIcon,
-  Maximize,
-  Minimize,
-  Rows3,
-  TrainFrontTunnel,
-} from 'lucide-react'
+import { Building2, Home, Maximize, Minimize, Rows3, TrainFrontTunnel } from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { CompassIcon } from '@/components/CompassIcon'
 import { ScenePopover } from '@/components/ScenePopover'
@@ -15,6 +7,7 @@ import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
 import { cn } from '@/lib/utils'
@@ -217,6 +210,25 @@ const RAF_WATCHDOG_INTERVAL_MS = 250
  * that it is a transition and not a title sequence.
  */
 const LINEAR_MORPH_MS = 900
+
+/**
+ * The three readings of the network, exactly one of them on screen: the
+ * city above ground, the same city from underneath, or the lines pulled
+ * straight into a diagram. The tabs in the map controls are these.
+ */
+type MapView = 'surface' | 'underground' | 'linear'
+
+/**
+ * The tabs, in the order a reader descends through them: the city as it
+ * stands, the same city from underneath, and the network with the city
+ * taken away entirely. Each icon shows what its tab draws – a tab is a
+ * place to be, not an errand to run, so none of them names a press.
+ */
+const VIEW_TABS = [
+  { value: 'surface', labelKey: 'view.surface', Icon: Building2 },
+  { value: 'underground', labelKey: 'view.underground', Icon: TrainFrontTunnel },
+  { value: 'linear', labelKey: 'view.straight', Icon: Rows3 },
+] as const satisfies readonly { value: MapView; labelKey: MessageKey; Icon: typeof Building2 }[]
 
 /** No line at all – what the map's vehicles are filtered by while the diagram has them. */
 const NO_LINES: ReadonlySet<string> = new Set()
@@ -1879,39 +1891,76 @@ export default function App() {
    * lines fold back onto the map they were taken off, and the camera
    * flies home once they are down.
    */
-  const handleToggleLinear = useCallback(() => {
+  /** Down among the tunnels, or back up – the map's own scene, not the diagram's. */
+  const setUndergroundView = useCallback((want: boolean) => {
+    if (want === undergroundRef.current) return
+    undergroundRef.current = want
+    setUnderground(want)
+    mapRef.current?.setUnderground(want)
+  }, [])
+
+  /** Raises the diagram: the climb to the plan view, then the morph. */
+  const enterLinear = useCallback(() => {
     const map = mapRef.current
     if (!map || !linearViewRef.current || !cityDataRef.current) return
-
-    const next = !linearRef.current
-    linearRef.current = next
-    setLinear(next)
+    linearRef.current = true
+    setLinear(true)
     writeHashRef.current()
 
     // Following a vehicle steers the camera, and the camera is what the
     // morph is measured against – let go of it before anything moves.
-    if (next && followingRef.current) {
+    if (followingRef.current) {
       followingRef.current = false
       setFollowing(false)
       map.setFollow(null)
       map.setFollowVessel(null)
     }
 
-    if (!next) {
-      // The plan view the diagram was left on is a working position, not
-      // a place to put the reader down in.
-      morphTo(0, () => mapRef.current?.setCameraHome())
-      return
-    }
     // The plan is of the lines the diagram is about to draw, not of the city
     map.flyToCityPlan(visibleLinesRef.current, () => {
-      // Pressed again while the camera was still climbing – that press
-      // has drawn its own conclusion.
+      // Switched away again while the camera was still climbing – that
+      // press has drawn its own conclusion.
       if (linearRef.current) morphTo(1)
     })
   }, [morphTo])
-  // The viewer effect's test API reaches the switch through this
-  handleToggleLinearRef.current = handleToggleLinear
+
+  /**
+   * Puts one of the three readings on screen. Which one is current is
+   * state rather than a guess, and the tabs read it back the same way.
+   *
+   * Leaving the diagram always waits for the lines to be down on the map
+   * before the camera moves – the morph is measured against that ground
+   * (see morphTo) – and only then does the camera go where the press was
+   * aiming: home for the surface, under the city for the tunnels.
+   */
+  const selectView = useCallback(
+    (next: MapView) => {
+      const current: MapView = linearRef.current
+        ? 'linear'
+        : undergroundRef.current
+          ? 'underground'
+          : 'surface'
+      if (next === current) return
+      if (current === 'linear') {
+        leaveLinearFor(() => {
+          if (next === 'underground') setUndergroundView(true)
+          else mapRef.current?.setCameraHome()
+        })
+        return
+      }
+      if (next === 'linear') {
+        // A diagram of the network has no above and below to stand in
+        setUndergroundView(false)
+        enterLinear()
+        return
+      }
+      setUndergroundView(next === 'underground')
+    },
+    [enterLinear, leaveLinearFor, setUndergroundView],
+  )
+
+  // The hash and the test API toggle rather than pick
+  handleToggleLinearRef.current = () => selectView(linearRef.current ? 'surface' : 'linear')
 
   /**
    * The diagram, already finished. A link that opens into it has no map
@@ -1948,15 +1997,6 @@ export default function App() {
   }, [linearBox, setMapNetworkDrawn])
   showLinearRef.current = showLinear
 
-  /** Toggle between the normal view and the underground one. */
-  const handleToggleUnderground = useCallback(() => {
-    setUnderground((wasUnderground) => {
-      const next = !wasUnderground
-      undergroundRef.current = next
-      mapRef.current?.setUnderground(next)
-      return next
-    })
-  }, [])
 
   /** Toggle between the tilted 3D view (pitch -60°) and top-down 2D (-90°). */
   const handleToggleViewMode = useCallback(() => {
@@ -2126,6 +2166,8 @@ export default function App() {
   )
 
   const offlineMode = urlOpts.offline
+  /** Which tab stands lit – the same three-way state selectView acts on. */
+  const mapView: MapView = linear ? 'linear' : underground ? 'underground' : 'surface'
 
   return (
     <div
@@ -2235,70 +2277,42 @@ export default function App() {
           </div>
         )}
 
-        {/* Map controls, from the top: which reading of the network is
-            on screen, the underground view, then the four that only ever
-            aim the camera or the window, joined into one block – compass,
-            2D/3D, full screen, and camera reset – and the scene popover
-            last, nearest the thumb, the widest of them and the one that
-            carries a reading rather than only a command. bottom-8 keeps
-            the column clear of the Cesium attribution line at the lower
-            edge. Everything below the first button belongs to the map:
-            the diagram has no camera to aim and no scene to dress. */}
+        {/* Which reading of the network is on screen. Centred at the foot of
+            the map because it is the one control here that does not aim
+            the camera – it replaces what the camera looks at, so it does
+            not belong in the column of camera buttons at the right.
+            bottom-8 clears the Cesium attribution line at the lower edge. */}
+        <Tabs
+          value={mapView}
+          onValueChange={(value) => selectView(value as MapView)}
+          // Arrow keys move the focus, Enter picks. Radix activates on
+          // focus by default, and arrowing across this group would fly
+          // the camera twice on the way to the tab actually wanted.
+          activationMode="manual"
+          className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2"
+        >
+          <TabsList aria-label={t('view.readings')} className="pointer-events-auto">
+            {VIEW_TABS.map(({ value, labelKey, Icon }) => (
+              <Tooltip key={value}>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value={value} aria-label={t(labelKey)}>
+                    <Icon aria-hidden />
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top">{t(labelKey)}</TooltipContent>
+              </Tooltip>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* Map controls at the lower right: the four that only ever aim the
+            camera or the window, joined into one block – compass, 2D/3D,
+            full screen, and camera reset – and the scene popover last,
+            nearest the thumb, the widest of them and the one that carries
+            a reading rather than only a command. Everything here belongs
+            to the map: the diagram has no camera to aim and no scene to
+            dress, so it keeps only full screen. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className={cn(
-                  'pointer-events-auto border border-border/60 backdrop-blur-md',
-                  linear
-                    ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
-                    : 'bg-card/85',
-                )}
-                aria-label={linear ? t('view.geographic') : t('view.linear')}
-                aria-pressed={linear}
-                // There is nothing to pull straight until a network is in
-                disabled={cityData === null}
-                onClick={handleToggleLinear}
-              >
-                {/* Where the lines are: through the city, or straightened
-                    into rows. The label says what the press does. */}
-                {linear ? <MapIcon aria-hidden /> : <Rows3 aria-hidden />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              {linear ? t('view.geographic') : t('view.linear')}
-            </TooltipContent>
-          </Tooltip>
-          {!linear && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  // The active state has to beat the shared bg-card/85 below,
-                  // which tailwind-merge would otherwise let win over a variant.
-                  className={cn(
-                    'pointer-events-auto border border-border/60 backdrop-blur-md',
-                    underground
-                      ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
-                      : 'bg-card/85',
-                  )}
-                  aria-label={underground ? t('camera.toSurface') : t('camera.toUnderground')}
-                  aria-pressed={underground}
-                  onClick={handleToggleUnderground}
-                >
-                  {/* Where the camera stands: in the city, or down among the
-                      tunnels. The label says what the press does. */}
-                  {underground ? <TrainFrontTunnel aria-hidden /> : <Building2 aria-hidden />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                {underground ? t('camera.toSurface') : t('camera.toUnderground')}
-              </TooltipContent>
-            </Tooltip>
-          )}
           <div
             role="group"
             aria-label={t('view.controls')}

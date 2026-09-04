@@ -96,7 +96,9 @@ const DEFAULTS = {
   paddingLeft: 40,
   paddingRight: 32,
   paddingTop: 150,
-  paddingBottom: 40,
+  // Enough that the last row scrolls clear of the view tabs standing at
+  // the foot of the map, rather than ending underneath them.
+  paddingBottom: 104,
   minLabelGapPx: 20,
 }
 

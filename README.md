@@ -31,7 +31,7 @@ of the data pipeline (see [Cities](#cities)).
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Hamburg's DT5 subway (39.6 m), ET 490 S-Bahn (66 m) and HADAG harbour ferries – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors where the city has a terrain source, clamped onto the tiles where it has none; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
-| Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. `#…&view=linear` opens straight into it |
+| Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. The three readings – surface, underground, straightened – are tabs at the foot of the map, exactly one lit, each reachable from each. `#…&view=linear` opens straight into it |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the switch in the scene popover and `tiltshift=1` turn it on |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
@@ -42,7 +42,7 @@ of the data pipeline (see [Cities](#cities)).
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation, filtered per city (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Weather | Open-Meteo precipitation, cloud cover and temperature for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the scene button. The live sky is shown only near real time (`?rain=0` opts out); the scene popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one |
 | Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen low-poly archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`) |
-| shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover) |
+| shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover, Tabs) |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
 | Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
@@ -103,7 +103,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   it where their distance puts them, the vehicles running on the rows. The camera
   climbs straight above the middle of whatever is switched on, keeping its compass
   heading, and the lines only begin to straighten once it is there – switch most
-  of the network off and the plan is of the handful of lines that are left. The way back is the
+  of the network off and the plan is of the handful of lines that are left. Every
+  tab is reachable from every other: picking the underground while the diagram is
+  up brings the lines down onto the map first and takes the camera under the city
+  afterwards. The way back is the
   same order backwards: the lines fold onto the map, and only once they are down
   does the camera move – to the city's home view, or, when the press was aiming
   at something (a stop to fly to, a vehicle to follow, a line to zoom to), to
@@ -112,12 +115,15 @@ VITE_CESIUM_ION_TOKEN=your-token
   where. Only the lines switched on in the panel are drawn, clicking a dot or a
   stop opens the same cards as on the map, and the button turns the city back on.
   The diagram scrolls when the network is taller than the window.
-- **Map controls:** at the lower right edge of the map. Which reading of the
-  network is on screen – map or diagram – stands at the top on its own, then the
-  underground view, then the four that only aim the camera or the window –
-  compass, 2D/3D pitch toggle, full screen and camera reset – as one block, and
-  the scene popover last. Everything but the first button and full screen belongs
-  to the map, so the diagram leaves them out.
+- **View tabs:** centred at the foot of the map, three icons and exactly one of
+  them lit: the city as it stands, the same city from underneath, and the network
+  with the city taken away. They stand apart from the controls at the right
+  because they are the only ones that do not aim the camera – they replace what
+  the camera looks at. Arrow keys move between them, Enter picks.
+- **Map controls:** at the lower right edge of the map – the four that only aim
+  the camera or the window (compass, 2D/3D pitch toggle, full screen and camera
+  reset) as one block, and the scene popover last. All of it belongs to the map,
+  so the diagram keeps only full screen.
 - **Compass:** its needle points where the camera looks, on a north-up dial, and
   turns with it. Pressing it brings the view onto the nearest quarter – north,
   east, south or west – and on to the next one when it already stands on one, so
