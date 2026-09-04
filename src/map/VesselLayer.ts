@@ -96,9 +96,14 @@ const DEFAULT_WIDTH = 4
  * everything from a bunker barge to the 200 m CEMLUNA.
  */
 export const VESSEL_MODELS: Record<string, { uri: string; length: number; width: number; height: number }> = {
+  'vessel-container': { uri: 'models/vessel-container.glb', length: 300, width: 40, height: 46 },
   'vessel-cargo': { uri: 'models/vessel-cargo.glb', length: 90, width: 14, height: 16 },
   'vessel-tanker': { uri: 'models/vessel-tanker.glb', length: 90, width: 14, height: 14 },
+  'vessel-barge': { uri: 'models/vessel-barge.glb', length: 85, width: 9.5, height: 6 },
+  'vessel-dredger': { uri: 'models/vessel-dredger.glb', length: 100, width: 20, height: 18 },
   'vessel-passenger': { uri: 'models/vessel-passenger.glb', length: 160, width: 24, height: 34 },
+  'vessel-tender': { uri: 'models/vessel-tender.glb', length: 20, width: 5, height: 6 },
+  'vessel-pilot': { uri: 'models/vessel-pilot.glb', length: 20, width: 6, height: 7.5 },
   'vessel-tug': { uri: 'models/vessel-tug.glb', length: 26, width: 9, height: 10 },
   'vessel-fishing': { uri: 'models/vessel-fishing.glb', length: 18, width: 5.5, height: 7.5 },
   'vessel-sail': { uri: 'models/vessel-sail.glb', length: 12, width: 3.8, height: 14 },
@@ -107,22 +112,82 @@ export const VESSEL_MODELS: Record<string, { uri: string; length: number; width:
 }
 
 /**
- * AIS ship type code → archetype model. Many vessels broadcast type 0 or
- * 9x "other" – for those the reported length decides: anything ship-sized
- * gets the cargo silhouette instead of a workboat stretched past all
+ * Length from which a cargo ship is drawn as a container ship rather
+ * than as the coaster hull. AIS has no code for a boxship – 70–79 covers
+ * every dry cargo ship there is – so the size decides, and in a container
+ * port that is the honest guess: what comes up the Elbe at 150 m and more
+ * is a feeder or bigger. A bulk carrier of the same length gets the box
+ * stacks too, which is the price of having no better signal.
+ */
+const CONTAINER_MIN_LENGTH_M = 150
+
+/**
+ * Length below which a "passenger ship" is one of the harbour launches
+ * rather than a ferry or a cruise ship. Hamburg's barkassen mostly
+ * broadcast type 60, and a 160 m cruise silhouette squeezed to 20 m
+ * reads as a toy of the wrong thing entirely.
+ */
+const LAUNCH_MAX_LENGTH_M = 35
+
+/**
+ * An inland ship is not a small seagoing one: the Europaschiff on the
+ * Elbe measures 85 × 9.5 m, proportions no coaster has (they start at
+ * 12.5 m of beam), and it carries its wheelhouse right aft. Without a
+ * reported beam the question cannot be asked, so the answer is no.
+ */
+function isInlandBarge(lengthM: number, widthM: number | null): boolean {
+  return lengthM >= 50 && widthM !== null && widthM <= 12
+}
+
+/**
+ * AIS ship type code → archetype model. The type code alone is a coarse
+ * instrument – it has one bucket for every dry cargo ship afloat and
+ * none for a container ship at all – so the reported size decides where
+ * the code cannot: how big a cargo ship is, how narrow an inland one,
+ * how small a "passenger ship" really is. Many vessels broadcast type 0
+ * or 9x "other"; for those the length alone stands in, so a ship-sized
+ * contact gets a ship instead of a workboat stretched past all
  * plausibility (the 135 m VIKING HAKI is no dinghy).
  */
-export function archetypeFor(typeCode: number, lengthM: number | null = null): string {
+export function archetypeFor(
+  typeCode: number,
+  lengthM: number | null = null,
+  widthM: number | null = null,
+): string {
   const group = Math.floor(typeCode / 10)
-  if (group === 6 || group === 4) return 'vessel-passenger' // 4x = high-speed craft
-  if (group === 7) return 'vessel-cargo'
-  if (group === 8) return 'vessel-tanker'
-  if (group === 5) return 'vessel-tug' // tug/pilot/SAR/support
+  const length = lengthM ?? 0
+  // The working craft of a port, each with a code of its own and a
+  // silhouette that shares nothing with the tug they all used to be
+  if (typeCode === 33) return 'vessel-dredger'
+  if (typeCode === 53) return 'vessel-tender' // port tender: the barkasse
+  // Pilot, search-and-rescue and police all run the same kind of fast,
+  // heavily fendered patrol boat
+  if (typeCode === 50 || typeCode === 51 || typeCode === 55) return 'vessel-pilot'
+  if (group === 6 || group === 4) {
+    // 4x is high-speed craft; both groups hold everything from a launch
+    // to a cruise ship, and only the length tells them apart
+    return length > 0 && length < LAUNCH_MAX_LENGTH_M ? 'vessel-tender' : 'vessel-passenger'
+  }
+  if (group === 7 || group === 8) {
+    if (isInlandBarge(length, widthM)) return 'vessel-barge'
+    if (group === 8) return 'vessel-tanker'
+    return length >= CONTAINER_MIN_LENGTH_M ? 'vessel-container' : 'vessel-cargo'
+  }
+  if (group === 5) return 'vessel-tug' // tug and the rest of the support craft
   if (typeCode === 31 || typeCode === 32) return 'vessel-tug' // towing
   if (typeCode === 30) return 'vessel-fishing'
   if (typeCode === 36) return 'vessel-sail'
   if (typeCode === 37) return 'vessel-motor'
-  if ((group === 0 || group === 3 || group === 9) && (lengthM ?? 0) >= 45) return 'vessel-cargo'
+  // Everything left is a code that says nothing about the hull: 0 "not
+  // available", 1x and 2x (reserved and wing-in-ground, which inland
+  // ships on the Elbe hand out freely – RHENUS BRAUNSCHWEIG, 177 × 12 m,
+  // calls itself a ground-effect craft), the rest of 3x, and 9x "other".
+  // Size is all there is to go on, and it is enough to keep a real ship
+  // from being drawn as a stretched workboat.
+  if (length >= 45) {
+    if (isInlandBarge(length, widthM)) return 'vessel-barge'
+    return length >= CONTAINER_MIN_LENGTH_M ? 'vessel-container' : 'vessel-cargo'
+  }
   return 'vessel-generic'
 }
 
@@ -131,15 +196,20 @@ function heightScale(lengthScale: number, widthScale: number): number {
   return Math.min(2.2, Math.max(0.55, Math.sqrt(lengthScale * widthScale)))
 }
 
-/** Hull color and height by AIS ship type group – muted, the fleet is scenery. */
+/**
+ * Hull color and height by AIS ship type group – muted, the fleet is
+ * scenery. The color outlines the ship's name label for good, the height
+ * only shapes the placeholder box until the glTF hull is in.
+ */
 function vesselStyle(typeCode: number): { color: string; height: number } {
   const group = Math.floor(typeCode / 10)
   if (group === 6) return { color: '#4a7fb5', height: 5 } // passenger
   if (group === 7) return { color: '#4e8a57', height: 5 } // cargo
   if (group === 8) return { color: '#a05252', height: 5 } // tanker
   if (typeCode === 30) return { color: '#8a7250', height: 3 } // fishing
+  if (typeCode === 33) return { color: '#8a7a4e', height: 4 } // dredger
   if (typeCode === 36 || typeCode === 37) return { color: '#8a6fb0', height: 3 } // sailing/pleasure
-  if (group === 5) return { color: '#4f9494', height: 3 } // tug/pilot/SAR
+  if (group === 5) return { color: '#4f9494', height: 3 } // tug/pilot/tender/SAR
   return { color: '#7a8494', height: 3 } // unknown
 }
 
@@ -277,7 +347,7 @@ export class VesselLayer {
       // its per-tick scale follows the reported size by itself.
       if (
         record &&
-        (record.archetype !== archetypeFor(vessel.typeCode, vessel.lengthM) ||
+        (record.archetype !== archetypeFor(vessel.typeCode, vessel.lengthM, vessel.widthM) ||
           (record.model === null &&
             (Math.abs((vessel.lengthM ?? DEFAULT_LENGTH) - record.builtLength) > 1 ||
               Math.abs((vessel.widthM ?? DEFAULT_WIDTH) - record.builtWidth) > 1)))
@@ -472,7 +542,7 @@ export class VesselLayer {
   }
 
   private createVessel(vessel: AisVessel, nowMs: number): VesselRecord {
-    const archetype = archetypeFor(vessel.typeCode, vessel.lengthM)
+    const archetype = archetypeFor(vessel.typeCode, vessel.lengthM, vessel.widthM)
     const style = vesselStyle(vessel.typeCode)
     const length = vessel.lengthM ?? DEFAULT_LENGTH
     const width = vessel.widthM ?? DEFAULT_WIDTH

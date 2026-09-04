@@ -4,7 +4,12 @@ import type { Mesh } from './vehicle-mesh.mjs'
 
 export const VESSEL_DIMS: Record<string, { length: number; width: number; height: number }>
 
+export function vesselContainer(): Mesh
 export function vesselCargo(): Mesh
+export function vesselBarge(): Mesh
+export function vesselDredger(): Mesh
+export function vesselTender(): Mesh
+export function vesselPilot(): Mesh
 export function vesselTanker(): Mesh
 export function vesselPassenger(): Mesh
 export function vesselTug(): Mesh
