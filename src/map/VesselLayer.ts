@@ -564,7 +564,7 @@ export class VesselLayer {
         shadows: ShadowMode.CAST_ONLY,
       })
     } catch (error) {
-      console.warn('[MiniRostock3D] Vessel model failed to load:', error)
+      console.warn('[MiniGermany3D] Vessel model failed to load:', error)
       return
     }
     // The vessel may have expired (or the viewer been torn down) meanwhile

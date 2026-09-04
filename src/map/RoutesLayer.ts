@@ -127,11 +127,45 @@ export class RoutesLayer {
 
   /** Underground view (see setUnderground). */
   private underground = false
+  /** The data attribution add() registered, taken down again by clear(). */
+  private credit: Credit | null = null
 
   constructor(
     private readonly viewer: Viewer,
     private readonly host: RoutesLayerHost,
   ) {}
+
+  /**
+   * Takes every route off the map – the other city's, when the map moves
+   * on to the next one. The height offset stays: it is a property of the
+   * place, not of the network, and setCity resets it separately.
+   */
+  clear(): void {
+    const entities = this.viewer.entities
+    entities.suspendEvents()
+    for (const pieces of this.routeEntities.values()) {
+      for (const entity of pieces) entities.remove(entity)
+    }
+    entities.resumeEvents()
+    this.routeEntities.clear()
+    this.heightRoutePieces = []
+    this.linePaths.clear()
+    this.routePulse = null
+    if (this.credit) {
+      this.viewer.creditDisplay.removeStaticCredit(this.credit)
+      this.credit = null
+    }
+    this.host.requestRender()
+  }
+
+  /**
+   * Puts the NHN→ellipsoid offset back to a city's first guess (the geoid
+   * undulation there) before its height bootstrap measures the real one.
+   */
+  resetHeightOffset(offset: number): void {
+    this.routeHeightOffset = offset
+    this.applyRouteHeightOffset()
+  }
 
   /**
    * Underground view: tunnels solid, everything on the surface ghosted.
@@ -184,7 +218,8 @@ export class RoutesLayer {
     // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a
     // visible attribution – Cesium's credit display ("Data attribution")
     // is the canonical place for data-source credits.
-    this.viewer.creditDisplay.addStaticCredit(new Credit(network.meta.attribution, false))
+    this.credit = new Credit(network.meta.attribution, false)
+    this.viewer.creditDisplay.addStaticCredit(this.credit)
 
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)

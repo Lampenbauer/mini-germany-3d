@@ -51,14 +51,14 @@ permissions:
 
 env:
   # Cesium Ion token of the deployed site. Restricted to
-  # minirostock3d.lampenbauer.com in the Ion dashboard, so it is useless
+  # minigermany3d.lampenbauer.com in the Ion dashboard, so it is useless
   # anywhere else and does not need to be a secret – it ships inside the
   # browser bundle regardless. Every build uses it, including the ones
   # that never leave CI: builds of one source tree have to be byte-equal
   # for a later run to reuse one (see "Identify the source tree"), and a
   # second token would break that. A build downloaded and served from
   # somewhere other than that domain falls back to the wireframe globe.
-  ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlUxakJsUm82d3hUT0FVZkMiLCJqdGkiOiI2ZDY5OWM3Ny04Mjk5LTQ3ZDktYWQxZS1kZWIyNThiNTcxNGMiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIFJvc3RvY2sgM0QiLCJpYXQiOjE3ODc0ODc5MzZ9.8Fpf1_WzG6N_GT9UiNCOPaSJSmZr01iMI5Wu9r4FP80
+  ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjJtX1JWREI3a3ZiRUxpQnoiLCJqdGkiOiIyNTExMGU2Yi03ZmRkLTQ4ZGQtYjZjOS03YWZjNGNkMTE5MGEiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIEdlcm1hbnkgM0QiLCJpYXQiOjE3ODg1MDIzNTd9.O0HsQ5TN4oJw6SH6cV2Mahso81FIkuP03_bay239s8Q
 
 jobs:
   # A restore re-deploys an artifact that already passed all of this on
@@ -75,7 +75,7 @@ jobs:
     # for, instead of turning one flake into a cancelled run.
     timeout-minutes: 45
     permissions:
-      # The nightly run pushes the refreshed src/data files back to main
+      # The nightly run pushes the refreshed src/cities data files back to main
       contents: write
       # The reuse probe looks through earlier runs' artifacts. An explicit
       # permissions block grants nothing it does not name, so this line is
@@ -102,45 +102,61 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Nightly only: fetch the current OSM geometry and GTFS departures.
-      # The scripts write their output files only after successful
-      # processing, so a failed fetch leaves the previous data intact –
-      # and every test below still validates the refreshed dataset before
-      # anything is committed or deployed.
+      # Nightly only: fetch the current OSM geometry and GTFS departures,
+      # city by city. The scripts write their output files only after
+      # successful processing, so a failed fetch leaves the previous data
+      # intact – and every test below still validates the refreshed
+      # dataset before anything is committed or deployed. One city's
+      # failure does not cost the others their refresh.
       - name: Refresh network & schedule data (nightly or on request)
         if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm
         env:
           FORCE_OSM: ${{ inputs.refresh_osm }}
         run: |
+          cities="$(node --input-type=module -e "import { allCitySlugs } from './scripts/lib/city.mjs'; console.log(allCitySlugs().join(' '))")"
+          echo "Cities: $cities"
           # The OSM network changes rarely – fetch it only once a week
           # (Sunday night) to spare the public Overpass mirrors, or when a
           # manual run asks for it. A failed fetch (mirrors overloaded or
           # unreachable) keeps the previous network data and must not
           # block the GTFS refresh.
           if [ "$(date +%u)" -eq 7 ] || [ "$FORCE_OSM" = "true" ]; then
-            if npm run data:update; then
-              npm run data:simplify
-              # Terrain heights (DGM via geodaten-mv.de WCS) per route
-              # vertex. PREV_NETWORK lets unchanged geometry reuse the
-              # committed heights, so the WCS is only hit for actual
-              # changes. Soft failure: without heights the app falls back
-              # to clamping the routes onto the 3D tiles – worse GPU
-              # load, but correct.
-              git show HEAD:src/data/network.json > "$RUNNER_TEMP/network-prev.json" || true
-              PREV_NETWORK="$RUNNER_TEMP/network-prev.json" npm run data:heights || echo "::warning::Route height refresh failed – routes fall back to ground clamping."
-              # Street lamps along the refreshed routes (OSM + the same
-              # DGM). PREV_LAMPS reuses the committed heights for lamps
-              # that did not move, so the WCS is only hit for new ones.
-              # Soft failure: the previous lamp set stays in place.
-              git show HEAD:src/data/street-lamps.json > "$RUNNER_TEMP/lamps-prev.json" || true
-              PREV_LAMPS="$RUNNER_TEMP/lamps-prev.json" npm run data:lamps || echo "::warning::Street lamp refresh failed – keeping the previous lamp set."
-            else
-              echo "::warning::OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
-            fi
+            for city in $cities; do
+              if npm run data:update -- --city "$city"; then
+                npm run data:simplify -- --city "$city"
+                # Terrain heights (the city's DGM) per route vertex.
+                # PREV_NETWORK lets unchanged geometry reuse the committed
+                # heights, so the WCS is only hit for actual changes. Soft
+                # failure: without heights the app falls back to clamping
+                # the routes onto the 3D tiles – worse GPU load, but correct.
+                git show "HEAD:src/cities/$city/network.json" > "$RUNNER_TEMP/network-prev.json" || true
+                PREV_NETWORK="$RUNNER_TEMP/network-prev.json" npm run data:heights -- --city "$city" || echo "::warning::$city: route height refresh failed – routes fall back to ground clamping."
+                # Street lamps along the refreshed routes (OSM + the same
+                # DGM). PREV_LAMPS reuses the committed heights for lamps
+                # that did not move, so the WCS is only hit for new ones.
+                # Soft failure: the previous lamp set stays in place.
+                git show "HEAD:src/cities/$city/street-lamps.json" > "$RUNNER_TEMP/lamps-prev.json" || true
+                PREV_LAMPS="$RUNNER_TEMP/lamps-prev.json" npm run data:lamps -- --city "$city" || echo "::warning::$city: street lamp refresh failed – keeping the previous lamp set."
+              else
+                echo "::warning::$city: OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
+              fi
+            done
           else
             echo "OSM network refresh skipped – runs Sunday night, or on request via refresh_osm."
           fi
-          npm run data:gtfs
+          # The GTFS feed is downloaded once (scripts/.cache) and scanned
+          # per city. A city without trips keeps yesterday's schedule; a
+          # feed that serves no city at all fails the run, as it always did.
+          failed=0
+          total=0
+          for city in $cities; do
+            total=$((total + 1))
+            npm run data:gtfs -- --city "$city" || { failed=$((failed + 1)); echo "::warning::$city: GTFS refresh failed – keeping the previous schedule."; }
+          done
+          if [ "$failed" -eq "$total" ]; then
+            echo "::error::GTFS refresh failed for every city."
+            exit 1
+          fi
 
       # What the build is made OF, not which commit asked for it: the
       # deployable output is a pure function of the source tree, so two
@@ -173,7 +189,7 @@ jobs:
         run: |
           if [ "$EVENT" != "schedule" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet -- src/data/network.json src/data/schedule.json src/data/street-lamps.json; then
+          elif git diff --quiet -- src/cities; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Feed unchanged – skipping tests, build and deploy."
           else
@@ -273,7 +289,7 @@ jobs:
           success() && steps.datacheck.outputs.changed == 'true' &&
           (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm)
         run: |
-          git add src/data/network.json src/data/schedule.json src/data/street-lamps.json
+          git add -- src/cities
           if git diff --cached --quiet; then
             echo "Data unchanged – nothing to commit."
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
@@ -298,10 +314,17 @@ jobs:
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
           cp server/api/ais.php dist/api/
-          cp src/data/schedule.json dist/api/schedule.json
-          # The Rostock bounding box ais.php subscribes with – the same
-          # file the app and the pipeline read.
-          cp src/data/rostock-bounding-box.json dist/api/rostock-bounding-box.json
+          # Every city's definition (the boxes ais.php subscribes with)
+          # and schedule (the trip ids realtime.php filters by) – the same
+          # files the app and the pipeline read.
+          for dir in src/cities/*/; do
+            slug="$(basename "$dir")"
+            mkdir -p "dist/api/cities/$slug"
+            cp "$dir/city.json" "dist/api/cities/$slug/"
+            if [ -f "$dir/schedule.json" ]; then
+              cp "$dir/schedule.json" "dist/api/cities/$slug/"
+            fi
+          done
 
       - name: Upload deployment artifact
         if: >-
@@ -397,7 +420,7 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
-          echo "✅ Deployed to https://minirostock3d.lampenbauer.com"
+          echo "✅ Deployed to https://minigermany3d.lampenbauer.com"
 
       # A preview stands on the live site until someone takes it down, and
       # the only way down is deploying main. Say so where the run is read.
@@ -408,7 +431,7 @@ jobs:
             {
               echo "### ⚠️ A preview is live"
               echo
-              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minirostock3d.lampenbauer.com> —"
+              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minigermany3d.lampenbauer.com> —"
               echo "for every visitor, not just for you."
               echo
               echo "It stays there until production is restored. To do that, run this"
@@ -418,7 +441,7 @@ jobs:
           else
             echo "### ✅ Production is live" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "\`main\` ($GITHUB_SHA) is on <https://minirostock3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
+            echo "\`main\` ($GITHUB_SHA) is on <https://minigermany3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Undo button for a preview: takes the artifact of the last successful
@@ -494,7 +517,7 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
-          echo "✅ Restored to https://minirostock3d.lampenbauer.com"
+          echo "✅ Restored to https://minigermany3d.lampenbauer.com"
 
       - name: Note what is live now
         if: success()
@@ -506,7 +529,7 @@ jobs:
             echo "### ✅ Production restored"
             echo
             echo "The main build \`$RESTORED_SHA\` (built $BUILT_AT) is back on"
-            echo "<https://minirostock3d.lampenbauer.com>."
+            echo "<https://minigermany3d.lampenbauer.com>."
             echo
             echo "No rebuild and no test run – this is the same artifact that passed"
             echo "the full suite when that commit was pushed."

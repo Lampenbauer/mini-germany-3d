@@ -34,16 +34,11 @@ import {
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
-import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
+import type { City } from '@/lib/city'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
-import {
-  FERRY_ROUTE_EXTRA_LIFT,
-  ROUTE_HEIGHT_OFFSET_FALLBACK,
-  ROUTE_PULSE_DURATION_MS,
-  RoutesLayer,
-} from './RoutesLayer'
+import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
@@ -67,6 +62,12 @@ export { TUNNEL_VISIBILITY }
 export { delayBadgeSuffix }
 
 export interface CesiumMapOptions {
+  /**
+   * The city the map opens on: its rectangle is the camera leash, its
+   * home view the first frame, its geoid offset the height first guess.
+   * setCity moves the map on to another one.
+   */
+  city: City
   /** Offline mode: no Ion/Google requests (for tests/development without network). */
   offline?: boolean
   /** Fixed ground height in meters (skips all height sampling; debug). */
@@ -107,11 +108,30 @@ export interface CesiumMapOptions {
 
 
 /**
- * Ellipsoidal height of Rostock's streets while no tile height has been
- * measured yet (geoid undulation ~40 m + terrain height). Replaced by real
- * measurements at runtime.
+ * Meters of terrain a city's streets are assumed to stand above the
+ * geoid while nothing better is known – the ellipsoidal ground first
+ * guess is the city's geoid offset plus this. Replaced by the network's
+ * own stop heights as soon as they are loaded (setGroundReference) and
+ * by real tile measurements after that.
  */
-const FALLBACK_GROUND_HEIGHT = 45
+const FALLBACK_TERRAIN_HEIGHT = 5
+
+/**
+ * Whether a measured ellipsoidal ground height can be a German street at
+ * all: below sea level only in a harbor tunnel, above 3 km nowhere. A
+ * number outside is a tile that has not loaded or a ray that hit the sky.
+ */
+function plausibleGroundHeight(height: number): boolean {
+  return Number.isFinite(height) && height > -100 && height < 3000
+}
+
+/**
+ * Seconds a flight from one city to the next takes: a few seconds for a
+ * neighbor, capped so Munich to Rostock does not turn into a tour.
+ */
+function cityFlightSeconds(distanceMeters: number): number {
+  return Math.min(8, Math.max(2.5, distanceMeters / 40_000))
+}
 
 
 
@@ -337,8 +357,19 @@ export class CesiumMap {
   private readonly lens: CameraLens
   /** Underground view (see setUnderground). */
   private underground = false
-  /** Camera leash (see enforceCameraLimits). */
-  private readonly cameraLimits: CameraLimits
+  /** The city on the map (see setCity). */
+  private city: City
+  /** Camera leash (see enforceCameraLimits); null while flying between cities. */
+  private cameraLimits: CameraLimits | null
+  /**
+   * Which run of the height bootstrap is the current one. setCity bumps
+   * it, so a run still measuring the previous city's stops throws its
+   * results away instead of calibrating the new city against them.
+   */
+  private bootstrapGeneration = 0
+  private bootstrapTimer: number | null = null
+  /** The bootstrap has measured this city's ground on the tiles. */
+  private groundMeasured = false
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
   private lastHoverPickAt = 0
   private hoverPickTimer: number | null = null
@@ -383,11 +414,12 @@ export class CesiumMap {
     this.lastInteractionAt = performance.now()
   }
 
-  constructor(container: HTMLElement, opts: CesiumMapOptions = {}) {
+  constructor(container: HTMLElement, opts: CesiumMapOptions) {
     this.opts = opts
+    this.city = opts.city
     // Offline (ellipsoid): ground is exactly at 0 m
     this.defaultGroundHeight =
-      opts.fixedGroundHeight ?? (opts.offline ? 0 : FALLBACK_GROUND_HEIGHT)
+      opts.fixedGroundHeight ?? (opts.offline ? 0 : this.groundFirstGuess(opts.city))
 
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
@@ -447,6 +479,7 @@ export class CesiumMap {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
     })
+    this.routes.resetHeightOffset(opts.city.terrain.geoidOffsetFallback)
     this.streetLamps = new StreetLampsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get nightFactor() {
@@ -554,14 +587,14 @@ export class CesiumMap {
     // per frame (see enforceCameraLimits).
     scene.screenSpaceCameraController.maximumZoomDistance =
       config.cameraLimits.maxHeightMeters
-    // The leash itself: the Rostock bounding box (the city limits plus
-    // 15 km – the rectangle the data pipeline and the AIS subscription
-    // share) and the height ceiling. The fence runs after the camera
-    // controller has moved the camera (scene.initializeFrame) and before
-    // the frame is drawn, so a pose outside the leash never reaches the
-    // screen.
+    // The leash itself: the city's bounding box (the city limits plus
+    // its padding – the rectangle the data pipeline and the AIS
+    // subscription share) and the height ceiling. The fence runs after
+    // the camera controller has moved the camera (scene.initializeFrame)
+    // and before the frame is drawn, so a pose outside the leash never
+    // reaches the screen.
     this.cameraLimits = boundingBoxCameraLimits(
-      rostockBoundingBox,
+      opts.city.boundingBox,
       config.cameraLimits.maxHeightMeters,
     )
     scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
@@ -739,7 +772,7 @@ export class CesiumMap {
       this.viewer.scene.globe.show = false
       this.requestRender()
       this.opts.onTilesetStatus?.('google-3d-tiles')
-      window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
+      this.scheduleGroundBootstrap(2000)
     } catch (error) {
       console.error('Failed to load Google Photorealistic 3D Tiles:', error)
       if (this.destroyed) return
@@ -757,8 +790,106 @@ export class CesiumMap {
     }
   }
 
+  /** The city on the map. */
+  get currentCity(): City {
+    return this.city
+  }
+
+  /**
+   * Moves the map on to another city: the leash, the home view and the
+   * height first guesses become that city's. 'jump' puts the camera on
+   * the new home view at once (a link opened, a hash edited); 'fly' lifts
+   * the leash and flies there, and only on arrival does the new leash
+   * take over – the camera has to cross both fences to get from one
+   * city to the other. The layers of the city left behind are the
+   * caller's to clear (clearCity), before or after – the flight does not
+   * care.
+   */
+  setCity(city: City, transition: 'jump' | 'fly'): void {
+    this.city = city
+    // Sun elevation reference and height bootstrap belong to the place
+    this.cityUp = null
+    this.bootstrapGeneration++
+    this.groundMeasured = false
+    if (this.bootstrapTimer !== null) {
+      window.clearTimeout(this.bootstrapTimer)
+      this.bootstrapTimer = null
+    }
+    if (this.opts.fixedGroundHeight === undefined) {
+      this.defaultGroundHeight = this.opts.offline ? 0 : this.groundFirstGuess(city)
+      this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
+    }
+    this.routes.resetHeightOffset(city.terrain.geoidOffsetFallback)
+    const limits = boundingBoxCameraLimits(city.boundingBox, config.cameraLimits.maxHeightMeters)
+    if (transition === 'jump') {
+      this.cameraLimits = limits
+      this.setCameraHome(false)
+      this.scheduleGroundBootstrap(500)
+      return
+    }
+    // Off the leash for the flight: the fence runs per frame and would
+    // pull the camera back to the old city's border on the first one.
+    this.cameraLimits = null
+    const { heading, pitch } = city.home
+    const orientation = {
+      heading: CesiumMath.toRadians(heading),
+      pitch: CesiumMath.toRadians(pitch),
+      roll: 0,
+    }
+    const destination = this.homePosition(orientation.heading, orientation.pitch)
+    const duration = cityFlightSeconds(
+      Cartesian3.distance(this.viewer.camera.positionWC, destination),
+    )
+    this.flyingUntil = performance.now() + duration * 1000 + 500
+    this.requestRender()
+    const arrive = () => {
+      // A later setCity has taken over; its own flight ends its own way.
+      if (this.destroyed || this.city !== city) return
+      this.cameraLimits = limits
+      this.enforceCameraLimits()
+      // The tiles of the city left behind are not coming back; free
+      // their memory now instead of letting the cache evict them slowly.
+      this.googleTileset?.trimLoadedTiles()
+      this.scheduleGroundBootstrap(500)
+      this.requestRender()
+    }
+    this.viewer.camera.flyTo({ destination, orientation, duration, complete: arrive, cancel: arrive })
+  }
+
+  /**
+   * Takes everything that belongs to the city off the map – routes,
+   * stops, lamps, vehicles – so another city's can go up. The AIS fleet
+   * is the app's: it syncs the next city's ships in on its next tick.
+   */
+  clearCity(): void {
+    this.vehicleLayer.clear()
+    this.stops.clear()
+    this.routes.clear()
+    this.streetLamps.clear()
+    this.nearestVehicleMeters = Number.POSITIVE_INFINITY
+    this.applyShadowState()
+    this.requestRender()
+  }
+
+  /**
+   * A better ground first guess than the city's geoid offset alone: the
+   * median terrain height of the network's stops, once the network is
+   * loaded. Ignored after the bootstrap has measured the real ground
+   * on the tiles – a measurement beats an estimate.
+   */
+  setGroundReference(medianStopNhn: number): void {
+    if (this.opts.fixedGroundHeight !== undefined || this.opts.offline || this.groundMeasured) return
+    this.defaultGroundHeight = medianStopNhn + this.routes.heightOffset
+    this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
+  }
+
+  /** Ellipsoidal ground height of a city's streets before anything is measured. */
+  private groundFirstGuess(city: City): number {
+    return city.terrain.geoidOffsetFallback + FALLBACK_TERRAIN_HEIGHT
+  }
+
   setCameraHome(animate = true): void {
-    const { heading, pitch } = config.home
+    const { heading, pitch } = this.city.home
     const orientation = {
       heading: CesiumMath.toRadians(heading),
       pitch: CesiumMath.toRadians(pitch),
@@ -776,11 +907,10 @@ export class CesiumMap {
   }
 
   /**
-   * Where the home view's camera stands. config.home names the ground
-   * point the view is centered on – the center of the Rostock bounding
-   * box, moved by the offset configured there – and the camera sits
-   * behind it against the heading, `above` meters up and above/tan(pitch)
-   * meters back: the pitch's own triangle.
+   * Where the home view's camera stands. city.home names the ground
+   * point the view is centered on, and the camera sits behind it against
+   * the heading, `above` meters up and above/tan(pitch) meters back: the
+   * pitch's own triangle.
    *
    * The height was framed at Cesium's 60°, and a narrower angle needs
    * more distance for the same ground. That distance is added along the
@@ -789,7 +919,7 @@ export class CesiumMap {
    * the city instead.
    */
   private homePosition(heading: number, pitch: number): Cartesian3 {
-    const { longitude, latitude, height } = config.home
+    const { longitude, latitude, height } = this.city.home
     const above = height - this.defaultGroundHeight
     const forward = above / Math.tan(-pitch)
     // A camera looking at the horizon (tan → ∞) has no ground point to
@@ -810,13 +940,15 @@ export class CesiumMap {
   }
 
   /**
-   * Pulls the camera back inside the leash – the Rostock bounding box and
+   * Pulls the camera back inside the leash – the city's bounding box and
    * the height ceiling (see the constructor). Runs per frame, and in the
    * normal case – camera inside – costs three comparisons and nothing
    * else. setView calls it too, so a pose restored from a shared link
-   * never stands outside the fence, not even for a frame.
+   * never stands outside the fence, not even for a frame. No leash while
+   * the camera is flying to another city (see setCity).
    */
   private enforceCameraLimits(): void {
+    if (!this.cameraLimits) return
     const camera = this.viewer.camera
     // Follow mode parks the camera in the followed vehicle's local frame
     // (camera.lookAt), where setView would read world coordinates as local
@@ -1185,15 +1317,27 @@ export class CesiumMap {
    * remaining stops are refined on demand by resolveStopHeights() as soon
    * as the camera gets near them.
    */
+  /** Runs the height bootstrap after `delayMs`, replacing a pending one. */
+  private scheduleGroundBootstrap(delayMs: number): void {
+    if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
+    this.bootstrapTimer = window.setTimeout(() => {
+      this.bootstrapTimer = null
+      void this.bootstrapGroundHeights()
+    }, delayMs)
+  }
+
   private async bootstrapGroundHeights(): Promise<void> {
     if (this.destroyed || this.opts.fixedGroundHeight !== undefined) return
+    // No tiles yet: loadGoogleTiles schedules a run of its own once they are in.
+    if (!this.googleTileset) return
     if (this.stops.count === 0) {
-      window.setTimeout(() => void this.bootstrapGroundHeights(), 2000)
+      this.scheduleGroundBootstrap(2000)
       return
     }
+    const generation = this.bootstrapGeneration
     const scene = this.viewer.scene
     if (!scene.sampleHeightSupported) {
-      console.warn('[MiniRostock3D] sampleHeight is not supported by this GPU/WebGL environment')
+      console.warn('[MiniGermany3D] sampleHeight is not supported by this GPU/WebGL environment')
       return
     }
 
@@ -1209,10 +1353,11 @@ export class CesiumMap {
         const updated = await scene.sampleHeightMostDetailed(
           chunk.map((s) => Cartographic.fromDegrees(s.lon, s.lat)),
         )
-        if (this.destroyed) return
+        // The map moved on to another city while the tiles were loading
+        if (this.destroyed || generation !== this.bootstrapGeneration) return
         updated.forEach((carto, i) => {
           const h = carto?.height
-          if (h === undefined || !Number.isFinite(h) || h <= -100 || h >= 500) return
+          if (h === undefined || !plausibleGroundHeight(h)) return
           heights.push(h)
           const stop = chunk[i]
           if (stop.nhn !== undefined) nhnOffsets.push(h - stop.nhn)
@@ -1228,21 +1373,22 @@ export class CesiumMap {
         this.render()
       }
     } catch (error) {
-      console.warn('[MiniRostock3D] Height bootstrap failed:', error)
+      console.warn('[MiniGermany3D] Height bootstrap failed:', error)
       return
     }
 
     if (heights.length === 0) {
       console.warn(
-        '[MiniRostock3D] Height bootstrap: no valid tile heights determined – ' +
+        '[MiniGermany3D] Height bootstrap: no valid tile heights determined – ' +
           'vehicles will use the fallback height. Please report this message ' +
           'along with window.__mrt.groundHeights().',
       )
       return
     }
+    this.groundMeasured = true
     heights.sort((a, b) => a - b)
     console.info(
-      `[MiniRostock3D] Tile heights determined (ellipsoidal): ` +
+      `[MiniGermany3D] Tile heights determined (ellipsoidal): ` +
         `min ${heights[0].toFixed(1)} m · median ${this.defaultGroundHeight.toFixed(1)} m · ` +
         `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
     )
@@ -1257,13 +1403,13 @@ export class CesiumMap {
       if (offset > 20 && offset < 60) {
         this.routes.calibrateHeightOffset(offset)
         console.info(
-          `[MiniRostock3D] Route heights calibrated: NHN→ellipsoid offset ` +
+          `[MiniGermany3D] Route heights calibrated: NHN→ellipsoid offset ` +
             `${offset.toFixed(1)} m (${nhnOffsets.length} stop samples)`,
         )
       } else {
         console.warn(
-          `[MiniRostock3D] Route height calibration implausible (${offset.toFixed(1)} m) – ` +
-            `keeping the ${ROUTE_HEIGHT_OFFSET_FALLBACK} m fallback offset`,
+          `[MiniGermany3D] Route height calibration implausible (${offset.toFixed(1)} m) – ` +
+            `keeping the ${this.city.terrain.geoidOffsetFallback} m fallback offset`,
         )
       }
     }
@@ -1280,8 +1426,7 @@ export class CesiumMap {
         Cartographic.fromDegrees(lon, lat),
         this.viewer.scene,
       )
-      // Plausibility window for Rostock (ellipsoidal approx. 30–120 m)
-      if (height !== undefined && Number.isFinite(height) && height > -100 && height < 500) {
+      if (height !== undefined && plausibleGroundHeight(height)) {
         return height
       }
     } catch {
@@ -1321,7 +1466,7 @@ export class CesiumMap {
    */
   private updateNightFactor(time: JulianDate): void {
     this.cityUp ??= Cartesian3.normalize(
-      Cartesian3.fromDegrees(config.home.longitude, config.home.latitude),
+      Cartesian3.fromDegrees(this.city.home.longitude, this.city.home.latitude),
       new Cartesian3(),
     )
     const sun = Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(
@@ -1494,6 +1639,7 @@ export class CesiumMap {
   destroy(): void {
     this.destroyed = true
     if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
+    if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()

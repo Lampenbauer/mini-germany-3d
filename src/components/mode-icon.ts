@@ -1,4 +1,4 @@
-import { Bus, Ship, TrainFront, TramFront } from 'lucide-react'
+import { Bus, Ship, TrainFront, TrainFrontTunnel, TramFront } from 'lucide-react'
 import type { TransitMode } from '@/data/network-types'
 
 /**
@@ -7,6 +7,7 @@ import type { TransitMode } from '@/data/network-types'
  */
 export const MODE_ICON: Record<TransitMode, typeof TramFront> = {
   tram: TramFront,
+  subway: TrainFrontTunnel,
   train: TrainFront,
   bus: Bus,
   ferry: Ship,

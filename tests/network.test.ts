@@ -1,18 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { loadBundledNetwork } from '@/data/network'
-import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
+import { cityNetworks, loadRostockNetwork, rostockBoundingBox } from './cities'
 
 /**
- * Validates the bundled network dataset: if these tests are green,
- * the simulation can run on every line without errors.
+ * Validates the committed network datasets: if these tests are green,
+ * the simulation can run on every line of every city without errors.
  *
- * The structural checks apply to any data source (including after
- * `npm run data:update` with real OSM data); the strict RSAG checks
- * only run for the bundled approximated demo dataset.
+ * The structural checks apply to every city and data source (including
+ * after `npm run data:update` with real OSM data); the strict RSAG checks
+ * only run for the bundled approximated Rostock demo dataset.
  */
-describe('Network dataset (structural, source-independent)', () => {
-  const network = loadBundledNetwork()
-
+describe.each(cityNetworks.map((entry) => [entry.city.slug, entry] as const))(
+  'Network dataset of %s (structural, source-independent)',
+  (_slug, { city, network }) => {
   it('contains at least one line with a valid color', () => {
     expect(network.lines.length).toBeGreaterThan(0)
     for (const line of network.lines) {
@@ -23,12 +22,14 @@ describe('Network dataset (structural, source-independent)', () => {
 
   it('every direction has at least 2 stops and a plausible route length', () => {
     for (const line of network.lines) {
-      // The Gehlsdorf ferry crosses the Warnow in only ~500 m
+      // The Gehlsdorf ferry crosses the Warnow in only ~500 m; Hamburg's
+      // U1 runs 50 km from Norderstedt to Großhansdorf. Anything longer
+      // than that is a stitching error, not a line.
       const minLength = line.mode === 'ferry' ? 200 : 1000
       for (const dir of line.directions) {
         expect(dir.stops.length).toBeGreaterThanOrEqual(2)
         expect(dir.totalLength).toBeGreaterThan(minLength)
-        expect(dir.totalLength).toBeLessThan(30000)
+        expect(dir.totalLength).toBeLessThan(60000)
       }
     }
   })
@@ -46,16 +47,26 @@ describe('Network dataset (structural, source-independent)', () => {
     }
   })
 
-  it('all coordinates lie within the Rostock bounding box', () => {
+  it("all coordinates lie within the city's bounding box", () => {
+    const box = city.boundingBox
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const [lon, lat] of dir.path) {
-          expect(lon).toBeGreaterThan(rostockBoundingBox.west)
-          expect(lon).toBeLessThan(rostockBoundingBox.east)
-          expect(lat).toBeGreaterThan(rostockBoundingBox.south)
-          expect(lat).toBeLessThan(rostockBoundingBox.north)
+          expect(lon).toBeGreaterThan(box.west)
+          expect(lon).toBeLessThan(box.east)
+          expect(lat).toBeGreaterThan(box.south)
+          expect(lat).toBeLessThan(box.north)
         }
       }
+    }
+  })
+
+  it('has every line on a mode the city asks for, drawn with a known consist or a box', () => {
+    for (const line of network.lines) {
+      expect(city.network.modes, `${line.id} is ${line.mode}`).toContain(line.mode)
+      // A model the map has no consist for would silently fall back to a
+      // box – the fleet entry names one, so it had better exist.
+      if (line.model) expect(line.model).toMatch(/^[a-z0-9-]+$/)
     }
   })
 
@@ -74,19 +85,6 @@ describe('Network dataset (structural, source-independent)', () => {
     }
   })
 
-  // Guards the nightly OSM refresh: if tag extraction breaks, the tram
-  // tunnel under Rostock Hauptbahnhof must not silently disappear.
-  it.runIf(loadBundledNetwork().meta.source === 'osm')(
-    'contains the Rostock tram tunnel in the OSM dataset',
-    () => {
-      const tunnelRanges = network.lines
-        .filter((line) => line.mode === 'tram')
-        .flatMap((line) => line.directions)
-        .flatMap((dir) => dir.tunnels)
-      expect(tunnelRanges.length).toBeGreaterThan(0)
-    },
-  )
-
   it('stop names are not empty', () => {
     for (const line of network.lines) {
       for (const dir of line.directions) {
@@ -98,10 +96,35 @@ describe('Network dataset (structural, source-independent)', () => {
   })
 })
 
-describe.runIf(loadBundledNetwork().meta.source === 'approximated')(
+describe('the Rostock dataset', () => {
+  const network = loadRostockNetwork()
+
+  it('stays inside the Rostock box', () => {
+    for (const line of network.lines) {
+      for (const [lon, lat] of line.directions[0].path) {
+        expect(lon).toBeGreaterThan(rostockBoundingBox.west)
+        expect(lon).toBeLessThan(rostockBoundingBox.east)
+        expect(lat).toBeGreaterThan(rostockBoundingBox.south)
+        expect(lat).toBeLessThan(rostockBoundingBox.north)
+      }
+    }
+  })
+
+  // Guards the nightly OSM refresh: if tag extraction breaks, the tram
+  // tunnel under Rostock Hauptbahnhof must not silently disappear.
+  it.runIf(network.meta.source === 'osm')('contains the Rostock tram tunnel in the OSM dataset', () => {
+    const tunnelRanges = network.lines
+      .filter((line) => line.mode === 'tram')
+      .flatMap((line) => line.directions)
+      .flatMap((dir) => dir.tunnels)
+    expect(tunnelRanges.length).toBeGreaterThan(0)
+  })
+})
+
+describe.runIf(loadRostockNetwork().meta.source === 'approximated')(
   'Demo dataset (strict RSAG checks)',
   () => {
-    const network = loadBundledNetwork()
+    const network = loadRostockNetwork()
 
     it('contains the RSAG lines 1, 2, 3, 5, 6', () => {
       expect(network.lines.map((l) => l.id).sort()).toEqual(['1', '2', '3', '5', '6'])

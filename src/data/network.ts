@@ -1,6 +1,7 @@
 import { config } from '@/config'
 import { cumulativeDistances, projectOntoPath } from '@/lib/geo'
 import type { LonLat } from '@/lib/geo'
+import type { City } from '@/lib/city'
 import { mirrorTunnelRanges, normalizeTunnelRanges } from '@/lib/tunnels'
 import type {
   DirectionJson,
@@ -9,7 +10,6 @@ import type {
   PreparedLine,
   PreparedNetwork,
 } from './network-types'
-import rawNetwork from './network.json'
 
 function prepareDirection(
   json: NetworkJson,
@@ -84,7 +84,14 @@ function mirrorDirection(dir: DirectionJson, totalLength: number): DirectionJson
   }
 }
 
-export function prepareNetwork(json: NetworkJson): PreparedNetwork {
+/**
+ * Prepares a network for the simulation: distances along every path,
+ * the mirrored second direction where the data has only one, and the
+ * vehicle each line runs with. The city (when given) supplies what the
+ * data does not say itself: the dimensions and glTF consist of each
+ * mode's fleet, and the model of a fixed line such as a ferry.
+ */
+export function prepareNetwork(json: NetworkJson, city?: City): PreparedNetwork {
   const lines: PreparedLine[] = json.lines.map((line) => {
     const dir0Json = line.directions[0]
     const dir0 = prepareDirection(json, line.id, 0, dir0Json)
@@ -94,12 +101,19 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
       prepareDirection(json, line.id, 1, dir1Json),
     ]
     const mode = line.mode ?? 'tram'
+    const fleet = city?.fleet[mode]
+    const fixed = city?.network.fixedLines.find((f) => f.id === line.id && f.mode === mode)
+    const vehicle = line.vehicle ??
+      fixed?.vehicle ??
+      (fleet ? { length: fleet.length, width: fleet.width, height: fleet.height } : undefined) ??
+      config.vehicles[mode]
     return {
       id: line.id,
       name: line.name,
       color: line.color,
       mode,
-      vehicle: line.vehicle ?? config.vehicles[mode],
+      vehicle,
+      model: line.model ?? fixed?.model ?? fleet?.model,
       directions,
     }
   })
@@ -119,9 +133,4 @@ export function prepareNetwork(json: NetworkJson): PreparedNetwork {
     lines,
     lineById: new Map(lines.map((l) => [l.id, l])),
   }
-}
-
-/** The bundled Rostock tram network. */
-export function loadBundledNetwork(): PreparedNetwork {
-  return prepareNetwork(rawNetwork as unknown as NetworkJson)
 }

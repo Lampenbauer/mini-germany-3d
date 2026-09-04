@@ -77,12 +77,18 @@ export function parseStopHash(hash: string): string | null {
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the Routes/Stops/Labels layer toggles, the miniature look and the pause
- * state. Only deviations from the defaults (all layers on, the miniature
- * look at config.camera.miniatureDefault, clock running) appear in the
- * URL, so default sessions keep clean hashes.
+ * the city, the Routes/Stops/Labels layer toggles, the miniature look and
+ * the pause state. Only deviations from the defaults (the default city,
+ * all layers on, the miniature look at config.camera.miniatureDefault,
+ * clock running) appear in the URL, so default sessions keep clean hashes.
  */
 export interface HashUiState {
+  /**
+   * City slug, null for the default city. Written first so a shared link
+   * reads "#city=hamburg&lat=…" – the city is what the rest refers to:
+   * vehicle and stop ids are only meaningful inside it.
+   */
+  city: string | null
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
@@ -96,6 +102,7 @@ export function formatUiStateHash(state: HashUiState): string {
   const tilt =
     state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
   return (
+    (state.city ? `&city=${encodeURIComponent(state.city)}` : '') +
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
@@ -108,7 +115,11 @@ export function parseUiStateHash(hash: string): HashUiState {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const params = new URLSearchParams(raw)
   const tilt = params.get('tiltshift')
+  const city = params.get('city')
   return {
+    // Whether the slug names a city this build knows is the caller's
+    // business – the hash module only carries it.
+    city: city && city.length <= 64 ? city : null,
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',

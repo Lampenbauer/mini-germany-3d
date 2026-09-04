@@ -3,11 +3,15 @@
  * Filtered GTFS-Realtime endpoint for shared hosting (all-inkl):
  * fetches the Germany-wide feed https://realtime.gtfs.de/realtime-free.pb
  * (>10 MB protobuf) at most once per minute, filters it down to the
- * Rostock trip_ids from schedule.json (located next to this script), and
- * returns only a small JSON payload to the browser:
+ * trip_ids of the city asked for (?city=<slug>, default rostock) from
+ * cities/<slug>/schedule.json next to this script, and returns only a
+ * small JSON payload to the browser:
  *
  *   { "timestamp": <feed Unix seconds>, "total": <total entities>,
  *     "delays": { "<gtfs_trip_id>": <delay in seconds>, ... } }
+ *
+ * One upstream fetch serves every city: the raw feed is cached for the
+ * TTL, and each city's filtered JSON on top of it.
  *
  * The protobuf parser reads only the required GTFS-RT fields
  * (FeedMessage → entity → trip_update → trip.trip_id / delay /
@@ -23,6 +27,30 @@ declare(strict_types=1);
 const MRT_UPSTREAM_URL = 'https://realtime.gtfs.de/realtime-free.pb';
 const MRT_CACHE_TTL_SECONDS = 60;
 const MRT_UPSTREAM_TIMEOUT = 30;
+const MRT_DEFAULT_CITY = 'rostock';
+/** Where cities/<slug>/schedule.json is looked for: next to the script (the deploy), then the checkout. */
+const MRT_CITY_DIRS = [__DIR__ . '/cities', __DIR__ . '/../../src/cities'];
+
+/**
+ * The city a request names (?city=<slug>), as a slug – or null for one
+ * that does not look like a slug at all. Whether it exists is decided by
+ * the schedule lookup below.
+ */
+function mrt_city_slug(): ?string
+{
+    $slug = $_GET['city'] ?? MRT_DEFAULT_CITY;
+    return is_string($slug) && preg_match('/^[a-z][a-z0-9-]{0,63}$/', $slug) === 1 ? $slug : null;
+}
+
+/** The city's schedule.json, or null when no city of that slug is deployed. */
+function mrt_city_schedule(string $slug): ?string
+{
+    foreach (MRT_CITY_DIRS as $dir) {
+        $file = $dir . '/' . $slug . '/schedule.json';
+        if (is_file($file)) return $file;
+    }
+    return null;
+}
 
 // ---------------------------------------------------------------------------
 // Mini protobuf reader (wire format)
@@ -215,7 +243,7 @@ function mrt_extract_delays(string $data, array $tripIdSet): array
     return [$timestamp, $total, $delays];
 }
 
-/** Rostock trip_ids from schedule.json as a set (keys). */
+/** A city's trip_ids from its schedule.json as a set (keys). */
 function mrt_load_trip_ids(string $schedulePath): array
 {
     $schedule = json_decode((string) file_get_contents($schedulePath), true);
@@ -258,7 +286,16 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
-$cacheFile = sys_get_temp_dir() . '/mrt-realtime-cache.json';
+$slug = mrt_city_slug();
+$schedulePath = $slug === null ? null : mrt_city_schedule($slug);
+if ($slug === null || $schedulePath === null) {
+    http_response_code(404);
+    echo json_encode(['error' => 'Unknown city']);
+    exit;
+}
+
+$cacheFile = sys_get_temp_dir() . '/mrt-realtime-' . $slug . '.json';
+$feedFile = sys_get_temp_dir() . '/mrt-realtime-feed.pb';
 $lockFile = sys_get_temp_dir() . '/mrt-realtime-cache.lock';
 
 $cacheAge = is_file($cacheFile) ? time() - (int) filemtime($cacheFile) : PHP_INT_MAX;
@@ -290,22 +327,32 @@ if (!$haveLock) {
 }
 
 try {
-    $ch = curl_init(MRT_UPSTREAM_URL);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT => MRT_UPSTREAM_TIMEOUT,
-        CURLOPT_USERAGENT => 'mini-rostock-3d/1.0 (+https://github.com/Lampenbauer/mini-rostock-3d)',
-        CURLOPT_ENCODING => '', // allow gzip
-    ]);
-    $feedData = curl_exec($ch);
-    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
-    if (!is_string($feedData) || $status !== 200) {
-        throw new RuntimeException("Upstream HTTP $status");
+    // The raw feed is shared by every city: a second city within the TTL
+    // reuses the download instead of fetching >10 MB again.
+    $feedAge = is_file($feedFile) ? time() - (int) filemtime($feedFile) : PHP_INT_MAX;
+    if ($feedAge > MRT_CACHE_TTL_SECONDS) {
+        $ch = curl_init(MRT_UPSTREAM_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => MRT_UPSTREAM_TIMEOUT,
+            CURLOPT_USERAGENT => 'mini-germany-3d/1.0 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+            CURLOPT_ENCODING => '', // allow gzip
+        ]);
+        $feedData = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if (!is_string($feedData) || $status !== 200) {
+            throw new RuntimeException("Upstream HTTP $status");
+        }
+        $tmpFeed = $feedFile . '.' . getmypid() . '.tmp';
+        file_put_contents($tmpFeed, $feedData);
+        rename($tmpFeed, $feedFile);
+    } else {
+        $feedData = (string) file_get_contents($feedFile);
     }
 
-    $tripIds = mrt_load_trip_ids(__DIR__ . '/schedule.json');
+    $tripIds = mrt_load_trip_ids($schedulePath);
     $json = mrt_build_response($feedData, $tripIds);
 
     // Write atomically so concurrent readers never see partial files

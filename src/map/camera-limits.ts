@@ -1,16 +1,16 @@
 /**
  * The camera leash: which area the camera may be in and how far it may
- * zoom out. The area is the Rostock bounding box – the city limits widened
- * by 15 km, the same rectangle the data pipeline and the AIS subscription
- * use (see lib/rostock-bounding-box.ts) – the ceiling a maximum height
- * above the ellipsoid.
+ * zoom out. The area is the city's bounding box – the city limits widened
+ * by its padding, the same rectangle the data pipeline and the AIS
+ * subscription use (see lib/city.ts) – the ceiling a maximum height above
+ * the ellipsoid.
  *
  * Deliberately free of Cesium – the rule is plain geometry and is unit
  * tested as such; CesiumMap only wires it into the render loop.
  */
 
 import { toRadians } from '@/lib/geo'
-import type { BoundingBox } from '@/lib/rostock-bounding-box'
+import type { BoundingBox } from '@/lib/city'
 
 /**
  * Tolerance for "already inside": a clamped pose travels through a

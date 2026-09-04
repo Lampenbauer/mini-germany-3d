@@ -20,27 +20,30 @@ declare(strict_types=1);
 const AIS_HOST = 'stream.aisstream.io';
 const AIS_PATH = '/v0/stream';
 /**
- * The Rostock bounding box as aisstream wants it ([[lat, lon] SW,
- * [lat, lon] NE]), from rostock-bounding-box.json – the one definition
- * the whole project shares (src/data/rostock-bounding-box.json). Looked
- * for next to this script (copy it along to the host) and in a repository
- * checkout two levels up.
+ * Every city's bounding box as aisstream wants it ([[lat, lon] SW,
+ * [lat, lon] NE]), from cities/<slug>/city.json – the definitions the
+ * whole project shares (src/cities/). Looked for next to this script
+ * (copy them along to the host) and in a repository checkout two levels up.
  */
 function aisBbox(): array
 {
-    $files = [__DIR__ . '/rostock-bounding-box.json', __DIR__ . '/../../src/data/rostock-bounding-box.json'];
-    foreach ($files as $file) {
-        if (!is_file($file)) continue;
-        $data = json_decode((string) file_get_contents($file), true);
-        $box = is_array($data) ? ($data['boundingBox'] ?? null) : null;
-        if (is_array($box) && isset($box['west'], $box['south'], $box['east'], $box['north'])) {
-            return [
-                [(float) $box['south'], (float) $box['west']],
-                [(float) $box['north'], (float) $box['east']],
-            ];
+    foreach ([__DIR__ . '/cities', __DIR__ . '/../../src/cities'] as $dir) {
+        $files = glob($dir . '/*/city.json');
+        if (!is_array($files) || $files === []) continue;
+        $boxes = [];
+        foreach ($files as $file) {
+            $data = json_decode((string) file_get_contents($file), true);
+            $box = is_array($data) ? ($data['boundingBox'] ?? null) : null;
+            if (is_array($box) && isset($box['west'], $box['south'], $box['east'], $box['north'])) {
+                $boxes[] = [
+                    [(float) $box['south'], (float) $box['west']],
+                    [(float) $box['north'], (float) $box['east']],
+                ];
+            }
         }
+        if ($boxes !== []) return $boxes;
     }
-    exit("rostock-bounding-box.json not found - copy src/data/rostock-bounding-box.json next to this script.\n");
+    exit("No cities/<slug>/city.json found - copy the src/cities folders next to this script.\n");
 }
 
 // Shortest round-trip floats in json_encode – some hosts pin
@@ -242,8 +245,8 @@ if (!$is101) {
 }
 
 // --- Subscribe and listen -------------------------------------------------
-wsSend($fp, 0x1, json_encode(['APIKey' => $key, 'BoundingBoxes' => [$bbox]]));
-step('Subscription sent', true, 'bbox ' . json_encode($bbox) . ', listening ' . $listenSeconds . ' s');
+wsSend($fp, 0x1, json_encode(['APIKey' => $key, 'BoundingBoxes' => $bbox]));
+step('Subscription sent', true, 'boxes ' . json_encode($bbox) . ', listening ' . $listenSeconds . ' s');
 
 $stats = [
     'messages' => 0, 'types' => [], 'ships' => [], 'samples' => [],

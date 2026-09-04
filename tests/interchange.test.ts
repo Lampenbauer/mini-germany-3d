@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
-import { loadBundledNetwork } from '@/data/network'
+import { loadRostockNetwork } from './cities'
 import { prepareNetwork } from '@/data/network'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import type { NetworkJson } from '@/data/network-types'
@@ -88,8 +88,8 @@ describe('buildInterchangeIndex', () => {
 })
 
 describe('the real Rostock network', () => {
-  const index = buildInterchangeIndex(loadBundledNetwork(), config.interchangeRadiusMeters)
-  const network = loadBundledNetwork()
+  const index = buildInterchangeIndex(loadRostockNetwork(), config.interchangeRadiusMeters)
+  const network = loadRostockNetwork()
 
   /** The stop id of a platform by name and one of the lines calling there. */
   function platform(name: string, lineId: string): string {

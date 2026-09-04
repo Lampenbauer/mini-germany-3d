@@ -5,9 +5,7 @@ import {
   type LampNetwork,
   type LonLat,
 } from '../scripts/lib/street-lamps.mjs'
-import { loadStreetLamps } from '@/data/street-lamps'
-import { rostockBoundingBox } from '@/lib/rostock-bounding-box'
-import networkJson from '@/data/network.json'
+import { rostockBoundingBox, rostockLamps, rostockNetwork } from './cities'
 
 /**
  * Straight 1 km route due north at 12.1 °E, from 54.000 to 54.009.
@@ -109,7 +107,7 @@ describe('selectLampsAlongRoutes', () => {
 })
 
 describe('the generated street-lamps.json', () => {
-  const data = loadStreetLamps()
+  const data = rostockLamps
 
   it('carries the OSM and DGM attribution both licenses require', () => {
     expect(data.meta.attribution).toMatch(/OpenStreetMap/)
@@ -149,5 +147,5 @@ describe('the generated street-lamps.json', () => {
 
 /** network.json in the shape the lamp selection expects. */
 function loadNetworkForLamps(): LampNetwork {
-  return networkJson as unknown as LampNetwork
+  return rostockNetwork as unknown as LampNetwork
 }

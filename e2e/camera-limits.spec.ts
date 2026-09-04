@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { rostockBoundingBox } from '../src/lib/rostock-bounding-box'
+import { cityBySlug } from '../src/cities/definitions'
 
 /**
  * The camera leash (see src/map/camera-limits.ts): the view stays inside
@@ -7,7 +7,7 @@ import { rostockBoundingBox } from '../src/lib/rostock-bounding-box'
  */
 
 /** The fence in degrees: the city limits widened by 15 km. */
-const FENCE = rostockBoundingBox
+const FENCE = cityBySlug('rostock')!.boundingBox
 const MAX_HEIGHT = 25_000
 /** Slack for the assertions – the camera may sit right on the border. */
 const SLACK = 0.01

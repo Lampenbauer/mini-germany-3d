@@ -5,6 +5,8 @@
  * no library needed.
  */
 
+import type { TransitMode } from './transit-mode'
+
 export type Lang = 'en' | 'de'
 
 const en = {
@@ -73,9 +75,16 @@ const en = {
   'lines.flyTo': 'Fly to {name}',
   'lines.show': 'Show {name}',
   'mode.tram': 'Tram',
+  'mode.subway': 'Subway',
   'mode.train': 'S-Bahn',
   'mode.bus': 'Bus',
   'mode.ferry': 'Ferry',
+  // City picker (the caret beside the panel title)
+  'city.title': 'Mini {name} 3D',
+  'city.pick': 'Choose a city',
+  'city.switchTo': 'Switch to {name}',
+  'city.current': 'Shown now',
+  'city.loading': 'Loading {name} …',
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
@@ -108,6 +117,7 @@ const en = {
   'stop.now': 'now',
   'stop.flyToVehicle': 'Fly to this vehicle',
   'follow.tram': 'Follow tram',
+  'follow.subway': 'Follow train',
   'follow.train': 'Follow train',
   'follow.bus': 'Follow bus',
   'follow.ferry': 'Follow ferry',
@@ -234,9 +244,15 @@ const de: Record<MessageKey, string> = {
   'lines.flyTo': 'Zu {name} fliegen',
   'lines.show': '{name} anzeigen',
   'mode.tram': 'Straßenbahn',
+  'mode.subway': 'U-Bahn',
   'mode.train': 'S-Bahn',
   'mode.bus': 'Bus',
   'mode.ferry': 'Fähre',
+  'city.title': 'Mini {name} 3D',
+  'city.pick': 'Stadt wählen',
+  'city.switchTo': 'Nach {name} wechseln',
+  'city.current': 'Gerade zu sehen',
+  'city.loading': '{name} wird geladen …',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',
@@ -267,6 +283,7 @@ const de: Record<MessageKey, string> = {
   'stop.now': 'jetzt',
   'stop.flyToVehicle': 'Zu diesem Fahrzeug fliegen',
   'follow.tram': 'Straßenbahn folgen',
+  'follow.subway': 'U-Bahn folgen',
   'follow.train': 'S-Bahn folgen',
   'follow.bus': 'Bus folgen',
   'follow.ferry': 'Fähre folgen',
@@ -383,17 +400,21 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
 
 /**
  * Line names come from the data pipeline in English ("Line 1",
- * "Ferry Kabutzenhof – Gehlsdorf") – German swaps the generic prefix.
- * "Bus 22" and "S-Bahn S1" read the same in both languages.
+ * "Subway U3", "Ferry Kabutzenhof – Gehlsdorf") – German swaps the
+ * generic prefix. "Bus 22" and "S-Bahn S1" read the same in both languages.
  */
 export function localizeLineName(name: string): string {
   if (lang !== 'de') return name
-  return name.replace(/^Line /, 'Linie ').replace(/^Ferry /, 'Fähre ')
+  return name
+    .replace(/^Line /, 'Linie ')
+    .replace(/^Subway /, 'U-Bahn ')
+    .replace(/^Ferry /, 'Fähre ')
 }
 
 /** Label key per transit mode – shared by the line panel and the vehicle card. */
-export const MODE_KEY: Record<'tram' | 'train' | 'bus' | 'ferry', MessageKey> = {
+export const MODE_KEY: Record<TransitMode, MessageKey> = {
   tram: 'mode.tram',
+  subway: 'mode.subway',
   train: 'mode.train',
   bus: 'mode.bus',
   ferry: 'mode.ferry',

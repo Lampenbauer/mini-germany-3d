@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 /**
- * Post-processes src/data/network.json in place: simplifies all direction
- * paths (Douglas–Peucker, default 0.3 m tolerance) and rounds coordinates
- * to 6 decimal places (~11 cm). Visually lossless, but shrinks the data
- * chunk and speeds up network preparation at startup.
+ * Post-processes src/cities/<slug>/network.json in place: simplifies all
+ * direction paths (Douglas–Peucker, default 0.3 m tolerance) and rounds
+ * coordinates to 6 decimal places (~11 cm). Visually lossless, but shrinks
+ * the data chunk and speeds up network preparation at startup.
  *
- *   npm run data:simplify
+ *   npm run data:simplify -- --city rostock     (no --city: every city)
  *
  * Environment variables:
- *   NETWORK_OUT           – alternative network.json path
+ *   CITY                  – the city, like --city
+ *   NETWORK_OUT           – alternative network.json path (one city only)
  *   SIMPLIFY_TOLERANCE_M  – tolerance in meters (default 0.3)
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import { forEachRequestedCity } from './lib/city.mjs'
 import { compactPath, DEFAULT_TOLERANCE_M } from './lib/simplify.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const FILE = process.env.NETWORK_OUT
-  ? resolve(process.env.NETWORK_OUT)
-  : resolve(__dirname, '../src/data/network.json')
 const TOLERANCE = Number(process.env.SIMPLIFY_TOLERANCE_M) || DEFAULT_TOLERANCE_M
 
+function simplify(FILE) {
 const network = JSON.parse(readFileSync(FILE, 'utf8'))
 
 let before = 0
@@ -57,3 +55,11 @@ if (droppedHeights) {
   )
 }
 console.log('Tip: npm test validates the simplified dataset.')
+}
+
+forEachRequestedCity((_city, paths) =>
+  simplify(process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network),
+).catch((err) => {
+  console.error('❌ Error:', err.message)
+  process.exit(1)
+})

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
-import { loadBundledNetwork } from '@/data/network'
-import scheduleJson from '@/data/schedule.json'
-import networkJson from '@/data/network.json'
-import lampsJson from '@/data/street-lamps.json'
+import { committedDataFiles, loadRostockNetwork, rostockSchedule } from './cities'
 import {
   buildAllTrips,
   normalizeSpan,
@@ -22,8 +19,8 @@ import {
  * hundred meters in the city center).
  */
 
-const network = loadBundledNetwork()
-const schedule = scheduleJson as ScheduleJson
+const network = loadRostockNetwork()
+const schedule: ScheduleJson = rostockSchedule
 const opts: TimetableOptions = {
   cruiseSpeedMps: config.simulation.cruiseSpeedMps,
   dwellSeconds: config.simulation.dwellSeconds,
@@ -114,11 +111,8 @@ describe('bundled schedule data', () => {
  */
 describe('the committed data files', () => {
   it('carry no generation timestamp in their meta', () => {
-    for (const [name, data] of [
-      ['schedule.json', scheduleJson],
-      ['network.json', networkJson],
-      ['street-lamps.json', lampsJson],
-    ] as const) {
+    expect(Object.keys(committedDataFiles).length).toBeGreaterThan(0)
+    for (const [name, data] of Object.entries(committedDataFiles)) {
       const meta = (data as { meta?: Record<string, unknown> }).meta ?? {}
       expect(Object.keys(meta), name).not.toContain('generated')
       for (const [key, value] of Object.entries(meta)) {

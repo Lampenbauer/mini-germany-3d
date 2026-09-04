@@ -1,13 +1,12 @@
 /**
- * DGM (digital terrain model) sampling for the data pipeline, backed by the
- * open WCS of the LAiV M-V (geodaten-mv.de, © GeoBasis-DE/M-V).
- *
- * The service delivers uncompressed float32 GeoTIFF tiles in EPSG:25833
- * (ETRS89 / UTM zone 33N) with NHN heights (DHHN2016). The sampler fetches
- * fixed 1 km tiles of the 5 m grid (mv_dgm5) on demand, caches them in
- * memory, and answers point queries with bilinear interpolation – 5 m
- * terrain resolution is plenty for route polylines that are lifted ~1 m
- * above the surface anyway.
+ * DGM (digital terrain model) sampling for the data pipeline, backed by a
+ * WCS 2.0.1 that serves uncompressed float32 GeoTIFF tiles in a UTM zone
+ * with NHN heights (DHHN2016) – written for the open DGM5 of the LAiV M-V
+ * (geodaten-mv.de, © GeoBasis-DE/M-V) and parameterized per city
+ * (city.json `terrain`: url, coverage, crs). The sampler fetches fixed
+ * 1 km tiles on demand, caches them in memory, and answers point queries
+ * with bilinear interpolation – 5 m terrain resolution is plenty for
+ * route polylines that are lifted ~1 m above the surface anyway.
  *
  * WGS84 coordinates are treated as ETRS89 (the datums differ by well under
  * a meter – irrelevant at 5 m grid spacing).
@@ -15,11 +14,22 @@
 
 import proj4 from 'proj4'
 
-const UTM33 = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0 +units=m +no_defs'
+/** The UTM zones German state services deliver in, by EPSG code. */
+const UTM_BY_CRS = {
+  'EPSG:25832': '+proj=utm +zone=32 +ellps=GRS80 +towgs84=0,0,0 +units=m +no_defs',
+  'EPSG:25833': '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0 +units=m +no_defs',
+}
 
-/** [lon, lat] (WGS84) → [easting, northing] in EPSG:25833. */
+/** [lon, lat] (WGS84) → [easting, northing] in the given UTM CRS. */
+export function lonLatToUtm(lon, lat, crs = 'EPSG:25833') {
+  const definition = UTM_BY_CRS[crs]
+  if (!definition) throw new Error(`Unsupported terrain CRS ${crs} (known: ${Object.keys(UTM_BY_CRS).join(', ')})`)
+  return proj4('EPSG:4326', definition, [lon, lat])
+}
+
+/** [lon, lat] (WGS84) → [easting, northing] in EPSG:25833 (the MV DGM's zone). */
 export function lonLatToUtm33(lon, lat) {
-  return proj4('EPSG:4326', UTM33, [lon, lat])
+  return lonLatToUtm(lon, lat, 'EPSG:25833')
 }
 
 // TIFF tag ids used below
@@ -162,7 +172,7 @@ const DEFAULT_ENDPOINT = 'https://www.geodaten-mv.de/dienste/dgm_wcs'
 
 const REQUEST_HEADERS = {
   'User-Agent':
-    'mini-rostock-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
 }
 
 /**
@@ -172,9 +182,15 @@ const REQUEST_HEADERS = {
  * nightly batch job, not a latency-critical client.
  */
 export class DgmSampler {
+  /**
+   * `endpoint`, `coverageId` and `crs` come from the city's terrain
+   * config; the DGM_WCS_URL / DGM_COVERAGE environment variables still
+   * override them for a one-off run against another service.
+   */
   constructor(opts = {}) {
-    this.endpoint = opts.endpoint ?? process.env.DGM_WCS_URL ?? DEFAULT_ENDPOINT
-    this.coverageId = opts.coverageId ?? process.env.DGM_COVERAGE ?? 'mv_dgm5'
+    this.endpoint = process.env.DGM_WCS_URL ?? opts.endpoint ?? DEFAULT_ENDPOINT
+    this.coverageId = process.env.DGM_COVERAGE ?? opts.coverageId ?? 'mv_dgm5'
+    this.crs = opts.crs ?? 'EPSG:25833'
     this.tileSize = opts.tileSizeMeters ?? 1000
     this.marginMeters = opts.marginMeters ?? 10
     this.fetchImpl = opts.fetchImpl ?? fetch
@@ -183,7 +199,7 @@ export class DgmSampler {
   }
 
   async heightAt(lon, lat) {
-    const [x, y] = lonLatToUtm33(lon, lat)
+    const [x, y] = lonLatToUtm(lon, lat, this.crs)
     const tile = await this.tileFor(x, y)
     return tile ? sampleTile(tile, x, y) : undefined
   }

@@ -1,7 +1,16 @@
 # Mini Germany 3D – Plan zur Generalisierung
 
 Stand: 2026-09-03. Ausgangspunkt ist `main` (352b5c2), eine Ein-Stadt-App für
-Rostock. Ziel ist eine Mehr-Städte-App, in der Städte zunächst händisch im Code
+Rostock.
+
+> **Umsetzungsstand 2026-09-04:** Phasen 0–6 sind auf dem Branch
+> `mini-germany-3d-plan` umgesetzt – Stadt als `city.json`, Viewer- und
+> City-Session-Effekt, Stadtwechsel mit Flug, `?city=` auf beiden
+> Endpunkten, Pipeline mit `--city` und `add-city`, Hamburg mit U-Bahn,
+> S-Bahn, Metrobus 1–27 und HADAG-Fähren (ohne Höhen, ohne Lampen). Offen
+> aus Abschnitt 10: der Hamburger DGM1-Adapter, die Stadtbusse (brauchen
+> die Aktiv-Trip-Indizierung), Städte on the fly (Abschnitt 9). Das Secret
+> `KAS_TARGET_DIR` muss vor dem ersten Deploy auf den neuen Ordner zeigen. Ziel ist eine Mehr-Städte-App, in der Städte zunächst händisch im Code
 angelegt werden (Bounding Box weiterhin aus OSM), Hamburg als zweite Stadt, und
 später Städte on the fly.
 

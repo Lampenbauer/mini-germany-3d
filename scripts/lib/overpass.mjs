@@ -1,11 +1,13 @@
 /**
  * Shared Overpass access for the data pipeline: the public mirror list and
- * a POST helper that walks it until one instance answers.
+ * a POST helper that walks it until one instance answers. The bounding
+ * box a query is limited to comes from the city (src/lib/city.ts,
+ * overpassBbox) – this module knows no city.
  *
  * Data license: © OpenStreetMap contributors, ODbL 1.0 (https://osm.org/copyright)
  */
 
-import { rostockBoundingBox } from '../../src/lib/rostock-bounding-box.ts'
+export { overpassBbox } from '../../src/lib/city.ts'
 
 /** Public Overpass instances; tried in order. */
 export const OVERPASS_MIRRORS = process.env.OVERPASS_URL
@@ -13,7 +15,6 @@ export const OVERPASS_MIRRORS = process.env.OVERPASS_URL
   : [
       'https://overpass-api.de/api/interpreter',
       'https://overpass.kumi.systems/api/interpreter',
-      'https://overpass.osm.ch/api/interpreter',
     ]
 
 // Overpass instances expect identifiable clients; requests without a
@@ -22,20 +23,8 @@ export const REQUEST_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
   Accept: 'application/json',
   'User-Agent':
-    'mini-rostock-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
+    'mini-germany-3d-data-pipeline/0.1 (+https://github.com/Lampenbauer/mini-rostock-3d)',
 }
-
-/**
- * The Rostock bounding box in Overpass notation (south,west,north,east):
- * the city limits widened by 15 km, shared with the camera fence and the
- * AIS subscription – see src/lib/rostock-bounding-box.ts.
- */
-export const BBOX = [
-  rostockBoundingBox.south,
-  rostockBoundingBox.west,
-  rostockBoundingBox.north,
-  rostockBoundingBox.east,
-].join(',')
 
 /**
  * Runs a query against the mirrors in order and returns the first usable

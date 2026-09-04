@@ -94,6 +94,7 @@ describe('layer and pause state in the hash', () => {
   it('appends only deviations from the defaults', () => {
     expect(
       formatUiStateHash({
+        city: null,
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
@@ -103,6 +104,7 @@ describe('layer and pause state in the hash', () => {
     ).toBe('')
     expect(
       formatUiStateHash({
+        city: null,
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
@@ -112,8 +114,25 @@ describe('layer and pause state in the hash', () => {
     ).toBe(`&routes=0&stops=0&labels=0${tiltDeviation}&paused=1`)
   })
 
+  it('names the city first, and only when it is not the default', () => {
+    const state = {
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      tiltShift: miniatureDefault,
+      paused: false,
+    }
+    expect(formatUiStateHash({ ...state, city: null })).toBe('')
+    expect(formatUiStateHash({ ...state, city: 'hamburg', routesHidden: true })).toBe(
+      '&city=hamburg&routes=0',
+    )
+    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=hamburg').city).toBe('hamburg')
+    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
+  })
+
   it('round-trips alongside both hash forms', () => {
     const suffix = formatUiStateHash({
+      city: null,
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
@@ -124,6 +143,7 @@ describe('layer and pause state in the hash', () => {
     const withVehicle = formatVehicleHash('1-0-500') + suffix
     for (const hash of [withCamera, withVehicle]) {
       expect(parseUiStateHash(hash)).toEqual({
+        city: null,
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
@@ -138,6 +158,7 @@ describe('layer and pause state in the hash', () => {
 
   it('defaults everything when absent', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
+      city: null,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,

@@ -1,8 +1,9 @@
 import type { LonLat } from '@/lib/geo'
 import type { TunnelRange } from '@/lib/tunnels'
+import type { TransitMode } from '@/lib/transit-mode'
 
 /** Transit mode of a line. If the field is missing in network.json, 'tram' applies. */
-export type TransitMode = 'tram' | 'train' | 'bus' | 'ferry'
+export type { TransitMode }
 
 /** Vehicle dimensions in meters (length × width × height). */
 export interface VehicleDimensions {
@@ -39,6 +40,12 @@ export interface LineJson {
   mode?: TransitMode
   /** Line-specific vehicle dimensions (e.g. ferries); missing = mode default. */
   vehicle?: VehicleDimensions
+  /**
+   * glTF consist the line's vehicles are drawn with (see VEHICLE_CONSISTS
+   * in map/VehicleLayer.ts); missing = the city fleet's model for the
+   * mode, and a colored box where there is none either.
+   */
+  model?: string
   /**
    * One or two directions. With only one direction, the opposite direction
    * is generated automatically by mirroring the path.
@@ -85,6 +92,8 @@ export interface PreparedLine {
   mode: TransitMode
   /** Resolved vehicle dimensions (line-specific or mode default). */
   vehicle: VehicleDimensions
+  /** Resolved glTF consist id, undefined for a colored box. */
+  model?: string
   directions: [PreparedDirection, PreparedDirection]
 }
 

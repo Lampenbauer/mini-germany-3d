@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates src/data/network.json with an approximated model of the
+ * Generates src/cities/rostock/network.json with an approximated model of the
  * Rostock tram network (RSAG, lines 1, 2, 3, 5, 6).
  *
  * IMPORTANT: The geometry is an approximation (hand-modeled along the real
@@ -21,7 +21,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const OUT = resolve(__dirname, '../src/data/network.json')
+const OUT = resolve(__dirname, '../src/cities/rostock/network.json')
 
 // ---------------------------------------------------------------------------
 // Stops (id → name + [lon, lat]); coordinates approximated.
