@@ -206,18 +206,28 @@ test('the map lets go of the network for exactly as long as the diagram holds it
     })
   const samples = () => page.evaluate(() => window.__linearProbe!)
 
+  /**
+   * The probe's record, once it has actually seen the transition land.
+   * A CSS assertion resolves the instant the DOM says so, which under
+   * SwiftShader can be a frame or two before the probe next runs – and a
+   * record read that early is missing the very frames the claim is about.
+   */
+  const recordShowing = async (landed: (frame: LinearProbeFrame) => boolean) => {
+    await expect.poll(async () => (await samples()).some(landed), { timeout: 60_000 }).toBe(true)
+    return samples()
+  }
+
   // Into the diagram
   await watch()
   await page.getByRole('tab', { name: 'Line diagram' }).click()
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,
   })
-  const goingIn = await samples()
+  const goingIn = await recordShowing((f) => f.diagramShown && f.drawnByMap === 0)
 
   // Never both at once: no frame has the map drawing routes while the
   // diagram is on screen. That is the whole claim.
   expect(goingIn.some((f) => f.drawnByMap > 0)).toBe(true)
-  expect(goingIn.some((f) => f.diagramShown)).toBe(true)
   expect(goingIn.filter((f) => f.diagramShown && f.drawnByMap > 0)).toEqual([])
 
   // ... and never neither: the network is on screen throughout, because
@@ -228,8 +238,8 @@ test('the map lets go of the network for exactly as long as the diagram holds it
   await watch()
   await page.getByRole('tab', { name: 'Surface' }).click()
   await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 30_000 })
-  const goingOut = await samples()
-  expect(goingOut.some((f) => f.drawnByMap > 0)).toBe(true)
+  const goingOut = await recordShowing((f) => !f.diagramShown && f.drawnByMap > 0)
+  expect(goingOut.some((f) => f.diagramShown)).toBe(true)
   expect(goingOut.filter((f) => f.diagramShown && f.drawnByMap > 0)).toEqual([])
   expect(goingOut.filter((f) => !f.diagramShown && f.drawnByMap === 0)).toEqual([])
 })

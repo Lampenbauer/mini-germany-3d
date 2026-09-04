@@ -1,6 +1,13 @@
-export {}
+
 
 declare global {
+  /** One frame as the linear-view probe sees it (see linear-view.spec.ts). */
+  interface LinearProbeFrame {
+    drawnByMap: number
+    drawnByDiagram: number
+    diagramShown: boolean
+  }
+
   interface Window {
     /** Test hook of raf-stall.spec.ts: freezes requestAnimationFrame. */
     __stopRaf?: boolean
@@ -66,7 +73,7 @@ declare global {
       } | null
     }
     /** Per-frame samples a spec collects from inside the page (linear-view.spec.ts). */
-    __linearProbe?: { drawnByMap: number; drawnByDiagram: number; diagramShown: boolean }[]
+    __linearProbe?: LinearProbeFrame[]
     __cesiumViewer?: {
       /** One frame, drawn synchronously – see frameDetail in app.spec.ts. */
       render: () => void
@@ -100,3 +107,5 @@ declare global {
     }
   }
 }
+
+export {}
