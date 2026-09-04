@@ -23,6 +23,9 @@ const EXPECTED: Record<string, { length: number; width: number; height: number }
   // Per-line vessel dimensions from network.json (FG and FW)
   'ferry-fg': { length: 19.9, width: 6.6, height: 3.5 },
   'ferry-fw': { length: 39, width: 11, height: 6 },
+  // Berlin: the third-rail subway sections (U-Bahn BR H, S-Bahn BR 481)
+  'ubahn-end': { length: 13.0, width: 2.6, height: HEIGHTS.subway },
+  'ubahn-mid': { length: 13.0, width: 2.6, height: HEIGHTS.subway },
 }
 
 /** Face normals must point away from the enclosed volume – a face wound

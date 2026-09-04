@@ -287,13 +287,17 @@ const METERS_PER_DEGREE = 111_320
 
 /**
  * The point of the path nearest to p: its distance along the path and
- * how far p stands beside it. With `firstPass`, where the path passes p
- * more than once at (nearly) the same distance – a ferry relation that
- * comes back to a pier – the first pass counts, so a cut at that pier
- * ends where the boat first gets there; stops keep the plain nearest
- * point, a bus route's loop at its terminus serves its second pass.
+ * how far p stands beside it. Where the path passes p more than once at
+ * (nearly) the same distance, `after` decides: the first pass beyond
+ * that distance along the path wins – a stop on a route's out-and-back
+ * stub goes to the pass that keeps the stops in order, and the first
+ * stop of a ring lands at its start rather than at its closing end
+ * (rounded coordinates make the two passes tie either way). With
+ * `firstPass` the tie is wider (20 m) and always the first pass: a ferry
+ * relation that comes back to a pier is cut where the boat first gets
+ * there.
  */
-export function nearestOnPath(path, cum, p, { firstPass = false } = {}) {
+export function nearestOnPath(path, cum, p, { firstPass = false, after = -Infinity } = {}) {
   const cosLat = Math.cos((p[1] * Math.PI) / 180)
   const passes = []
   let best = Infinity
@@ -312,10 +316,12 @@ export function nearestOnPath(path, cum, p, { firstPass = false } = {}) {
     passes.push({ meters, along: cum[i] + (cum[i + 1] - cum[i]) * t })
     if (meters < best) best = meters
   }
+  const ties = passes.filter((pass) => pass.meters <= best + (firstPass ? 20 : 1))
   const chosen =
-    (firstPass
-      ? passes.find((pass) => pass.meters <= best + 20)
-      : passes.find((pass) => pass.meters === best)) ?? { meters: Infinity, along: 0 }
+    (firstPass ? ties[0] : (ties.find((pass) => pass.along > after) ?? ties[0])) ?? {
+      meters: Infinity,
+      along: 0,
+    }
   return { along: chosen.along, offsetMeters: chosen.meters }
 }
 
@@ -712,6 +718,26 @@ export async function buildNetwork(city, outPath) {
         }
       }
 
+      // A ring relation's ways can be chained either way round, and the
+      // stops say which: where most of them run against the path (Berlin's
+      // S41 came out backwards, its S42 forwards), the path is turned
+      // around together with its tunnel and bridge ranges.
+      {
+        const alongs = stopNodes.map(({ node }) => nearestOnPath(path, cum, [node.lon, node.lat]).along)
+        let forwards = 0
+        let backwards = 0
+        for (let i = 1; i < alongs.length; i++) alongs[i] < alongs[i - 1] ? backwards++ : forwards++
+        if (backwards > forwards) {
+          const total = cum[cum.length - 1]
+          const flip = (ranges) => ranges.map(([s, e]) => [total - e, total - s]).reverse()
+          path = [...path].reverse()
+          tunnels = flip(tunnels)
+          bridges = flip(bridges)
+          cum = cumulative(path)
+          console.log(`  ℹ Line ${ref} (${rel.id}): path turned around to follow its stops`)
+        }
+      }
+
       const dirStops = []
       let lastDist = -1
       let dropped = 0
@@ -719,7 +745,7 @@ export async function buildNetwork(city, outPath) {
       for (const { node, name } of stopNodes) {
         const id = `osm-${node.id}`
         const coord = [Number(node.lon.toFixed(6)), Number(node.lat.toFixed(6))]
-        const { along: dist, offsetMeters } = nearestOnPath(path, cum, coord)
+        const { along: dist, offsetMeters } = nearestOnPath(path, cum, coord, { after: lastDist })
         if (offsetMeters > MAX_STOP_OFFSET_METERS) {
           offRoute++
           continue // a pier of another leg, or a node the relation should not list

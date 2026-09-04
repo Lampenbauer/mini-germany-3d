@@ -155,8 +155,13 @@ export interface CityTerrainConfig {
    * over the city (36–50 m across Germany).
    */
   geoidOffsetFallback: number
-  /** Height ferries and their routes ride at, in meters NHN. */
-  waterLevelNhn: number
+  /**
+   * Height ferries and their routes ride at, in meters NHN – or null
+   * where the terrain model carries the water levels themselves (Berlin's
+   * DGM has the Havel at 29 m and the Spree at 32 m) and a ferry samples
+   * them like any other line.
+   */
+  waterLevelNhn: number | null
   /** The line the generated files carry for their heights – Mapterhorn plus the state model. */
   attribution?: string
 }
@@ -459,7 +464,11 @@ export function cityFromJson(raw: unknown): City {
           ? 40
           : num(terrainRaw.geoidOffsetFallback, 'terrain.geoidOffsetFallback'),
       waterLevelNhn:
-        terrainRaw.waterLevelNhn === undefined ? 0 : num(terrainRaw.waterLevelNhn, 'terrain.waterLevelNhn'),
+        terrainRaw.waterLevelNhn === undefined
+          ? 0
+          : terrainRaw.waterLevelNhn === null
+            ? null
+            : num(terrainRaw.waterLevelNhn, 'terrain.waterLevelNhn'),
       attribution: optionalStr(terrainRaw.attribution, 'terrain.attribution'),
     },
     ais: { enabled: aisRaw.enabled === undefined ? true : aisRaw.enabled === true, simulatedByMmsi },

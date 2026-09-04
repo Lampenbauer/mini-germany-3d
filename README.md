@@ -14,8 +14,8 @@ view and vehicle links, day/night lighting that follows the simulated time
 [shadcn/ui](https://ui.shadcn.com/).
 
 It started as **Mini Rostock 3D** and Rostock is still the city it opens on.
-Kiel is the second one; adding a city is a folder, a `city.json` and a run
-of the data pipeline (see [Cities](#cities)).
+Kiel and Berlin are the others; adding a city is a folder, a `city.json`
+and a run of the data pipeline (see [Cities](#cities)).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -29,7 +29,7 @@ of the data pipeline (see [Cities](#cities)).
 |---------|---------|
 | Several cities, one map | Every city is a definition (`src/cities/<slug>/city.json`) plus generated data next to it. The caret beside the panel title switches; the old city's routes, stops, lamps and vehicles are taken down, the camera flies to the next city's home view with the leash lifted, and the new city's data comes in as a lazy chunk of its own. `#city=<slug>` in the URL names the city a link opens on |
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
-| Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Kiel's KVG buses and its Förde ferries sail as the same double-enders, sized per line – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Kiel's Förde ferries sail as the same double-enders, sized per line; Berlin's U-Bahn (BR H) and S-Bahn (BR 481) run as six-section third-rail consists – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors (clamped onto the tiles only for a dataset without heights); zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. The three readings – surface, underground, line diagram – are tabs at the foot of the map, exactly one lit, each reachable from each. `#…&view=linear` and `#…&view=underground` open straight into a reading; the surface needs no word |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
@@ -267,8 +267,9 @@ place (typed and validated by `src/lib/city.ts`):
 - **`terrain`** – the heights come from [Mapterhorn](https://mapterhorn.com)
   (see [Data](#data--gtfs--gtfs-realtime--osm)); per city the tile `zoom`
   the pipeline samples at (15 ≈ 1.4 m per pixel), the geoid offset the
-  height bootstrap starts from, the water level ferries ride at, and the
-  attribution line the state's license asks for.
+  height bootstrap starts from, the water level ferries ride at (`null`
+  where the terrain model carries the lakes' levels itself, as Berlin's
+  does), and the attribution line the state's license asks for.
 - **`ais`** – whether the AIS backdrop is on, and which real vessels this map
   already runs from a timetable (`simulatedByMmsi`), so their AIS twins are
   left out of the backdrop fleet.
@@ -309,6 +310,21 @@ summer piers and back), so a fixed line's `from`/`to` also cut the
 relation to that stretch. Routes are clipped to the padded box rather than
 the city limits (`clip: "box"`) – Laboe, Strande and Heikendorf are part of
 the Förde even though they lie outside the city.
+
+**Berlin**: the nine U-Bahn lines, the S-Bahn (all lines, cut at the city
+limits), all 22 BVG tram lines, the Metrobus lines plus the 100, 200 and
+300, and the six BVG ferries, with terrain heights from the Senate's open
+DGM1 (via Mapterhorn) and the ~18 000 OSM street lamps along the routes
+(the city's lighting is an official import there too). The Ringbahn taught
+the importers two things: a ring relation's ways can be chained either
+way round, so the stops decide the path's orientation; and its trips are
+rounds that end where they began, classified by a stop a quarter of the
+way in rather than by their ends. Berlin's water sits at two levels (Havel
+29 m, Spree 32 m), so its ferries read their height off the terrain model
+(`waterLevelNhn: null`) instead of one figure per city. The other 150 BVG
+bus lines are left out on purpose – the map runs some 700 vehicles here at
+rush hour already, twice Rostock's, and every one of them is simulated
+stop by stop.
 
 ## Data – GTFS / GTFS-Realtime / OSM
 
@@ -525,7 +541,8 @@ src/
 │   ├── definitions.ts      # The cities this build knows (hand-maintained list of city.json imports)
 │   ├── index.ts            # Lazy loading of a city's generated data (one chunk per city)
 │   ├── rostock/            # city.json + network.json + schedule.json + street-lamps.json
-│   └── kiel/               # city.json + network.json + schedule.json
+│   ├── kiel/               # city.json + network.json + schedule.json + street-lamps.json
+│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json
 ├── data/
 │   ├── network.ts          # Preparation of a network (distances, direction mirroring, fleet)
 │   ├── network-types.ts    # network.json types
@@ -636,8 +653,10 @@ they are in view.
 - Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
 - Terrain heights (after `npm run data:heights` / `data:lamps`):
   © [Mapterhorn](https://mapterhorn.com/attribution), built from
-  © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock and from
-  © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel – shown in the app
-  inside Cesium's "Data attribution" credits
+  © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from
+  © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel and from Geoportal
+  Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und
+  Wohnen, dl-de/zero-2.0) for Berlin – shown in the app inside Cesium's
+  "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or the transport
   association's feed – observe the source's license terms

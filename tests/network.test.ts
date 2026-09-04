@@ -22,10 +22,11 @@ describe.each(cityNetworks.map((entry) => [entry.city.slug, entry] as const))(
 
   it('every direction has at least 2 stops and a plausible route length', () => {
     for (const line of network.lines) {
-      // The Gehlsdorf ferry crosses the Warnow in only ~500 m; Hamburg's
-      // U1 runs 50 km from Norderstedt to Großhansdorf. Anything longer
-      // than that is a stitching error, not a line.
-      const minLength = line.mode === 'ferry' ? 200 : 1000
+      // Berlin's F24 rows across the Müggelspree in a few dozen meters,
+      // its F11 crosses the Spree in 180; Berlin's S3 runs 43 km inside
+      // the city. Anything longer than 60 km is a stitching error, not a
+      // line.
+      const minLength = line.mode === 'ferry' ? 30 : 1000
       for (const dir of line.directions) {
         expect(dir.stops.length).toBeGreaterThanOrEqual(2)
         expect(dir.totalLength).toBeGreaterThan(minLength)

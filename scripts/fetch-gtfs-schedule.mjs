@@ -407,10 +407,19 @@ async function main(city, paths) {
   console.log('Streaming stop_times.txt … (largest file, please wait)')
   const firstCityStop = new Map() // trip_id → {seq, dep, stopId}
   const lastCityStop = new Map() // trip_id → {seq, stopId}
-  // Ferry trips keep every stop: a loop (Kiel's F2 sails Reventlou →
-  // Dietrichsdorf → Wellingdorf → Reventlou) is split at its turning
-  // point into the two directions the map has (see splitFerryLoop).
-  const ferryTripStops = new Map() // trip_id → [{seq, stopId, dep}]
+  // Trips of loop-prone lines keep every stop: a ferry loop (Kiel's F2
+  // sails Reventlou → Dietrichsdorf → Wellingdorf → Reventlou) is split
+  // at its turning point into the two directions the map has, a ring
+  // line's round (Berlin's S41) runs the ring in one direction – see
+  // classifyLoopTrip. Only those lines, so the memory stays small.
+  const ringLines = new Set()
+  for (const line of networkJson.lines) {
+    const path = line.directions[0]?.path
+    if (path && path.length > 2 && metersBetween(path[0], path[path.length - 1]) < 150) ringLines.add(line.id)
+  }
+  const loopProne = (lineId) =>
+    lineId === FERRY_PENDING || networkLines.get(lineId) === 'ferry' || ringLines.has(lineId)
+  const loopTripStops = new Map() // trip_id → [{seq, stopId, dep}]
   const tripTouchesCity = new Set()
   const tripBranchLine = new Map() // trip_id → lineId (pending S-Bahn trips)
   let rows = 0
@@ -430,9 +439,9 @@ async function main(city, paths) {
     if (!stopsInCity.has(stopId)) return
     if (limitsStops.has(stopId)) tripTouchesCity.add(tripId)
     const seq = Number(get('stop_sequence'))
-    if (info.lineId === FERRY_PENDING || networkLines.get(info.lineId) === 'ferry') {
-      let list = ferryTripStops.get(tripId)
-      if (!list) ferryTripStops.set(tripId, (list = []))
+    if (loopProne(info.lineId)) {
+      let list = loopTripStops.get(tripId)
+      if (!list) loopTripStops.set(tripId, (list = []))
       list.push({ seq, stopId, dep: get('departure_time') })
     }
     const cur = firstCityStop.get(tripId)
@@ -770,18 +779,34 @@ async function main(city, paths) {
   }
 
   /**
-   * A ferry trip that ends where it began is two directions of the map's
-   * line: out to the pier farthest from the start, back from there. Both
-   * departures are returned, or null for a trip that is no loop.
+   * A trip that ends where it began. On a ring line (the path itself is
+   * closed – Berlin's S41/S42) it is one round in the sense the trip runs
+   * it, read off a stop a quarter of the way in. On a ferry line it is
+   * two directions of the map's line: out to the pier farthest from the
+   * start, back from there. The departures are returned, or null for a
+   * trip that is no loop.
    */
-  const splitFerryLoop = (tripId, info) => {
+  const classifyLoopTrip = (tripId, info) => {
     const targets = dirTargets[info.lineId]
-    const stopsOfTrip = ferryTripStops.get(tripId)
+    const stopsOfTrip = loopTripStops.get(tripId)
     if (!targets?.path || !stopsOfTrip || stopsOfTrip.length < 3) return null
     const sorted = [...stopsOfTrip].sort((a, b) => a.seq - b.seq)
     const first = cityStopCoords.get(sorted[0].stopId)
     const last = cityStopCoords.get(sorted[sorted.length - 1].stopId)
     if (!first || !last || metersBetween(first, last) > 100) return null
+    if (!sorted[0].dep) return null
+    const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
+    if (ringLines.has(info.lineId)) {
+      const quarter = cityStopCoords.get(sorted[Math.floor(sorted.length / 4)].stopId)
+      if (!quarter) return null
+      const start = projectOntoPath(targets.path, targets.cum, first)
+      const along = projectOntoPath(targets.path, targets.cum, quarter)
+      const total = targets.cum[targets.cum.length - 1]
+      // Distance run from the start, going the way of the path
+      const run = (along - start + total) % total
+      stats.path++
+      return [{ direction: run < total / 2 ? '0' : '1', sec: timeToSeconds(sorted[0].dep) }]
+    }
     let turn = null
     let farthest = 0
     for (const stop of sorted) {
@@ -792,11 +817,10 @@ async function main(city, paths) {
         turn = stop
       }
     }
-    if (!turn?.dep || !sorted[0].dep) return null
+    if (!turn?.dep) return null
     const a = projectOntoPath(targets.path, targets.cum, first)
     const b = projectOntoPath(targets.path, targets.cum, cityStopCoords.get(turn.stopId))
     const out = b > a ? '0' : '1'
-    const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
     stats.path += 2
     return [
       { direction: out, sec: timeToSeconds(sorted[0].dep) },
@@ -832,7 +856,7 @@ async function main(city, paths) {
     const first = firstCityStop.get(tripId)
     if (!first?.dep) continue
 
-    const loop = networkLines.get(info.lineId) === 'ferry' ? splitFerryLoop(tripId, info) : null
+    const loop = loopProne(info.lineId) ? classifyLoopTrip(tripId, info) : null
     if (loop) {
       for (const leg of loop) {
         lines[info.lineId] ??= {}

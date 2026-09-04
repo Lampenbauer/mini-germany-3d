@@ -87,9 +87,11 @@ async function main(city, paths) {
         }
         continue
       }
-      if (line.mode === 'ferry') {
-        // Water: the terrain model has no meaningful height mid-river; ferries ride
-        // at the city's water level (0 m NHN on tidal Baltic or Elbe water).
+      if (line.mode === 'ferry' && city.terrain.waterLevelNhn !== null) {
+        // Water: a coastal terrain model has no meaningful height mid-river;
+        // ferries ride at the city's water level (0 m NHN on the Baltic).
+        // A city with null here has a model that carries its lakes' levels
+        // (Berlin), and its ferries sample it like any other line.
         dir.heights = dir.path.map(() => city.terrain.waterLevelNhn)
         continue
       }

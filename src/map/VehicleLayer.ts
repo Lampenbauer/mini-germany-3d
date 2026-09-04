@@ -209,6 +209,8 @@ interface VehicleModelSpec {
  *
  *   tram-6n2         Vossloh 6N2 – five sections, cab / panto / mid / mid / cab
  *   sbahn-talent2    Talent 2 – cab car / pantograph middle car / cab car
+ *   ubahn-h          Berlin U-Bahn BR H – six third-rail sections, 79.5 m
+ *   sbahn-481        Berlin S-Bahn BR 481 half train – the same six sections
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
@@ -240,6 +242,36 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/sbahn-end.glb', length: 18.6 },
       { uri: 'models/sbahn-mid-panto.glb', length: 18.9 },
       { uri: 'models/sbahn-end.glb', length: 18.6, flipped: true },
+    ],
+  },
+  // Berlin's third-rail trains share one 13 m section: cab / four
+  // middle sections / cab, 0.3 m gaps – the BR H is 98 m over six
+  // longer cars, the S-Bahn half train 74 m; both sit within a few
+  // meters of the same silhouette.
+  'ubahn-h': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+  'sbahn-481': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
     ],
   },
   'bus-12m': {

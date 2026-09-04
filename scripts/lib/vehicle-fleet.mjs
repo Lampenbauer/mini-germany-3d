@@ -6,6 +6,11 @@
  *   train  Talent 2 (BR 442) – 56.8 m three-car unit, Jakobs-articulated
  *   bus    12 m rigid city bus
  *
+ * and, for Berlin, a third-rail subway section that the U-Bahn (BR H)
+ * and the S-Bahn (BR 481) share as six-section consists:
+ *
+ *   subway 13 m articulated section, cab and middle variants
+ *
  * Split into one mesh per car/section; the runtime couples them into
  * consists (see VEHICLE_MODELS in src/map/VehicleLayer.ts). All meshes
  * share the conventions of vehicle-mesh.mjs: meters, Y-up, +Z = travel,
@@ -27,7 +32,7 @@ import {
 } from './vehicle-mesh.mjs'
 
 /** Overall heights (rail to roof gear) – the layer's halfHeight. */
-export const HEIGHTS = { tram: 3.6, train: 4.3, bus: 3.1 }
+export const HEIGHTS = { tram: 3.6, train: 4.3, bus: 3.1, subway: 3.4 }
 
 /**
  * The mesh's -X renders as the right-hand side of travel: Cesium maps
@@ -438,6 +443,78 @@ export function ferryBreitling() {
   return mesh
 }
 
+/**
+ * Third-rail subway unit, end section (cab at +Z): 13 m articulated
+ * section, 2.6 m wide, no pantograph – only small boxes on the roof.
+ * Drawn after Hamburg's DT5; Berlin's U-Bahn (BR H) and S-Bahn (BR 481)
+ * run it as six sections with 0.3 m gaps (see VEHICLE_CONSISTS). The end
+ * sections carry a single bogie under the cab and rest on the middle
+ * section at the articulation, which is why there is none at the back.
+ * Rounded two-step snout with the glass cap as windscreen; doors in both
+ * walls.
+ */
+export function ubahnEnd() {
+  const mesh = createMesh()
+  const H = HEIGHTS.subway
+  const yBase = -H / 2
+  const width = 2.6
+  const length = 13.0
+  const floor = yBase + 0.95
+  const bodyTop = yBase + 3.15
+  const nose = 1.7
+  carShell(mesh, {
+    length,
+    width,
+    bodyTop,
+    floor,
+    yBase,
+    bevel: 0.2,
+    noseFront: { length: nose, sx: 0.62, sy: 0.84, shoulder: { length: 0.65, sx: 0.9, sy: 0.97 } },
+  })
+  const winTop = bodyTop - 0.3
+  const winBottom = floor + 0.4
+  const doorZ = [-length / 2 + 3.2, 1.7]
+  windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.45, length / 2 - nose - 0.3, {
+    panes: 4,
+    holes: doorZ.map((z) => doorHole(z)),
+  })
+  for (const z of doorZ) doors(mesh, width, floor - 0.42, winTop, z)
+  bogie(mesh, yBase, length / 2 - 2.9, width)
+  // Roof: two flat equipment boxes, nothing that could pass for a pantograph
+  box(mesh, 'roof', 0, bodyTop + 0.14, -3.6, width * 0.55, 0.18, 2.2)
+  box(mesh, 'roof', 0, bodyTop + 0.14, 1.6, width * 0.55, 0.18, 1.6)
+  return mesh
+}
+
+/** DT5 middle section: bellows both ends, two bogies of its own. */
+export function ubahnMid() {
+  const mesh = createMesh()
+  const H = HEIGHTS.subway
+  const yBase = -H / 2
+  const width = 2.6
+  const length = 13.0
+  const floor = yBase + 0.95
+  const bodyTop = yBase + 3.15
+  carShell(mesh, { length, width, bodyTop, floor, yBase, bevel: 0.2 })
+  for (const dir of [-1, 1]) {
+    box(mesh, 'bellows', 0, (floor - 0.45 + bodyTop) / 2, dir * (length / 2 - 0.06), width * 0.9, bodyTop - floor + 0.3, 0.24)
+  }
+  const winTop = bodyTop - 0.3
+  const winBottom = floor + 0.4
+  const doorZ = [-3.0, 3.0]
+  windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.5, length / 2 - 0.5, {
+    panes: 4,
+    holes: doorZ.map((z) => doorHole(z)),
+  })
+  for (const z of doorZ) doors(mesh, width, floor - 0.42, winTop, z)
+  // Its bogies sit under the articulations that carry the end sections
+  bogie(mesh, yBase, -length / 2 + 1.25, width)
+  bogie(mesh, yBase, length / 2 - 1.25, width)
+  box(mesh, 'roof', 0, bodyTop + 0.14, 0, width * 0.55, 0.18, 2.4)
+  for (const dir of [-1, 1]) box(mesh, 'roof', 0, bodyTop + 0.14, dir * 4.2, width * 0.55, 0.18, 1.4)
+  return mesh
+}
+
 /** Every file the build script writes: name → mesh factory. */
 export const FLEET = {
   'tram-end': () => tramEnd(),
@@ -449,4 +526,6 @@ export const FLEET = {
   bus,
   'ferry-fg': ferryGehlsdorf,
   'ferry-fw': ferryBreitling,
+  'ubahn-end': ubahnEnd,
+  'ubahn-mid': ubahnMid,
 }
