@@ -38,7 +38,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forEachRequestedCity } from './lib/city.mjs'
-import { DgmSampler } from './lib/dgm.mjs'
+import { createTerrainSampler, terrainSummary } from './lib/terrain.mjs'
 import {
   applyBridgeProfile,
   cumulativeDistances,
@@ -60,11 +60,7 @@ async function main(city, paths) {
   const HEIGHTS_ATTRIBUTION =
     city.terrain.attribution ?? 'Terrain heights from the city\'s digital terrain model.'
   const network = JSON.parse(readFileSync(FILE, 'utf8'))
-  const sampler = new DgmSampler({
-    endpoint: city.terrain.url,
-    coverageId: city.terrain.coverage,
-    crs: city.terrain.crs,
-  })
+  const sampler = createTerrainSampler(city)
 
   let prev = null
   if (process.env.PREV_NETWORK) {
@@ -111,7 +107,7 @@ async function main(city, paths) {
       if (filled === -1) {
         throw new Error(
           `Line ${line.id} (${dir.from} → ${dir.to}): no DGM heights at all – ` +
-            'WCS unreachable or outside coverage; network.json left unchanged',
+            'terrain source unreachable or outside coverage; network.json left unchanged',
         )
       }
       if (missing > 0) {
@@ -156,7 +152,6 @@ async function main(city, paths) {
   }
 
   writeFileSync(FILE, JSON.stringify(network, null, 2) + '\n', 'utf8')
-  const { tiles, bytes, failedTiles } = sampler.stats
   console.log(
     `\n✅ ${FILE}: heights for ${vertexCount} route vertices ` +
       `(${filledCount} interpolated) and ${stopCount} stops, ` +
@@ -167,10 +162,7 @@ async function main(city, paths) {
       `   Reused from PREV_NETWORK: ${reusedDirs} direction(s), ${reusedStops} stop(s) (unchanged geometry)`,
     )
   }
-  console.log(
-    `   DGM: ${tiles} WCS tiles, ${(bytes / 1024 / 1024).toFixed(1)} MB` +
-      (failedTiles > 0 ? `, ${failedTiles} tile(s) FAILED` : ''),
-  )
+  console.log(`   DGM: ${terrainSummary(sampler)}`)
   console.log('Tip: npm test validates the enriched dataset.')
 }
 

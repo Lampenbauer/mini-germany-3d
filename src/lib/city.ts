@@ -138,17 +138,23 @@ export interface CityGtfsConfig {
 /**
  * Where the terrain heights of the routes and lamps come from:
  * 'wcs-geotiff' is a WCS 2.0.1 serving float32 GeoTIFF tiles (the
- * Mecklenburg-Vorpommern DGM), 'none' leaves the heights out and the app
+ * Mecklenburg-Vorpommern DGM), 'xyz-zip' a downloadable zip of ASCII XYZ
+ * tiles (Hamburg's DGM10), 'none' leaves the heights out and the app
  * clamps the routes onto the 3D tiles instead.
  */
-export type TerrainProvider = 'wcs-geotiff' | 'none'
+export type TerrainProvider = 'wcs-geotiff' | 'xyz-zip' | 'none'
 
 export interface CityTerrainConfig {
   provider: TerrainProvider
+  /** The WCS endpoint, or the zip to download. */
   url?: string
   coverage?: string
-  /** Projection the WCS is queried in (EPSG code of the UTM zone). */
+  /** Projection the WCS is queried in, or the tiles are in (EPSG code of the UTM zone). */
   crs?: string
+  /** xyz-zip: tile edge in meters (2000 for the Hamburg DGMs). */
+  tileSizeMeters?: number
+  /** xyz-zip: cell spacing in meters (10 for a DGM10). */
+  gridMeters?: number
   /**
    * NHN→ellipsoid offset in meters until the height bootstrap has
    * measured the real one against the loaded tiles: the geoid undulation
@@ -243,6 +249,26 @@ export function padBoundingBox(box: BoundingBox, meters: number): BoundingBox {
 /** Whether a WGS84 point lies inside the box (edges included). */
 export function containsLonLat(box: BoundingBox, lon: number, lat: number): boolean {
   return lon >= box.west && lon <= box.east && lat >= box.south && lat <= box.north
+}
+
+/** A closed polygon ring as [lon, lat] pairs (first and last point equal or not). */
+export type LonLatRing = [number, number][]
+
+/**
+ * Whether a point lies inside a polygon ring (even-odd rule). The city
+ * limits are such a ring – a rectangle around them reaches into the
+ * neighboring towns, and a route cut at the rectangle keeps legs the
+ * city's terrain model does not cover (see scripts/fetch-osm-network.mjs).
+ */
+export function pointInRing(ring: LonLatRing, lon: number, lat: number): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    const crosses = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+    if (crosses) inside = !inside
+  }
+  return inside
 }
 
 /**
@@ -408,8 +434,8 @@ export function cityFromJson(raw: unknown): City {
 
   const terrainRaw = isObject(raw.terrain) ? raw.terrain : {}
   const provider = terrainRaw.provider ?? 'none'
-  if (provider !== 'wcs-geotiff' && provider !== 'none') {
-    fail('terrain.provider', "'wcs-geotiff' or 'none'")
+  if (provider !== 'wcs-geotiff' && provider !== 'xyz-zip' && provider !== 'none') {
+    fail('terrain.provider', "'wcs-geotiff', 'xyz-zip' or 'none'")
   }
   const lampsRaw = isObject(raw.lamps) ? raw.lamps : {}
   const aisRaw = isObject(raw.ais) ? raw.ais : {}
@@ -445,6 +471,12 @@ export function cityFromJson(raw: unknown): City {
       url: optionalStr(terrainRaw.url, 'terrain.url'),
       coverage: optionalStr(terrainRaw.coverage, 'terrain.coverage'),
       crs: optionalStr(terrainRaw.crs, 'terrain.crs'),
+      tileSizeMeters:
+        terrainRaw.tileSizeMeters === undefined
+          ? undefined
+          : num(terrainRaw.tileSizeMeters, 'terrain.tileSizeMeters'),
+      gridMeters:
+        terrainRaw.gridMeters === undefined ? undefined : num(terrainRaw.gridMeters, 'terrain.gridMeters'),
       geoidOffsetFallback:
         terrainRaw.geoidOffsetFallback === undefined
           ? 40

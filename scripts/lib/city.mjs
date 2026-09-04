@@ -12,7 +12,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cityFromJson } from '../../src/lib/city.ts'
+import { cityFromJson, containsLonLat, pointInRing } from '../../src/lib/city.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 /** src/cities/ – one folder per city. */
@@ -44,7 +44,33 @@ export function cityPaths(slug) {
     network: resolve(dir, 'network.json'),
     schedule: resolve(dir, 'schedule.json'),
     lamps: resolve(dir, 'street-lamps.json'),
+    /** The city limits as a polygon (written by add-city); optional. */
+    limits: resolve(dir, 'limits.json'),
   }
+}
+
+/**
+ * The city limits as a ring of [lon, lat] pairs, from limits.json – or
+ * null for a city that only has its rectangle (Rostock's box lies wholly
+ * inside its state, so the rectangle never mattered there).
+ */
+export function loadCityLimits(slug) {
+  const file = cityPaths(slug).limits
+  if (!existsSync(file)) return null
+  const data = JSON.parse(readFileSync(file, 'utf8'))
+  return Array.isArray(data.ring) && data.ring.length >= 4 ? data.ring : null
+}
+
+/**
+ * "Is this point in the city?" as the pipeline decides it: inside the
+ * limits polygon where the city has one, inside `cityBounds` otherwise.
+ * The network cut (data:update) and the GTFS anchoring (data:gtfs) both
+ * use this, so a trip departs the network where the route really ends.
+ */
+export function cityInsidePredicate(city) {
+  const ring = loadCityLimits(city.slug)
+  if (ring) return (lon, lat) => pointInRing(ring, lon, lat)
+  return (lon, lat) => containsLonLat(city.cityBounds, lon, lat)
 }
 
 /**

@@ -52,11 +52,16 @@
     "ferry": { "model": "ferry-hadag", "length": 29.9, "width": 8.2, "height": 6.5 }
   },
   "terrain": {
-    "provider": "none",
+    "provider": "xyz-zip",
+    "url": "https://daten-hamburg.de/geographie_geologie_geobasisdaten/Digitales_Hoehenmodell/DGM10/DGM10_2x2KM_XYZ_HH_2016-01-04.zip",
+    "crs": "EPSG:25832",
+    "tileSizeMeters": 2000,
+    "gridMeters": 10,
     "geoidOffsetFallback": 40,
-    "waterLevelNhn": 0
+    "waterLevelNhn": 0,
+    "attribution": "Terrain heights © Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (DGM10, dl-de/by-2-0)."
   },
-  "lamps": { "enabled": false, "minPlausible": 1000 },
+  "lamps": { "enabled": true, "minPlausible": 5000 },
   "ais": {
     "enabled": true,
     "ferryLineByMmsi": {}

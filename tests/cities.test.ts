@@ -7,6 +7,8 @@ import {
   containsLonLat,
   overpassBbox,
   padBoundingBox,
+  pointInRing,
+  type LonLatRing,
 } from '@/lib/city'
 
 describe('padBoundingBox', () => {
@@ -42,6 +44,35 @@ describe('padBoundingBox', () => {
       east: 12.1235,
       north: 54.1235,
     })
+  })
+})
+
+describe('pointInRing', () => {
+  // A concave "C" open to the east: the notch is outside although the
+  // rectangle around the ring contains it.
+  const ring: LonLatRing = [
+    [10.0, 53.0],
+    [10.3, 53.0],
+    [10.3, 53.1],
+    [10.1, 53.1],
+    [10.1, 53.2],
+    [10.3, 53.2],
+    [10.3, 53.3],
+    [10.0, 53.3],
+    [10.0, 53.0],
+  ]
+
+  it('tells inside from outside, notch included', () => {
+    expect(pointInRing(ring, 10.05, 53.15)).toBe(true)
+    expect(pointInRing(ring, 10.2, 53.05)).toBe(true)
+    expect(pointInRing(ring, 10.2, 53.15)).toBe(false) // the notch
+    expect(pointInRing(ring, 9.9, 53.15)).toBe(false)
+    expect(pointInRing(ring, 10.4, 53.15)).toBe(false)
+  })
+
+  it('works on a ring that does not repeat its first point', () => {
+    expect(pointInRing(ring.slice(0, -1), 10.05, 53.15)).toBe(true)
+    expect(pointInRing(ring.slice(0, -1), 10.2, 53.15)).toBe(false)
   })
 })
 
@@ -86,6 +117,11 @@ describe('cityFromJson', () => {
 
 /** The generated data files next to the definitions, as Vite sees them. */
 const networkFiles = Object.keys(import.meta.glob('../src/cities/*/network.json'))
+/** The limits polygons of the cities that have one (written by add-city). */
+const limitsFiles = import.meta.glob<{ ring: LonLatRing }>('../src/cities/*/limits.json', {
+  eager: true,
+  import: 'default',
+})
 
 describe('the cities this build knows', () => {
   it('has the default city and unique slugs', () => {
@@ -141,6 +177,23 @@ describe('the cities this build knows', () => {
 
     it('spells its box the way Overpass wants it', () => {
       expect(overpassBbox(box)).toBe(`${box.south},${box.west},${box.north},${box.east}`)
+    })
+
+    it('keeps its home view inside its limits polygon, where it has one', () => {
+      const limits = limitsFiles[`../src/cities/${city.slug}/limits.json`]
+      if (!limits) return
+      expect(limits.ring.length).toBeGreaterThan(100)
+      expect(pointInRing(limits.ring, city.home.longitude, city.home.latitude)).toBe(true)
+      // The polygon lies inside the rectangle it was measured from (the
+      // ring is rounded to six decimals, the rectangle keeps seven)
+      const slack = 1e-5
+      const padded = {
+        west: bounds.west - slack,
+        south: bounds.south - slack,
+        east: bounds.east + slack,
+        north: bounds.north + slack,
+      }
+      for (const [lon, lat] of limits.ring) expect(containsLonLat(padded, lon, lat)).toBe(true)
     })
 
     it('has generated network data next to its definition', () => {

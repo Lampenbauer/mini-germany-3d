@@ -7,6 +7,13 @@
  *
  *   node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 15000]
  *   node scripts/add-city.mjs hamburg 62782
+ *   node scripts/add-city.mjs hamburg 62782 --limits-only    (refresh limits.json only)
+ *
+ * Next to city.json it writes limits.json: the largest outer ring itself,
+ * thinned to a few hundred points. The pipeline cuts routes and anchors
+ * timetables at that polygon rather than at the rectangle – a rectangle
+ * around Hamburg reaches Norderstedt and Aumühle, which the state's
+ * terrain model does not cover.
  *
  * The bounds are those of the relation's LARGEST outer ring, not the
  * relation's own bounding box: an administrative boundary can include
@@ -31,8 +38,11 @@ import { resolve } from 'node:path'
 import { boundingBoxCenter, padBoundingBox } from '../src/lib/city.ts'
 import { CITIES_DIR } from './lib/city.mjs'
 import { postOverpass } from './lib/overpass.mjs'
+import { compactPath } from './lib/simplify.mjs'
 
 const DEFAULT_PADDING_METERS = 15000
+/** Douglas–Peucker tolerance for the stored limits ring, in meters. */
+const LIMITS_TOLERANCE_METERS = 15
 
 function parseArgs(argv) {
   const positional = []
@@ -41,6 +51,8 @@ function parseArgs(argv) {
     const arg = argv[i]
     if (arg === '--name' || arg === '--padding') {
       options[arg.slice(2)] = argv[++i]
+    } else if (arg === '--limits-only') {
+      options.limitsOnly = true
     } else {
       positional.push(arg)
     }
@@ -126,7 +138,7 @@ export function cityBoundsFromRelation(data, relationId) {
   return {
     name: relation.tags?.name,
     adminLevel: relation.tags?.admin_level,
-    rings: rings.map(({ ring, areaKm2 }) => ({ areaKm2, bounds: ringBounds(ring) })),
+    rings: rings.map(({ ring, areaKm2 }) => ({ areaKm2, bounds: ringBounds(ring), ring })),
   }
 }
 
@@ -140,8 +152,12 @@ async function main() {
   }
   const dir = resolve(CITIES_DIR, slug)
   const file = resolve(dir, 'city.json')
-  if (existsSync(file)) {
-    throw new Error(`${file} exists – edit it, or delete it to start over`)
+  const limitsFile = resolve(dir, 'limits.json')
+  if (existsSync(file) && !options.limitsOnly) {
+    throw new Error(`${file} exists – edit it, delete it to start over, or pass --limits-only`)
+  }
+  if (!existsSync(file) && options.limitsOnly) {
+    throw new Error(`${file} does not exist – --limits-only refreshes an existing city`)
   }
   const padding = Number(options.padding ?? DEFAULT_PADDING_METERS)
 
@@ -171,6 +187,31 @@ async function main() {
   const boundingBox = padBoundingBox(cityBounds, padding)
   const center = boundingBoxCenter(boundingBox)
 
+  // The limits ring, thinned: the pipeline's point-in-city test walks it
+  // per stop, and 15 m is well below the distance at which a stop could
+  // change sides of a border.
+  const ring = compactPath(largest.ring, LIMITS_TOLERANCE_METERS).map(([lon, lat]) => [
+    Math.round(lon * 1e6) / 1e6,
+    Math.round(lat * 1e6) / 1e6,
+  ])
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    limitsFile,
+    JSON.stringify(
+      {
+        description: `City limits of ${options.name ?? name ?? slug}: the largest outer ring of OSM relation ${relationId}, thinned to ${LIMITS_TOLERANCE_METERS} m. Read by the data pipeline only (scripts/lib/city.mjs).`,
+        osmRelation: relationId,
+        queriedOn: new Date().toISOString().slice(0, 10),
+        ring,
+      },
+      null,
+      0,
+    ).replace('"ring":[', '\n"ring":[\n') + '\n',
+    'utf8',
+  )
+  console.log(`✅ Wrote ${limitsFile} (${ring.length} points)`)
+  if (options.limitsOnly) return
+
   const city = {
     slug,
     name: options.name ?? name ?? slug,
@@ -199,7 +240,6 @@ async function main() {
     lamps: { enabled: false, minPlausible: 1000 },
     ais: { enabled: true, ferryLineByMmsi: {} },
   }
-  mkdirSync(dir, { recursive: true })
   writeFileSync(file, JSON.stringify(city, null, 2) + '\n', 'utf8')
   console.log(`\n✅ Wrote ${file}`)
   console.log('Next: set the home view, narrow the modes/operators, pick the fleet, then')

@@ -38,7 +38,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { containsLonLat } from '../src/lib/city.ts'
 import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
-import { forEachRequestedCity } from './lib/city.mjs'
+import { cityInsidePredicate, forEachRequestedCity } from './lib/city.mjs'
 import { overpassBbox, postOverpass } from './lib/overpass.mjs'
 import { compactPath } from './lib/simplify.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from './lib/tunnels.mjs'
@@ -315,13 +315,14 @@ function projectOntoPath(path, cum, p) {
  * (nothing to do) and `{ skip: true }` when none is – a relation that
  * only crosses the corner of the box is not a line of this city.
  *
+ * `isInside(lon, lat)` says what counts as inside: the city's limits
+ * polygon where it has one (see cityInsidePredicate), else a rectangle.
  * The GTFS import anchors a trip's departure at its first stop inside
- * the same rectangle (city.cityBounds), so the two stay consistent: a
- * regional train leaves the map at the time it really leaves the last
- * station shown.
+ * the same area, so the two stay consistent: a regional train leaves the
+ * map at the time it really leaves the last station shown.
  */
-export function clipToBounds(path, cum, stopNodes, bounds, tunnels, bridges) {
-  const inside = stopNodes.map(({ node }) => containsLonLat(bounds, node.lon, node.lat))
+export function clipToBounds(path, cum, stopNodes, isInside, tunnels, bridges) {
+  const inside = stopNodes.map(({ node }) => isInside(node.lon, node.lat))
   if (inside.every(Boolean)) return null
   if (!inside.some(Boolean)) return { skip: true }
   let bestStart = -1
@@ -419,11 +420,11 @@ export async function fetchStopAreaNames(osmNodeIds) {
 /** Builds and writes a city's network.json. */
 export async function buildNetwork(city, outPath) {
   const data = await fetchOverpassData(buildQuery(city))
-  const clipBounds =
+  const isInside =
     city.network.clip === 'city'
-      ? city.cityBounds
+      ? cityInsidePredicate(city)
       : city.network.clip === 'box'
-        ? city.boundingBox
+        ? (lon, lat) => containsLonLat(city.boundingBox, lon, lat)
         : null
   const fixedByRelation = new Map(city.network.fixedLines.map((line) => [line.osmRelation, line]))
   const wantedModes = new Set(city.network.modes)
@@ -580,8 +581,8 @@ export async function buildNetwork(city, outPath) {
       // clipToBounds) – ferries are exempt, their piers may lie on the
       // far bank just outside the limits.
       let clipped = false
-      if (clipBounds && mode !== 'ferry' && stopNodes.length >= 2) {
-        const cut = clipToBounds(path, cum, stopNodes, clipBounds, tunnels, bridges)
+      if (isInside && mode !== 'ferry' && stopNodes.length >= 2) {
+        const cut = clipToBounds(path, cum, stopNodes, isInside, tunnels, bridges)
         if (cut?.skip) {
           console.warn(`  ⚠ Line ${ref} (${rel.id}): no stop inside the city – relation skipped`)
           continue

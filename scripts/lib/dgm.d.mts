@@ -10,6 +10,8 @@ export interface DgmTile {
   scaleY: number
 }
 
+export function lonLatToUtm(lon: number, lat: number, crs?: string): [number, number]
+
 export function lonLatToUtm33(lon: number, lat: number): [number, number]
 
 export function parseFloat32Tiff(buf: Uint8Array): DgmTile
@@ -20,6 +22,7 @@ export class DgmSampler {
   constructor(opts?: {
     endpoint?: string
     coverageId?: string
+    crs?: string
     tileSizeMeters?: number
     marginMeters?: number
     fetchImpl?: typeof fetch

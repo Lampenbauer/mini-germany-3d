@@ -29,9 +29,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
-import { containsLonLat } from '../src/lib/city.ts'
 import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
-import { forEachRequestedCity } from './lib/city.mjs'
+import { cityInsidePredicate, forEachRequestedCity } from './lib/city.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, '.cache')
@@ -225,7 +224,8 @@ async function loadZipOnce() {
 async function main(city, paths) {
   const OUT = process.env.SCHEDULE_OUT ? resolve(process.env.SCHEDULE_OUT) : paths.schedule
   const NETWORK_JSON = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
-  const BBOX = city.cityBounds
+  // The city limits polygon where the city has one, its rectangle otherwise
+  const insideCity = cityInsidePredicate(city)
   const normalizeName = makeNormalizeName(city.gtfs.nameStrip)
   const trainBranchProbes = city.gtfs.trainBranches.map((branch) => ({
     lineId: branch.lineId,
@@ -274,7 +274,7 @@ async function main(city, paths) {
     }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
-    if (containsLonLat(BBOX, lon, lat)) {
+    if (insideCity(lon, lat)) {
       cityStopCoords.set(get('stop_id'), [lon, lat])
       cityStopNames.set(get('stop_id'), name)
     }
@@ -285,11 +285,11 @@ async function main(city, paths) {
   // is read one or more stops down the route – say so rather than let the
   // schedule quietly drift.
   const networkStopsOutside = Object.entries(networkJson.stops ?? {}).filter(
-    ([, stop]) => !containsLonLat(BBOX, stop.coord[0], stop.coord[1]),
+    ([, stop]) => !insideCity(stop.coord[0], stop.coord[1]),
   )
   if (networkStopsOutside.length > 0) {
     console.warn(
-      `⚠ ${networkStopsOutside.length} network stops lie outside the ${city.name} city rectangle ` +
+      `⚠ ${networkStopsOutside.length} network stops lie outside the ${city.name} city limits ` +
         `(${networkStopsOutside
           .slice(0, 5)
           .map(([id, stop]) => `${stop.name} [${id}]`)

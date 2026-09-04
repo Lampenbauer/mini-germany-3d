@@ -43,8 +43,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forEachRequestedCity } from './lib/city.mjs'
-import { DgmSampler } from './lib/dgm.mjs'
 import { overpassBbox, postOverpass } from './lib/overpass.mjs'
+import { createTerrainSampler, terrainSummary } from './lib/terrain.mjs'
 import { selectLampsAlongRoutes } from './lib/street-lamps.mjs'
 
 /**
@@ -128,11 +128,7 @@ async function main(city, paths) {
     throw new Error('No lamp matched a route – is network.json up to date?')
   }
 
-  const sampler = new DgmSampler({
-    endpoint: city.terrain.url,
-    coverageId: city.terrain.coverage,
-    crs: city.terrain.crs,
-  })
+  const sampler = createTerrainSampler(city)
   const previous = indexPreviousHeights()
   const lamps = []
   let reused = 0
@@ -178,7 +174,6 @@ async function main(city, paths) {
     '\n  ]\n}\n'
   writeFileSync(OUT, body, 'utf8')
 
-  const { tiles, bytes, failedTiles } = sampler.stats
   console.log(
     `\n✅ ${OUT}: ${lamps.length} street lamps, ` +
       `heights ${minH.toFixed(1)}–${maxH.toFixed(1)} m NHN`,
@@ -187,10 +182,7 @@ async function main(city, paths) {
   if (withoutHeight > 0) {
     console.log(`   Dropped without DGM height: ${withoutHeight}`)
   }
-  console.log(
-    `   DGM: ${tiles} WCS tiles, ${(bytes / 1024 / 1024).toFixed(1)} MB` +
-      (failedTiles > 0 ? `, ${failedTiles} tile(s) FAILED` : ''),
-  )
+  console.log(`   DGM: ${terrainSummary(sampler)}`)
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

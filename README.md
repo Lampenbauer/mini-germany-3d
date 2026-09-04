@@ -199,8 +199,9 @@ A city is a folder under `src/cities/` with a hand-written definition and
 the files the pipeline generates for it:
 
 ```
-src/cities/rostock/
+src/cities/hamburg/
 ├── city.json          # the definition (below)
+├── limits.json        # the city limits polygon – written by add-city, read by the pipeline only
 ├── network.json       # lines, routes, stops – generated (data:update, data:simplify, data:heights)
 ├── schedule.json      # real departure times – generated (data:gtfs)
 └── street-lamps.json  # OSM lamps along the routes – generated (data:lamps), optional
@@ -221,7 +222,11 @@ place (typed and validated by `src/lib/city.ts`):
   network as regexes; a mode without an entry is served by fixed lines alone),
   lines addressed by relation id (`fixedLines` – ferries mostly), and where a
   route leaving the city is cut (`clip`: `city` at the last stop inside the
-  limits, `box` inside the padded box, `none`).
+  limits, `box` inside the padded box, `none`). "Inside the limits" is the
+  polygon in `limits.json` where the city has one (a rectangle around Hamburg
+  reaches Norderstedt and Aumühle, which its terrain model does not cover),
+  and `cityBounds` otherwise; the GTFS import anchors departures at the same
+  test, so a trip leaves the map where its route really ends.
 - **`gtfs`** – the prefix the feed puts in front of stop names (`nameStrip`)
   and, for feeds that lump an S-Bahn's legs into one route, the branch stations
   that tell them apart (`trainBranches`).
@@ -229,9 +234,12 @@ place (typed and validated by `src/lib/city.ts`):
   draws (`model`, see `VEHICLE_CONSISTS` in `src/map/VehicleLayer.ts`; without
   one the mode is a colored box).
 - **`terrain`** – where route heights come from: `wcs-geotiff` (a WCS 2.0.1
-  serving float32 GeoTIFF tiles, with `url`, `coverage`, `crs`) or `none` (the
-  app clamps the routes onto the 3D tiles instead), the geoid offset the height
-  bootstrap starts from, the water level ferries ride at, and the attribution.
+  serving float32 GeoTIFF tiles, with `url`, `coverage`, `crs`), `xyz-zip` (a
+  downloadable zip of ASCII XYZ tiles named after their corner, with `url`,
+  `crs`, `tileSizeMeters`, `gridMeters` – cached under `scripts/.cache/`) or
+  `none` (the app clamps the routes onto the 3D tiles instead), the geoid
+  offset the height bootstrap starts from, the water level ferries ride at,
+  and the attribution.
 - **`lamps`** and **`ais`** – whether the night lighting and the AIS backdrop
   are on, and which real vessels sail the simulated ferries (`ferryLineByMmsi`).
 
@@ -258,12 +266,14 @@ map) and the two Warnow ferries, with terrain heights from the open DGM of
 Mecklenburg-Vorpommern and ~7000 street lamps.
 
 **Hamburg**: the four U-Bahn lines, the S-Bahn lines S1, S2, S3, S5 and S7
-(cut at the state border), the Metrobus lines 1–27 and the HADAG harbour
-ferries. No terrain provider yet (Hamburg publishes its DGM1 as open data, but
-not as a WCS), so the routes are clamped onto the tiles; no street lamps. The
-Stadtbus lines with three-digit numbers are left out on purpose – the whole
-HVV bus network would be over 250 lines and thousands of simultaneous vehicles,
-more than the simulation is built for today.
+(cut at the state border, like every route that leaves the city), the
+Metrobus lines 1–27 and the HADAG harbour ferries, with terrain heights from
+the city's open DGM10 (Transparenzportal, dl-de/by-2-0, a 32 MB download the
+pipeline caches) and the OSM street lamps along the routes – community-mapped
+rather than an official import, so the lighting is patchier than Rostock's.
+The Stadtbus lines with three-digit numbers are left out on purpose – the
+whole HVV bus network would be over 250 lines and thousands of simultaneous
+vehicles, more than the simulation is built for today.
 
 ## Data – GTFS / GTFS-Realtime / OSM
 
@@ -320,8 +330,8 @@ Every script takes `-- --city <slug>` and runs for every city without it.
 - `data:heights` samples the city's terrain model at every route vertex and
   stop – for Rostock the official digital terrain model of
   Mecklenburg-Vorpommern (open WCS at geodaten-mv.de, © GeoBasis-DE/M-V,
-  5 m grid). Bridge sections get a straight deck interpolated between their
-  end points. With these heights the app draws the route polylines at
+  5 m grid), for Hamburg the DGM10 the city publishes as XYZ tiles. Bridge
+  sections get a straight deck interpolated between their end points. With these heights the app draws the route polylines at
   absolute heights instead of clamping them onto the 3D tiles per frame –
   that classification pass costs measurable GPU time on every rendered frame,
   which is the price a city without a terrain provider pays. The
@@ -541,8 +551,6 @@ they are in view.
 
 - GTFS-RT with VehiclePositions (full gtfs.de or transport association feeds)
   instead of TripUpdates only
-- A terrain adapter for cities whose DGM comes as downloadable tiles rather
-  than a WCS (Hamburg)
 - The remaining bus lines of big cities, which needs an active-trip index in the
   simulation instead of a full scan per tick
 - Cities on demand: a workflow run that adds a city from its OSM relation
@@ -555,8 +563,9 @@ they are in view.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
 - Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
 - Terrain heights (after `npm run data:heights` / `data:lamps`): the city's
-  terrain source, e.g. © GeoBasis-DE/M-V for Rostock (digitales Geländemodell via
-  WCS, [geodaten-mv.de](https://www.geodaten-mv.de)) – shown in the app inside
-  Cesium's "Data attribution" credits
+  terrain source – © GeoBasis-DE/M-V for Rostock (digitales Geländemodell via
+  WCS, [geodaten-mv.de](https://www.geodaten-mv.de)), © Freie und Hansestadt
+  Hamburg, Landesbetrieb Geoinformation und Vermessung for Hamburg (DGM10,
+  dl-de/by-2-0) – shown in the app inside Cesium's "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or the transport
   association's feed – observe the source's license terms
