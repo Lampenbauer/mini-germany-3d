@@ -8,6 +8,7 @@ import {
   parseUiStateHash,
   parseStopHash,
   parseVehicleHash,
+  type HashUiState,
 } from '@/lib/camera-hash'
 import { config } from '@/config'
 
@@ -95,6 +96,7 @@ describe('layer and pause state in the hash', () => {
     expect(
       formatUiStateHash({
         city: null,
+      view: 'surface',
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
@@ -105,6 +107,7 @@ describe('layer and pause state in the hash', () => {
     expect(
       formatUiStateHash({
         city: null,
+      view: 'surface',
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
@@ -115,14 +118,16 @@ describe('layer and pause state in the hash', () => {
   })
 
   it('names the city first, and only when it is not the default', () => {
-    const state = {
+    const state: HashUiState = {
+      city: null,
+      view: 'surface',
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
       tiltShift: miniatureDefault,
       paused: false,
     }
-    expect(formatUiStateHash({ ...state, city: null })).toBe('')
+    expect(formatUiStateHash(state)).toBe('')
     expect(formatUiStateHash({ ...state, city: 'hamburg', routesHidden: true })).toBe(
       '&city=hamburg&routes=0',
     )
@@ -130,9 +135,31 @@ describe('layer and pause state in the hash', () => {
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
   })
 
+  it('carries whichever reading is on screen, and names the map by omission', () => {
+    const state: HashUiState = {
+      city: null,
+      view: 'surface',
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      tiltShift: miniatureDefault,
+      paused: false,
+    }
+    expect(formatUiStateHash({ ...state, view: 'linear' })).toBe('&view=linear')
+    expect(formatUiStateHash({ ...state, view: 'underground' })).toBe('&view=underground')
+    // The surface is the map itself – an absent view= is what says so
+    expect(formatUiStateHash({ ...state, view: 'surface' })).toBe('')
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&view=linear').view).toBe('linear')
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&view=underground').view).toBe('underground')
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').view).toBe('surface')
+    // A reading this build does not have is the map, not a crash
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&view=isometric').view).toBe('surface')
+  })
+
   it('round-trips alongside both hash forms', () => {
     const suffix = formatUiStateHash({
       city: null,
+      view: 'surface',
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
@@ -144,6 +171,7 @@ describe('layer and pause state in the hash', () => {
     for (const hash of [withCamera, withVehicle]) {
       expect(parseUiStateHash(hash)).toEqual({
         city: null,
+      view: 'surface',
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
@@ -159,6 +187,7 @@ describe('layer and pause state in the hash', () => {
   it('defaults everything when absent', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
       city: null,
+      view: 'surface',
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,

@@ -21,6 +21,7 @@ import {
   type Viewer,
 } from 'cesium'
 import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
+import type { BoundingBox } from '@/lib/city'
 import type { LonLat } from '@/lib/geo'
 import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
 import { routeTunnelOpacity } from './tunnel-view'
@@ -193,6 +194,35 @@ export class RoutesLayer {
    */
   linePoints(lineId: string): number[] | undefined {
     return this.linePaths.get(lineId)
+  }
+
+  /**
+   * The lon/lat rectangle the given lines' routes together fit into, or
+   * undefined when none of them has geometry here.
+   *
+   * The counterpart of linePoints for a whole set: the plan view the
+   * linear diagram is entered from frames what is actually on the map,
+   * and a network of two switched-on lines is a far smaller thing than
+   * the city it runs in (see CesiumMap.flyToCityPlan).
+   */
+  linesExtent(lineIds: Iterable<string>): BoundingBox | undefined {
+    let west = Number.POSITIVE_INFINITY
+    let south = Number.POSITIVE_INFINITY
+    let east = Number.NEGATIVE_INFINITY
+    let north = Number.NEGATIVE_INFINITY
+    for (const lineId of lineIds) {
+      const flat = this.linePaths.get(lineId)
+      if (!flat) continue
+      for (let i = 0; i < flat.length; i += 2) {
+        const lon = flat[i]
+        const lat = flat[i + 1]
+        if (lon < west) west = lon
+        if (lon > east) east = lon
+        if (lat < south) south = lat
+        if (lat > north) north = lat
+      }
+    }
+    return east >= west ? { west, south, east, north } : undefined
   }
 
   /**

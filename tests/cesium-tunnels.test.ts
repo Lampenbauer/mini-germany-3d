@@ -188,6 +188,7 @@ describe('Cesium tunnel rendering', () => {
       mode: 'zeppelin' as VehicleSnapshot['mode'],
       vehicle: config.vehicles.ferry,
       direction: 0,
+      distance: 0,
       lon: 12.1,
       lat: 54.0,
       bearing: 0,

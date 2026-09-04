@@ -25,11 +25,11 @@ const en = {
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
-  // Scene controls (the map-control popover): what the city is shown
-  // under, rather than what is drawn on it.
-  'scene.title': 'Scene',
+  // What the city is shown under and through, rather than what is drawn
+  // on it: the sky in the weather popover, the lens in the camera block.
   'scene.tiltShift': 'Miniature effect',
   'scene.showTiltShift': 'Show the miniature effect',
+  'scene.hideTiltShift': 'Hide the miniature effect',
   'weather.title': 'Weather',
   'weather.temperature': '{degrees} °C',
   'weather.live': 'Live weather',
@@ -182,8 +182,6 @@ const en = {
   'navStatus.14': 'AIS-SART active',
   'navStatus.15': 'Not defined',
   // Map controls
-  'camera.toUnderground': 'Show underground view',
-  'camera.toSurface': 'Back to the surface view',
   'camera.to2d': 'Switch to 2D view',
   'camera.to3d': 'Switch to 3D view',
   'camera.faceNorth': 'Face north',
@@ -194,6 +192,13 @@ const en = {
   'view.controls': 'View controls',
   'view.fullscreen': 'Full screen',
   'view.exitFullscreen': 'Leave full screen',
+  /** The view tabs name what they show, not what pressing them does. */
+  'view.readings': 'View',
+  'view.surface': 'Surface',
+  'view.underground': 'Underground',
+  /** What a transit operator calls the strip over the door: one line drawn
+      straight with its stops along it, geography left out entirely. */
+  'view.diagram': 'Line diagram',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -213,9 +218,9 @@ const de: Record<MessageKey, string> = {
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
-  'scene.title': 'Szene',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
+  'scene.hideTiltShift': 'Miniatureffekt ausblenden',
   'weather.title': 'Wetter',
   'weather.temperature': '{degrees} °C',
   'weather.live': 'Live-Wetter',
@@ -359,8 +364,6 @@ const de: Record<MessageKey, string> = {
   'navStatus.12': 'Schiebt voraus',
   'navStatus.14': 'AIS-SART aktiv',
   'navStatus.15': 'Nicht definiert',
-  'camera.toUnderground': 'Untergrund-Ansicht zeigen',
-  'camera.toSurface': 'Zurück zur normalen Ansicht',
   'camera.to2d': 'Zur 2D-Ansicht wechseln',
   'camera.to3d': 'Zur 3D-Ansicht wechseln',
   'camera.faceNorth': 'Nach Norden ausrichten',
@@ -371,6 +374,10 @@ const de: Record<MessageKey, string> = {
   'view.controls': 'Ansichtssteuerung',
   'view.fullscreen': 'Vollbild',
   'view.exitFullscreen': 'Vollbild verlassen',
+  'view.readings': 'Ansicht',
+  'view.surface': 'Oberfläche',
+  'view.underground': 'Untergrund',
+  'view.diagram': 'Linienband',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }
