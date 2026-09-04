@@ -241,7 +241,8 @@ place (typed and validated by `src/lib/city.ts`):
   offset the height bootstrap starts from, the water level ferries ride at,
   and the attribution.
 - **`lamps`** and **`ais`** – whether the night lighting and the AIS backdrop
-  are on, and which real vessels sail the simulated ferries (`ferryLineByMmsi`).
+  are on, and which real vessels this map already runs from a timetable
+  (`simulatedByMmsi`), so their AIS twins are left out of the backdrop fleet.
 
 Adding a city:
 

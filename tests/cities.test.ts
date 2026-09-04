@@ -97,7 +97,7 @@ describe('cityFromJson', () => {
     expect(city.terrain.provider).toBe('none')
     expect(city.lamps.enabled).toBe(false)
     expect(city.ais.enabled).toBe(true)
-    expect(city.ais.ferryLineByMmsi).toEqual({})
+    expect(city.ais.simulatedByMmsi).toEqual({})
   })
 
   it('names the field that is wrong', () => {
@@ -110,8 +110,8 @@ describe('cityFromJson', () => {
       /network\.modes\[0\]/,
     )
     expect(() =>
-      cityFromJson({ ...minimal, ais: { ferryLineByMmsi: { '12': 'FG' } } }),
-    ).toThrow(/ferryLineByMmsi/)
+      cityFromJson({ ...minimal, ais: { simulatedByMmsi: { '12': 'FG' } } }),
+    ).toThrow(/simulatedByMmsi/)
   })
 })
 

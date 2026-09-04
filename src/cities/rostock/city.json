@@ -85,7 +85,7 @@
   "lamps": { "enabled": true, "minPlausible": 1000 },
   "ais": {
     "enabled": true,
-    "ferryLineByMmsi": {
+    "simulatedByMmsi": {
       "211825200": "FG",
       "211624750": "FW",
       "211624870": "FW"

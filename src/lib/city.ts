@@ -178,11 +178,17 @@ export interface CityLampsConfig {
 export interface CityAisConfig {
   enabled: boolean
   /**
-   * Which real vessel sails which simulated ferry line (MMSI → line id).
-   * The ferries run on their timetable – this only EXCLUDES their AIS
-   * twins from the backdrop fleet, one boat per crossing.
+   * Real vessels this map already runs from a timetable, by MMSI. Their
+   * AIS twins are left out of the backdrop fleet, or every crossing
+   * would carry two boats: the scheduled one and the real one beside it.
+   *
+   * The value names the service the boat belongs to, and how precisely
+   * depends on the city: in Rostock one vessel keeps to one crossing, so
+   * it is the line id. In Hamburg a HADAG ferry runs whatever line the
+   * roster gives her that day, so it is the operator – claiming a line
+   * there would be inventing a duty the boat does not keep.
    */
-  ferryLineByMmsi: Record<string, string>
+  simulatedByMmsi: Record<string, string>
 }
 
 export interface City {
@@ -439,12 +445,12 @@ export function cityFromJson(raw: unknown): City {
   }
   const lampsRaw = isObject(raw.lamps) ? raw.lamps : {}
   const aisRaw = isObject(raw.ais) ? raw.ais : {}
-  const ferryLineByMmsi: Record<string, string> = {}
-  if (aisRaw.ferryLineByMmsi !== undefined) {
-    if (!isObject(aisRaw.ferryLineByMmsi)) fail('ais.ferryLineByMmsi', 'an object')
-    for (const [mmsi, lineId] of Object.entries(aisRaw.ferryLineByMmsi)) {
-      if (!/^\d{9}$/.test(mmsi)) fail(`ais.ferryLineByMmsi.${mmsi}`, 'keyed by a 9-digit MMSI')
-      ferryLineByMmsi[mmsi] = str(lineId, `ais.ferryLineByMmsi.${mmsi}`)
+  const simulatedByMmsi: Record<string, string> = {}
+  if (aisRaw.simulatedByMmsi !== undefined) {
+    if (!isObject(aisRaw.simulatedByMmsi)) fail('ais.simulatedByMmsi', 'an object')
+    for (const [mmsi, service] of Object.entries(aisRaw.simulatedByMmsi)) {
+      if (!/^\d{9}$/.test(mmsi)) fail(`ais.simulatedByMmsi.${mmsi}`, 'keyed by a 9-digit MMSI')
+      simulatedByMmsi[mmsi] = str(service, `ais.simulatedByMmsi.${mmsi}`)
     }
   }
 
@@ -490,6 +496,6 @@ export function cityFromJson(raw: unknown): City {
       minPlausible:
         lampsRaw.minPlausible === undefined ? 1000 : num(lampsRaw.minPlausible, 'lamps.minPlausible'),
     },
-    ais: { enabled: aisRaw.enabled === undefined ? true : aisRaw.enabled === true, ferryLineByMmsi },
+    ais: { enabled: aisRaw.enabled === undefined ? true : aisRaw.enabled === true, simulatedByMmsi },
   }
 }

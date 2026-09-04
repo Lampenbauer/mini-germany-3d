@@ -91,6 +91,23 @@ describe('the generated backdrop fleet', () => {
     expect(archetypeFor(54)).toBe('vessel-tug') // anti-pollution
   })
 
+  it('reads the hull off the codes ITU-R M.1371-6 spells out', () => {
+    // The 2026 table splits the cargo group and names the launch, the
+    // trawler and the patrol boat – where a ship says so, believe it
+    expect(archetypeFor(76)).toBe('vessel-container')
+    expect(archetypeFor(76, 90, 14)).toBe('vessel-container') // even a small one
+    expect(archetypeFor(75, 250, 43)).toBe('vessel-cargo') // bulk carrier: no boxes
+    expect(archetypeFor(77, 200, 32)).toBe('vessel-cargo') // ro-ro: no boxes either
+    expect(archetypeFor(78, 40, 10)).toBe('vessel-barge') // landing craft
+    expect(archetypeFor(67, 45, 10)).toBe('vessel-tender') // harbour cruise boat
+    expect(archetypeFor(38, 25)).toBe('vessel-fishing') // trawler
+    expect(archetypeFor(39, 30)).toBe('vessel-pilot') // patrol vessel
+    // A big working ship is a ship, but never a box carrier
+    expect(archetypeFor(4, 90, 20)).toBe('vessel-cargo') // ice breaker
+    expect(archetypeFor(6, 160, 24)).toBe('vessel-cargo') // cable layer
+    expect(archetypeFor(14, 20, 8)).toBe('vessel-generic') // small support vessel
+  })
+
   it('tells a container ship from a coaster by size, having no code for it', () => {
     // AIS 70–79 is every dry cargo ship there is; the length decides
     expect(archetypeFor(70, 330, 48)).toBe('vessel-container') // a ULCV on the Elbe

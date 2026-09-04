@@ -1,8 +1,9 @@
 /**
  * Central configuration of Mini Germany 3D – everything that is the same
  * for every city. What differs per city (its rectangle, home view,
- * weather point, fleet, ferries' AIS twins) lives in the city's
- * definition, see src/lib/city.ts and src/cities/.
+ * weather point, fleet, terrain source, and which real vessels this map
+ * already runs itself) lives in the city's definition, see
+ * src/lib/city.ts and src/cities/.
  */
 
 export const config = {
@@ -56,8 +57,9 @@ export const config = {
    * AIS vessel positions (aisstream.io, via the filtered /api/ais
    * endpoint – Vite middleware in dev, api/ais.php in production, both
    * answering for the city asked for with `?city=<slug>`). Real harbor
-   * traffic as backdrop; the city ferries' AIS twins are excluded per
-   * city (city.ais.ferryLineByMmsi). An empty URL disables the layer, and
+   * traffic as backdrop; the AIS twins of the boats this map already
+   * runs from a timetable are excluded per city
+   * (city.ais.simulatedByMmsi). An empty URL disables the layer, and
    * so does offline mode – neither has live traffic to reach. ?ais=0 is
    * softer: it opens with the fleet switched off, and the panel's "AIS
    * ships" switch turns it back on (see handleToggleAisVessels in App.tsx).

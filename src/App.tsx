@@ -1218,11 +1218,12 @@ export default function App() {
       // – ?ais=0 and the panel switch share the one state (see
       // handleToggleAisVessels).
       if (aisAvailableRef.current) {
-        const ferryTwins = sessionCity.ais.ferryLineByMmsi
+        const simulated = sessionCity.ais.simulatedByMmsi
         aisClient = new AisClient(cityApiUrl(config.ais.url, sessionCity.slug), (_status, vessels) => {
-          // The city ferries sail as simulated vehicles on their timetable –
-          // drawing their AIS twins too would put two boats on one crossing.
-          const backdrop = vessels.filter((v) => !(String(v.mmsi) in ferryTwins))
+          // The boats this map runs from a timetable sail here already –
+          // drawing their AIS twins too would put two of each on one
+          // crossing (see city.ais.simulatedByMmsi).
+          const backdrop = vessels.filter((v) => !(String(v.mmsi) in simulated))
           aisVesselsRef.current = backdrop
           // An open ship card follows its ship's fixes; a ship that has left
           // the picture closes it rather than freezing at her last position.

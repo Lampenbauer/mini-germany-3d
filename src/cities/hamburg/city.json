@@ -64,6 +64,6 @@
   "lamps": { "enabled": true, "minPlausible": 5000 },
   "ais": {
     "enabled": true,
-    "ferryLineByMmsi": {}
+    "simulatedByMmsi": {}
   }
 }

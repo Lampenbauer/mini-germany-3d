@@ -127,6 +127,23 @@ describe('vessel-info', () => {
     expect(vesselTypeKey(30)).toBe('vesselType.fishing')
     expect(vesselTypeKey(36)).toBe('vesselType.sailing')
     expect(vesselTypeKey(37)).toBe('vesselType.pleasure')
+    // The codes ITU-R M.1371-6 (2026) spells out
+    expect(vesselTypeKey(76)).toBe('vesselType.containerShip')
+    expect(vesselTypeKey(75)).toBe('vesselType.bulkCarrier')
+    expect(vesselTypeKey(77)).toBe('vesselType.roro')
+    expect(vesselTypeKey(78)).toBe('vesselType.landingCraft')
+    expect(vesselTypeKey(67)).toBe('vesselType.excursion')
+    expect(vesselTypeKey(66)).toBe('vesselType.ferry')
+    expect(vesselTypeKey(65)).toBe('vesselType.cruise')
+    expect(vesselTypeKey(38)).toBe('vesselType.trawler')
+    expect(vesselTypeKey(39)).toBe('vesselType.patrol')
+    expect(vesselTypeKey(86)).toBe('vesselType.tugAndBarge')
+    expect(vesselTypeKey(4)).toBe('vesselType.specialPurpose') // ice breaker
+    expect(vesselTypeKey(14)).toBe('vesselType.support')
+    // The coarse codes still keep their group labels
+    expect(vesselTypeKey(71)).toBe('vesselType.cargo')
+    expect(vesselTypeKey(79)).toBe('vesselType.cargo')
+    expect(vesselTypeKey(69)).toBe('vesselType.passenger')
     // 0 is "not available", not a type
     expect(vesselTypeKey(0)).toBeNull()
   })

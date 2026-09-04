@@ -112,12 +112,13 @@ export const VESSEL_MODELS: Record<string, { uri: string; length: number; width:
 }
 
 /**
- * Length from which a cargo ship is drawn as a container ship rather
- * than as the coaster hull. AIS has no code for a boxship – 70–79 covers
- * every dry cargo ship there is – so the size decides, and in a container
- * port that is the honest guess: what comes up the Elbe at 150 m and more
- * is a feeder or bigger. A bulk carrier of the same length gets the box
- * stacks too, which is the price of having no better signal.
+ * Length from which a cargo ship of no stated kind is drawn as a
+ * container ship. Type 76 says "container ship" since ITU-R M.1371-6,
+ * but almost nothing transmits it yet, and 70–74 and 79 cover every dry
+ * cargo ship there is – so the size decides, and in a container port
+ * that is the honest guess: what comes up the Elbe at 150 m and more is
+ * a feeder or bigger. A bulk carrier that keeps to the old codes gets
+ * the box stacks too, which is the price of having no better signal.
  */
 const CONTAINER_MIN_LENGTH_M = 150
 
@@ -140,14 +141,21 @@ function isInlandBarge(lengthM: number, widthM: number | null): boolean {
 }
 
 /**
- * AIS ship type code → archetype model. The type code alone is a coarse
- * instrument – it has one bucket for every dry cargo ship afloat and
- * none for a container ship at all – so the reported size decides where
- * the code cannot: how big a cargo ship is, how narrow an inland one,
- * how small a "passenger ship" really is. Many vessels broadcast type 0
- * or 9x "other"; for those the length alone stands in, so a ship-sized
- * contact gets a ship instead of a workboat stretched past all
- * plausibility (the 135 m VIKING HAKI is no dinghy).
+ * AIS ship type code → archetype model.
+ *
+ * ITU-R M.1371-6 (February 2026) finally names hulls the earlier table
+ * only had room for: 75–78 split the cargo group into bulk carrier,
+ * container ship, ro-ro and landing craft, 67 marks the harbour cruise
+ * boat, 38 the trawler, 39 the patrol vessel. Those codes are read here
+ * for what they say.
+ *
+ * They are the future, not the present: a spec from February is not what
+ * the fleet transmits, and every 400 m box ship in the Hamburg sample
+ * still called itself 71 or 74 – "cargo carrying dangerous goods". So
+ * the size heuristics below stay, and they are what actually fires
+ * today. Where the code says nothing the reported size does: how big a
+ * cargo ship is, how narrow an inland one, how small a "passenger ship"
+ * really is.
  */
 export function archetypeFor(
   typeCode: number,
@@ -156,13 +164,26 @@ export function archetypeFor(
 ): string {
   const group = Math.floor(typeCode / 10)
   const length = lengthM ?? 0
+
+  // --- Codes that name the hull outright ------------------------------
+  if (typeCode === 76) return 'vessel-container'
+  // Bulk carrier and ro-ro have no hull of their own: the coaster's
+  // flush deck and hatch covers are the closer of what there is, and a
+  // ro-ro carries no boxes to give it the container silhouette.
+  if (typeCode === 75 || typeCode === 77) return 'vessel-cargo'
+  if (typeCode === 78) return 'vessel-barge' // landing craft: a flat deck with a ramp
+  if (typeCode === 67) return 'vessel-tender' // harbour cruise boat: the barkasse
+  if (typeCode === 38) return 'vessel-fishing' // trawler
+  if (typeCode === 39) return 'vessel-pilot' // patrol vessel
   // The working craft of a port, each with a code of its own and a
   // silhouette that shares nothing with the tug they all used to be
   if (typeCode === 33) return 'vessel-dredger'
-  if (typeCode === 53) return 'vessel-tender' // port tender: the barkasse
+  if (typeCode === 53) return 'vessel-tender' // port or fish tender
   // Pilot, search-and-rescue and police all run the same kind of fast,
   // heavily fendered patrol boat
   if (typeCode === 50 || typeCode === 51 || typeCode === 55) return 'vessel-pilot'
+
+  // --- Groups, with the size deciding what the code leaves open -------
   if (group === 6 || group === 4) {
     // 4x is high-speed craft; both groups hold everything from a launch
     // to a cruise ship, and only the length tells them apart
@@ -178,12 +199,19 @@ export function archetypeFor(
   if (typeCode === 30) return 'vessel-fishing'
   if (typeCode === 36) return 'vessel-sail'
   if (typeCode === 37) return 'vessel-motor'
+  // Special purpose ships (01–09) and support vessels (11–19) are
+  // working ships – an ice breaker, a buoy tender, a cable layer. A big
+  // one is a ship and gets the freighter hull, never the box stacks.
+  if (typeCode >= 1 && typeCode <= 19) {
+    return length >= 45 ? 'vessel-cargo' : 'vessel-generic'
+  }
+
   // Everything left is a code that says nothing about the hull: 0 "not
-  // available", 1x and 2x (reserved and wing-in-ground, which inland
-  // ships on the Elbe hand out freely – RHENUS BRAUNSCHWEIG, 177 × 12 m,
-  // calls itself a ground-effect craft), the rest of 3x, and 9x "other".
-  // Size is all there is to go on, and it is enough to keep a real ship
-  // from being drawn as a stretched workboat.
+  // available", 2x wing-in-ground (which inland ships on the Elbe hand
+  // out freely – RHENUS BRAUNSCHWEIG, 177 × 12 m, calls itself a
+  // ground-effect craft), the rest of 3x, and 9x "other". Size is all
+  // there is to go on, and it is enough to keep a real ship from being
+  // drawn as a stretched workboat.
   if (length >= 45) {
     if (isInlandBarge(length, widthM)) return 'vessel-barge'
     return length >= CONTAINER_MIN_LENGTH_M ? 'vessel-container' : 'vessel-cargo'

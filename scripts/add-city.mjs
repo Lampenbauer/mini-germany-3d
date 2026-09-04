@@ -238,7 +238,7 @@ async function main() {
     fleet: {},
     terrain: { provider: 'none', geoidOffsetFallback: 40, waterLevelNhn: 0 },
     lamps: { enabled: false, minPlausible: 1000 },
-    ais: { enabled: true, ferryLineByMmsi: {} },
+    ais: { enabled: true, simulatedByMmsi: {} },
   }
   writeFileSync(file, JSON.stringify(city, null, 2) + '\n', 'utf8')
   console.log(`\n✅ Wrote ${file}`)

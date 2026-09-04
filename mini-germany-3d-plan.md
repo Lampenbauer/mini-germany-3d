@@ -209,7 +209,7 @@ src/cities/
   },
   "terrain": { "provider": "xyz-tiles", "crs": "EPSG:25832", "geoidOffsetFallback": 40, "attribution": "…" },
   "lamps": { "enabled": false },
-  "ais": { "enabled": true, "ferryLineByMmsi": {} }
+  "ais": { "enabled": true, "simulatedByMmsi": {} }
 }
 ```
 
@@ -444,9 +444,11 @@ später, sinnvoll erst mit einer Aktiv-Trip-Indizierung in `Simulation`
   geprüft; `lamps.enabled: false` zum Start, Plausibilitätsgrenze relativ.
 - Wetter: Punkt Rathaus/Alster statt Box-Mitte (die Box-Mitte liegt in
   Wandsbek).
-- AIS: Hamburgs Box enthält den gesamten Hafen; `ferryLineByMmsi` für die
-  HADAG-Fähren erst füllen, wenn die Fähren als Fahrplanfahrzeuge laufen
-  (sonst fahren sie doppelt, wie in Rostock beobachtet).
+- AIS: Hamburgs Box enthält den gesamten Hafen. `simulatedByMmsi` (früher
+  `ferryLineByMmsi`) ist für Hamburg noch leer, die HADAG-Fähren fahren
+  deshalb doppelt: einmal nach Fahrplan, einmal als AIS-Schiff. Das Feld
+  benennt jetzt den Dienst statt einer Linie, weil eine HADAG-Fähre über
+  acht Linien rotiert.
 
 ## 7. Umsetzungsphasen
 
