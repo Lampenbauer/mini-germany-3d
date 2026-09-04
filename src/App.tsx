@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Building2, Home, Maximize, Minimize, Rows3, TrainFrontTunnel } from 'lucide-react'
+import {
+  Aperture,
+  Building2,
+  Home,
+  Maximize,
+  Minimize,
+  Rows3,
+  TrainFrontTunnel,
+} from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { CompassIcon } from '@/components/CompassIcon'
-import { ScenePopover } from '@/components/ScenePopover'
+import { WeatherPopover } from '@/components/WeatherPopover'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
@@ -43,6 +51,7 @@ import {
 } from '@/lib/fullscreen'
 import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
 import { getLanguage, localizeLineName, t, type MessageKey } from '@/lib/i18n'
+import type { MapView } from '@/lib/map-view'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
@@ -210,13 +219,6 @@ const RAF_WATCHDOG_INTERVAL_MS = 250
  * that it is a transition and not a title sequence.
  */
 const LINEAR_MORPH_MS = 900
-
-/**
- * The three readings of the network, exactly one of them on screen: the
- * city above ground, the same city from underneath, or the lines pulled
- * straight into a diagram. The tabs in the map controls are these.
- */
-type MapView = 'surface' | 'underground' | 'linear'
 
 /**
  * The tabs, in the order a reader descends through them: the city as it
@@ -421,12 +423,14 @@ export default function App() {
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the viewer effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
-  /** The map/diagram switch, so the test API can reach it from the viewer effect. */
-  const handleToggleLinearRef = useRef<() => void>(() => {})
+  /** Which reading is on screen – the hash and the tabs both read it here. */
+  const currentViewRef = useRef<() => MapView>(() => 'surface')
+  /** Picks a reading, so the viewer effect can reach selectView. */
+  const selectViewRef = useRef<(view: MapView) => void>(() => {})
   /** Raises the diagram without a morph, for a link that opens into it. */
   const showLinearRef = useRef<() => void>(() => {})
-  /** A boot hash asked for the diagram before there was a network. */
-  const pendingLinearRef = useRef(false)
+  /** A boot hash asked for a reading before there was a map to show it in. */
+  const pendingViewRef = useRef<MapView>('surface')
   /** Whether the map still draws the network (see setMapNetworkDrawn). */
   const mapNetworkDrawnRef = useRef(true)
   /**
@@ -713,10 +717,12 @@ export default function App() {
       tiltShiftRef.current = uiState.tiltShift
       setTiltShift(uiState.tiltShift)
     }
-    // A shared link may open straight into the diagram. There is no
-    // network to lay out yet and nothing to morph from, so it is only
-    // remembered here; the city session raises it when its data lands.
-    if (uiState.linear) pendingLinearRef.current = true
+    // A shared link may open into any of the three readings. Neither of
+    // the other two can go up here: the diagram has no network to lay out
+    // yet, and the underground view has no map to sink.
+    // A shared link may open into any of the three; both non-map readings
+    // wait for the viewer below, which raises them once it is standing.
+    if (uiState.view !== 'surface') pendingViewRef.current = uiState.view
 
     // Event-driven URL persistence: camera events debounce into one write
     // shortly after the pose settles; during sustained motion (flights,
@@ -743,7 +749,7 @@ export default function App() {
             : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
           city: citySlugRef.current === DEFAULT_CITY_SLUG ? null : citySlugRef.current,
-          linear: linearRef.current,
+          view: currentViewRef.current(),
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
@@ -854,8 +860,8 @@ export default function App() {
         setTiltShift(tiltShiftOn)
         map.setTiltShift(tiltShiftOn)
       }
-      // The map/diagram switch morphs either way, the same as the button
-      if (ui.linear !== linearRef.current) handleToggleLinearRef.current()
+      // Any of the three, the same way the tabs pick them
+      if (ui.view !== currentViewRef.current()) selectViewRef.current(ui.view)
 
       // Another city: the rest of the hash – a pose, a vehicle, a stop –
       // refers to it, so the city session applies it once that city is
@@ -1195,9 +1201,7 @@ export default function App() {
       city: () => citySlugRef.current,
       setCity: selectCity,
       linear: () => linearRef.current,
-      setLinear: (want: boolean) => {
-        if (want !== linearRef.current) handleToggleLinearRef.current()
-      },
+      setLinear: (want: boolean) => selectViewRef.current(want ? 'linear' : 'surface'),
       tilesetStatus: () => tilesetStatusRef.current,
       realtimeStatus: () => realtimeStatusRef.current,
       lineIds: () => cityDataRef.current?.network.lines.map((l) => l.id) ?? [],
@@ -1438,13 +1442,19 @@ export default function App() {
         }
       }
 
-      // The diagram belongs to a network: a shared link opens into it
-      // here, and a city switch redraws it for the city that arrived.
-      if (pendingLinearRef.current) {
-        pendingLinearRef.current = false
-        showLinearRef.current()
-      } else if (linearRef.current) {
-        linearViewRef.current?.setSeed(null)
+      // A reading a shared link asked for goes up now that there is a
+      // city to show it in. The diagram belongs to a network, so a city
+      // switch redraws it for the one that arrived; the underground view
+      // is the map's own scene and only has to be told once.
+      const pending = pendingViewRef.current
+      pendingViewRef.current = 'surface'
+      if (pending === 'underground') {
+        undergroundRef.current = true
+        setUnderground(true)
+        map.setUnderground(true)
+      }
+      if (pending === 'linear' || linearRef.current) {
+        if (pending !== 'linear') linearViewRef.current?.setSeed(null)
         showLinearRef.current()
       }
 
@@ -1476,7 +1486,19 @@ export default function App() {
       snapshotsRef.current = []
       aisVesselsRef.current = []
       pendingSharedVehicleRef.current = null
+      // The sky was a reading over the city that is leaving: 150 km away
+      // it says nothing, and holding it would rain on the next city until
+      // its own first poll lands. A picked sky is a choice about the
+      // scene rather than a claim about a place, so that one stays.
       setTemperatureC(null)
+      liveWeatherRef.current = { precipitationMm: 0, cloudCoverPercent: 0 }
+      if (weatherModeRef.current === 'live') {
+        rainRef.current = { mm: 0, forced: false }
+        cloudRef.current = { percent: 0, forced: false }
+        rainActiveRef.current = false
+        mapRef.current?.setRain(0)
+        mapRef.current?.setCloudCover(0)
+      }
       // Whatever was picked belonged to the city that is leaving
       if (selectedIdRef.current !== null) selectVehicle(null)
       if (selectedStopIdRef.current !== null) selectStop(null)
@@ -1897,6 +1919,9 @@ export default function App() {
     undergroundRef.current = want
     setUnderground(want)
     mapRef.current?.setUnderground(want)
+    // Which reading is on screen travels in the URL, and this one moves
+    // no camera – without saying so here, nothing would ever write it.
+    writeHashRef.current()
   }, [])
 
   /** Raises the diagram: the climb to the plan view, then the morph. */
@@ -1935,16 +1960,17 @@ export default function App() {
    */
   const selectView = useCallback(
     (next: MapView) => {
-      const current: MapView = linearRef.current
-        ? 'linear'
-        : undergroundRef.current
-          ? 'underground'
-          : 'surface'
+      const current = currentViewRef.current()
       if (next === current) return
       if (current === 'linear') {
         leaveLinearFor(() => {
+          // The scene first, so the flight lands in the reading that was
+          // asked for rather than arriving and then changing.
           if (next === 'underground') setUndergroundView(true)
-          else mapRef.current?.setCameraHome()
+          // Home either way. The plan view the diagram was left on is
+          // 25 km straight down – a working position, not a place to be
+          // put down in, and under the city it sees nothing at all.
+          mapRef.current?.setCameraHome()
         })
         return
       }
@@ -1959,8 +1985,10 @@ export default function App() {
     [enterLinear, leaveLinearFor, setUndergroundView],
   )
 
-  // The hash and the test API toggle rather than pick
-  handleToggleLinearRef.current = () => selectView(linearRef.current ? 'surface' : 'linear')
+  // The hash, the tabs and the test API all reach the readings through these
+  currentViewRef.current = () =>
+    linearRef.current ? 'linear' : undergroundRef.current ? 'underground' : 'surface'
+  selectViewRef.current = selectView
 
   /**
    * The diagram, already finished. A link that opens into it has no map
@@ -2166,6 +2194,19 @@ export default function App() {
   )
 
   const offlineMode = urlOpts.offline
+  /**
+   * Which card holds the upper right corner, at most one of them: a line
+   * outranks a ship, a ship a stop, a stop nothing. Named here rather than
+   * spelled into the JSX four times, because the scene button asks the
+   * same question – it stands in that corner and gives it up when a card
+   * comes for it.
+   */
+  const lineCard = selectedLine !== null && lineProfile !== null
+  const vesselCard = !lineCard && selectedLine === null && selectedVessel !== null
+  const vehicleCard = selected !== null && selectedLine === null
+  const stopCard = !vehicleCard && !vesselCard && selectedLine === null && selectedStop !== null
+  const cardOpen = lineCard || vesselCard || vehicleCard || stopCard
+
   /** Which tab stands lit – the same three-way state selectView acts on. */
   const mapView: MapView = linear ? 'linear' : underground ? 'underground' : 'surface'
 
@@ -2221,7 +2262,24 @@ export default function App() {
           />
         </div>
 
-        {selectedLine && lineProfile && (
+        {/* The weather is the map's dress rather than a command about it,
+            so it sits in the opposite corner from the camera controls, out
+            of the way of both. That corner is the cards', though, whenever one
+            of them is up – and it leaves rather than hides under: taken out
+            of the tree, so it is gone for a pointer and for a screen reader
+            alike, not merely faded out of sight. */}
+        {!linear && !cardOpen && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end">
+            <WeatherPopover
+              weatherMode={weatherMode}
+              onWeatherModeChange={handleWeatherMode}
+              liveWeatherAvailable={liveWeatherAvailable}
+              temperatureC={temperatureC}
+            />
+          </div>
+        )}
+
+        {lineCard && selectedLine && lineProfile && (
           <div className="pointer-events-none absolute right-4 top-4 z-10">
             <LineCard
               profile={lineProfile}
@@ -2235,7 +2293,7 @@ export default function App() {
           </div>
         )}
 
-        {!selectedLine && selectedVessel && (
+        {vesselCard && selectedVessel && (
           <div className="pointer-events-none absolute right-4 top-4 z-10">
             <VesselCard
               vessel={selectedVessel}
@@ -2247,7 +2305,7 @@ export default function App() {
           </div>
         )}
 
-        {!selected && !selectedVessel && !selectedLine && selectedStop && (
+        {stopCard && selectedStop && (
           <div className="pointer-events-none absolute right-4 top-4 z-10">
             <StopCard
               stop={selectedStop}
@@ -2261,7 +2319,7 @@ export default function App() {
           </div>
         )}
 
-        {selected && !selectedLine && (
+        {vehicleCard && selected && (
           <div className="pointer-events-none absolute right-4 top-4 z-10">
             <VehicleCard
               vehicle={selected}
@@ -2308,24 +2366,12 @@ export default function App() {
           </TabsList>
         </Tabs>
 
-        {/* Map controls at the lower right: the scene popover on top, the
-            one that carries a reading rather than only a command, and
-            below it the four that only ever aim the camera or the window,
-            joined into one block – compass, 2D/3D, camera reset, and full
-            screen last. Everything here belongs to the map: the diagram
-            has no camera to aim and no scene to dress, so it keeps only
-            full screen, which is the window's. */}
+        {/* Map controls at the lower right: the four that only ever aim
+            the camera or the window, joined into one block – compass,
+            2D/3D, camera reset, and full screen last. All of it belongs to
+            the map, so the diagram keeps only full screen, which is the
+            window's. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
-          {!linear && (
-            <ScenePopover
-              weatherMode={weatherMode}
-              onWeatherModeChange={handleWeatherMode}
-              liveWeatherAvailable={liveWeatherAvailable}
-              temperatureC={temperatureC}
-              tiltShift={tiltShift}
-              onToggleTiltShift={handleToggleTiltShift}
-            />
-          )}
           <div
             role="group"
             aria-label={t('view.controls')}
@@ -2385,6 +2431,28 @@ export default function App() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+              </Tooltip>
+            )}
+            {/* The miniature look is a lens on the map, not a command to
+                it, so it goes with the map and not with the diagram. */}
+            {!linear && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className={cn(
+                      GROUPED_CONTROL,
+                      tiltShift && 'bg-primary/90 text-primary-foreground hover:bg-primary/80',
+                    )}
+                    aria-label={tiltShift ? t('scene.hideTiltShift') : t('scene.showTiltShift')}
+                    aria-pressed={tiltShift}
+                    onClick={() => handleToggleTiltShift(!tiltShift)}
+                  >
+                    <Aperture aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{t('scene.tiltShift')}</TooltipContent>
               </Tooltip>
             )}
             {/* Full screen is the window's, not the camera's – it stays */}

@@ -55,9 +55,19 @@ test('a picked sky puts rain in the air and takes it out again', async ({ page }
     timeout: 120_000,
   })
 
-  await page.getByRole('button', { name: 'Scene' }).click()
+  const button = page.getByRole('button', { name: 'Weather' })
+  const buttonBox = (await button.boundingBox())!
+  await button.click()
   // Offline there is nothing to poll, so live weather is not on offer
   await expect(page.getByRole('radio', { name: 'Live weather' })).toBeDisabled()
+
+  // The panel hangs from the button's top edge and grows downward. Its
+  // own default is the other way round – bottom edges together, growing
+  // up – which is right for a control at the foot of the map and leaves
+  // this one, at the head of it, flattened against the window's edge.
+  const panelBox = (await page.getByRole('dialog').boundingBox())!
+  expect(panelBox.y).toBeCloseTo(buttonBox.y, 0)
+  expect(panelBox.x + panelBox.width).toBeLessThan(buttonBox.x)
 
   await page.getByRole('radio', { name: 'Rain' }).click()
   await expect(page.getByRole('radio', { name: 'Rain' })).toHaveAttribute('aria-checked', 'true')

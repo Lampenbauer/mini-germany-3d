@@ -1,4 +1,5 @@
 import { config } from '@/config'
+import { isMapView, type MapView } from '@/lib/map-view'
 
 /**
  * Persists the view in the URL hash in one of three forms:
@@ -90,7 +91,11 @@ export interface HashUiState {
    */
   city: string | null
   /** The lines pulled straight instead of drawn on the map (see LinearView). */
-  linear: boolean
+  /**
+   * Which reading of the network is on screen. The surface is the plain
+   * map, so it is what an absent `view=` means and never written out.
+   */
+  view: MapView
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
@@ -105,7 +110,7 @@ export function formatUiStateHash(state: HashUiState): string {
     state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
   return (
     (state.city ? `&city=${encodeURIComponent(state.city)}` : '') +
-    (state.linear ? '&view=linear' : '') +
+    (state.view === 'surface' ? '' : `&view=${state.view}`) +
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
@@ -123,7 +128,8 @@ export function parseUiStateHash(hash: string): HashUiState {
     // Whether the slug names a city this build knows is the caller's
     // business – the hash module only carries it.
     city: city && city.length <= 64 ? city : null,
-    linear: params.get('view') === 'linear',
+    // An unknown or missing reading is the map itself
+    view: isMapView(params.get('view')) ? (params.get('view') as MapView) : 'surface',
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',

@@ -235,6 +235,66 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 })
 
 /**
+ * All three readings travel in the URL, and the map is the one that
+ * needs no word for it: `view=` is absent on the surface, `view=linear`
+ * for the diagram, `view=underground` for the tunnels.
+ */
+test('the URL carries whichever reading is on screen', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  const hash = () => page.evaluate(() => window.location.hash)
+
+  // A pose in the link and a camera left to settle. Both matter: without
+  // them the boot flight is still writing the hash for its own reasons,
+  // and a press that writes nothing looks like a press that works.
+  await page.goto(
+    `/?offline=1&time=08:30#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
+  )
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting), { timeout: 60_000 })
+    .toBe(false)
+  expect(await hash()).not.toContain('view=')
+
+  // The underground view moves no camera of its own, so nothing but the
+  // press itself can put it in the URL.
+  await page.getByRole('tab', { name: 'Underground' }).click()
+  await expect.poll(hash, { timeout: 10_000 }).toContain('view=underground')
+
+  // The diagram writes its own, and the surface writes nothing at all
+  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await expect.poll(hash, { timeout: 30_000 }).toContain('view=linear')
+  await page.getByRole('tab', { name: 'Surface' }).click()
+  await expect.poll(hash, { timeout: 30_000 }).not.toContain('view=')
+
+  // An edited hash applies without a reload, like every other switch
+  await page.evaluate(() => {
+    window.location.hash = '#stops=0&labels=0&view=underground'
+  })
+  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+    { timeout: 30_000 },
+  )
+})
+
+/**
+ * A link naming a reading opens into it, once there is a city to show it
+ * in – the diagram waits for its network, the tunnels for the map.
+ */
+test('a shared link opens on the reading it names', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto(`/?offline=1&time=08:30#stops=0&labels=0&view=underground`)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+    { timeout: 30_000 },
+  )
+})
+
+/**
  * The three readings are tabs, so every one of them is reachable from
  * every other. Picking the tunnels while the diagram is up is the one
  * that has to do two things in order: bring the lines back down onto the
@@ -260,7 +320,17 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
     'aria-selected',
     'true',
   )
-  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
+  expect(await page.evaluate(() => window.location.hash)).toContain('view=underground')
+
+  // ... and the camera came home for it. Leaving the diagram lands at the
+  // city's home view whichever reading was picked: the plan it was left
+  // on is 25 km straight down, where the tunnels are nothing to see.
+  await expect
+    .poll(async () => (await cameraPose(page)).pitch, { timeout: 30_000 })
+    .toBeGreaterThan(CITY.home.pitch - 0.5)
+  const landed = await cameraPose(page)
+  expect(landed.height).toBeLessThan(CITY.home.height * 1.2)
+  expect(landed.lon).toBeCloseTo(CITY.home.longitude, 1)
 
   // ... and back up the other way, without passing through the diagram
   await page.getByRole('tab', { name: 'Surface' }).click()

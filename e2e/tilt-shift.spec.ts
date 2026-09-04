@@ -131,16 +131,19 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   await settled()
 
   // The look starts off (config.camera.miniatureDefault) and is switched
-  // on from the scene popover in the map controls; on is the deviation, so
-  // it rides along in the URL. The popover stays open for the whole test –
-  // it is DOM over the map, and the measurement reads the canvas.
-  await page.getByRole('button', { name: 'Scene' }).click()
-  const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
-  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // on from the camera block at the lower right; on is the deviation, so
+  // it rides along in the URL. It is a lens on the map rather than a
+  // command to it, which is why it sits with the camera and not with the
+  // sky (see the weather popover).
+  const toggle = page.getByRole('button', { name: 'Show the miniature effect' })
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   const withoutEffect = await steadyFrameDetail()
 
   await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('button', { name: 'Hide the miniature effect' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tiltshift=1')
   // The three passes are compiled and running, and the camera pose is one
   // that carries the effect at all – without both, the frame below would
@@ -160,8 +163,11 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   const standsOut = (frame: { top: number; band: number }) => frame.band / frame.top
   expect(standsOut(withEffect)).toBeGreaterThan(standsOut(withoutEffect) * 3)
 
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await page.getByRole('button', { name: 'Hide the miniature effect' }).click()
+  await expect(page.getByRole('button', { name: 'Show the miniature effect' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
   await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('tiltshift=')
   expect(pageErrors).toEqual([])
 })

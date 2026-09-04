@@ -25,11 +25,11 @@ const en = {
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
-  // Scene controls (the map-control popover): what the city is shown
-  // under, rather than what is drawn on it.
-  'scene.title': 'Scene',
+  // What the city is shown under and through, rather than what is drawn
+  // on it: the sky in the weather popover, the lens in the camera block.
   'scene.tiltShift': 'Miniature effect',
   'scene.showTiltShift': 'Show the miniature effect',
+  'scene.hideTiltShift': 'Hide the miniature effect',
   'weather.title': 'Weather',
   'weather.temperature': '{degrees} °C',
   'weather.live': 'Live weather',
@@ -218,9 +218,9 @@ const de: Record<MessageKey, string> = {
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
-  'scene.title': 'Szene',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
+  'scene.hideTiltShift': 'Miniatureffekt ausblenden',
   'weather.title': 'Wetter',
   'weather.temperature': '{degrees} °C',
   'weather.live': 'Live-Wetter',

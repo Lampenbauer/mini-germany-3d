@@ -20,8 +20,6 @@
 import { Cloudy, CloudRain, CloudSun, Sun, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Switch } from '@/components/ui/switch'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { t, type MessageKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { defaultWeatherMode, type WeatherMode } from '@/lib/weather'
@@ -34,7 +32,7 @@ const WEATHER_CHOICES: { mode: WeatherMode; icon: LucideIcon; label: MessageKey 
   { mode: 'rain', icon: CloudRain, label: 'weather.rain' },
 ]
 
-export interface ScenePopoverProps {
+export interface WeatherPopoverProps {
   weatherMode: WeatherMode
   onWeatherModeChange: (mode: WeatherMode) => void
   /**
@@ -45,11 +43,9 @@ export interface ScenePopoverProps {
   liveWeatherAvailable: boolean
   /** Live air temperature in °C, or null while there is none to show. */
   temperatureC: number | null
-  tiltShift: boolean
-  onToggleTiltShift: (enabled: boolean) => void
 }
 
-export function ScenePopover(props: ScenePopoverProps) {
+export function WeatherPopover(props: WeatherPopoverProps) {
   const active = WEATHER_CHOICES.find((choice) => choice.mode === props.weatherMode)
   const ActiveIcon = active?.icon ?? CloudSun
   // Lit like the underground button: the sky is one the viewer picked,
@@ -59,44 +55,43 @@ export function ScenePopover(props: ScenePopoverProps) {
     props.temperatureC === null ? null : `${Math.round(props.temperatureC)}°`
   const buttonLabel =
     temperature === null
-      ? t('scene.title')
-      : `${t('scene.title')}, ${t('weather.temperature', { degrees: Math.round(props.temperatureC!) })}`
+      ? t('weather.title')
+      : `${t('weather.title')}, ${t('weather.temperature', { degrees: Math.round(props.temperatureC!) })}`
 
   return (
     <Popover>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              // The picked-sky state has to beat the shared bg-card/85,
-              // which tailwind-merge would otherwise let win over a variant.
-              className={cn(
-                'pointer-events-auto h-9 border border-border/60 backdrop-blur-md',
-                // With a reading beside the icon the button grows into a
-                // pill; the column is aligned on its right edge, so the
-                // square buttons below it keep their size (see App.tsx).
-                temperature !== null && 'w-auto gap-1.5 px-2.5',
-                picked
-                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
-                  : 'bg-card/85',
-              )}
-              aria-label={buttonLabel}
-            >
-              <ActiveIcon aria-hidden />
-              {temperature !== null && (
-                <span className="text-xs font-medium tabular-nums">{temperature}</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        {/* The reading stands in the button itself; the tooltip only has
-            to name what the button opens. It stays in the button's label,
-            which is what a screen reader announces in its place. */}
-        <TooltipContent side="left">{t('scene.title')}</TooltipContent>
-      </Tooltip>
-      <PopoverContent side="left" className="pointer-events-auto">
+      <PopoverTrigger asChild>
+        <Button
+          variant="secondary"
+          size="icon"
+          // The picked-sky state has to beat the shared bg-card/85, which
+          // tailwind-merge would otherwise let win over a variant.
+          className={cn(
+            'pointer-events-auto h-9 border border-border/60 backdrop-blur-md',
+            // With a reading beside the icon the button grows into a pill
+            temperature !== null && 'w-auto gap-1.5 px-2.5',
+            picked
+              ? 'bg-primary/90 text-primary-foreground hover:bg-primary/80'
+              : 'bg-card/85',
+          )}
+          // No tooltip on this one: the reading stands in the button and a
+          // hover card over it would cover the corner it sits in. The name
+          // lives here, which is what a screen reader announces.
+          aria-label={buttonLabel}
+        >
+          <ActiveIcon aria-hidden />
+          {temperature !== null && (
+            <span className="text-xs font-medium tabular-nums">{temperature}</span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      {/* align="start" rather than the popover's own default of "end":
+          that one hangs the panel's bottom edge on the trigger's, which
+          grows it upward – right for a button at the foot of the map,
+          wrong for this one at the head of it, where there is nothing
+          above to grow into and it ends up flat against the window's top
+          edge instead of beside the button. */}
+      <PopoverContent side="left" align="start" className="pointer-events-auto">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium">{t('weather.title')}</div>
@@ -132,17 +127,6 @@ export function ScenePopover(props: ScenePopoverProps) {
             {!props.liveWeatherAvailable && (
               <p className="text-muted-foreground text-xs">{t('weather.liveUnavailable')}</p>
             )}
-          </div>
-
-          <div className="h-px bg-border" role="separator" />
-
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm">{t('scene.tiltShift')}</span>
-            <Switch
-              aria-label={t('scene.showTiltShift')}
-              checked={props.tiltShift}
-              onCheckedChange={props.onToggleTiltShift}
-            />
           </div>
         </div>
       </PopoverContent>

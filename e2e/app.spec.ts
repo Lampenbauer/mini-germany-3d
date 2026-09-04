@@ -228,8 +228,18 @@ test('selecting a vehicle opens the info card', async () => {
     card.getByTestId('vehicle-trip-stops').getByRole('button').first(),
   ).toHaveAttribute('title', 'Fly to this stop')
 
+  // The card and the scene button want the same corner, and the card is
+  // the one that came for a reason. The button leaves rather than hides
+  // under it: gone from the tree, so toHaveCount(0) rather than a look at
+  // its opacity – a faded button is still there for a pointer and for a
+  // screen reader.
+  await expect(page.getByRole('button', { name: 'Weather' })).toHaveCount(0)
+
   await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
+
+  // ... and the corner is the button's own again once the card is gone
+  await expect(page.getByRole('button', { name: 'Weather' })).toBeVisible()
 })
 
 test('night services keep running after midnight, daytime service resumes in the morning', async () => {
