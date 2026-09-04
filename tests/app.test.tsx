@@ -1,11 +1,34 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
   class CesiumMap {
-    constructor(_container: HTMLElement, opts?: { onTilesetStatus?: (s: string) => void }) {
-      opts?.onTilesetStatus?.('offline')
+    city: unknown
+    constructor(
+      _container: HTMLElement,
+      opts: { city: unknown; onTilesetStatus?: (s: string) => void },
+    ) {
+      this.city = opts.city
+      opts.onTilesetStatus?.('offline')
+    }
+    get currentCity() {
+      return this.city
+    }
+    setCity(city: unknown) {
+      this.city = city
+    }
+    clearCity() {}
+    setGroundReference() {}
+    setRain() {}
+    setCloudCover() {}
+    flyToStop() {}
+    setFollowVessel() {}
+    syncVessels() {
+      return { anyMovingVesselInView: false }
+    }
+    getVesselCount() {
+      return 0
     }
     addRoutes() {}
     addStops() {}
@@ -56,7 +79,7 @@ vi.mock('@/map/CesiumMap', () => {
 })
 
 import App from '@/App'
-import { loadBundledNetwork } from '@/data/network'
+import { loadRostockNetwork } from './cities'
 import { berlinSecondsOfDay } from '@/lib/clock'
 import { setLanguage } from '@/lib/i18n'
 
@@ -64,6 +87,8 @@ afterEach(() => {
   cleanup()
   setLanguage('en')
   window.__mrt = undefined
+  window.localStorage.clear()
+  window.history.replaceState(null, '', window.location.pathname)
 })
 
 describe('App (UI shell)', () => {
@@ -73,13 +98,16 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('sim-clock')).toBeInTheDocument()
   })
 
-  it('reports the basemap and the data source it ended up with', () => {
+  it('reports the basemap and the data source it ended up with', async () => {
     // The panel used to carry these as badges. They are still worth
     // asserting – offline mode is what the whole test run depends on –
     // so they moved to the debug API rather than out of the suite.
     render(<App />)
     expect(window.__mrt?.tilesetStatus()).toBe('offline')
-    expect(window.__mrt?.dataSource).toBe(loadBundledNetwork().meta.source)
+    // The city's data is a lazy chunk – ready flips once it is in
+    await waitFor(() => expect(window.__mrt?.ready).toBe(true))
+    expect(window.__mrt?.dataSource).toBe(loadRostockNetwork().meta.source)
+    expect(window.__mrt?.city()).toBe('rostock')
   })
 
   it('points the compass needle where the camera looks', () => {
@@ -98,35 +126,38 @@ describe('App (UI shell)', () => {
     expect(screen.queryByRole('button', { name: 'Face north' })).not.toBeInTheDocument()
   })
 
-  it('shows all lines with their switch enabled', () => {
+  it('shows all lines with their switch enabled', async () => {
     render(<App />)
-    const network = loadBundledNetwork()
+    const network = loadRostockNetwork()
     const lineCount = network.lines.length
     const modeCount = new Set(network.lines.map((l) => l.mode)).size
-    const switches = screen.getAllByRole('switch', { name: /^Show / })
     // + 3 layer switches (routes, stops, labels – the miniature effect
     // moved to the scene popover) + transit-mode group switches (only
-    // visible when there is more than one mode)
-    expect(switches).toHaveLength(lineCount + 3 + (modeCount > 1 ? modeCount : 0))
-    for (const sw of switches) {
+    // visible when there is more than one mode). The lines arrive with
+    // the city's data, a moment after the first render.
+    const expected = lineCount + 3 + (modeCount > 1 ? modeCount : 0)
+    await waitFor(() =>
+      expect(screen.getAllByRole('switch', { name: /^Show / })).toHaveLength(expected),
+    )
+    for (const sw of screen.getAllByRole('switch', { name: /^Show / })) {
       expect(sw).toHaveAttribute('aria-checked', 'true')
     }
   })
 
-  it('hides a line via its switch', () => {
+  it('hides a line via its switch', async () => {
     render(<App />)
-    const firstLine = loadBundledNetwork().lines[0]
-    const sw = screen.getByRole('switch', { name: `Show ${firstLine.name}` })
+    const firstLine = loadRostockNetwork().lines[0]
+    const sw = await screen.findByRole('switch', { name: `Show ${firstLine.name}` })
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('zooming to a hidden line switches it back on', () => {
+  it('zooming to a hidden line switches it back on', async () => {
     render(<App />)
-    const firstLine = loadBundledNetwork().lines[0]
-    const sw = screen.getByRole('switch', { name: `Show ${firstLine.name}` })
+    const firstLine = loadRostockNetwork().lines[0]
+    const sw = await screen.findByRole('switch', { name: `Show ${firstLine.name}` })
     fireEvent.click(sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
 
@@ -155,11 +186,38 @@ describe('App (UI shell)', () => {
     ).toBeInTheDocument()
   })
 
-  it('registers the test API window.__mrt', () => {
+  it('registers the test API window.__mrt', async () => {
     render(<App />)
     expect(window.__mrt).toBeDefined()
-    expect(window.__mrt!.ready).toBe(true)
+    // Not ready until the city's data is on the map
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
     expect(typeof window.__mrt!.vehicleCount()).toBe('number')
+  })
+
+  it('names the city in the title and lists the others behind the caret', async () => {
+    render(<App />)
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
+    // The caret waits for the city's data before it offers a move
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('option', { name: 'Switch to Hamburg' })).toBeInTheDocument()
+  })
+
+  it('switches the city from the picker and remembers it', async () => {
+    render(<App />)
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Switch to Hamburg' }))
+    // The old city's session ends at once …
+    expect(window.__mrt!.city()).toBe('hamburg')
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Hamburg 3D')
+    // … and the new one is ready once its data is in
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(window.__mrt!.lineIds()).toContain('U1')
+    expect(window.__mrt!.lineIds()).not.toContain('FG')
+    expect(window.location.hash).toContain('city=hamburg')
+    expect(window.localStorage.getItem('mg3d.city')).toBe('hamburg')
   })
 
   it('sets the simulation time via the time input and restores real time', () => {
@@ -288,7 +346,7 @@ describe('App (UI shell)', () => {
     expect(screen.queryByRole('button', { name: 'Full screen' })).not.toBeInTheDocument()
   })
 
-  it('renders the interface in German when the browser prefers German', () => {
+  it('renders the interface in German when the browser prefers German', async () => {
     setLanguage('de')
     render(<App />)
     expect(screen.getByText('Verkehr')).toBeInTheDocument()
@@ -296,10 +354,12 @@ describe('App (UI shell)', () => {
     expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()
     // Line names from the (English) dataset are localized for display
-    const firstLine = loadBundledNetwork().lines[0]
+    const firstLine = loadRostockNetwork().lines[0]
     if (firstLine.name.startsWith('Line ')) {
       const germanName = firstLine.name.replace(/^Line /, 'Linie ')
-      expect(screen.getByRole('switch', { name: `${germanName} anzeigen` })).toBeInTheDocument()
+      expect(
+        await screen.findByRole('switch', { name: `${germanName} anzeigen` }),
+      ).toBeInTheDocument()
     }
   })
 })

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Enriches src/data/network.json with terrain heights from the official
- * digital terrain model of Mecklenburg-Vorpommern (open WCS at
- * geodaten-mv.de, © GeoBasis-DE/M-V):
+ * Enriches src/cities/<slug>/network.json with terrain heights from the
+ * city's digital terrain model (city.json `terrain` – for Rostock the open
+ * WCS of Mecklenburg-Vorpommern at geodaten-mv.de, © GeoBasis-DE/M-V):
  *   - per direction a `heights` array (meters NHN/DHHN2016, one entry per
  *     path vertex; bridge sections become a straight deck interpolated
  *     between anchors just outside the span, plus ~1 m feathered deck
@@ -15,10 +15,14 @@
  * ground-classification passes (measurable, permanent GPU load).
  *
  * Run AFTER data:update + data:simplify (heights are per final vertex):
- *   npm run data:heights
+ *   npm run data:heights -- --city rostock     (no --city: every city)
+ *
+ * A city whose terrain provider is 'none' is left alone – the app then
+ * clamps its routes onto the 3D tiles.
  *
  * Environment variables:
- *   NETWORK_OUT   – alternative network.json path
+ *   CITY          – the city, like --city
+ *   NETWORK_OUT   – alternative network.json path (one city only)
  *   PREV_NETWORK  – previously enriched network.json (e.g. the git HEAD
  *                   version in CI): directions with identical geometry and
  *                   stops with identical coordinates reuse their heights,
@@ -26,13 +30,15 @@
  *   DGM_WCS_URL   – alternative WCS endpoint
  *   DGM_COVERAGE  – coverage id (default mv_dgm5, the 5 m grid)
  *
- * Data license: © GeoBasis-DE/M-V (source attribution required, no fees).
+ * Data license: the city's terrain attribution (city.json), e.g.
+ * © GeoBasis-DE/M-V (source attribution required, no fees).
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DgmSampler } from './lib/dgm.mjs'
+import { forEachRequestedCity } from './lib/city.mjs'
+import { createTerrainSampler, terrainSummary } from './lib/terrain.mjs'
 import {
   applyBridgeProfile,
   cumulativeDistances,
@@ -41,19 +47,20 @@ import {
   normalizeRanges,
 } from './lib/route-heights.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const FILE = process.env.NETWORK_OUT
-  ? resolve(process.env.NETWORK_OUT)
-  : resolve(__dirname, '../src/data/network.json')
-
-const HEIGHTS_ATTRIBUTION =
-  'Terrain heights © GeoBasis-DE/M-V (DGM via WCS, geodaten-mv.de).'
-
 const round1 = (v) => Math.round(v * 10) / 10
 
-async function main() {
+async function main(city, paths) {
+  const FILE = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
+  if (city.terrain.provider === 'none') {
+    console.log(
+      `${city.name}: no terrain provider – routes stay without heights and are clamped onto the tiles.`,
+    )
+    return
+  }
+  const HEIGHTS_ATTRIBUTION =
+    city.terrain.attribution ?? 'Terrain heights from the city\'s digital terrain model.'
   const network = JSON.parse(readFileSync(FILE, 'utf8'))
-  const sampler = new DgmSampler()
+  const sampler = createTerrainSampler(city)
 
   let prev = null
   if (process.env.PREV_NETWORK) {
@@ -86,8 +93,8 @@ async function main() {
       }
       if (line.mode === 'ferry') {
         // Water: the DGM has no meaningful height mid-river; ferries ride
-        // at sea level (0 m NHN – the Unterwarnow is tidal Baltic water).
-        dir.heights = dir.path.map(() => 0)
+        // at the city's water level (0 m NHN on tidal Baltic or Elbe water).
+        dir.heights = dir.path.map(() => city.terrain.waterLevelNhn)
         continue
       }
       const cum = cumulativeDistances(dir.path)
@@ -100,7 +107,7 @@ async function main() {
       if (filled === -1) {
         throw new Error(
           `Line ${line.id} (${dir.from} → ${dir.to}): no DGM heights at all – ` +
-            'WCS unreachable or outside coverage; network.json left unchanged',
+            'terrain source unreachable or outside coverage; network.json left unchanged',
         )
       }
       if (missing > 0) {
@@ -140,12 +147,11 @@ async function main() {
     }
   }
 
-  if (!network.meta.attribution.includes('GeoBasis-DE/M-V')) {
+  if (!network.meta.attribution.includes(HEIGHTS_ATTRIBUTION)) {
     network.meta.attribution = `${network.meta.attribution} ${HEIGHTS_ATTRIBUTION}`
   }
 
   writeFileSync(FILE, JSON.stringify(network, null, 2) + '\n', 'utf8')
-  const { tiles, bytes, failedTiles } = sampler.stats
   console.log(
     `\n✅ ${FILE}: heights for ${vertexCount} route vertices ` +
       `(${filledCount} interpolated) and ${stopCount} stops, ` +
@@ -156,16 +162,13 @@ async function main() {
       `   Reused from PREV_NETWORK: ${reusedDirs} direction(s), ${reusedStops} stop(s) (unchanged geometry)`,
     )
   }
-  console.log(
-    `   DGM: ${tiles} WCS tiles, ${(bytes / 1024 / 1024).toFixed(1)} MB` +
-      (failedTiles > 0 ? `, ${failedTiles} tile(s) FAILED` : ''),
-  )
+  console.log(`   DGM: ${terrainSummary(sampler)}`)
   console.log('Tip: npm test validates the enriched dataset.')
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isMain) {
-  main().catch((err) => {
+  forEachRequestedCity(main).catch((err) => {
     console.error('❌ Error:', err.message)
     process.exit(1)
   })

@@ -1,4 +1,4 @@
-# Mini Rostock 3D – Apache configuration (all-inkl shared hosting)
+# Mini Germany 3D – Apache configuration (all-inkl shared hosting)
 
 # /api/realtime → PHP endpoint (filtered GTFS-Realtime feed)
 <IfModule mod_rewrite.c>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Building2, Home, Maximize, Minimize, TrainFrontTunnel } from 'lucide-react'
-import { ControlPanel, type LineToggleInfo } from '@/components/ControlPanel'
+import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { CompassIcon } from '@/components/CompassIcon'
 import { ScenePopover } from '@/components/ScenePopover'
 import { LineCard } from '@/components/LineCard'
@@ -10,10 +10,15 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
 import { cn } from '@/lib/utils'
-import { loadBundledNetwork } from '@/data/network'
+import {
+  CITIES,
+  DEFAULT_CITY_SLUG,
+  cityBySlug,
+  isCitySlug,
+  loadCityData,
+  type CityData,
+} from '@/cities'
 import type { PreparedNetwork } from '@/data/network-types'
-import schedule from '@/data/schedule.json'
-import { loadStreetLamps } from '@/data/street-lamps'
 import { Simulation, type VehicleSnapshot } from '@/engine/simulation'
 import { StopCard, type StopInfo } from '@/components/StopCard'
 import {
@@ -26,6 +31,7 @@ import {
   parseUiStateHash,
   parseVehicleHash,
 } from '@/lib/camera-hash'
+import { cityApiUrl } from '@/lib/city-api'
 import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
 import {
@@ -53,6 +59,7 @@ import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 
 /** Debug/test API that the E2E tests use under window.__mrt. */
 export interface MrtTestApi {
+  /** The city's data is on the map and the simulation runs on it. */
   ready: boolean
   vehicleCount: () => number
   visibleVehicleCount: () => number
@@ -78,7 +85,12 @@ export interface MrtTestApi {
   /** Screen position of a vehicle in CSS px (null = off screen/unknown). */
   vehicleScreenPosition: (id: string) => { x: number; y: number } | null
   stopScreenPosition: (id: string) => { x: number; y: number } | null
+  /** Data source of the city on the map ('' while none is loaded). */
   dataSource: string
+  /** Slug of the city on the map. */
+  city: () => string
+  /** Switches to another city the way the panel's picker does (flies there). */
+  setCity: (slug: string) => void
   /** Which basemap the map ended up on ('offline' with ?offline=1). */
   tilesetStatus: () => TilesetStatus
   /** GTFS-RT feed state and how many trips it matched (null = disabled). */
@@ -97,6 +109,13 @@ export interface MrtTestApi {
    * Why the render loop is (not) idling – the four inputs of the pacing
    * gate. Diagnosing "the GPU stays busy" is guesswork without them.
    */
+  /**
+   * The miniature effect as the map has it: switched on, how much of it
+   * the camera pose carries, and whether its passes are compiled and
+   * running. The last one is what a test has to wait on before it can
+   * judge a frame (see tilt-shift.spec.ts).
+   */
+  tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
   renderPacing: () => {
     animating: boolean
     rainActive: boolean
@@ -180,6 +199,15 @@ const RAF_STALL_MS = 500
 /** Poll interval of that watchdog (a timestamp comparison while rAF is healthy). */
 const RAF_WATCHDOG_INTERVAL_MS = 250
 
+/** How long a shared vehicle (#vehicle=…) is waited for before the link is given up on. */
+const SHARED_VEHICLE_TIMEOUT_MS = 20_000
+
+/** Where the last visited city is remembered between sessions. */
+const CITY_STORAGE_KEY = 'mg3d.city'
+
+/** A schedule that says nothing – lets the line card compute a profile without one. */
+const EMPTY_SCHEDULE: ScheduleJson = {}
+
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
   const speed = Number(params.get('speed') ?? config.simulation.initialSpeed)
@@ -195,7 +223,7 @@ function readUrlOptions(): UrlOptions {
     paused: params.get('paused') === '1',
     timeSec: params.get('time') ? parseTimeOfDay(params.get('time')!) : null,
     groundHeight:
-      Number.isFinite(groundHeight) && groundHeight > -100 && groundHeight < 500
+      Number.isFinite(groundHeight) && groundHeight > -100 && groundHeight < 3000
         ? groundHeight
         : undefined,
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
@@ -205,6 +233,48 @@ function readUrlOptions(): UrlOptions {
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
   }
+}
+
+/** The city remembered from the last visit, if this browser kept one. */
+function rememberedCity(): string | null {
+  try {
+    const slug = window.localStorage.getItem(CITY_STORAGE_KEY)
+    return isCitySlug(slug) ? slug : null
+  } catch {
+    return null
+  }
+}
+
+function rememberCity(slug: string): void {
+  try {
+    window.localStorage.setItem(CITY_STORAGE_KEY, slug)
+  } catch {
+    // Private mode, blocked storage – a forgotten city is no harm.
+  }
+}
+
+/**
+ * The city the session opens on: a link says so (#city=…), else the city
+ * of the last visit, else the default. An unknown slug in the link is
+ * ignored rather than refused – the rest of the link may still be good.
+ */
+function initialCitySlug(): string {
+  const fromHash = parseUiStateHash(window.location.hash).city
+  if (fromHash && isCitySlug(fromHash)) return fromHash
+  return rememberedCity() ?? DEFAULT_CITY_SLUG
+}
+
+/** Median terrain height of a network's stops in meters NHN (0 without heights). */
+function medianStopNhn(network: PreparedNetwork): number {
+  const heights: number[] = []
+  for (const line of network.lines) {
+    for (const stop of line.directions[0].stops) {
+      if (stop.nhn !== undefined) heights.push(stop.nhn)
+    }
+  }
+  if (heights.length === 0) return 0
+  heights.sort((a, b) => a - b)
+  return heights[Math.floor(heights.length / 2)]
 }
 
 /**
@@ -224,6 +294,13 @@ const CARDINAL_KEY: Record<number, MessageKey> = {
   270: 'camera.faceWest',
 }
 
+/** The cities as the panel's picker lists them – static for the life of the app. */
+const CITY_CHOICES: readonly CityChoice[] = CITIES.map((city) => ({
+  slug: city.slug,
+  name: city.name,
+  modes: city.network.modes,
+}))
+
 export default function App() {
   /**
    * The ?query options, read once. Nothing changes them while the app runs
@@ -233,15 +310,32 @@ export default function App() {
    */
   const [urlOpts] = useState(readUrlOptions)
   /**
+   * The city on the map, by slug. Changing it ends the current city
+   * session (the effect below tears its layers and pollers down) and
+   * starts the next one. cityTransitionRef says how the camera gets
+   * there: a flight when the viewer picked the city, a jump when a link
+   * or a hash edit did.
+   */
+  const [citySlug, setCitySlug] = useState(initialCitySlug)
+  const citySlugRef = useRef(citySlug)
+  const cityTransitionRef = useRef<'jump' | 'fly'>('jump')
+  const city = cityBySlug(citySlug) ?? CITIES[0]
+  /** The loaded data of the city on the map; null while it is on its way. */
+  const [cityData, setCityData] = useState<CityData | null>(null)
+  const cityDataRef = useRef<CityData | null>(null)
+  /**
    * Whether the live AIS fleet is reachable at all. Without a configured
-   * endpoint, in the tests and in offline mode there is no harbor traffic
-   * for a switch to reach, and the panel leaves its row out.
+   * endpoint, in the tests, in offline mode and in a city without a
+   * harbor there is no traffic for a switch to reach, and the panel
+   * leaves its row out.
    *
    * ?ais=0 is deliberately NOT part of this: it decides whether the fleet
    * opens switched on, and the switch can still bring it back.
    */
   const aisAvailable =
-    config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline
+    config.ais.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline && city.ais.enabled
+  const aisAvailableRef = useRef(aisAvailable)
+  aisAvailableRef.current = aisAvailable
   /**
    * Whether there is live weather to poll at all. Without an endpoint, in
    * the tests, offline and with ?rain=0 there is none – the scene popover
@@ -256,8 +350,8 @@ export default function App() {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<CesiumMap | null>(null)
+  const clockRef = useRef<SimClock | null>(null)
   const simRef = useRef<Simulation | null>(null)
-  const networkRef = useRef<PreparedNetwork | null>(null)
   const visibleLinesRef = useRef<Set<string>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
@@ -268,7 +362,7 @@ export default function App() {
    * it when the fleet is turned back on (see handleToggleAisVessels).
    */
   const aisVesselsRef = useRef<AisVessel[]>([])
-  /** The AIS poller, so the panel switch can stop and restart it. */
+  /** The AIS poller of the city session, so the panel switch can stop and restart it. */
   const aisClientRef = useRef<AisClient | null>(null)
   /**
    * Panel switch for the AIS fleet, as the render loop reads it. Seeded
@@ -278,8 +372,18 @@ export default function App() {
   const showAisVesselsRef = useRef(urlOpts.ais)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
-  /** Set by the init effect – selection changes write the URL immediately. */
+  /** Set by the viewer effect – selection changes write the URL immediately. */
   const writeHashRef = useRef<() => void>(() => {})
+  /** The test API, so the city session can flip its ready flag. */
+  const apiRef = useRef<MrtTestApi | null>(null)
+  /**
+   * A vehicle shared via the URL (#vehicle=…), restored as soon as its
+   * trip shows up in the snapshots – it may take a moment for the
+   * simulation to have it, and it may never appear (link opened while
+   * the trip is not active), so the attempt expires silently.
+   */
+  const pendingSharedVehicleRef = useRef<string | null>(null)
+  const sharedVehicleDeadlineRef = useRef(0)
   /**
    * The sky in force: precipitation in mm and cloud cover in percent.
    * forced = not the live weather but a value set on purpose (a picked
@@ -305,7 +409,7 @@ export default function App() {
   const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   /**
-   * Air temperature over Rostock in °C, straight from the weather client
+   * Air temperature over the city in °C, straight from the weather client
    * (every ten minutes), or null while there is none. The scene button
    * shows it whichever sky is picked – unlike the sky it is not gated on
    * the simulation clock, because it is a reading in a control rather
@@ -354,7 +458,7 @@ export default function App() {
   /** Same value for the render loop, which never sees the state updates. */
   const undergroundRef = useRef(false)
 
-  const network = networkRef.current ?? (networkRef.current = loadBundledNetwork())
+  const network = cityData?.network ?? null
 
   /**
    * What the stop card shows about each stop: name, position, serving
@@ -363,6 +467,7 @@ export default function App() {
    */
   const stopInfoById = useMemo(() => {
     const byId = new Map<string, StopInfo>()
+    if (!network) return byId
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const stop of dir.stops) {
@@ -389,6 +494,9 @@ export default function App() {
     }
     return byId
   }, [network])
+  /** Same map for the effects, which must not see a stale render's memo. */
+  const stopInfoByIdRef = useRef(stopInfoById)
+  stopInfoByIdRef.current = stopInfoById
   const showRoutesRef = useRef(showRoutes)
   // Mirrors for the hash writer (closures in the init effect must not see
   // stale React state): layer toggles and pause travel in the URL.
@@ -399,11 +507,12 @@ export default function App() {
 
   const applyRouteVisibility = useCallback(() => {
     const map = mapRef.current
-    if (!map) return
-    for (const line of network.lines) {
+    const lines = cityDataRef.current?.network.lines
+    if (!map || !lines) return
+    for (const line of lines) {
       map.setLineRouteVisible(line.id, showRoutesRef.current && visibleLinesRef.current.has(line.id))
     }
-  }, [network])
+  }, [])
 
   const selectVehicle = useCallback((id: string | null) => {
     selectedIdRef.current = id
@@ -481,7 +590,20 @@ export default function App() {
     [selectVehicle, selectVessel],
   )
 
-  // Initialization: map, simulation, render loop
+  /**
+   * The picker's way to another city: the session effect below tears the
+   * current city down and the camera flies to the next one. A link or a
+   * hash edit goes the same way through applyHash, only with a jump.
+   */
+  const selectCity = useCallback((slug: string) => {
+    if (!isCitySlug(slug) || slug === citySlugRef.current) return
+    cityTransitionRef.current = 'fly'
+    setCitySlug(slug)
+  }, [])
+
+  // The viewer: map, clock, render loop, URL persistence, test API. Built
+  // once for the life of the app – the cities come and go on it (see the
+  // city session effect below).
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -494,6 +616,7 @@ export default function App() {
     const uiState = parseUiStateHash(window.location.hash)
     const startPaused = urlOpts.paused || uiState.paused
     const clock = new SimClock(Date.now(), urlOpts.speed)
+    clockRef.current = clock
     if (urlOpts.timeSec !== null) clock.setSecondsOfDay(urlOpts.timeSec)
     if (startPaused) clock.setPaused(true)
     setSpeed(urlOpts.speed)
@@ -516,58 +639,6 @@ export default function App() {
       setTiltShift(uiState.tiltShift)
     }
 
-    const sim = new Simulation(network, clock, schedule as ScheduleJson)
-    simRef.current = sim
-
-    // GTFS-Realtime (delays from the free gtfs.de feed):
-    // active by default, except in offline mode; ?rt=1/?rt=0 overrides.
-    const realtimeEnabled =
-      config.gtfsRealtimeUrl !== '' &&
-      import.meta.env.MODE !== 'test' &&
-      (urlOpts.realtime ?? !urlOpts.offline)
-    let realtimeClient: RealtimeClient | null = null
-    if (realtimeEnabled) {
-      realtimeClient = new RealtimeClient(
-        config.gtfsRealtimeUrl,
-        sim.realtimeTripIdMap,
-        (status, delays) => {
-          sim.setRealtimeDelays(delays)
-          realtimeStatusRef.current = status
-        },
-      )
-      // Delay data changes slowly; polling every 2 minutes keeps the load
-      // on the shared endpoint low (the server caches upstream for 60 s).
-      realtimeClient.start(120_000)
-    }
-
-    // AIS harbor traffic (aisstream.io via /api/ais): real vessels as a
-    // backdrop, played back 4 minutes behind the wall clock (see
-    // ais-extract.ts). The poller is built wherever AIS is reachable at
-    // all, and started only if the fleet opens switched on – ?ais=0 and
-    // the panel switch share the one state (see handleToggleAisVessels).
-    if (aisAvailable) {
-      const aisClient = new AisClient(config.ais.url, (_status, vessels) => {
-        // The city ferries sail as simulated vehicles on their timetable –
-        // drawing their AIS twins too would put two boats on one crossing.
-        const backdrop = vessels.filter((v) => !(v.mmsi in config.ais.ferryLineByMmsi))
-        aisVesselsRef.current = backdrop
-        // An open ship card follows its ship's fixes; a ship that has left
-        // the picture closes it rather than freezing at her last position.
-        const mmsi = selectedMmsiRef.current
-        if (mmsi !== null) {
-          const fresh = backdrop.find((v) => v.mmsi === mmsi) ?? null
-          if (fresh === null) selectVessel(null)
-          else setSelectedVessel(fresh)
-        }
-      })
-      aisClientRef.current = aisClient
-      if (showAisVesselsRef.current) aisClient.start(config.ais.pollIntervalMs)
-    }
-
-    const allLines = new Set(network.lines.map((l) => l.id))
-    visibleLinesRef.current = allLines
-    setVisibleLines(new Set(allLines))
-
     // Event-driven URL persistence: camera events debounce into one write
     // shortly after the pose settles; during sustained motion (flights,
     // chase cam) at most one write per HASH_MAX_WAIT_MS lands. replaceState
@@ -584,7 +655,7 @@ export default function App() {
       // While a vehicle is selected the URL carries ONLY its trip id – a
       // shared link then re-selects and follows the vehicle, no camera
       // pose needed. Without a selection the camera pose is the URL state.
-      // Layer toggles and pause ride along in either form.
+      // The city, layer toggles and pause ride along in either form.
       const hash =
         (selectedIdRef.current
           ? formatVehicleHash(selectedIdRef.current)
@@ -592,6 +663,7 @@ export default function App() {
             ? formatStopHash(selectedStopIdRef.current)
             : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
+          city: citySlugRef.current === DEFAULT_CITY_SLUG ? null : citySlugRef.current,
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
@@ -625,6 +697,7 @@ export default function App() {
     window.addEventListener('pagehide', writeHash)
 
     const map = new CesiumMap(container, {
+      city: cityBySlug(citySlugRef.current) ?? CITIES[0],
       offline: urlOpts.offline,
       // The map is built wearing the look the URL asked for (or the
       // default), so no swap has to run before the first frame.
@@ -641,72 +714,9 @@ export default function App() {
       onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
-    // Restore the saved camera orientation from the URL hash – the fence
-    // (see CesiumMap) pulls a pose from anywhere on the globe back in.
-    const hashView = parseCameraHash(window.location.hash)
-    if (hashView) map.setView(hashView)
-    map.addRoutes(network)
-    map.addStops(network)
-    // Night-time street lighting. Nothing is built until the pools would
-    // actually show, so a daytime session pays nothing for this.
-    if (urlOpts.lamps) map.addStreetLamps(loadStreetLamps())
     // Apply the layer visibility restored from the hash to the fresh map
-    if (uiState.routesHidden) applyRouteVisibility()
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
-
-    // Rain overlay: live precipitation for the city center (Open-Meteo).
-    // Offline mode stays dry (no network, deterministic E2E tests) and
-    // ?rain=0 opts out. Whether the rain is actually drawn is decided per
-    // UI tick (sim time must be near the real clock).
-    let weatherClient: WeatherClient | null = null
-    const weatherEnabled =
-      config.weather.url !== '' &&
-      import.meta.env.MODE !== 'test' &&
-      !urlOpts.offline &&
-      urlOpts.rain
-    if (weatherEnabled) {
-      map.addWeatherCredit()
-      weatherClient = new WeatherClient(
-        config.weather.url,
-        config.weather.longitude,
-        config.weather.latitude,
-        (status) => {
-          liveWeatherRef.current = {
-            precipitationMm: status.precipitationMm,
-            cloudCoverPercent: status.cloudCoverPercent,
-          }
-          setTemperatureC(status.temperatureC)
-          // A picked sky outranks the live one until the viewer asks for
-          // it back (see handleWeatherMode).
-          if (weatherModeRef.current !== 'live') return
-          rainRef.current = { mm: status.precipitationMm, forced: false }
-          cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
-        },
-      )
-      weatherClient.start(config.weather.pollIntervalMs)
-    }
-
-    // A vehicle shared via the URL (#vehicle=…) is restored as soon as its
-    // trip shows up in the snapshots – it may take a moment for the
-    // simulation to have it, and it may never appear (link opened while
-    // the trip is not active), so the attempt expires silently. The
-    // restored vehicle starts in follow mode: the link carries no camera
-    // pose, the approach flight brings the viewer to the vehicle.
-    let pendingSharedVehicle = parseVehicleHash(window.location.hash)
-    let sharedVehicleDeadline = performance.now() + 20_000
-
-    // A stop shared via the URL (#stop=…) opens its card right away –
-    // stops are static, nothing to wait for – and flies the camera there,
-    // since the link carries no pose. A vehicle hash takes precedence.
-    if (!pendingSharedVehicle) {
-      const sharedStopId = parseStopHash(window.location.hash)
-      const sharedStop = sharedStopId ? stopInfoById.get(sharedStopId) : undefined
-      if (sharedStop) {
-        selectStop(sharedStop.id)
-        map.flyToStop(sharedStop.lon, sharedStop.lat, sharedStop.nhn)
-      }
-    }
 
     // The hash IS the app state, but so far only the boot ever read it –
     // editing it in the address bar did nothing until a reload. Our own
@@ -716,6 +726,7 @@ export default function App() {
     const applyHash = () => {
       const hash = window.location.hash
       const ui = parseUiStateHash(hash)
+      // The switches first – they mean the same in every city.
       if (ui.paused !== pausedRef.current) {
         clock.setPaused(ui.paused)
         pausedRef.current = ui.paused
@@ -746,19 +757,30 @@ export default function App() {
         map.setTiltShift(tiltShiftOn)
       }
 
+      // Another city: the rest of the hash – a pose, a vehicle, a stop –
+      // refers to it, so the city session applies it once that city is
+      // on the map (see applyHashSelection there). An unknown slug means
+      // the default city, as it does at boot.
+      const wantedCity = ui.city && isCitySlug(ui.city) ? ui.city : DEFAULT_CITY_SLUG
+      if (wantedCity !== citySlugRef.current) {
+        cityTransitionRef.current = 'jump'
+        setCitySlug(wantedCity)
+        return
+      }
+
       // A selection outranks a camera pose, the same order writeHash
       // builds the hash in – so a hash carrying neither clears both.
       const vehicleId = parseVehicleHash(hash)
       if (vehicleId) {
         // Same restore path as a shared link: the trip may not be in the
         // snapshots yet, so it waits for it and gives up silently.
-        pendingSharedVehicle = vehicleId
-        sharedVehicleDeadline = performance.now() + 20_000
+        pendingSharedVehicleRef.current = vehicleId
+        sharedVehicleDeadlineRef.current = performance.now() + SHARED_VEHICLE_TIMEOUT_MS
         return
       }
-      pendingSharedVehicle = null
+      pendingSharedVehicleRef.current = null
       const stopId = parseStopHash(hash)
-      const stop = stopId ? stopInfoById.get(stopId) : undefined
+      const stop = stopId ? stopInfoByIdRef.current.get(stopId) : undefined
       if (stop) {
         selectStop(stop.id)
         map.flyToStop(stop.lon, stop.lat, stop.nhn)
@@ -772,11 +794,6 @@ export default function App() {
       if (view) map.setView(view)
     }
     window.addEventListener('hashchange', applyHash)
-
-    // First write right away: a camera that never moves after boot fires no
-    // change event (the first rendered frame establishes the baseline), yet
-    // the URL must be shareable immediately.
-    writeHash()
 
     let rafId = 0
     let lastUiUpdate = 0
@@ -836,9 +853,11 @@ export default function App() {
               map.setSceneTime(simMs)
             }
 
-            const snapshots = sim.snapshots()
+            // Between cities (data on its way) there is nothing to run
+            const sim = simRef.current
+            const snapshots = sim ? sim.snapshots() : []
             snapshotsRef.current = snapshots
-            const wantAis = aisAvailable && showAisVesselsRef.current
+            const wantAis = aisAvailableRef.current && showAisVesselsRef.current
             // The switch coming back drops whatever was frozen: it emptied
             // the vessel list with it, and a stale freeze would put the old
             // harbor back up. The upgrade below re-freezes on fresh data.
@@ -873,16 +892,19 @@ export default function App() {
 
             // After syncVehicles, so the selection highlight and the follow
             // camera find the vehicle record (setSelected/setFollow only act
-            // on records that already exist).
+            // on records that already exist). The restored vehicle starts
+            // in follow mode: the link carries no camera pose, the approach
+            // flight brings the viewer to the vehicle.
+            const pendingSharedVehicle = pendingSharedVehicleRef.current
             if (pendingSharedVehicle) {
               if (snapshots.some((s) => s.id === pendingSharedVehicle)) {
                 selectVehicle(pendingSharedVehicle)
                 followingRef.current = true
                 setFollowing(true)
                 map.setFollow(pendingSharedVehicle)
-                pendingSharedVehicle = null
-              } else if (now > sharedVehicleDeadline) {
-                pendingSharedVehicle = null
+                pendingSharedVehicleRef.current = null
+              } else if (now > sharedVehicleDeadlineRef.current) {
+                pendingSharedVehicleRef.current = null
               }
             }
 
@@ -1000,7 +1022,7 @@ export default function App() {
 
     // Test/debug API
     const api: MrtTestApi = {
-      ready: true,
+      ready: false,
       vehicleCount: () => snapshotsRef.current.length,
       visibleVehicleCount: () =>
         snapshotsRef.current.filter((s) => visibleLinesRef.current.has(s.lineId)).length,
@@ -1017,7 +1039,7 @@ export default function App() {
       },
       aisVesselCount: () => map.getVesselCount(),
       setRealtimeDelays: (delays: Record<string, number>) => {
-        sim.setRealtimeDelays(new Map(Object.entries(delays)))
+        simRef.current?.setRealtimeDelays(new Map(Object.entries(delays)))
       },
       setRain: (precipitationMm: number) => {
         rainRef.current = { mm: precipitationMm, forced: precipitationMm > 0 }
@@ -1032,10 +1054,12 @@ export default function App() {
       selectedStopId: () => selectedStopIdRef.current,
       vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
-      dataSource: network.meta.source,
+      dataSource: '',
+      city: () => citySlugRef.current,
+      setCity: selectCity,
       tilesetStatus: () => tilesetStatusRef.current,
       realtimeStatus: () => realtimeStatusRef.current,
-      lineIds: () => network.lines.map((l) => l.id),
+      lineIds: () => cityDataRef.current?.network.lines.map((l) => l.id) ?? [],
       secondsOfDay: () => clock.secondsOfDay(),
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
@@ -1051,6 +1075,7 @@ export default function App() {
         while (renderTimes.length > 0 && renderTimes[0] < cutoff) renderTimes.shift()
         return renderTimes.length / 5
       },
+      tiltShiftState: () => map.tiltShiftState(),
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating =
@@ -1072,6 +1097,8 @@ export default function App() {
       tunnelTransition: () => {
         // Debug-only probe for E2E: step through service time until the same
         // active trip is found once inside and once outside a tunnel.
+        const sim = simRef.current
+        if (!sim) return null
         for (let time = 4 * 3600; time < 24 * 3600; time += 30) {
           const inside = sim.snapshotsAt(time).find((snap) => snap.inTunnel)
           if (!inside) continue
@@ -1087,6 +1114,7 @@ export default function App() {
       },
     }
     window.__mrt = api
+    apiRef.current = api
 
     return () => {
       cancelAnimationFrame(rafId)
@@ -1095,16 +1123,223 @@ export default function App() {
       window.removeEventListener('hashchange', applyHash)
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
-      realtimeClient?.stop()
-      aisClientRef.current?.stop()
-      aisClientRef.current = null
-      weatherClient?.stop()
       window.__mrt = undefined
+      apiRef.current = null
       map.destroy()
       mapRef.current = null
+      clockRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The city session: loads the city's data, puts its routes, stops and
+  // lamps on the map, runs its simulation and pollers – and takes all of
+  // it down again when the city changes or the app goes away. Declared
+  // after the viewer effect so it finds the map on its first run.
+  useEffect(() => {
+    const map = mapRef.current
+    const clock = clockRef.current
+    if (!map || !clock) return
+    const sessionCity = cityBySlug(citySlug) ?? CITIES[0]
+    citySlugRef.current = sessionCity.slug
+    const transition = cityTransitionRef.current
+    cityTransitionRef.current = 'jump'
+    let cancelled = false
+
+    // What the URL asked for, read before anything here writes to it.
+    const bootHash = window.location.hash
+    const sharedVehicle = transition === 'jump' ? parseVehicleHash(bootHash) : null
+    const sharedStopId = transition === 'jump' && !sharedVehicle ? parseStopHash(bootHash) : null
+
+    // The map was built wearing the first city; every later one is a
+    // move – a flight from the picker, a jump from a link or hash edit.
+    if (map.currentCity.slug !== sessionCity.slug) map.setCity(sessionCity, transition)
+    // A link's or an edited hash's pose belongs to this city: put the
+    // camera there before the first frame rather than after the data.
+    // A vehicle or stop link carries no pose – those wait for the data.
+    if (transition === 'jump' && !sharedVehicle && !sharedStopId) {
+      const view = parseCameraHash(bootHash)
+      if (view) map.setView(view)
+    }
+    document.title = t('city.title', { name: sessionCity.name })
+    rememberCity(sessionCity.slug)
+    // The URL names the city at once, whichever form it is in – unless it
+    // carries a selection still to be restored: writing now would replace
+    // that with the camera pose, and the restore writes it back itself. A
+    // camera that never moves after boot fires no change event, so the
+    // first write cannot wait for one.
+    if (!sharedVehicle && !sharedStopId) writeHashRef.current()
+
+    let realtimeClient: RealtimeClient | null = null
+    let aisClient: AisClient | null = null
+    let weatherClient: WeatherClient | null = null
+
+    const start = async () => {
+      const data = await loadCityData(sessionCity.slug)
+      if (cancelled) return
+      cityDataRef.current = data
+      setCityData(data)
+
+      const sim = new Simulation(data.network, clock, data.schedule ?? undefined)
+      simRef.current = sim
+      map.setGroundReference(medianStopNhn(data.network))
+
+      const allLines = new Set(data.network.lines.map((l) => l.id))
+      visibleLinesRef.current = allLines
+      setVisibleLines(new Set(allLines))
+
+      map.addRoutes(data.network)
+      map.addStops(data.network)
+      // Night-time street lighting. Nothing is built until the pools would
+      // actually show, so a daytime session pays nothing for this.
+      if (urlOpts.lamps && data.lamps) map.addStreetLamps(data.lamps)
+      // The layer switches as they stand, applied to the fresh layers
+      applyRouteVisibility()
+      map.setStopsVisible(showStopsRef.current)
+      map.setLabelsVisible(showLabelsRef.current)
+
+      // GTFS-Realtime (delays from the free gtfs.de feed, filtered to this
+      // city's trips): active by default, except in offline mode; ?rt=1/?rt=0
+      // overrides.
+      const realtimeEnabled =
+        config.gtfsRealtimeUrl !== '' &&
+        import.meta.env.MODE !== 'test' &&
+        (urlOpts.realtime ?? !urlOpts.offline)
+      if (realtimeEnabled) {
+        realtimeClient = new RealtimeClient(
+          cityApiUrl(config.gtfsRealtimeUrl, sessionCity.slug),
+          sim.realtimeTripIdMap,
+          (status, delays) => {
+            sim.setRealtimeDelays(delays)
+            realtimeStatusRef.current = status
+          },
+        )
+        // Delay data changes slowly; polling every 2 minutes keeps the load
+        // on the shared endpoint low (the server caches upstream for 60 s).
+        realtimeClient.start(120_000)
+      }
+
+      // AIS harbor traffic (aisstream.io via /api/ais, this city's box):
+      // real vessels as a backdrop, played back 4 minutes behind the wall
+      // clock (see ais-extract.ts). The poller is built wherever AIS is
+      // reachable at all, and started only if the fleet opens switched on
+      // – ?ais=0 and the panel switch share the one state (see
+      // handleToggleAisVessels).
+      if (aisAvailableRef.current) {
+        const simulated = sessionCity.ais.simulatedByMmsi
+        aisClient = new AisClient(cityApiUrl(config.ais.url, sessionCity.slug), (_status, vessels) => {
+          // The boats this map runs from a timetable sail here already –
+          // drawing their AIS twins too would put two of each on one
+          // crossing (see city.ais.simulatedByMmsi).
+          const backdrop = vessels.filter((v) => !(String(v.mmsi) in simulated))
+          aisVesselsRef.current = backdrop
+          // An open ship card follows its ship's fixes; a ship that has left
+          // the picture closes it rather than freezing at her last position.
+          const mmsi = selectedMmsiRef.current
+          if (mmsi !== null) {
+            const fresh = backdrop.find((v) => v.mmsi === mmsi) ?? null
+            if (fresh === null) selectVessel(null)
+            else setSelectedVessel(fresh)
+          }
+        })
+        aisClientRef.current = aisClient
+        if (showAisVesselsRef.current) aisClient.start(config.ais.pollIntervalMs)
+      }
+
+      // Rain overlay: live precipitation for the city (Open-Meteo).
+      // Offline mode stays dry (no network, deterministic E2E tests) and
+      // ?rain=0 opts out. Whether the rain is actually drawn is decided per
+      // UI tick (sim time must be near the real clock).
+      if (liveWeatherAvailable) {
+        map.addWeatherCredit()
+        weatherClient = new WeatherClient(
+          config.weather.url,
+          sessionCity.weather.longitude,
+          sessionCity.weather.latitude,
+          (status) => {
+            liveWeatherRef.current = {
+              precipitationMm: status.precipitationMm,
+              cloudCoverPercent: status.cloudCoverPercent,
+            }
+            setTemperatureC(status.temperatureC)
+            // A picked sky outranks the live one until the viewer asks for
+            // it back (see handleWeatherMode).
+            if (weatherModeRef.current !== 'live') return
+            rainRef.current = { mm: status.precipitationMm, forced: false }
+            cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
+          },
+        )
+        weatherClient.start(config.weather.pollIntervalMs)
+      }
+
+      // What the link asked for in this city, now that the city can
+      // answer: a vehicle (#vehicle=…) is picked up by the render loop
+      // once its trip is in the snapshots, a stop (#stop=…) opens its
+      // card and flies there. Only after a jump – a flight from the
+      // picker leaves the old city's pose in the hash until the camera
+      // has settled, and there is no selection to restore.
+      if (sharedVehicle) {
+        pendingSharedVehicleRef.current = sharedVehicle
+        sharedVehicleDeadlineRef.current = performance.now() + SHARED_VEHICLE_TIMEOUT_MS
+      } else if (sharedStopId) {
+        // The memo of this render is stale: the data landed just now
+        const stop = findStop(data.network, sharedStopId)
+        if (stop) {
+          selectStop(stop.id)
+          map.flyToStop(stop.lon, stop.lat, stop.nhn)
+        } else {
+          // A stop this city does not have – the URL says so from now on
+          writeHashRef.current()
+        }
+      }
+
+      const api = apiRef.current
+      if (api) {
+        api.dataSource = data.network.meta.source
+        api.ready = true
+      }
+    }
+    start().catch((error) => {
+      if (!cancelled) console.error(`[MiniGermany3D] Loading ${sessionCity.slug} failed:`, error)
+    })
+
+    return () => {
+      cancelled = true
+      realtimeClient?.stop()
+      aisClient?.stop()
+      weatherClient?.stop()
+      aisClientRef.current = null
+      const api = apiRef.current
+      if (api) {
+        api.ready = false
+        api.dataSource = ''
+      }
+      realtimeStatusRef.current = null
+      simRef.current = null
+      cityDataRef.current = null
+      setCityData(null)
+      snapshotsRef.current = []
+      aisVesselsRef.current = []
+      pendingSharedVehicleRef.current = null
+      setTemperatureC(null)
+      // Whatever was picked belonged to the city that is leaving
+      if (selectedIdRef.current !== null) selectVehicle(null)
+      if (selectedStopIdRef.current !== null) selectStop(null)
+      if (selectedMmsiRef.current !== null) selectVessel(null)
+      setSelectedLineId(null)
+      if (followingRef.current) {
+        followingRef.current = false
+        setFollowing(false)
+      }
+      // On unmount the viewer is gone already; its cleanup ran first.
+      const liveMap = mapRef.current
+      if (liveMap) {
+        liveMap.setFollow(null)
+        liveMap.clearCity()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citySlug])
 
   const handleToggleLine = useCallback(
     (lineId: string) => {
@@ -1199,17 +1434,17 @@ export default function App() {
 
   const handleSpeedChange = useCallback((value: number) => {
     setSpeed(value)
-    simRef.current?.clock.setSpeed(value)
+    clockRef.current?.setSpeed(value)
   }, [])
 
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
       const next = !prev
-      simRef.current?.clock.setPaused(next)
+      clockRef.current?.setPaused(next)
       // Play never resumes a past moment: releasing the pause snaps the
       // clock to the real time, so trams (GTFS) and ships (AIS) carry on
       // where reality actually is – not where it was when paused.
-      if (!next) simRef.current?.clock.resetToRealTime()
+      if (!next) clockRef.current?.resetToRealTime()
       pausedRef.current = next
       writeHashRef.current()
       return next
@@ -1314,11 +1549,11 @@ export default function App() {
 
   const handleSetTime = useCallback((hhmm: string) => {
     const sec = parseTimeOfDay(hhmm)
-    if (sec !== null) simRef.current?.clock.setSecondsOfDay(sec)
+    if (sec !== null) clockRef.current?.setSecondsOfDay(sec)
   }, [])
 
   const handleResetTime = useCallback(() => {
-    simRef.current?.clock.resetToRealTime()
+    clockRef.current?.resetToRealTime()
   }, [])
 
   const handleToggleFollow = useCallback(() => {
@@ -1443,22 +1678,26 @@ export default function App() {
    * src/lib/interchange.ts). The vehicle card reads its badges out of it.
    */
   const interchangeByStop = useMemo(
-    () => buildInterchangeIndex(network, config.interchangeRadiusMeters),
+    () =>
+      network
+        ? buildInterchangeIndex(network, config.interchangeRadiusMeters)
+        : new Map<string, never[]>(),
     [network],
   )
 
   /**
    * Profile of the selected line. Pure geometry and timetable arithmetic
-   * over data that does not change while the app runs, so it is computed
-   * once per selection rather than per tick.
+   * over data that does not change while the city is on the map, so it is
+   * computed once per selection rather than per tick.
    */
   const selectedLine = useMemo(
-    () => (selectedLineId ? (network.lineById.get(selectedLineId) ?? null) : null),
+    () => (selectedLineId && network ? (network.lineById.get(selectedLineId) ?? null) : null),
     [network, selectedLineId],
   )
+  const schedule = cityData?.schedule ?? EMPTY_SCHEDULE
   const lineProfile = useMemo(
-    () => (selectedLine ? buildLineProfile(selectedLine, schedule as ScheduleJson) : null),
-    [selectedLine],
+    () => (selectedLine ? buildLineProfile(selectedLine, schedule) : null),
+    [selectedLine, schedule],
   )
 
   /**
@@ -1469,21 +1708,16 @@ export default function App() {
   const lineActivity = useMemo(
     () =>
       selectedLine
-        ? buildLineActivity(
-            selectedLine,
-            schedule as ScheduleJson,
-            snapshotsRef.current,
-            simSeconds,
-          )
+        ? buildLineActivity(selectedLine, schedule, snapshotsRef.current, simSeconds)
         : null,
-    [selectedLine, simSeconds],
+    [selectedLine, schedule, simSeconds],
   )
 
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
     () =>
-      network.lines.map((line) => ({
+      (network?.lines ?? []).map((line) => ({
         id: line.id,
         name: localizeLineName(line.name),
         color: line.color,
@@ -1533,6 +1767,10 @@ export default function App() {
       <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
         <div className="pointer-events-none absolute left-4 top-4 z-10">
           <ControlPanel
+            city={{ slug: city.slug, name: city.name, modes: city.network.modes }}
+            cities={CITY_CHOICES}
+            cityLoading={cityData === null}
+            onSelectCity={selectCity}
             clockText={clockText}
             speed={speed}
             paused={paused}
@@ -1733,4 +1971,25 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+/** A stop of a network by id, as the stop card needs it (see stopInfoById). */
+function findStop(network: PreparedNetwork, stopId: string): StopInfo | undefined {
+  for (const line of network.lines) {
+    for (const dir of line.directions) {
+      const stop = dir.stops.find((s) => s.id === stopId)
+      if (stop) {
+        return {
+          id: stop.id,
+          name: stop.name,
+          lon: stop.coord[0],
+          lat: stop.coord[1],
+          nhn: stop.nhn,
+          lines: [{ id: line.id, color: line.color }],
+          inTunnel: isInTunnel(dir.tunnels, stop.dist),
+        }
+      }
+    }
+  }
+  return undefined
 }

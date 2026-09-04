@@ -74,6 +74,7 @@ export function minutesUntil(arrivalSec: number, nowSec: number): number {
 /** Mode-appropriate label key for the follow button. */
 const FOLLOW_KEY: Record<VehicleSnapshot['mode'], MessageKey> = {
   tram: 'follow.tram',
+  subway: 'follow.subway',
   train: 'follow.train',
   bus: 'follow.bus',
   ferry: 'follow.ferry',

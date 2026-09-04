@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadBundledNetwork } from '@/data/network'
-import schedule from '@/data/schedule.json'
+import { loadRostockNetwork, rostockSchedule as schedule } from './cities'
 import type { PreparedLine } from '@/data/network-types'
 import {
   buildLineActivity,
@@ -124,7 +123,7 @@ describe('formatting', () => {
 })
 
 describe('against the real network', () => {
-  const network = loadBundledNetwork()
+  const network = loadRostockNetwork()
 
   it('describes every line without throwing', () => {
     for (const l of network.lines) {

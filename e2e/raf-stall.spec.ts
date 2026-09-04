@@ -30,7 +30,8 @@ test('the simulation keeps running when requestAnimationFrame stalls', async ({ 
       })
   })
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  // Nothing here is looked at on screen – only the loop's own counters
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,

@@ -5,6 +5,8 @@
  * no library needed.
  */
 
+import type { TransitMode } from './transit-mode'
+
 export type Lang = 'en' | 'de'
 
 const en = {
@@ -73,9 +75,16 @@ const en = {
   'lines.flyTo': 'Fly to {name}',
   'lines.show': 'Show {name}',
   'mode.tram': 'Tram',
+  'mode.subway': 'Subway',
   'mode.train': 'S-Bahn',
   'mode.bus': 'Bus',
   'mode.ferry': 'Ferry',
+  // City picker (the caret beside the panel title)
+  'city.title': 'Mini {name} 3D',
+  'city.pick': 'Choose a city',
+  'city.switchTo': 'Switch to {name}',
+  'city.current': 'Shown now',
+  'city.loading': 'Loading {name} …',
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
@@ -108,6 +117,7 @@ const en = {
   'stop.now': 'now',
   'stop.flyToVehicle': 'Fly to this vehicle',
   'follow.tram': 'Follow tram',
+  'follow.subway': 'Follow train',
   'follow.train': 'Follow train',
   'follow.bus': 'Follow bus',
   'follow.ferry': 'Follow ferry',
@@ -143,6 +153,20 @@ const en = {
   'vesselType.lawEnforcement': 'Law enforcement vessel',
   'vesselType.medical': 'Medical transport',
   'vesselType.other': 'Other vessel',
+  // Named by ITU-R M.1371-6 (2026); most ships still send the older,
+  // coarser codes above
+  'vesselType.trawler': 'Trawler',
+  'vesselType.patrol': 'Patrol vessel',
+  'vesselType.cruise': 'Cruise ship',
+  'vesselType.ferry': 'Ferry',
+  'vesselType.excursion': 'Excursion boat',
+  'vesselType.bulkCarrier': 'Bulk carrier',
+  'vesselType.containerShip': 'Container ship',
+  'vesselType.roro': 'Roll-on/roll-off ship',
+  'vesselType.landingCraft': 'Landing craft',
+  'vesselType.tugAndBarge': 'Tug and tank barge',
+  'vesselType.specialPurpose': 'Special purpose ship',
+  'vesselType.support': 'Support vessel',
   // AIS navigational status
   'navStatus.0': 'Under way using engine',
   'navStatus.1': 'At anchor',
@@ -234,9 +258,15 @@ const de: Record<MessageKey, string> = {
   'lines.flyTo': 'Zu {name} fliegen',
   'lines.show': '{name} anzeigen',
   'mode.tram': 'Straßenbahn',
+  'mode.subway': 'U-Bahn',
   'mode.train': 'S-Bahn',
   'mode.bus': 'Bus',
   'mode.ferry': 'Fähre',
+  'city.title': 'Mini {name} 3D',
+  'city.pick': 'Stadt wählen',
+  'city.switchTo': 'Nach {name} wechseln',
+  'city.current': 'Gerade zu sehen',
+  'city.loading': '{name} wird geladen …',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',
@@ -267,6 +297,7 @@ const de: Record<MessageKey, string> = {
   'stop.now': 'jetzt',
   'stop.flyToVehicle': 'Zu diesem Fahrzeug fliegen',
   'follow.tram': 'Straßenbahn folgen',
+  'follow.subway': 'U-Bahn folgen',
   'follow.train': 'S-Bahn folgen',
   'follow.bus': 'Bus folgen',
   'follow.ferry': 'Fähre folgen',
@@ -302,6 +333,18 @@ const de: Record<MessageKey, string> = {
   'vesselType.lawEnforcement': 'Behördenfahrzeug',
   'vesselType.medical': 'Lazarettschiff',
   'vesselType.other': 'Sonstiges Schiff',
+  'vesselType.trawler': 'Trawler',
+  'vesselType.patrol': 'Patrouillenboot',
+  'vesselType.cruise': 'Kreuzfahrtschiff',
+  'vesselType.ferry': 'Fähre',
+  'vesselType.excursion': 'Ausflugsschiff',
+  'vesselType.bulkCarrier': 'Massengutfrachter',
+  'vesselType.containerShip': 'Containerschiff',
+  'vesselType.roro': 'Roll-on-Roll-off-Schiff',
+  'vesselType.landingCraft': 'Landungsboot',
+  'vesselType.tugAndBarge': 'Schubverband mit Tankleichter',
+  'vesselType.specialPurpose': 'Spezialschiff',
+  'vesselType.support': 'Versorgungsschiff',
   // AIS navigational status
   'navStatus.0': 'In Fahrt mit Maschine',
   'navStatus.1': 'Vor Anker',
@@ -383,17 +426,21 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
 
 /**
  * Line names come from the data pipeline in English ("Line 1",
- * "Ferry Kabutzenhof – Gehlsdorf") – German swaps the generic prefix.
- * "Bus 22" and "S-Bahn S1" read the same in both languages.
+ * "Subway U3", "Ferry Kabutzenhof – Gehlsdorf") – German swaps the
+ * generic prefix. "Bus 22" and "S-Bahn S1" read the same in both languages.
  */
 export function localizeLineName(name: string): string {
   if (lang !== 'de') return name
-  return name.replace(/^Line /, 'Linie ').replace(/^Ferry /, 'Fähre ')
+  return name
+    .replace(/^Line /, 'Linie ')
+    .replace(/^Subway /, 'U-Bahn ')
+    .replace(/^Ferry /, 'Fähre ')
 }
 
 /** Label key per transit mode – shared by the line panel and the vehicle card. */
-export const MODE_KEY: Record<'tram' | 'train' | 'bus' | 'ferry', MessageKey> = {
+export const MODE_KEY: Record<TransitMode, MessageKey> = {
   tram: 'mode.tram',
+  subway: 'mode.subway',
   train: 'mode.train',
   bus: 'mode.bus',
   ferry: 'mode.ferry',

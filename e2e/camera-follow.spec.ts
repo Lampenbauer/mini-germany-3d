@@ -9,7 +9,10 @@ test('"Follow" moves the camera to the vehicle', async ({ page }) => {
   // headroom on busy CI runners than the global limit provides.
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  // Routes, stops and labels off: this watches the camera, and under
+  // SwiftShader every one of them is paid for per frame (see the note in
+  // tilt-shift.spec.ts).
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,

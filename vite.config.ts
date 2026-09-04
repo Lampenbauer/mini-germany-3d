@@ -8,18 +8,29 @@ import GtfsRealtimeBindings from 'gtfs-realtime-bindings'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
-import { rostockBoundingBox } from './src/lib/rostock-bounding-box'
+import { containsLonLat } from './src/lib/city'
+import { CITIES, DEFAULT_CITY_SLUG, cityBySlug } from './src/cities/definitions'
 
 const UPSTREAM_RT_URL = 'https://realtime.gtfs.de/realtime-free.pb'
 const RT_CACHE_TTL_MS = 60_000
-const scheduleJsonPath = fileURLToPath(new URL('./src/data/schedule.json', import.meta.url))
 
-/** All Rostock GTFS trip_ids from schedule.json. */
-function loadTripIds(): Set<string> {
-  const schedule = JSON.parse(readFileSync(scheduleJsonPath, 'utf8')) as {
-    lines?: Record<string, Record<string, { tripIds?: string[] }>>
-  }
+/** The city a request asks for (?city=<slug>), or null for an unknown slug. */
+function requestedCity(url: string) {
+  const slug = new URL(url, 'http://localhost').searchParams.get('city') ?? DEFAULT_CITY_SLUG
+  return cityBySlug(slug) ?? null
+}
+
+/** All GTFS trip_ids of a city's schedule.json. */
+function loadTripIds(slug: string): Set<string> {
+  const schedulePath = fileURLToPath(new URL(`./src/cities/${slug}/schedule.json`, import.meta.url))
   const ids = new Set<string>()
+  let schedule: { lines?: Record<string, Record<string, { tripIds?: string[] }>> }
+  try {
+    schedule = JSON.parse(readFileSync(schedulePath, 'utf8'))
+  } catch {
+    // A city without a schedule has no trips to match – an empty filter
+    return ids
+  }
   for (const dirs of Object.values(schedule.lines ?? {})) {
     for (const dir of Object.values(dirs)) {
       for (const id of dir.tripIds ?? []) ids.add(id)
@@ -30,13 +41,16 @@ function loadTripIds(): Set<string> {
 
 /**
  * Dev/preview middleware for /api/realtime: fetches the >10 MB Germany feed
- * at most once per minute, filters it server-side down to the Rostock
- * trip_ids, and delivers only a small JSON to the browser. In production,
+ * at most once per minute, filters it server-side down to the trip_ids of
+ * the city asked for (?city=<slug>), and delivers only a small JSON to the
+ * browser – one upstream fetch serves every city. In production,
  * api/realtime.php performs exactly the same job (see server/api/).
  */
 function gtfsRealtimeFilterPlugin(): Plugin {
-  let cache: { at: number; body: string } | null = null
+  let feed: { at: number; message: GtfsRealtimeBindings.transit_realtime.FeedMessage } | null =
+    null
   let refreshing: Promise<void> | null = null
+  const cache = new Map<string, { at: number; body: string }>()
 
   const refresh = async (): Promise<void> => {
     const response = await fetch(UPSTREAM_RT_URL, {
@@ -44,16 +58,24 @@ function gtfsRealtimeFilterPlugin(): Plugin {
     })
     if (!response.ok) throw new Error(`Upstream HTTP ${response.status}`)
     const buffer = new Uint8Array(await response.arrayBuffer())
-    const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(buffer)
-    const delays = extractGtfsDelays(feed, loadTripIds())
-    cache = {
+    feed = {
       at: Date.now(),
-      body: JSON.stringify({
-        timestamp: Number(feed.header?.timestamp ?? 0),
-        total: feed.entity?.length ?? 0,
-        delays,
-      }),
+      message: GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(buffer),
     }
+    cache.clear()
+  }
+
+  const bodyFor = (slug: string): string => {
+    const cached = cache.get(slug)
+    if (cached && feed && cached.at === feed.at) return cached.body
+    const message = feed!.message
+    const body = JSON.stringify({
+      timestamp: Number(message.header?.timestamp ?? 0),
+      total: message.entity?.length ?? 0,
+      delays: extractGtfsDelays(message, loadTripIds(slug)),
+    })
+    cache.set(slug, { at: feed!.at, body })
+    return body
   }
 
   const handle = async (
@@ -65,8 +87,15 @@ function gtfsRealtimeFilterPlugin(): Plugin {
       next()
       return
     }
+    const city = requestedCity(req.url)
+    if (!city) {
+      res.statusCode = 404
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'Unknown city' }))
+      return
+    }
     try {
-      if (!cache || Date.now() - cache.at > RT_CACHE_TTL_MS) {
+      if (!feed || Date.now() - feed.at > RT_CACHE_TTL_MS) {
         // Requests arriving in parallel share a single upstream fetch
         refreshing ??= refresh().finally(() => {
           refreshing = null
@@ -75,12 +104,12 @@ function gtfsRealtimeFilterPlugin(): Plugin {
       }
       res.setHeader('Content-Type', 'application/json')
       res.setHeader('Cache-Control', 'no-store')
-      res.end(cache!.body)
+      res.end(bodyFor(city.slug))
     } catch (error) {
       // Stale data is better than none
-      if (cache) {
+      if (feed) {
         res.setHeader('Content-Type', 'application/json')
-        res.end(cache.body)
+        res.end(bodyFor(city.slug))
         return
       }
       res.statusCode = 502
@@ -102,10 +131,13 @@ function gtfsRealtimeFilterPlugin(): Plugin {
 
 /**
  * Dev/preview middleware for /api/ais: holds ONE aisstream.io WebSocket
- * open (started lazily on the first request, reconnecting on drops) and
- * serves the merged vessel state as JSON. In production api/ais.php does
- * the same job with short listen windows instead of a permanent socket –
- * shared hosting cannot keep one. Extraction logic is shared via
+ * open (started lazily on the first request, reconnecting on drops),
+ * subscribed to every city's bounding box at once – aisstream allows
+ * three connections per account, so one per city would not scale – and
+ * serves the merged vessel state as JSON, filtered to the box of the
+ * city asked for (?city=<slug>). In production api/ais.php does the same
+ * job with short listen windows instead of a permanent socket – shared
+ * hosting cannot keep one. Extraction logic is shared via
  * src/lib/ais-extract.ts and pinned by tests/ais-parity.test.ts.
  *
  * Needs AISSTREAM_KEY (env or .env, not VITE_-prefixed – the key must
@@ -120,19 +152,16 @@ function aisLivePlugin(): Plugin {
   const connect = (): void => {
     const ws = new WebSocket('wss://stream.aisstream.io/v0/stream')
     ws.onopen = () => {
-      // aisstream takes [[lat, lon] SW, [lat, lon] NE]; api/ais.php reads
-      // the same rostock-bounding-box.json (scripts/test-ais-parity.mjs
-      // checks that both subscribe alike).
-      const { west, south, east, north } = rostockBoundingBox
+      // aisstream takes [[lat, lon] SW, [lat, lon] NE] per box; api/ais.php
+      // reads the same city.json files (scripts/test-ais-parity.mjs checks
+      // that both subscribe alike).
       ws.send(
         JSON.stringify({
           APIKey: apiKey,
-          BoundingBoxes: [
-            [
-              [south, west],
-              [north, east],
-            ],
-          ],
+          BoundingBoxes: CITIES.filter((city) => city.ais.enabled).map(({ boundingBox }) => [
+            [boundingBox.south, boundingBox.west],
+            [boundingBox.north, boundingBox.east],
+          ]),
         }),
       )
     }
@@ -155,6 +184,12 @@ function aisLivePlugin(): Plugin {
     }
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Cache-Control', 'no-store')
+    const city = requestedCity(req.url)
+    if (!city) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Unknown city' }))
+      return
+    }
     if (!apiKey) {
       res.statusCode = 503
       res.end(JSON.stringify({ error: 'AISSTREAM_KEY is not set - vessel layer disabled' }))
@@ -165,7 +200,9 @@ function aisLivePlugin(): Plugin {
       connect()
     }
     const now = Date.now()
-    res.end(JSON.stringify({ timestamp: now, servedAt: now, vessels: aisStateVessels(state, now) }))
+    const box = city.boundingBox
+    const vessels = aisStateVessels(state, now).filter((v) => containsLonLat(box, v.lon, v.lat))
+    res.end(JSON.stringify({ timestamp: now, servedAt: now, vessels }))
   }
 
   return {
@@ -199,7 +236,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 6000,
     rollupOptions: {
       output: {
-        // Cesium (~3.5 MB) and the network/schedule data change on different
+        // Cesium (~3.5 MB) and each city's data change on different
         // cadences than the app code – separate chunks keep them cacheable
         // across deploys and let the browser download them in parallel.
         manualChunks(id: string) {
@@ -208,7 +245,11 @@ export default defineConfig({
           if (id.includes('node_modules/cesium/') || id.includes('node_modules/@cesium/')) {
             return 'cesium'
           }
-          if (id.includes('src/data/') && id.endsWith('.json')) return 'data'
+          // One lazy chunk per city for its generated data. Not city.json:
+          // the definitions are imported eagerly by the registry, and
+          // putting them in here would drag every city's data along.
+          const city = id.match(/src\/cities\/([^/]+)\/(network|schedule|street-lamps)\.json$/)
+          if (city) return `city-${city[1]}`
         },
       },
     },

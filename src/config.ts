@@ -1,25 +1,10 @@
 /**
- * Central configuration of Mini Rostock 3D.
+ * Central configuration of Mini Germany 3D – everything that is the same
+ * for every city. What differs per city (its rectangle, home view,
+ * weather point, fleet, terrain source, and which real vessels this map
+ * already runs itself) lives in the city's definition, see
+ * src/lib/city.ts and src/cities/.
  */
-
-import { offsetLonLat } from '@/lib/geo'
-import { boundingBoxCenter, rostockBoundingBox } from '@/lib/rostock-bounding-box'
-
-/**
- * How far the home view's center is moved from the center of the Rostock
- * bounding box, in meters – east and north, negative is west and south.
- * The plain center lies on the Warnow north of the old town; a kilometer
- * south brings more of the city into the frame.
- */
-export const HOME_VIEW_OFFSET_METERS = { east: -2000, north: -7000 }
-
-const boxCenter = boundingBoxCenter(rostockBoundingBox)
-/** The ground point the home view is centered on (see `home` below). */
-const [homeLongitude, homeLatitude] = offsetLonLat(
-  [boxCenter.longitude, boxCenter.latitude],
-  HOME_VIEW_OFFSET_METERS.east,
-  HOME_VIEW_OFFSET_METERS.north,
-)
 
 export const config = {
   /**
@@ -38,8 +23,10 @@ export const config = {
   /**
    * Filtered GTFS-Realtime endpoint (JSON, a few KB). Served by the Vite
    * middleware in the dev server, by api/realtime.php in production – both
-   * fetch and filter the >10 MB Germany feed server-side (60 s cache).
-   * Overridable via VITE_GTFS_RT_URL; an empty string disables realtime.
+   * fetch and filter the >10 MB Germany feed server-side (60 s cache) down
+   * to the trip ids of the city asked for (`?city=<slug>`, see
+   * cityApiUrl in lib/city-api.ts). Overridable via VITE_GTFS_RT_URL; an
+   * empty string disables realtime.
    */
   gtfsRealtimeUrl:
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
@@ -48,17 +35,14 @@ export const config = {
    * Live precipitation and cloud cover for the rain and overcast overlays:
    * the Open-Meteo forecast API (CC-BY 4.0, free, no key) – both values
    * come from one request. An empty string disables the live weather.
-   * The weather is queried for a single point, the center of the Rostock
-   * bounding box (lib/rostock-bounding-box.ts) – the camera cannot leave
-   * that box, and Rostock is small enough that one value covers the
-   * visible map.
+   * The weather is queried for a single point per city (city.weather) –
+   * the camera cannot leave the city's box, and a city is small enough
+   * that one value covers the visible map.
    */
   weather: {
     url:
       (import.meta.env?.VITE_WEATHER_URL as string | undefined) ??
       'https://api.open-meteo.com/v1/forecast',
-    /** longitude/latitude of the point the weather is queried for. */
-    ...boundingBoxCenter(rostockBoundingBox),
     /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
     pollIntervalMs: 600_000,
     /**
@@ -71,12 +55,14 @@ export const config = {
 
   /**
    * AIS vessel positions (aisstream.io, via the filtered /api/ais
-   * endpoint – Vite middleware in dev, api/ais.php in production). Real
-   * harbor traffic as backdrop, and the city ferries snap onto their AIS
-   * twins. An empty URL disables the layer, and so does offline mode –
-   * neither has live traffic to reach. ?ais=0 is softer: it opens with the
-   * fleet switched off, and the panel's "AIS ships" switch turns it back
-   * on (see handleToggleAisVessels in App.tsx).
+   * endpoint – Vite middleware in dev, api/ais.php in production, both
+   * answering for the city asked for with `?city=<slug>`). Real harbor
+   * traffic as backdrop; the AIS twins of the boats this map already
+   * runs from a timetable are excluded per city
+   * (city.ais.simulatedByMmsi). An empty URL disables the layer, and
+   * so does offline mode – neither has live traffic to reach. ?ais=0 is
+   * softer: it opens with the fleet switched off, and the panel's "AIS
+   * ships" switch turns it back on (see handleToggleAisVessels in App.tsx).
    */
   ais: {
     url: (import.meta.env?.VITE_AIS_URL as string | undefined) ?? '/api/ais',
@@ -86,19 +72,6 @@ export const config = {
      * window's 8 s flush for that flush to reach anyone at all.
      */
     pollIntervalMs: 10_000,
-    /**
-     * Which real vessel sails which simulated ferry line (MMSI → line
-     * id): the Gehlsdorf solar ferry and the two boats sharing the
-     * Warnemünde–Hohe Düne crossing. The ferries run purely on their
-     * timetable – this map only EXCLUDES their AIS twins from the
-     * backdrop fleet, one boat per crossing. Identified from live AIS
-     * 2026-08-27; a replacement vessel would need its MMSI added here.
-     */
-    ferryLineByMmsi: {
-      211825200: 'FG', // WARNOWSTROMER
-      211624750: 'FW', // BREITLING
-      211624870: 'FW', // MF WARNOW
-    } as Record<number, string>,
   },
 
   /**
@@ -114,10 +87,11 @@ export const config = {
    * long-lens look every fake-miniature photograph is shot with.
    *
    * The distances tuned at 60° follow the angle rather than staying put
-   * (see framingDistanceScale in map/camera-fov.ts): the home view below,
-   * the chase cam, and the stop flight all frame the same ground at any
-   * setting. Only camera poses in shared URL hashes carry a plain height
-   * and therefore open a little closer in than they were saved at.
+   * (see framingDistanceScale in map/camera-fov.ts): the home view of
+   * each city, the chase cam, and the stop flight all frame the same
+   * ground at any setting. Only camera poses in shared URL hashes carry a
+   * plain height and therefore open a little closer in than they were
+   * saved at.
    *
    * Switching the miniature look off puts the plain lens back on, eased
    * over a few frames with the camera walking along to hold the framing
@@ -139,32 +113,14 @@ export const config = {
   },
 
   /**
-   * The home view (also the "Reset camera" view): the camera looks at the
-   * center of the Rostock bounding box (lib/rostock-bounding-box.ts),
-   * moved by HOME_VIEW_OFFSET_METERS, from `height` meters up, with this
-   * heading and pitch – where the camera itself stands follows from that
-   * (see homePosition in map/CesiumMap.ts). A URL hash (#lat=…&lon=…)
-   * still takes precedence when present. The height is the one that
-   * framed the city at 60° – it is scaled to the configured field of view
-   * when the camera flies home.
-   */
-  home: {
-    /** The ground point the view is centered on. */
-    longitude: homeLongitude,
-    latitude: homeLatitude,
-    height: 5800,
-    heading: 0,
-    pitch: -40,
-  },
-
-  /**
-   * Camera leash: the view stays over Rostock instead of roaming the
-   * globe. The area the camera may be in is the Rostock bounding box –
-   * the city limits widened by 15 km, the one rectangle the data pipeline
-   * and the AIS subscription use too (see lib/rostock-bounding-box.ts) –
-   * and `maxHeightMeters` is the ceiling it may not zoom out past. Beyond
+   * Camera leash: the view stays over the city instead of roaming the
+   * globe. The area the camera may be in is the city's bounding box –
+   * the city limits widened by its padding, the one rectangle the data
+   * pipeline and the AIS subscription use too (see lib/city.ts) – and
+   * `maxHeightMeters` is the ceiling it may not zoom out past. Beyond
    * the city there is nothing this app can show, and every place the
-   * camera visits pulls its own photorealistic tiles.
+   * camera visits pulls its own photorealistic tiles. The leash is lifted
+   * for the flight from one city to the next.
    */
   cameraLimits: {
     maxHeightMeters: 25_000,
@@ -190,6 +146,7 @@ export const config = {
     /** Mode-specific travel speeds (m/s); missing = cruiseSpeedMps. */
     cruiseSpeedByMode: {
       tram: 8.3,
+      subway: 10.0, // ~36 km/h between stations (incl. accel/brake)
       train: 11.0, // S-Bahn ~40 km/h between city stations (incl. accel/brake)
       bus: 6.9, // ~25 km/h city traffic
       ferry: 3.0, // ~6 kn harbor crossing
@@ -205,17 +162,14 @@ export const config = {
   },
 
   /**
-   * Default vehicle dimensions per transit mode in meters (L × W × H).
-   * Ferries get their real dimensions per line from network.json.
+   * Fallback vehicle dimensions per transit mode in meters (L × W × H),
+   * for a line whose city fleet (city.fleet) and data say nothing.
    */
   vehicles: {
-    /** Modeled after a 6N2. */
     tram: { length: 32, width: 2.65, height: 3.6 },
-    /** S-Bahn: Talent 2 (BR 442) three-car unit (usually set per line in network.json). */
+    subway: { length: 40, width: 2.6, height: 3.5 },
     train: { length: 56.8, width: 2.92, height: 4.3 },
-    /** Standard 12 m city bus. */
     bus: { length: 12, width: 2.55, height: 3.1 },
-    /** Fallback in case a ferry comes without dimensions. */
     ferry: { length: 20, width: 7, height: 4 },
   },
 } as const

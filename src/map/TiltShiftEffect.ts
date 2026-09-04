@@ -71,8 +71,8 @@ const TEXTURE_SCALE = 0.8
  * plane of focus. An eased ramp would keep the rows next to the band
  * nearly sharp and make the band look wider than it is set to.
  */
-const BAND_HALF_HEIGHT = 0.16
-const BAND_FEATHER = 0.4
+const BAND_HALF_HEIGHT = 0.18
+const BAND_FEATHER = 0.44
 
 /**
  * Blur radius at the top and bottom edges, as a fraction of the viewport
@@ -433,6 +433,17 @@ export class TiltShiftEffect {
    */
   get strength(): number {
     return Math.max(this.appliedStrength, 0)
+  }
+
+  /**
+   * Whether the three passes are compiled and actually running. Cesium
+   * builds a post-process stage's shader asynchronously and skips the
+   * stage until it is done, so a frame drawn right after the switch can
+   * still be the unblurred one – which looks like the effect failing
+   * rather than like it not being there yet. Tests wait on this.
+   */
+  get ready(): boolean {
+    return this.composite.enabled && this.composite.ready
   }
 
   /**

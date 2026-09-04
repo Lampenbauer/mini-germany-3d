@@ -20,6 +20,9 @@ declare global {
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
       setRealtimeDelays: (delays: Record<string, number>) => void
+      /** Slug of the city on the map, and the picker's way to another one. */
+      city: () => string
+      setCity: (slug: string) => void
       setRain: (precipitationMm: number) => void
       setCloudCover: (cloudCoverPercent: number) => void
       rainDropsVisible: () => number
@@ -43,6 +46,8 @@ declare global {
       renderRate: () => number
       anyVehicleInView: () => boolean
       streetLamps: () => { drawn: number; alpha: number }
+      /** The miniature effect: on, how much the pose carries, passes compiled. */
+      tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

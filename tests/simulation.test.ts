@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { loadBundledNetwork } from '@/data/network'
+import { loadRostockNetwork } from './cities'
 import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 
 describe('Simulation with the Rostock network', () => {
-  const network = loadBundledNetwork()
+  const network = loadRostockNetwork()
   const sim = new Simulation(network, new SimClock())
 
   it('has active vehicles on almost all lines during rush hour', () => {
@@ -94,7 +94,7 @@ describe('Simulation with the Rostock network', () => {
 })
 
 describe('trip progress (all stops + vehicle position)', () => {
-  const network = loadBundledNetwork()
+  const network = loadRostockNetwork()
   const sim = new Simulation(network, new SimClock())
   const t = 8.5 * 3600
 
@@ -171,7 +171,7 @@ describe('trip progress (all stops + vehicle position)', () => {
 })
 
 describe('terminal layover', () => {
-  const network = loadBundledNetwork()
+  const network = loadRostockNetwork()
   const sim = new Simulation(network, new SimClock())
 
   it('keeps the vehicle standing at its terminus for the turnaround time', () => {
@@ -212,7 +212,7 @@ describe('terminal layover', () => {
 })
 
 describe('terrain heights in snapshots', () => {
-  const network = loadBundledNetwork()
+  const network = loadRostockNetwork()
   const sim = new Simulation(network, new SimClock())
 
   it('every vehicle carries an interpolated NHN height from its route profile', () => {

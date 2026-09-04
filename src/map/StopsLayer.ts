@@ -217,6 +217,18 @@ export class StopsLayer {
     return this.stopRecords.length
   }
 
+  /** Takes every stop off the map (the map is moving on to another city). */
+  clear(): void {
+    if (this.stopBillboards) {
+      // remove() destroys the collection and with it every billboard.
+      this.viewer.scene.primitives.remove(this.stopBillboards)
+      this.stopBillboards = null
+    }
+    this.stopRecords = []
+    this.stopLabelsDirty = true
+    this.host.requestRender()
+  }
+
   /**
    * Current world position of a stop's disc (billboard height included),
    * or null for an unknown id. E2E helper – lets a test click the real

@@ -28,7 +28,13 @@ const tramSnapshotSignature = () =>
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  // Routes off. Under SwiftShader the route polylines are what the
+  // rasterizer chokes on – measured per frame on the offline scene: the
+  // whole thing 489 ms, the routes alone 464 ms of it (see the note in
+  // tilt-shift.spec.ts). Nothing here is measured off the screen, and the
+  // one route assertion below reads the entities' colours, which a hidden
+  // polyline carries just the same.
+  await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
@@ -157,6 +163,15 @@ test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', 
 })
 
 test('the underground view swaps ghosted and solid vehicles', async () => {
+  // Three polls of up to 30 s each, and every one of them waits for a
+  // frame: with the clock paused and nothing moving, the render loop
+  // idles at a 15 s heartbeat (see the pacing gate in App.tsx), so a
+  // vehicle's new opacity can take two heartbeats to become readable.
+  // The file's 3-minute default left no room for that and this test
+  // tipped over it on a green run, taking all fourteen with it through
+  // the serial retry.
+  test.setTimeout(240_000)
+
   const source = await page.evaluate(() => window.__mrt!.dataSource)
   test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
 

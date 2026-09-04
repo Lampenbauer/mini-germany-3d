@@ -1,6 +1,6 @@
 <?php
 /**
- * AIS vessel positions for the Rostock map, from aisstream.io – on shared
+ * AIS vessel positions for the map, from aisstream.io – on shared
  * hosting, which cannot hold a WebSocket open permanently. Every refresh
  * therefore opens the stream for a short listen window, merges what it
  * heard into a persistent state file, and closes again. What that costs
@@ -39,13 +39,16 @@
  *   - aisstream.io-api-key.txt two levels up – above the docroot, where the
  *     rsync --delete deploy (ci.yml) can never touch it
  *
- * Bounding box: rostock-bounding-box.json next to this script – the one
- * definition the whole project shares (src/data/rostock-bounding-box.json,
- * see src/lib/rostock-bounding-box.ts), copied here by the deploy – or, in
- * a repository checkout, that src/data file two levels up.
+ * Bounding boxes: every city's cities/<slug>/city.json next to this
+ * script – the definitions the whole project shares (src/cities/, see
+ * src/lib/city.ts), copied here by the deploy – or, in a repository
+ * checkout, the src/cities folders two levels up. ONE subscription
+ * carries every city's box (aisstream allows three connections per
+ * account); a request answers for the city it names (?city=<slug>,
+ * default rostock) with the vessels inside that city's box.
  *   php ais.php --bbox
- * prints the box the script subscribes with; scripts/test-ais-parity.mjs
- * compares it against the TypeScript side.
+ * prints the boxes the script subscribes with; scripts/test-ais-parity.mjs
+ * compares them against the TypeScript side.
  *
  * Self-test (CLI, no network):
  *   php ais.php --selftest messages.json <now-ms>
@@ -63,11 +66,12 @@ ini_set('serialize_precision', '-1');
 
 const MRT_AIS_HOST = 'stream.aisstream.io';
 const MRT_AIS_PATH = '/v0/stream';
-/** Where rostock-bounding-box.json is looked for, in order (see the header). */
-const MRT_AIS_BBOX_FILES = [
-    __DIR__ . '/rostock-bounding-box.json',
-    __DIR__ . '/../../src/data/rostock-bounding-box.json',
+/** Where cities/<slug>/city.json is looked for, in order (see the header). */
+const MRT_AIS_CITY_DIRS = [
+    __DIR__ . '/cities',
+    __DIR__ . '/../../src/cities',
 ];
+const MRT_AIS_DEFAULT_CITY = 'rostock';
 /**
  * State age at which a BROWSER request triggers the next listen window –
  * it bounds the blind gap the browser-driven path leaves when no keeper
@@ -306,28 +310,68 @@ function mrt_ws_parse(string &$buffer): ?array
 }
 
 /**
- * The Rostock bounding box as aisstream wants it ([[lat, lon] SW,
- * [lat, lon] NE]), from rostock-bounding-box.json – or null when no copy
- * is found or it carries no box, which is a deployment error and gets a
- * log line, unlike the transient failures around it.
+ * The cities with AIS, from the first directory that holds any city.json:
+ * slug → box in degrees (west/south/east/north). Definitions with
+ * ais.enabled false are left out. Empty when nothing is found, which is
+ * a deployment error and gets a log line, unlike the transient failures
+ * around it.
+ *
+ * @return array<string, array{west:float,south:float,east:float,north:float}>
  */
-function mrt_ais_bbox(): ?array
+function mrt_ais_cities(): array
 {
-    foreach (MRT_AIS_BBOX_FILES as $file) {
-        if (!is_file($file)) continue;
-        $data = json_decode((string) file_get_contents($file), true);
-        $box = is_array($data) ? ($data['boundingBox'] ?? null) : null;
-        if (is_array($box) && isset($box['west'], $box['south'], $box['east'], $box['north'])) {
-            return [
-                [(float) $box['south'], (float) $box['west']],
-                [(float) $box['north'], (float) $box['east']],
+    foreach (MRT_AIS_CITY_DIRS as $dir) {
+        $files = glob($dir . '/*/city.json');
+        if (!is_array($files) || $files === []) continue;
+        sort($files);
+        $cities = [];
+        foreach ($files as $file) {
+            $data = json_decode((string) file_get_contents($file), true);
+            if (!is_array($data)) continue;
+            $slug = $data['slug'] ?? basename(dirname($file));
+            $box = $data['boundingBox'] ?? null;
+            if (!is_string($slug) || !is_array($box)
+                || !isset($box['west'], $box['south'], $box['east'], $box['north'])) {
+                error_log('ais.php: ' . $file . ' carries no usable boundingBox');
+                continue;
+            }
+            $ais = $data['ais'] ?? [];
+            if (is_array($ais) && array_key_exists('enabled', $ais) && $ais['enabled'] === false) continue;
+            $cities[$slug] = [
+                'west' => (float) $box['west'],
+                'south' => (float) $box['south'],
+                'east' => (float) $box['east'],
+                'north' => (float) $box['north'],
             ];
         }
-        error_log('ais.php: ' . $file . ' carries no usable boundingBox');
-        return null;
+        return $cities;
     }
-    error_log('ais.php: rostock-bounding-box.json not found (' . implode(', ', MRT_AIS_BBOX_FILES) . ')');
-    return null;
+    error_log('ais.php: no cities/<slug>/city.json found (' . implode(', ', MRT_AIS_CITY_DIRS) . ')');
+    return [];
+}
+
+/**
+ * Every city's box as aisstream wants it ([[lat, lon] SW, [lat, lon] NE]
+ * each), in city order – null when there is none to subscribe with.
+ */
+function mrt_ais_bboxes(): ?array
+{
+    $boxes = [];
+    foreach (mrt_ais_cities() as $box) {
+        $boxes[] = [
+            [$box['south'], $box['west']],
+            [$box['north'], $box['east']],
+        ];
+    }
+    return $boxes === [] ? null : $boxes;
+}
+
+/** Whether a position lies inside a city's box (edges included). */
+function mrt_ais_inside(array $box, $lat, $lon): bool
+{
+    return is_numeric($lat) && is_numeric($lon)
+        && $lon >= $box['west'] && $lon <= $box['east']
+        && $lat >= $box['south'] && $lat <= $box['north'];
 }
 
 /**
@@ -341,8 +385,8 @@ function mrt_ais_listen(
     ?callable $onFlush = null,
     ?float $hardDeadline = null
 ): bool {
-    $bbox = mrt_ais_bbox();
-    if ($bbox === null) return false;
+    $bboxes = mrt_ais_bboxes();
+    if ($bboxes === null) return false;
     $context = stream_context_create(['ssl' => ['peer_name' => MRT_AIS_HOST]]);
     $fp = @stream_socket_client(
         'ssl://' . MRT_AIS_HOST . ':443', $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context
@@ -375,7 +419,7 @@ function mrt_ais_listen(
     // Bytes past the header block are already frames – keep them.
     $buffer = substr($buffer, $headerEnd + 4);
 
-    mrt_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => [$bbox]]));
+    mrt_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => $bboxes]));
 
     $fragment = '';
     $heard = false;
@@ -479,25 +523,36 @@ function mrt_ais_save(string $stateFile, array $state, int $listenedAt): void
     rename($tmp, $stateFile);
 }
 
-function mrt_ais_respond(array $state, int $listenedAt): void
+/**
+ * Answers with the vessels of one city's box – the state holds every
+ * city's ships, the browser asked for one harbor.
+ */
+function mrt_ais_respond(array $state, int $listenedAt, ?array $box = null): void
 {
     $nowMs = mrt_now_ms();
+    $vessels = mrt_ais_vessels($state, $nowMs);
+    if ($box !== null) {
+        $vessels = array_values(array_filter(
+            $vessels,
+            fn(array $vessel) => mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])
+        ));
+    }
     // servedAt is the clock-skew anchor: positionAt stamps only compare
     // to the client's clock through the moment THIS response left, not
     // through the (possibly much older) moment the state was written.
     echo json_encode([
         'timestamp' => $listenedAt,
         'servedAt' => $nowMs,
-        'vessels' => mrt_ais_vessels($state, $nowMs),
+        'vessels' => $vessels,
     ]);
 }
 
-// --- CLI: the box this script subscribes with ------------------------------
-// scripts/test-ais-parity.mjs compares it against rostock-bounding-box.ts.
+// --- CLI: the boxes this script subscribes with ----------------------------
+// scripts/test-ais-parity.mjs compares them against the city definitions.
 if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--bbox') {
-    $bbox = mrt_ais_bbox();
-    if ($bbox === null) exit(1);
-    echo json_encode($bbox), "\n";
+    $bboxes = mrt_ais_bboxes();
+    if ($bboxes === null) exit(1);
+    echo json_encode($bboxes), "\n";
     exit(0);
 }
 
@@ -541,6 +596,15 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
+$citySlug = $_GET['city'] ?? MRT_AIS_DEFAULT_CITY;
+$cities = mrt_ais_cities();
+if (!is_string($citySlug) || !isset($cities[$citySlug])) {
+    http_response_code(404);
+    echo json_encode(['error' => 'Unknown city']);
+    exit;
+}
+$cityBox = $cities[$citySlug];
+
 $apiKey = mrt_ais_key();
 if ($apiKey === '') {
     http_response_code(503);
@@ -563,13 +627,13 @@ $keeper = isset($_GET['listen']);
 // a moving ship's jump grows with.
 $ageSeconds = (mrt_now_ms() - $data['listenedAt']) / 1000;
 if (!$keeper && $ageSeconds <= MRT_AIS_TTL_SECONDS) {
-    mrt_ais_respond($data['state'], $data['listenedAt']);
+    mrt_ais_respond($data['state'], $data['listenedAt'], $cityBox);
     exit;
 }
 
 // Answer from the state either way, then listen with the response gone –
 // nobody waits on a window, not even while the keeper queues for the lock.
-mrt_ais_respond($data['state'], $data['listenedAt']);
+mrt_ais_respond($data['state'], $data['listenedAt'], $cityBox);
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {

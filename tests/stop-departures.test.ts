@@ -93,8 +93,8 @@ describe('upcomingDepartures', () => {
 
 describe('upcomingDepartures on the real network', () => {
   it('fills a rush-hour board at a real interchange', async () => {
-    const { loadBundledNetwork } = await import('@/data/network')
-    const network = loadBundledNetwork()
+    const { loadRostockNetwork } = await import('./cities')
+    const network = loadRostockNetwork()
     const sim = new Simulation(network, new SimClock())
     // Any stop served by at least two tram lines
     const counts = new Map<string, Set<string>>()

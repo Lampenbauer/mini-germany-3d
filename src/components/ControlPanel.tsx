@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   Gauge,
@@ -15,11 +16,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MODE_ICON } from '@/components/mode-icon'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import type { TransitMode } from '@/data/network-types'
 import { MODE_KEY, t } from '@/lib/i18n'
+import { TRANSIT_MODES } from '@/lib/transit-mode'
 
 export interface LineToggleInfo {
   id: string
@@ -31,7 +35,22 @@ export interface LineToggleInfo {
   visible: boolean
 }
 
+/** A city as the picker lists it. */
+export interface CityChoice {
+  slug: string
+  name: string
+  /** Transit modes the city's network has – shown as icons in the list. */
+  modes: readonly TransitMode[]
+}
+
 export interface ControlPanelProps {
+  /** The city on the map – its name is the panel title. */
+  city: CityChoice
+  /** Every city this build knows, in picker order. */
+  cities: readonly CityChoice[]
+  /** The city's data is still on its way: the picker waits, the list is empty. */
+  cityLoading: boolean
+  onSelectCity: (slug: string) => void
   clockText: string
   speed: number
   paused: boolean
@@ -64,8 +83,8 @@ export interface ControlPanelProps {
   onToggleAisVessels: (visible: boolean) => void
 }
 
-/** Display order and label keys of the transit-mode groups. */
-const MODE_ORDER: TransitMode[] = ['tram', 'train', 'bus', 'ferry']
+/** Display order of the transit-mode groups. */
+const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
 /**
  * One transit-mode group of the line list (header only when >1 group).
  * Memoized: the panel re-renders 4×/s for the clock, but the line rows only
@@ -140,6 +159,7 @@ const LineGroup = memo(function LineGroup(props: {
 
 export function ControlPanel(props: ControlPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
+  const [cityOpen, setCityOpen] = useState(false)
   /**
    * The time field is uncontrolled – the native picker owns its value. "Now"
    * therefore has to clear it explicitly, otherwise the field keeps showing a
@@ -162,9 +182,68 @@ export function ControlPanel(props: ControlPanelProps) {
     // time-lapse and the layer switches stay put however long the list gets.
     <Card className="pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden border-border/60 bg-card/85 backdrop-blur-md">
       <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <TramFront className="size-5 text-primary" aria-hidden />
-          Mini Rostock 3D
+        <CardTitle className="flex min-w-0 items-center gap-1.5 text-base">
+          <TramFront className="size-5 shrink-0 text-primary" aria-hidden />
+          <span className="truncate" data-testid="app-title">
+            {t('city.title', { name: props.city.name })}
+          </span>
+          {/* The caret beside the title opens the list of cities. Only
+              offered when there is somewhere else to go – a single city
+              needs no picker, and a caret that opens a list of one would
+              promise a choice it cannot give. */}
+          {props.cities.length > 1 && (
+            <Popover open={cityOpen} onOpenChange={setCityOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  aria-label={t('city.pick')}
+                  disabled={props.cityLoading}
+                >
+                  <ChevronDown aria-hidden />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-1.5">
+                <ul role="listbox" aria-label={t('city.pick')} className="flex flex-col gap-0.5">
+                  {props.cities.map((city) => {
+                    const current = city.slug === props.city.slug
+                    return (
+                      <li key={city.slug}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={current}
+                          aria-label={current ? city.name : t('city.switchTo', { name: city.name })}
+                          className={cn(
+                            'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/60',
+                            current && 'bg-accent/40',
+                          )}
+                          onClick={() => {
+                            setCityOpen(false)
+                            if (!current) props.onSelectCity(city.slug)
+                          }}
+                        >
+                          <span className="min-w-0 flex-1 truncate">{city.name}</span>
+                          <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                            {city.modes.map((mode) => {
+                              const Icon = MODE_ICON[mode]
+                              return <Icon key={mode} className="size-3.5" aria-hidden />
+                            })}
+                          </span>
+                          {current ? (
+                            <Check className="size-4 shrink-0 text-primary" aria-hidden />
+                          ) : (
+                            <span className="size-4 shrink-0" aria-hidden />
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          )}
         </CardTitle>
         <Button
           variant="ghost"

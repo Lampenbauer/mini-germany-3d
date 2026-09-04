@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
 import { toDegrees } from '@/lib/geo'
-import { padBoundingBox, rostockBoundingBox } from '@/lib/rostock-bounding-box'
+import { padBoundingBox } from '@/lib/city'
+import { rostockBoundingBox } from './cities'
 import { boundingBoxCameraLimits, clampCameraPose } from '@/map/camera-limits'
 
 const MAX_HEIGHT_M = 25_000

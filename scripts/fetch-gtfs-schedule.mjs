@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * Generates src/data/schedule.json with real departure times from a GTFS
- * feed (default: the free Germany-wide local transit feed from gtfs.de).
+ * Generates src/cities/<slug>/schedule.json with real departure times
+ * from a GTFS feed (default: the free Germany-wide feed from gtfs.de).
  *
- *   npm run data:gtfs
+ *   npm run data:gtfs -- --city rostock     (no --city: every city)
  *
  * Environment variables:
+ *   CITY       – the city, like --city
+ *   NETWORK_OUT / SCHEDULE_OUT – alternative network.json to read and
+ *                schedule.json to write (one city only)
  *   GTFS_URL   – GTFS zip URL (default: https://download.gtfs.de/germany/free/latest.zip,
  *                the FULL Germany feed – the smaller nv_free local-transit
  *                split excludes rail and thus the S-Bahn).
@@ -26,34 +29,32 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
-import { containsLonLat, rostockCityBounds } from '../src/lib/rostock-bounding-box.ts'
+import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
+import { cityInsidePredicate, forEachRequestedCity } from './lib/city.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const OUT = resolve(__dirname, '../src/data/schedule.json')
-const NETWORK_JSON = resolve(__dirname, '../src/data/network.json')
 const CACHE_DIR = resolve(__dirname, '.cache')
 // Full feed, not nv_free: gtfs.de sorts S-Bahn schedules into the
 // regional-rail split, so the local-transit feed alone has no trains.
 const GTFS_URL = process.env.GTFS_URL || 'https://download.gtfs.de/germany/free/latest.zip'
 
-// The rectangle that decides which stops are Rostock stops – deliberately
-// the bare city limits (rostockCityBounds), NOT the padded
-// rostockBoundingBox the rest of the project uses: a trip's departure
-// time and geometry anchors are read at its first/last stop INSIDE this
-// rectangle (see the stop_times scan), and the S-Bahn network is truncated
-// at Rostock Hbf. With 15 km of padding the first stop of an S2/S3 from
-// Güstrow would be Schwaan or Laage, and the trains would leave Hbf some
-// twenty minutes early – the rough box used until 2026-09-03 already read
-// them at Huckstorf and Scharstorf, 16–20 minutes before Hbf. Every stop
-// of the network lies inside the city rectangle; the check in main() says
-// so when one day one does not.
-const BBOX = rostockCityBounds
+// The rectangle that decides which stops are the city's stops is
+// deliberately the bare city limits (city.cityBounds), NOT the padded
+// boundingBox the rest of the project uses: a trip's departure time and
+// geometry anchors are read at its first/last stop INSIDE this rectangle
+// (see the stop_times scan), and the network is cut at the same limits
+// (data:update). With the padding the first stop of a regional train
+// would be a station in the next town, and the train would leave the
+// map's last station twenty minutes early. Every stop of the network lies
+// inside the city rectangle; the check in main() says so when one day one
+// does not.
 
 // GTFS route_types per mode of transport (basic and extended types)
 const ROUTE_TYPES = {
   tram: new Set(['0', '900']),
-  // 2 rail, 106 regional rail, 109 suburban railway – feeds label the
-  // Rostock S-Bahn inconsistently; false positives (an "S1" elsewhere in
+  subway: new Set(['1', '400', '401', '402']),
+  // 2 rail, 106 regional rail, 109 suburban railway – feeds label
+  // S-Bahn lines inconsistently; false positives (an "S1" elsewhere in
   // Germany) are eliminated by the stop-BBOX filter below.
   train: new Set(['2', '106', '109']),
   bus: new Set(['3', '700', '704']),
@@ -62,27 +63,22 @@ const ROUTE_TYPES = {
 
 // Ferry routes that match no pier name are held onto and assigned to a
 // network ferry line later via their terminal coordinates (the gtfs.de
-// feed carries the Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
+// feed carries the Rostock Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
 // route_long_name, so name matching alone cannot find them).
 const FERRY_PENDING = '\u0000pending-ferry'
 
-// The gtfs.de feed collapses the Rostock S-Bahn's Güstrow legs into ONE
-// route with the bare short name "S" (no headsigns either). Its trips are
-// told apart by the branch stations they serve OUTSIDE the Rostock box:
-// the S2 runs via Schwaan/Bützow, the S3 via Kavelstorf/Laage. Trips of
-// such routes are held as pending and classified during the stop_times
-// scan; unclassifiable ones are dropped.
+// Some feeds collapse the legs of an S-Bahn into ONE route with the bare
+// short name "S" (no headsigns either). Its trips are told apart by the
+// branch stations they serve OUTSIDE the city (city.gtfs.trainBranches):
+// trips of such routes are held as pending and classified during the
+// stop_times scan; unclassifiable ones are dropped.
 const TRAIN_PENDING = String.fromCharCode(0) + 'pending-train'
-const TRAIN_BRANCH_PROBES = [
-  { lineId: 'S2', pattern: /^(Schwaan|Bützow)\b/ },
-  { lineId: 'S3', pattern: /^(Kavelstorf|Kronskamp|Laage|Plaaz)\b/ },
-]
 
 // Note: a pre-filter via agency.txt would be tempting (a "line 22" exists in
-// dozens of cities) but fails on the feed's operator names (the RSAG is not
-// listed there as "Rostock…"). The reliable Rostock filter therefore remains
-// matching the stops against the BBOX; agency.txt is only read for
-// diagnostic output.
+// dozens of cities) but fails on the feed's operator names (an operator is
+// not necessarily listed under its city's name). The reliable city filter
+// therefore remains matching the stops against the BBOX; agency.txt is
+// only read for diagnostic output.
 
 // Only these files are extracted from the zip (saves gigabytes of RAM)
 const NEEDED_FILES = new Set([
@@ -182,14 +178,30 @@ function timeToSeconds(hhmmss) {
   return h * 3600 + m * 60 + (s || 0)
 }
 
-const normalizeName = (s) =>
-  s
-    .toLowerCase()
-    .replace(/rostock,?\s*/g, '')
-    .replace(/[^a-zäöüß0-9]+/g, ' ')
-    .trim()
+/**
+ * Stop and headsign names as they are compared: lower-case, the city's
+ * prefix the feed puts in front of them ("Rostock, Hbf") stripped, and
+ * everything but letters and digits collapsed into spaces.
+ */
+const makeNormalizeName = (strip) => {
+  const prefix = strip
+    ? new RegExp(strip.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ',?\\s*', 'g')
+    : null
+  return (s) => {
+    let text = s.toLowerCase()
+    if (prefix) text = text.replace(prefix, '')
+    return text.replace(/[^a-zäöüß0-9]+/g, ' ').trim()
+  }
+}
 
-async function loadZip() {
+/** The feed, read once per run however many cities follow. */
+let zipBufferPromise = null
+function loadZip() {
+  zipBufferPromise ??= loadZipOnce()
+  return zipBufferPromise
+}
+
+async function loadZipOnce() {
   if (process.env.GTFS_FILE) {
     console.log(`Reading local GTFS file ${process.env.GTFS_FILE}`)
     return readFileSync(process.env.GTFS_FILE)
@@ -209,7 +221,16 @@ async function loadZip() {
   return buffer
 }
 
-async function main() {
+async function main(city, paths) {
+  const OUT = process.env.SCHEDULE_OUT ? resolve(process.env.SCHEDULE_OUT) : paths.schedule
+  const NETWORK_JSON = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
+  // The city limits polygon where the city has one, its rectangle otherwise
+  const insideCity = cityInsidePredicate(city)
+  const normalizeName = makeNormalizeName(city.gtfs.nameStrip)
+  const trainBranchProbes = city.gtfs.trainBranches.map((branch) => ({
+    lineId: branch.lineId,
+    pattern: new RegExp(branch.pattern),
+  }))
   // The lines (including their mode of transport) come from network.json –
   // this GTFS script looks up the matching schedules for exactly these lines.
   const networkJson = JSON.parse(readFileSync(NETWORK_JSON, 'utf8'))
@@ -225,7 +246,7 @@ async function main() {
   }
   console.log(
     `network.json: ${networkLines.size} lines (` +
-      ['tram', 'train', 'bus', 'ferry']
+      TRANSIT_MODES
         .map((m) => `${[...networkLines.values()].filter((v) => v === m).length}× ${m}`)
         .join(', ') +
       ')',
@@ -242,33 +263,33 @@ async function main() {
     }
   }
 
-  // ---- stops.txt: stops within the Rostock city area -----------------------
-  const rostockStopCoords = new Map() // stop_id → [lon, lat]
-  const rostockStopNames = new Map() // stop_id → name (for diagnostics)
+  // ---- stops.txt: stops within the city limits ----------------------------
+  const cityStopCoords = new Map() // stop_id → [lon, lat]
+  const cityStopNames = new Map() // stop_id → name (for diagnostics)
   const trainProbeStops = new Map() // stop_id → lineId (S-Bahn branch, OUTSIDE bbox)
   scanCsv(files['stops.txt'], (get) => {
     const name = get('stop_name')
-    for (const probe of TRAIN_BRANCH_PROBES) {
+    for (const probe of trainBranchProbes) {
       if (probe.pattern.test(name)) trainProbeStops.set(get('stop_id'), probe.lineId)
     }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
-    if (containsLonLat(BBOX, lon, lat)) {
-      rostockStopCoords.set(get('stop_id'), [lon, lat])
-      rostockStopNames.set(get('stop_id'), name)
+    if (insideCity(lon, lat)) {
+      cityStopCoords.set(get('stop_id'), [lon, lat])
+      cityStopNames.set(get('stop_id'), name)
     }
   })
-  const stopsInRostock = rostockStopCoords
-  console.log(`${stopsInRostock.size} stops within the Rostock city area`)
+  const stopsInCity = cityStopCoords
+  console.log(`${stopsInCity.size} stops within the ${city.name} city limits`)
   // A network stop outside the rectangle means its line's departure time
   // is read one or more stops down the route – say so rather than let the
   // schedule quietly drift.
   const networkStopsOutside = Object.entries(networkJson.stops ?? {}).filter(
-    ([, stop]) => !containsLonLat(BBOX, stop.coord[0], stop.coord[1]),
+    ([, stop]) => !insideCity(stop.coord[0], stop.coord[1]),
   )
   if (networkStopsOutside.length > 0) {
     console.warn(
-      `⚠ ${networkStopsOutside.length} network stops lie outside the Rostock city rectangle ` +
+      `⚠ ${networkStopsOutside.length} network stops lie outside the ${city.name} city limits ` +
         `(${networkStopsOutside
           .slice(0, 5)
           .map(([id, stop]) => `${stop.name} [${id}]`)
@@ -289,7 +310,7 @@ async function main() {
   // Trams/buses are matched via the line number (route_short_name), ferries
   // via the pier names in route_long_name (their short names are
   // feed-dependent). Bus IDs with the collision prefix "B" match their number.
-  // Deliberately Germany-wide: the Rostock relevance is established later via
+  // Deliberately Germany-wide: the city relevance is established later via
   // the stop coordinates (BBOX filter of the stop_times).
   const routeLine = new Map() // route_id → lineId
   const routeAgency = new Map() // route_id → agency_id (diagnostics)
@@ -329,6 +350,7 @@ async function main() {
       !routeLine.has(get('route_id')) &&
       ROUTE_TYPES.train.has(type) &&
       /^S[0-9]{0,2}$/.test(short) &&
+      trainBranchProbes.length > 0 &&
       [...networkLines.values()].includes('train')
     ) {
       routeLine.set(get('route_id'), TRAIN_PENDING)
@@ -336,7 +358,7 @@ async function main() {
     }
   })
   console.log(
-    `${routeLine.size} candidate routes (Germany-wide – the Rostock filter follows via the stops)`,
+    `${routeLine.size} candidate routes (Germany-wide – the city filter follows via the stops)`,
   )
 
   // ---- trips.txt: only trips of the candidate routes ------------------------
@@ -357,16 +379,16 @@ async function main() {
   })
   console.log(`${tripInfo.size} candidate trips (${tripsWithDirectionId} with direction_id)`)
 
-  // ---- stop_times.txt: first/last stop WITHIN the Rostock bbox ------------
+  // ---- stop_times.txt: first/last stop WITHIN the city bbox ---------------
   // Departure times and geometry anchors deliberately use the in-box
-  // portion of a trip, not its true origin: lines truncated at the map
-  // edge (the S-Bahn at Rostock Hbf – S2/S3 really start in Güstrow,
-  // ~40 minutes earlier) must depart the network at their LOCAL time.
-  // For trips fully inside the box (all RSAG lines) both are identical.
+  // portion of a trip, not its true origin: lines cut at the city limits
+  // (a regional train that really starts in the next town, ~40 minutes
+  // earlier) must depart the network at their LOCAL time. For trips fully
+  // inside the box (every city line) both are identical.
   console.log('Streaming stop_times.txt … (largest file, please wait)')
-  const firstRostockStop = new Map() // trip_id → {seq, dep, stopId}
-  const lastRostockStop = new Map() // trip_id → {seq, stopId}
-  const tripTouchesRostock = new Set()
+  const firstCityStop = new Map() // trip_id → {seq, dep, stopId}
+  const lastCityStop = new Map() // trip_id → {seq, stopId}
+  const tripTouchesCity = new Set()
   const tripBranchLine = new Map() // trip_id → lineId (pending S-Bahn trips)
   let rows = 0
   scanCsv(files['stop_times.txt'], (get) => {
@@ -377,24 +399,24 @@ async function main() {
     if (!info) return
     const stopId = get('stop_id')
     // Branch classification for pending S-Bahn trips – their probe
-    // stations lie OUTSIDE the bbox, so check before the Rostock filter.
+    // stations lie OUTSIDE the bbox, so check before the city filter.
     if (info.lineId === TRAIN_PENDING) {
       const branchLine = trainProbeStops.get(stopId)
       if (branchLine) tripBranchLine.set(tripId, branchLine)
     }
-    if (!stopsInRostock.has(stopId)) return
-    tripTouchesRostock.add(tripId)
+    if (!stopsInCity.has(stopId)) return
+    tripTouchesCity.add(tripId)
     const seq = Number(get('stop_sequence'))
-    const cur = firstRostockStop.get(tripId)
+    const cur = firstCityStop.get(tripId)
     if (!cur || seq < cur.seq) {
-      firstRostockStop.set(tripId, { seq, dep: get('departure_time'), stopId })
+      firstCityStop.set(tripId, { seq, dep: get('departure_time'), stopId })
     }
-    const last = lastRostockStop.get(tripId)
+    const last = lastCityStop.get(tripId)
     if (!last || seq > last.seq) {
-      lastRostockStop.set(tripId, { seq, stopId })
+      lastCityStop.set(tripId, { seq, stopId })
     }
   })
-  console.log(`Processed ${rows} stop_times rows, ${tripTouchesRostock.size} Rostock trips`)
+  console.log(`Processed ${rows} stop_times rows, ${tripTouchesCity.size} ${city.name} trips`)
 
   // ---- Resolve pending ferry routes via terminal coordinates ---------------
   // A ferry trip belongs to a network ferry line when its first and last
@@ -413,11 +435,11 @@ async function main() {
       if (first && last) ferryPiers.push({ lineId: line.id, first, last })
     }
     const resolvedPerLine = new Map()
-    for (const tripId of [...tripTouchesRostock]) {
+    for (const tripId of [...tripTouchesCity]) {
       const info = tripInfo.get(tripId)
       if (info.lineId !== FERRY_PENDING) continue
-      const from = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
-      const to = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
+      const from = cityStopCoords.get(firstCityStop.get(tripId)?.stopId)
+      const to = cityStopCoords.get(lastCityStop.get(tripId)?.stopId)
       let assigned = null
       if (from && to) {
         for (const pier of ferryPiers) {
@@ -436,7 +458,7 @@ async function main() {
         resolvedPerLine.set(assigned, (resolvedPerLine.get(assigned) ?? 0) + 1)
       } else {
         // Some other ferry that happens to touch the bounding box
-        tripTouchesRostock.delete(tripId)
+        tripTouchesCity.delete(tripId)
         tripInfo.delete(tripId)
       }
     }
@@ -449,7 +471,7 @@ async function main() {
   {
     const resolvedPerLine = new Map()
     let droppedTrainTrips = 0
-    for (const tripId of [...tripTouchesRostock]) {
+    for (const tripId of [...tripTouchesCity]) {
       const info = tripInfo.get(tripId)
       if (info.lineId !== TRAIN_PENDING) continue
       const branchLine = tripBranchLine.get(tripId)
@@ -461,7 +483,7 @@ async function main() {
         // the box) – the line number cannot be told, so stay honest and
         // drop the trip rather than guessing.
         droppedTrainTrips++
-        tripTouchesRostock.delete(tripId)
+        tripTouchesCity.delete(tripId)
         tripInfo.delete(tripId)
       }
     }
@@ -473,10 +495,10 @@ async function main() {
     }
   }
 
-  if (tripTouchesRostock.size === 0) {
+  if (tripTouchesCity.size === 0) {
     throw new Error(
-      'No Rostock trips found in the feed. ' +
-        'Check GTFS_URL – consider using the official VVW feed.',
+      `No ${city.name} trips found in the feed. ` +
+        'Check GTFS_URL – or use the transport association\'s own feed via GTFS_FILE.',
     )
   }
 
@@ -519,14 +541,14 @@ async function main() {
     return dateStr >= cal.start && dateStr <= cal.end && cal.days[weekday]
   }
 
-  const rostockServiceIds = new Set(
-    [...tripTouchesRostock].map((tripId) => tripInfo.get(tripId).serviceId),
+  const cityServiceIds = new Set(
+    [...tripTouchesCity].map((tripId) => tripInfo.get(tripId).serviceId),
   )
 
   let activeServiceIds
   let serviceDate = null
   if (calendarServices.size > 0 || calendarExceptions.size > 0) {
-    // Try the next 21 days; the day with the most active Rostock trips wins
+    // Try the next 21 days; the day with the most active city trips wins
     // (ties go to the earlier day).
     let best = { count: -1, date: null, services: new Set() }
     for (let offset = 0; offset < 21; offset++) {
@@ -537,10 +559,10 @@ async function main() {
         String(day.getDate()).padStart(2, '0')
       const weekday = day.getDay()
       const services = new Set(
-        [...rostockServiceIds].filter((id) => isServiceActiveOn(id, dateStr, weekday)),
+        [...cityServiceIds].filter((id) => isServiceActiveOn(id, dateStr, weekday)),
       )
       let count = 0
-      for (const tripId of tripTouchesRostock) {
+      for (const tripId of tripTouchesCity) {
         if (services.has(tripInfo.get(tripId).serviceId)) count++
       }
       if (count > best.count) best = { count, date: dateStr, services }
@@ -553,7 +575,7 @@ async function main() {
   } else {
     // Fallback without calendar data: the single busiest service_id
     const tripsPerService = new Map()
-    for (const tripId of tripTouchesRostock) {
+    for (const tripId of tripTouchesCity) {
       const info = tripInfo.get(tripId)
       tripsPerService.set(info.serviceId, (tripsPerService.get(info.serviceId) || 0) + 1)
     }
@@ -564,12 +586,12 @@ async function main() {
     )
   }
 
-  // ---- Diagnostics: which operators are behind the Rostock trips? ----------
+  // ---- Diagnostics: which operators are behind the city's trips? -----------
   // More than one operator per line suggests a number collision
   // (e.g. a city bus and a regional bus with the same number in the city area).
   {
     const lineAgencies = new Map() // lineId → Map<agencyName, count>
-    for (const tripId of tripTouchesRostock) {
+    for (const tripId of tripTouchesCity) {
       const info = tripInfo.get(tripId)
       const name =
         agencyNames.get(routeAgency.get(info.routeId) ?? '') ||
@@ -669,14 +691,14 @@ async function main() {
     const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
 
     // 1) Travel direction along the line geometry
-    const firstCoord = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
-    const lastCoord = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
+    const firstCoord = cityStopCoords.get(firstCityStop.get(tripId)?.stopId)
+    const lastCoord = cityStopCoords.get(lastCityStop.get(tripId)?.stopId)
     if (firstCoord && lastCoord && targets.path) {
       const a = projectOntoPath(targets.path, targets.cum, firstCoord)
       const b = projectOntoPath(targets.path, targets.cum, lastCoord)
       // Enough route between the projections so the direction is
-      // unambiguous: ~400 m, but capped at 40 % of the line length – the
-      // Warnemünde–Hohe Düne ferry crossing is shorter than 400 m in total.
+      // unambiguous: ~400 m, but capped at 40 % of the line length – a
+      // harbor ferry crossing can be shorter than 400 m in total.
       const total = targets.cum[targets.cum.length - 1]
       if (Math.abs(b - a) > Math.min(400, total * 0.4)) {
         stats.path++
@@ -710,8 +732,8 @@ async function main() {
     if (!targets) return null
     const geo = direction === '1' ? targets.geo1 : { path: targets.path, cum: targets.cum }
     if (!geo?.path || geo.path.length < 2) return null
-    const firstCoord = rostockStopCoords.get(firstRostockStop.get(tripId)?.stopId)
-    const lastCoord = rostockStopCoords.get(lastRostockStop.get(tripId)?.stopId)
+    const firstCoord = cityStopCoords.get(firstCityStop.get(tripId)?.stopId)
+    const lastCoord = cityStopCoords.get(lastCityStop.get(tripId)?.stopId)
     if (!firstCoord || !lastCoord) return null
     const start = projectOntoPath(geo.path, geo.cum, firstCoord)
     const end = projectOntoPath(geo.path, geo.cum, lastCoord)
@@ -731,7 +753,7 @@ async function main() {
   if (useDirectionId) {
     let identity = 0
     let swapped = 0
-    for (const tripId of tripTouchesRostock) {
+    for (const tripId of tripTouchesCity) {
       const info = tripInfo.get(tripId)
       if (!activeServiceIds.has(info.serviceId)) continue
       const cls = classifyTrip(tripId, info)
@@ -745,10 +767,10 @@ async function main() {
   // ---- Write schedule.json --------------------------------------------------
   const lines = {}
   let unclassified = 0
-  for (const tripId of tripTouchesRostock) {
+  for (const tripId of tripTouchesCity) {
     const info = tripInfo.get(tripId)
     if (!activeServiceIds.has(info.serviceId)) continue
-    const first = firstRostockStop.get(tripId)
+    const first = firstCityStop.get(tripId)
     if (!first?.dep) continue
 
     let direction
@@ -805,12 +827,12 @@ async function main() {
   }
   if (process.env.GTFS_DEBUG) {
     const endpoints = {} // lineId → dir → Map<"from → to", count>
-    for (const tripId of tripTouchesRostock) {
+    for (const tripId of tripTouchesCity) {
       const info = tripInfo.get(tripId)
       if (!activeServiceIds.has(info.serviceId)) continue
       const direction = classifyTrip(tripId, info)
-      const from = rostockStopNames.get(firstRostockStop.get(tripId)?.stopId) ?? '?'
-      const to = rostockStopNames.get(lastRostockStop.get(tripId)?.stopId) ?? '?'
+      const from = cityStopNames.get(firstCityStop.get(tripId)?.stopId) ?? '?'
+      const to = cityStopNames.get(lastCityStop.get(tripId)?.stopId) ?? '?'
       const key = `${from} → ${to}`
       endpoints[info.lineId] ??= {}
       const dirMap = (endpoints[info.lineId][direction ?? 'skipped'] ??= new Map())
@@ -861,7 +883,7 @@ async function main() {
   console.log(`\n✅ Wrote ${OUT} – ${summary}`)
 }
 
-main().catch((err) => {
+forEachRequestedCity(main).catch((err) => {
   console.error('❌ Error:', err.message)
   process.exit(1)
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { lonLatToUtm33, parseFloat32Tiff, sampleTile } from '../scripts/lib/dgm.mjs'
+import { lonLatToUtm, lonLatToUtm33, parseFloat32Tiff, sampleTile } from '../scripts/lib/dgm.mjs'
+import { parseXyzTile, sampleXyzTile, tileCornerFromName } from '../scripts/lib/xyz-terrain.mjs'
 import {
   applyBridgeProfile,
   fillHeightGaps,
@@ -18,6 +19,56 @@ describe('lonLatToUtm33', () => {
     const [x, y] = lonLatToUtm33(12.123295, 54.084875)
     expect(x).toBeCloseTo(311841.7, 0)
     expect(y).toBeCloseTo(5996791.8, 0)
+  })
+
+  it('maps Hamburg into UTM zone 32 for its DGM', () => {
+    // Hamburg Rathaus; zone 32 has its central meridian at 9° E, so the
+    // easting lands just east of 500 km.
+    const [x, y] = lonLatToUtm(9.9937, 53.5503, 'EPSG:25832')
+    expect(x).toBeGreaterThan(560_000)
+    expect(x).toBeLessThan(570_000)
+    expect(y).toBeGreaterThan(5_930_000)
+    expect(y).toBeLessThan(5_940_000)
+    // Zone 33 would put the same point 400 km further west
+    expect(lonLatToUtm(9.9937, 53.5503, 'EPSG:25833')[0]).toBeLessThan(200_000)
+    expect(() => lonLatToUtm(9.99, 53.55, 'EPSG:4326')).toThrow(/Unsupported terrain CRS/)
+  })
+})
+
+describe('XYZ terrain tiles (Hamburg DGM10)', () => {
+  it('reads a tile corner off the file name', () => {
+    expect(tileCornerFromName('DGM10_HH_2016-01-04/DGM10_32548_5934_2_FHH.xyz')).toEqual({
+      east: 548_000,
+      north: 5_934_000,
+    })
+    expect(tileCornerFromName('DGM10_HH_2016-01-04/')).toBeNull()
+    expect(tileCornerFromName('readme.txt')).toBeNull()
+  })
+
+  it('parses cell centers into a grid and interpolates between them', () => {
+    // A 40 m tile at 10 m spacing: heights rise 1 m per cell eastwards,
+    // 10 m per cell northwards; one cell (2, 1) is missing.
+    const corner = { east: 1000, north: 2000 }
+    const lines: string[] = []
+    for (let iy = 0; iy < 4; iy++) {
+      for (let ix = 0; ix < 4; ix++) {
+        if (ix === 2 && iy === 1) continue
+        lines.push(`${1005 + ix * 10}.00 ${2005 + iy * 10}.00 ${(ix + iy * 10).toFixed(2)}`)
+      }
+    }
+    const tile = parseXyzTile(lines.join('\n') + '\n', corner, 40, 10)
+    expect(tile.width).toBe(4)
+    expect(tile.points).toBe(15)
+    // Exactly on a cell center
+    expect(sampleXyzTile(tile, 1005, 2005)).toBeCloseTo(0, 6)
+    expect(sampleXyzTile(tile, 1015, 2025)).toBeCloseTo(21, 6)
+    // Halfway between four centers: the mean of their heights
+    expect(sampleXyzTile(tile, 1010, 2010)).toBeCloseTo((0 + 1 + 10 + 11) / 4, 6)
+    // Beside the hole the nearest valid center answers: (1023, 2016) lies
+    // closest to cell (1, 1), with (2, 1) missing
+    expect(sampleXyzTile(tile, 1023, 2016)).toBeCloseTo(11, 6)
+    // Off the tile there is nothing
+    expect(sampleXyzTile(tile, 1200, 2200)).toBeUndefined()
   })
 })
 

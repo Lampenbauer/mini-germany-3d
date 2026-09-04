@@ -20,6 +20,8 @@ export interface VehicleSnapshot {
   mode: TransitMode
   /** Vehicle dimensions for the 3D box in meters. */
   vehicle: VehicleDimensions
+  /** glTF consist the vehicle is drawn with (see VehicleLayer); undefined = box. */
+  model?: string
   direction: 0 | 1
   lon: number
   lat: number
@@ -309,6 +311,7 @@ export class Simulation {
         color: line.color,
         mode: line.mode,
         vehicle: line.vehicle,
+        model: line.model,
         direction: trip.direction,
         lon: state.lon,
         lat: state.lat,

@@ -2,9 +2,10 @@
  * Timetable engine: generates trips and, from them, computes the position
  * of every tram at a point in time.
  *
- * By default a realistic interval timetable is synthesized (RSAG runs every
- * 10 minutes during the day). If a schedule.json generated from real GTFS
- * data exists (npm run data:gtfs), its departure times are used instead.
+ * By default a realistic interval timetable is synthesized (a tram every
+ * 10 minutes during the day, modeled after the Rostock RSAG service). If a
+ * schedule.json generated from real GTFS data exists (npm run data:gtfs),
+ * its departure times are used instead.
  */
 
 import { sampleAtDistance } from '@/lib/geo'
@@ -63,6 +64,8 @@ export const DEFAULT_SERVICE: HeadwaySpan[] = [
  */
 export const DEFAULT_SERVICE_BY_MODE: Record<TransitMode, HeadwaySpan[]> = {
   tram: DEFAULT_SERVICE,
+  // Subway fallback: a plain 10-minute service through the day.
+  subway: [{ startMin: 4 * 60 + 30, endMin: 24 * 60, headwayMin: 10 }],
   // S-Bahn fallback: each of the three lines every 30 min ≈ the real
   // 7.5–15 min combined headway on the shared Warnemünde corridor.
   train: [{ startMin: 4 * 60 + 30, endMin: 24 * 60, headwayMin: 30 }],

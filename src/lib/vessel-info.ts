@@ -12,8 +12,12 @@ import { t, type MessageKey } from '@/lib/i18n'
 /**
  * AIS ship type → label key. The first digit is the group, the second a
  * cargo hint we ignore (nobody needs "Cargo ship, hazardous category B" on
- * a city map). The 3x group is the exception: it is not a group at all but
- * a list of individual special craft.
+ * a city map) – except where ITU-R M.1371-6 (February 2026) gave the
+ * second digit a meaning worth showing: 65–67 tell a cruise ship from a
+ * ferry and from a harbour cruise boat, 75–78 split the cargo group into
+ * bulk carrier, container ship, ro-ro and landing craft, and 38 and 39
+ * name the trawler and the patrol vessel. The 3x and 5x groups are not
+ * groups at all but lists of individual special craft.
  */
 export function vesselTypeKey(typeCode: number): MessageKey | null {
   if (!Number.isFinite(typeCode) || typeCode <= 0) return null
@@ -33,7 +37,31 @@ export function vesselTypeKey(typeCode: number): MessageKey | null {
       return 'vesselType.sailing'
     case 37:
       return 'vesselType.pleasure'
+    case 38:
+      return 'vesselType.trawler'
+    case 39:
+      return 'vesselType.patrol'
+    case 65:
+      return 'vesselType.cruise'
+    case 66:
+      return 'vesselType.ferry'
+    case 67:
+      return 'vesselType.excursion'
+    case 75:
+      return 'vesselType.bulkCarrier'
+    case 76:
+      return 'vesselType.containerShip'
+    case 77:
+      return 'vesselType.roro'
+    case 78:
+      return 'vesselType.landingCraft'
+    case 86:
+      return 'vesselType.tugAndBarge'
   }
+  // Special purpose ships (01–09) and support vessels (11–19): an ice
+  // breaker, a buoy tender, a cable layer, an offshore supply ship
+  if (typeCode >= 1 && typeCode <= 9) return 'vesselType.specialPurpose'
+  if (typeCode >= 11 && typeCode <= 19) return 'vesselType.support'
   switch (Math.floor(typeCode / 10)) {
     case 4:
       return 'vesselType.highSpeed'

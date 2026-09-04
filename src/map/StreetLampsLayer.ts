@@ -100,6 +100,8 @@ export class StreetLampsLayer {
   private appliedAlpha = -1
   /** Ground anchor the cells were built at – a change forces a rebuild. */
   private builtAnchor = Number.NaN
+  /** The data attribution add() registered, taken down again by clear(). */
+  private credit: Credit | null = null
 
   constructor(viewer: Viewer, host: StreetLampsLayerHost) {
     this.viewer = viewer
@@ -111,9 +113,22 @@ export class StreetLampsLayer {
    * the first frame that would actually show them (see update).
    */
   add(data: StreetLampData): void {
+    this.clear()
     this.data = data
     // OSM (ODbL) and the DGM heights both require visible attribution.
-    this.viewer.creditDisplay.addStaticCredit(new Credit(data.meta.attribution, false))
+    this.credit = new Credit(data.meta.attribution, false)
+    this.viewer.creditDisplay.addStaticCredit(this.credit)
+  }
+
+  /** Takes the lamps off the map (the map is moving on to another city). */
+  clear(): void {
+    this.destroyCells()
+    this.data = null
+    if (this.credit) {
+      this.viewer.creditDisplay.removeStaticCredit(this.credit)
+      this.credit = null
+    }
+    this.host.requestRender()
   }
 
   /** Debug/tests: lamps batched into the scene and their current opacity. */
@@ -295,7 +310,6 @@ export class StreetLampsLayer {
   }
 
   destroy(): void {
-    this.destroyCells()
-    this.data = null
+    this.clear()
   }
 }

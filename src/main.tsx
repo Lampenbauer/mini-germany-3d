@@ -7,6 +7,6 @@ import '@/index.css'
 import { createRoot } from 'react-dom/client'
 import App from '@/App'
 
-console.info(`[MiniRostock3D] Build ${__BUILD_ID__}`)
+console.info(`[MiniGermany3D] Build ${__BUILD_ID__}`)
 
 createRoot(document.getElementById('root')!).render(<App />)

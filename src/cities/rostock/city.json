@@ -1,0 +1,94 @@
+{
+  "slug": "rostock",
+  "name": "Rostock",
+  "osmRelation": 62405,
+  "cityBoundsQueriedOn": "2026-09-03",
+  "cityBounds": {
+    "west": 11.998369,
+    "south": 54.050805,
+    "east": 12.2954016,
+    "north": 54.2444795
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 11.7666,
+    "south": 53.9158,
+    "east": 12.5272,
+    "north": 54.3795
+  },
+  "home": {
+    "longitude": 12.116191,
+    "latitude": 54.084748,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 12.1469,
+    "latitude": 54.1477
+  },
+  "network": {
+    "modes": ["tram", "train", "bus", "ferry"],
+    "overpass": {
+      "tram": {},
+      "bus": { "operator": "Rostocker Straßenbahn|RSAG" },
+      "train": { "service": "commuter", "ref": "^S[0-9]+$" }
+    },
+    "fixedLines": [
+      {
+        "osmRelation": 56291,
+        "mode": "ferry",
+        "id": "FG",
+        "name": "Ferry Kabutzenhof – Gehlsdorf",
+        "from": "Kabutzenhof",
+        "to": "Gehlsdorf",
+        "color": "#0E7490",
+        "vehicle": { "length": 19.9, "width": 6.6, "height": 3.5 },
+        "model": "ferry-warnow-fg"
+      },
+      {
+        "osmRelation": 56296,
+        "mode": "ferry",
+        "id": "FW",
+        "name": "Ferry Warnemünde – Hohe Düne",
+        "from": "Warnemünde",
+        "to": "Hohe Düne",
+        "color": "#155E75",
+        "vehicle": { "length": 39, "width": 11, "height": 6 },
+        "model": "ferry-warnow-fw"
+      }
+    ],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "rostock",
+    "trainBranches": [
+      { "lineId": "S2", "pattern": "^(Schwaan|Bützow)\\b" },
+      { "lineId": "S3", "pattern": "^(Kavelstorf|Kronskamp|Laage|Plaaz)\\b" }
+    ]
+  },
+  "fleet": {
+    "tram": { "model": "tram-6n2", "length": 32, "width": 2.65, "height": 3.6 },
+    "train": { "model": "sbahn-talent2", "length": 56.8, "width": 2.92, "height": 4.3 },
+    "bus": { "model": "bus-12m", "length": 12, "width": 2.55, "height": 3.1 },
+    "ferry": { "length": 20, "width": 7, "height": 4 }
+  },
+  "terrain": {
+    "provider": "wcs-geotiff",
+    "url": "https://www.geodaten-mv.de/dienste/dgm_wcs",
+    "coverage": "mv_dgm5",
+    "crs": "EPSG:25833",
+    "geoidOffsetFallback": 36.5,
+    "waterLevelNhn": 0,
+    "attribution": "Terrain heights © GeoBasis-DE/M-V (DGM via WCS, geodaten-mv.de)."
+  },
+  "lamps": { "enabled": true, "minPlausible": 1000 },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {
+      "211825200": "FG",
+      "211624750": "FW",
+      "211624870": "FW"
+    }
+  }
+}
