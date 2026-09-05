@@ -95,6 +95,7 @@ describe('cityFromJson', () => {
     expect(city.network.modes).toEqual(['tram', 'subway', 'train', 'bus', 'ferry'])
     expect(city.network.clip).toBe('city')
     expect(city.terrain.zoom).toBe(15)
+    expect(city.webcams.exclude).toEqual([])
     expect(city.ais.enabled).toBe(true)
     expect(city.ais.simulatedByMmsi).toEqual({})
   })

@@ -182,6 +182,16 @@ export interface CityAisConfig {
   simulatedByMmsi: Record<string, string>
 }
 
+/** The live webcams of a city (Windy), see src/lib/webcams.ts. */
+export interface CityWebcamsConfig {
+  /**
+   * Windy webcam ids left off the map – a camera that shows something
+   * other than the city (a stork's nest), or one whose picture never
+   * changes. Both proxies apply the list before the browser sees it.
+   */
+  exclude: number[]
+}
+
 export interface City {
   /** URL-safe identifier: the folder name under src/cities/. */
   slug: string
@@ -208,6 +218,7 @@ export interface City {
   fleet: Partial<Record<TransitMode, CityFleetEntry>>
   terrain: CityTerrainConfig
   ais: CityAisConfig
+  webcams: CityWebcamsConfig
 }
 
 /**
@@ -430,6 +441,12 @@ export function cityFromJson(raw: unknown): City {
 
   const terrainRaw = isObject(raw.terrain) ? raw.terrain : {}
   const aisRaw = isObject(raw.ais) ? raw.ais : {}
+  const webcamsRaw = isObject(raw.webcams) ? raw.webcams : {}
+  const exclude: number[] = []
+  if (webcamsRaw.exclude !== undefined) {
+    if (!Array.isArray(webcamsRaw.exclude)) fail('webcams.exclude', 'an array of Windy webcam ids')
+    webcamsRaw.exclude.forEach((id, i) => exclude.push(num(id, `webcams.exclude[${i}]`)))
+  }
   const simulatedByMmsi: Record<string, string> = {}
   if (aisRaw.simulatedByMmsi !== undefined) {
     if (!isObject(aisRaw.simulatedByMmsi)) fail('ais.simulatedByMmsi', 'an object')
@@ -472,5 +489,6 @@ export function cityFromJson(raw: unknown): City {
       attribution: optionalStr(terrainRaw.attribution, 'terrain.attribution'),
     },
     ais: { enabled: aisRaw.enabled === undefined ? true : aisRaw.enabled === true, simulatedByMmsi },
+    webcams: { exclude },
   }
 }

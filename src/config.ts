@@ -54,6 +54,18 @@ export const config = {
   },
 
   /**
+   * Live webcams (Windy's Webcams API, see src/lib/webcams.ts): the
+   * endpoint is a proxy that carries the key – the dev middleware in
+   * vite.config.ts, api/webcams.php in production. Polled every ten
+   * minutes: the cameras refresh at that rate, and so do the picture
+   * URLs on the free tier.
+   */
+  webcams: {
+    url: (import.meta.env?.VITE_WEBCAMS_URL as string | undefined) ?? '/api/webcams',
+    pollIntervalMs: 600_000,
+  },
+
+  /**
    * AIS vessel positions (aisstream.io, via the filtered /api/ais
    * endpoint – Vite middleware in dev, api/ais.php in production, both
    * answering for the city asked for with `?city=<slug>`). Real harbor

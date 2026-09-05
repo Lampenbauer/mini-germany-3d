@@ -64,6 +64,7 @@ import {
   WEATHER_PRESETS,
   type WeatherMode,
 } from '@/lib/weather'
+import { WebcamsClient } from '@/lib/webcams'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
@@ -183,6 +184,8 @@ interface UrlOptions {
   ais: boolean
   /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
   lamps: boolean
+  /** Live webcams floating over their spot (?webcams=0 disables them). */
+  webcams: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
   maximumScreenSpaceError: number | undefined
   /** Cap on the rain drop pool (?drops=50) – keeps the E2E rain test cheap. */
@@ -273,6 +276,7 @@ function readUrlOptions(): UrlOptions {
     rain: params.get('rain') !== '0',
     ais: params.get('ais') !== '0',
     lamps: params.get('lamps') !== '0',
+    webcams: params.get('webcams') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
   }
@@ -793,6 +797,8 @@ export default function App() {
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
       onSelectVessel: selectVessel,
+      // Windy's terms: a picture leads to its windy.com page
+      onOpenWebcam: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
       onSelectStop: selectStop,
       onTilesetStatus: (status) => {
         tilesetStatusRef.current = status
@@ -1322,6 +1328,7 @@ export default function App() {
     let realtimeClient: RealtimeClient | null = null
     let aisClient: AisClient | null = null
     let weatherClient: WeatherClient | null = null
+    let webcamsClient: WebcamsClient | null = null
 
     const start = async () => {
       const data = await loadCityData(sessionCity.slug)
@@ -1421,6 +1428,21 @@ export default function App() {
         weatherClient.start(config.weather.pollIntervalMs)
       }
 
+      // Live webcams over the city (Windy via /api/webcams). Offline mode
+      // has no network and the tests want a deterministic scene; ?webcams=0
+      // opts out. A failed poll leaves the pictures already up in place.
+      const webcamsEnabled =
+        urlOpts.webcams && !urlOpts.offline && import.meta.env.MODE !== 'test'
+      if (webcamsEnabled) {
+        webcamsClient = new WebcamsClient(
+          cityApiUrl(config.webcams.url, sessionCity.slug),
+          (status, webcams) => {
+            if (status.state === 'live') map.syncWebcams(webcams)
+          },
+        )
+        webcamsClient.start(config.webcams.pollIntervalMs)
+      }
+
       // What the link asked for in this city, now that the city can
       // answer: a vehicle (#vehicle=…) is picked up by the render loop
       // once its trip is in the snapshots, a stop (#stop=…) opens its
@@ -1473,6 +1495,7 @@ export default function App() {
       realtimeClient?.stop()
       aisClient?.stop()
       weatherClient?.stop()
+      webcamsClient?.stop()
       aisClientRef.current = null
       const api = apiRef.current
       if (api) {

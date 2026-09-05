@@ -44,7 +44,9 @@ import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
 import { VesselLayer } from './VesselLayer'
+import { WebcamsLayer } from './WebcamsLayer'
 import type { AisVessel } from '@/lib/ais-extract'
+import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -94,6 +96,8 @@ export interface CesiumMapOptions {
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
+  /** A webcam picture was clicked: its windy.com page, which the terms want opened. */
+  onOpenWebcam?: (url: string) => void
   /** Click on a stop disc or name plate (null = click on empty map). */
   onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
@@ -384,6 +388,8 @@ export class CesiumMap {
   private readonly stops: StopsLayer
   /** AIS harbor traffic (see VesselLayer). */
   private vesselLayer: VesselLayer
+  /** Live webcams floating over their spot (see WebcamsLayer). */
+  private readonly webcamsLayer: WebcamsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -574,6 +580,13 @@ export class CesiumMap {
         this.flyingUntil = performance.now() + durationMs
       },
     })
+    this.webcamsLayer = new WebcamsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+    })
     // The miniature look this whole map is named after – on or off from
     // the start as the URL or config.camera.miniatureDefault says, and
     // switched from the panel like the layers are. It costs nothing at the
@@ -692,6 +705,10 @@ export class CesiumMap {
         this.opts.onSelectStop?.(target.id)
       } else if (target?.type === 'vessel') {
         this.opts.onSelectVessel?.(Number(target.id))
+      } else if (target?.type === 'webcam') {
+        // A picture leads to its page; whatever is selected stays so
+        const url = this.webcamsLayer.detailUrl(Number(target.id))
+        if (url) this.opts.onOpenWebcam?.(url)
       } else {
         // Empty map clears whichever selection is up
         this.opts.onSelectVehicle?.(null)
@@ -736,7 +753,7 @@ export class CesiumMap {
    */
   private pickTarget(
     position: Cartesian2,
-  ): { type: 'vehicle' | 'stop' | 'vessel'; id: string } | null {
+  ): { type: 'vehicle' | 'stop' | 'vessel' | 'webcam'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
     const raw =
@@ -745,6 +762,7 @@ export class CesiumMap {
     if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
     if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
     if (raw.startsWith('vessel:')) return { type: 'vessel', id: raw.slice('vessel:'.length) }
+    if (raw.startsWith('webcam:')) return { type: 'webcam', id: raw.slice('webcam:'.length) }
     return null
   }
 
@@ -902,6 +920,7 @@ export class CesiumMap {
    */
   clearCity(): void {
     this.vehicleLayer.clear()
+    this.webcamsLayer.clear()
     this.stops.clear()
     this.routes.clear()
     this.streetLamps.clear()
@@ -1297,6 +1316,16 @@ export class CesiumMap {
    * themselves – is ghosted instead.
    */
   /** Per-tick update of the AIS harbor traffic (see VesselLayer). */
+  /** The city's webcams as last polled (see WebcamsLayer.sync). */
+  syncWebcams(webcams: Webcam[]): void {
+    this.webcamsLayer.sync(webcams)
+  }
+
+  /** Cameras on the map – tests and the debug API. */
+  getWebcamCount(): number {
+    return this.webcamsLayer.count
+  }
+
   syncVessels(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
     const info = this.vesselLayer.sync(vessels, nowMs)
     this.nearestVesselMeters = info.nearestHullMeters
@@ -1554,6 +1583,7 @@ export class CesiumMap {
     this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
     this.routes.updatePulse()
     this.streetLamps.update()
+    this.webcamsLayer.update()
     this.lens.update()
     this.tiltShift.update()
     this.viewer.render()

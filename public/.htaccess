@@ -4,6 +4,7 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteRule ^api/realtime$ api/realtime.php [L]
+  RewriteRule ^api/webcams$ api/webcams.php [L]
 </IfModule>
 
 # Caching: Vite-hashed assets may be cached "forever",
@@ -24,3 +25,14 @@
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
 </IfModule>
+
+# The Windy API key the deploy writes next to api/webcams.php (from the
+# WINDY_KEY repository secret, see ci.yml) is for the script alone.
+<Files "webcams-key.txt">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
+</Files>

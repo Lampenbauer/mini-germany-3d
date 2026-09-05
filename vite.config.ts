@@ -9,6 +9,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
 import { containsLonLat } from './src/lib/city'
+import { extractWebcams, windyNearby } from './src/lib/webcams-extract'
 import { CITIES, DEFAULT_CITY_SLUG, cityBySlug } from './src/cities/definitions'
 
 const UPSTREAM_RT_URL = 'https://realtime.gtfs.de/realtime-free.pb'
@@ -221,8 +222,103 @@ function aisLivePlugin(): Plugin {
   }
 }
 
+/**
+ * Dev/preview middleware for /api/webcams: asks Windy's Webcams API for
+ * the cameras around the city asked for (?city=<slug>) and answers the
+ * ones inside its box, cached for ten minutes – the cameras refresh at
+ * that rate. In production api/webcams.php does the same job; the
+ * extraction is shared via src/lib/webcams-extract.ts.
+ *
+ * Needs WINDY_KEY (env or .env, not VITE_-prefixed – the key must never
+ * reach the client bundle). Without it the endpoint answers 503 and the
+ * app runs without webcams.
+ */
+function webcamsPlugin(): Plugin {
+  const WINDY_URL = 'https://api.windy.com/webcams/api/v3/webcams'
+  const CACHE_TTL_MS = 600_000
+  const PAGE_SIZE = 50
+  const MAX_CAMERAS = 200
+  let apiKey = process.env.WINDY_KEY ?? ''
+  const cache = new Map<string, { at: number; body: string }>()
+
+  const fetchCity = async (slug: string): Promise<string> => {
+    const city = cityBySlug(slug)!
+    const { lat, lon, radiusKm } = windyNearby(city.boundingBox)
+    const pages: unknown[] = []
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+    while (offset < total && offset < MAX_CAMERAS) {
+      const url =
+        `${WINDY_URL}?nearby=${lat},${lon},${radiusKm}&limit=${PAGE_SIZE}&offset=${offset}` +
+        '&include=images,location,urls'
+      const response = await fetch(url, { headers: { 'x-windy-api-key': apiKey } })
+      if (!response.ok) throw new Error(`Windy answered HTTP ${response.status}`)
+      const data = (await response.json()) as { total?: number; webcams?: unknown[] }
+      const page = Array.isArray(data.webcams) ? data.webcams : []
+      pages.push(...page)
+      total = typeof data.total === 'number' ? data.total : pages.length
+      if (page.length === 0) break
+      offset += PAGE_SIZE
+    }
+    const webcams = extractWebcams({ webcams: pages }, city.boundingBox, city.webcams.exclude)
+    return JSON.stringify({ servedAt: Date.now(), webcams })
+  }
+
+  const handle = (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
+    if (!req.url || !req.url.startsWith('/api/webcams')) {
+      next()
+      return
+    }
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Cache-Control', 'no-store')
+    const city = requestedCity(req.url)
+    if (!city) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Unknown city' }))
+      return
+    }
+    if (!apiKey) {
+      res.statusCode = 503
+      res.end(JSON.stringify({ error: 'WINDY_KEY is not set - webcams disabled' }))
+      return
+    }
+    const cached = cache.get(city.slug)
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      res.end(cached.body)
+      return
+    }
+    fetchCity(city.slug)
+      .then((body) => {
+        cache.set(city.slug, { at: Date.now(), body })
+        res.end(body)
+      })
+      .catch((error: unknown) => {
+        // Stale beats nothing: the last answer stays good for the pictures
+        if (cached) {
+          res.end(cached.body)
+          return
+        }
+        res.statusCode = 502
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
+      })
+  }
+
+  return {
+    name: 'webcams',
+    configResolved(config) {
+      apiKey ||= loadEnv(config.mode, config.root, '').WINDY_KEY ?? ''
+    },
+    configureServer(server) {
+      server.middlewares.use(handle)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), gtfsRealtimeFilterPlugin(), aisLivePlugin()],
+  plugins: [react(), tailwindcss(), gtfsRealtimeFilterPlugin(), aisLivePlugin(), webcamsPlugin()],
   define: {
     CESIUM_BASE_URL: JSON.stringify('/cesium'),
     __BUILD_ID__: JSON.stringify(new Date().toISOString()),

@@ -274,6 +274,9 @@ place (typed and validated by `src/lib/city.ts`):
 - **`ais`** – whether the AIS backdrop is on, and which real vessels this map
   already runs from a timetable (`simulatedByMmsi`), so their AIS twins are
   left out of the backdrop fleet.
+- **`webcams`** – Windy webcam ids left off the map (`exclude`): a camera
+  that shows something other than the city, or one whose picture never
+  changes.
 
 Adding a city:
 
@@ -481,7 +484,9 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`,
-   `api/ais.php` and every city's `api/cities/<slug>/city.json` and
+   `api/ais.php`, `api/webcams.php` (with its key written from the
+   `WINDY_KEY` repository secret, kept from the web by `.htaccess`) and
+   every city's `api/cities/<slug>/city.json` and
    `schedule.json` rsynced to the document root from the `KAS_TARGET_DIR`
    secret. PR checks, feature-branch pushes, and failed tests do not deploy. A
    manual run of the CI workflow on `main` also goes through all tests first,
