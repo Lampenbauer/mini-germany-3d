@@ -5,11 +5,18 @@
  * of every state (Mecklenburg-Vorpommern: GeoBasis-DE/M-V, CC BY 4.0;
  * Schleswig-Holstein: GeoBasis-DE/LVermGeo SH, CC BY 4.0; the full list is
  * https://mapterhorn.com/attribution). Not every import is complete –
- * Hamburg's city centre falls back to the 30 m surface model there
- * (mapterhorn/mapterhorn#131) – so a new city is worth a look at a few
- * known heights before it goes live. One source for every city, no key,
- * no fee; heights are meters above the source's datum, in Germany NHN
- * (DHHN2016), so the app's geoid calibration stays as it is.
+ * Hamburg's import lacks 19 of the DGM1's 2 km squares, which fall back
+ * to the 30 m surface model (mapterhorn/mapterhorn#131) – so a new city
+ * is worth a look at a few known heights before it goes live. One source
+ * for every city, no key, no fee; heights are meters above the source's
+ * datum, in Germany NHN (DHHN2016), so the app's geoid calibration stays
+ * as it is.
+ *
+ * Where a city folder carries tiles of its own
+ * (src/cities/<slug>/terrain/{z}/{x}/{y}.webp – Hamburg's missing
+ * squares, rebuilt from the DGM1 by build-terrain-patch.mjs in
+ * Mapterhorn's format), those are read before the server is asked;
+ * everything else about a tile is the same, whichever it came from.
  *
  * The sampler fetches tiles on demand at the city's zoom (city.json
  * `terrain.zoom`: 15 is ~1.4 m per pixel at German latitudes, one level
@@ -28,6 +35,10 @@
  * on. Fetches run strictly sequentially – the pipeline is a weekly batch
  * job, not a latency-critical client.
  */
+
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { cityPaths } from './city.mjs'
 
 export const TILE_URL = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'
 export const TILE_SIZE = 512
@@ -90,6 +101,7 @@ export class MapterhornSampler {
    * @param opts.zoom             tile zoom to sample at (DEFAULT_ZOOM)
    * @param opts.minZoom          coarsest zoom tried where finer ones have no tile (MIN_ZOOM)
    * @param opts.urlTemplate      {z}/{x}/{y} template (TILE_URL)
+   * @param opts.localDir         folder with {z}/{x}/{y}.webp tiles read before the server is asked
    * @param opts.maxDecodedTiles  decoded tiles kept at once, 1 MB each
    * @param opts.retryDelayMs     pause before the one retry of a failed fetch
    * @param opts.fetchImpl        fetch replacement for the tests
@@ -99,6 +111,7 @@ export class MapterhornSampler {
     this.zoom = opts.zoom ?? DEFAULT_ZOOM
     this.minZoom = opts.minZoom ?? MIN_ZOOM
     this.urlTemplate = opts.urlTemplate ?? TILE_URL
+    this.localDir = opts.localDir ?? null
     this.maxDecodedTiles = opts.maxDecodedTiles ?? 128
     this.retryDelayMs = opts.retryDelayMs ?? 2000
     this.fetchImpl = opts.fetchImpl ?? fetch
@@ -107,7 +120,7 @@ export class MapterhornSampler {
     this.raw = new Map()
     /** "z/x/y" → heights, least recently used first. */
     this.decoded = new Map()
-    this.stats = { tiles: 0, bytes: 0, failedTiles: 0 }
+    this.stats = { tiles: 0, bytes: 0, failedTiles: 0, localTiles: 0 }
     this.label = `Mapterhorn z${this.zoom}`
   }
 
@@ -187,8 +200,18 @@ export class MapterhornSampler {
     return heights
   }
 
-  /** One tile's bytes; null on 404, false after the retry failed too. */
+  /**
+   * One tile's bytes: the city folder's own where it has one, else the
+   * server's; null on 404, false after the retry failed too.
+   */
   async fetchTile(zoom, x, y) {
+    if (this.localDir) {
+      const file = resolve(this.localDir, `${zoom}/${x}/${y}.webp`)
+      if (existsSync(file)) {
+        this.stats.localTiles++
+        return new Uint8Array(readFileSync(file))
+      }
+    }
     const url = this.urlTemplate.replace('{z}', zoom).replace('{x}', x).replace('{y}', y)
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, this.retryDelayMs))
@@ -214,9 +237,15 @@ export class MapterhornSampler {
   }
 }
 
-/** The sampler for a city – every city samples the same tiles at its own zoom. */
+/**
+ * The sampler for a city – every city samples the same tiles at its own
+ * zoom, after the ones its folder carries (src/cities/<slug>/terrain).
+ */
 export function createTerrainSampler(city) {
-  return new MapterhornSampler({ zoom: city.terrain.zoom })
+  return new MapterhornSampler({
+    zoom: city.terrain.zoom,
+    localDir: resolve(cityPaths(city.slug).dir, 'terrain'),
+  })
 }
 
 /** The attribution line the generated files carry for their heights. */
@@ -226,9 +255,10 @@ export function terrainAttribution(city) {
 
 /** One line for the run summary: what was fetched. */
 export function terrainSummary(sampler) {
-  const { tiles, bytes, failedTiles } = sampler.stats
+  const { tiles, bytes, failedTiles, localTiles } = sampler.stats
   return (
     `${tiles} ${sampler.label} tiles, ${(bytes / 1024 / 1024).toFixed(1)} MB` +
+    (localTiles > 0 ? `, ${localTiles} from the city folder` : '') +
     (failedTiles > 0 ? `, ${failedTiles} tile(s) FAILED` : '')
   )
 }

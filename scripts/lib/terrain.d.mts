@@ -16,6 +16,8 @@ export interface TerrainStats {
   tiles: number
   bytes: number
   failedTiles: number
+  /** Tiles read from the city folder instead of the server. */
+  localTiles: number
 }
 
 /** The part of a fetch Response the sampler reads. */
@@ -30,6 +32,7 @@ export class MapterhornSampler {
     zoom?: number
     minZoom?: number
     urlTemplate?: string
+    localDir?: string
     maxDecodedTiles?: number
     retryDelayMs?: number
     fetchImpl?: (url: string, init?: RequestInit) => Promise<TileResponse>
@@ -41,7 +44,7 @@ export class MapterhornSampler {
   heightAt(lon: number, lat: number): Promise<number | undefined>
 }
 
-export function createTerrainSampler(city: { terrain: { zoom: number } }): MapterhornSampler
+export function createTerrainSampler(city: { slug: string; terrain: { zoom: number } }): MapterhornSampler
 
 export function terrainAttribution(city: { terrain: { attribution?: string } }): string
 
