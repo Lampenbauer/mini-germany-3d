@@ -29,7 +29,11 @@ import { routeTunnelOpacity } from './tunnel-view'
 /** What the routes layer needs from the map around it. */
 export interface RoutesLayerHost {
   requestRender(): void
-  /** Offline mode draws on the bare ellipsoid, where DGM heights would float. */
+  /**
+   * Offline mode draws on the bare ellipsoid: its ground is 0 m, known
+   * without asking the scene, so the routes lie there as ordinary
+   * polylines rather than clamped ones (see add).
+   */
   readonly offline: boolean
 }
 
@@ -277,10 +281,10 @@ export class RoutesLayer {
    * from network.json (DGM © GeoBasis-DE/M-V) the routes are ordinary
    * polylines at absolute heights – Cesium's ground-clamping classification
    * passes cost measurable GPU time on EVERY rendered frame, so they are
-   * reserved as a fallback for directions without height data (and for the
-   * offline mode, whose ellipsoid ground sits at 0 m where NHN heights
-   * would float mid-air). Tunnel/underground sections become their own
-   * polyline pieces at 40 % of the normal opacity.
+   * reserved as a fallback for directions without height data. Offline,
+   * where the ground is the bare ellipsoid at 0 m, the routes lie on it as
+   * ordinary polylines as well. Tunnel/underground sections become their
+   * own polyline pieces at 40 % of the normal opacity.
    */
   add(network: PreparedNetwork): void {
     // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a
@@ -310,7 +314,12 @@ export class RoutesLayer {
       if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
 
       for (const dir of dirs) {
-        const heights = this.host.offline ? undefined : dir.heights
+        // Offline the ground is the bare ellipsoid at 0 m – known without
+        // asking the scene – so the routes are ordinary polylines there
+        // too, at 0 m plus lift, rather than clamped ones: clamping
+        // classifies against the depth buffer on every rendered frame,
+        // which made the grid globe cost twice the GPU of the photo tiles.
+        const heights = this.host.offline ? dir.path.map(() => 0) : dir.heights
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
           const inTunnel = piece.tunnel
@@ -394,10 +403,10 @@ export class RoutesLayer {
    * Current color of a route piece – the CallbackProperty behind every
    * piece's material, evaluated per rendered frame by Cesium's color
    * batch. Without a pulse it is the base color, so ending a pulse
-   * restores the exact originals by construction. (Offline mode draws
-   * ground-clamped routes in Cesium's per-material batch, which does not
-   * re-evaluate colors per frame – the pulse is only visible on the
-   * height-based routes of the normal online mode.)
+   * restores the exact originals by construction. (A clamped route – a
+   * direction without heights – sits in Cesium's per-material batch,
+   * which does not re-evaluate colors per frame; the pulse shows on the
+   * height-based routes only.)
    */
   private routePieceColor(lineId: string, base: Color, result: Color): Color {
     const pulse = this.routePulse
@@ -438,12 +447,14 @@ export class RoutesLayer {
     this.host.requestRender()
   }
 
-  /** World positions of a height-based route piece at the current offset and lift. */
+  /**
+   * World positions of a height-based route piece at the current offset
+   * and lift. Offline the heights are ellipsoidal already (0 m, see add)
+   * and no NHN→ellipsoid offset applies.
+   */
   private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
-    const totalLift = this.baseLift + lift
-    return path.map(([lon, lat], i) =>
-      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + totalLift),
-    )
+    const base = (this.host.offline ? 0 : this.routeHeightOffset) + this.baseLift + lift
+    return path.map(([lon, lat], i) => Cartesian3.fromDegrees(lon, lat, heights[i] + base))
   }
 
   /**

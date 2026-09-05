@@ -90,12 +90,21 @@ declare global {
           | undefined
       }
       clock: { currentTime: unknown }
+      scene: {
+        /**
+         * Ground-clamped geometry: the entity visualizers keep an (often
+         * empty) collection of their own in here, so what counts is the
+         * primitives inside those, not the top-level length.
+         */
+        groundPrimitives: { length: number; get: (index: number) => object }
+      }
       entities: {
         values: {
           id: string
           /** Whether the entity is drawn at all. */
           show: boolean
           polyline?: {
+            clampToGround?: { getValue: (time: unknown) => boolean | undefined }
             material?: {
               color?: {
                 getValue: (time: unknown) => { alpha: number } | undefined

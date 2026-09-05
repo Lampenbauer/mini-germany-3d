@@ -47,7 +47,7 @@ function routesWithFakeViewer(added: AddedRoute[]): RoutesLayer {
     },
     creditDisplay: { addStaticCredit: vi.fn() },
   } as unknown as Viewer
-  // offline: keeps the ground-clamped route branch these tests inspect
+  // offline: the routes lie on the ellipsoid at 0 m as ordinary polylines
   return new RoutesLayer(viewer, { requestRender: vi.fn(), offline: true })
 }
 
