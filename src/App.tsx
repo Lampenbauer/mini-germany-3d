@@ -132,6 +132,7 @@ export interface MrtTestApi {
    */
   tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
   renderPacing: () => {
+    /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
     rainActive: boolean
     vehicleInView: boolean
@@ -139,7 +140,12 @@ export interface MrtTestApi {
     vesselInView: boolean
     interacting: boolean
     tilesLoading: boolean
+    /** The fallback render interval; motion and camera changes request frames on their own. */
     intervalMs: number
+    /** The simulation tick interval in force (33 … 500 ms, see the loop). */
+    tickIntervalMs: number
+    /** On-screen speed of the fastest vehicle or ship in view, CSS px/s. */
+    motionPxPerSecond: number
   }
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
   vehicleBoxDriftMeters: () => number
@@ -952,6 +958,15 @@ export default function App() {
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
+    /**
+     * On-screen speed (CSS px/s) of the fastest vehicle or ship in view,
+     * measured over the last tick – see map/screen-motion.ts. Drives the
+     * tick rate: the ticks come as fast as they have to for the frames the
+     * motion earns, and no faster.
+     */
+    let lastMotionPxPerSecond = 0
+    let lastTickInterval = 33
+    const motionThresholdPx = map.motionThresholdCssPx
     let loopTicks = 0
     let lastLoopError: string | null = null
     const renderTimes: number[] = []
@@ -974,11 +989,39 @@ export default function App() {
       try {
         loopTicks++
         if (!document.hidden) {
-          // Tick the simulation at ~30 fps max; when paused or with no
-          // vehicle in view, 2 fps is plenty.
-          const tickInterval =
-            (clock.paused || !lastAnyVehicleInView) && !lastMovingVesselInView ? 500 : 33
+          // The map's pacing hints – the tick rate reads them as well as
+          // the render decision below. A map behind a finished diagram is
+          // not worth a frame either.
+          const hints =
+            render && !mapIsHidden()
+              ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+              : null
+          // Tick rate. Paused, or with nothing of either fleet in view,
+          // 2 fps is plenty. Otherwise the ticks follow the motion on
+          // screen: a tick is only worth taking when it can move something
+          // by a visible step (motionThresholdPx, see map/screen-motion.ts),
+          // so the interval is the time the fastest thing in view needs for
+          // one such step – 30 fps close up, where a tram crosses many
+          // pixels a second, down to 10 fps in the home view, where it
+          // crawls at one pixel a second and every frame between was a
+          // frame of nothing. Interaction, a chase cam and the diagram's
+          // dots keep the full rate: there the camera or the picture moves
+          // whatever the fleet does.
+          const diagramLive =
+            (linearRef.current || morphRef.current > 0) && snapshotsRef.current.length > 0
+          const fleetMoving =
+            !clock.paused && (lastAnyVehicleInView || lastMovingVesselInView || diagramLive)
+          const tickInterval = !fleetMoving
+            ? 500
+            : hints?.interacting || diagramLive || map.isChasing()
+              ? 33
+              : Math.min(
+                  100,
+                  Math.max(33, (1000 * motionThresholdPx) / Math.max(1e-6, lastMotionPxPerSecond)),
+                )
+          lastTickInterval = tickInterval
           if (now - lastSimTick >= tickInterval) {
+            const tickDtMs = Math.max(1, now - lastSimTick)
             lastSimTick = now
 
             // Scene lighting follows the simulated time in ~1-minute steps:
@@ -1029,7 +1072,11 @@ export default function App() {
             // Switched off, one sync with an empty list takes the hulls,
             // their models and their names off the map; after that there is
             // nothing left to sync and the layer costs nothing per tick.
-            let vesselInfo: { anyMovingVesselInView: boolean } | null = null
+            let vesselInfo: {
+              anyMovingVesselInView: boolean
+              maxScreenMotionPx: number
+              maxTickMotionPx: number
+            } | null = null
             if (wantAis) {
               vesselInfo = map.syncVessels(aisFrozen?.backdrop ?? aisVesselsRef.current, aisNow)
               aisDrawn = true
@@ -1046,6 +1093,12 @@ export default function App() {
               (linearRef.current || morphRef.current > 0) && snapshots.length > 0
             lastAnyVehicleInView = (viewInfo?.anyVehicleInView ?? false) || diagramHasVehicles
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
+            // Speed over this tick, not since the last frame: right after a
+            // frame the elapsed time is a millisecond and any ratio over
+            // it would read as a sprint.
+            lastMotionPxPerSecond =
+              (Math.max(viewInfo?.maxTickMotionPx ?? 0, vesselInfo?.maxTickMotionPx ?? 0) * 1000) /
+              tickDtMs
 
             // After syncVehicles, so the selection highlight and the follow
             // camera find the vehicle record (setSelected/setFollow only act
@@ -1075,7 +1128,12 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
-              setSimSeconds(clock.secondsOfDay())
+              // Whole seconds: every reader of this state counts minutes or
+              // seconds, and the millisecond fraction only made the value
+              // differ on every UI tick – four re-renders of the whole app
+              // per second at real-time speed, where one is what the clock
+              // shows. Same-value updates bail out inside React.
+              setSimSeconds(Math.floor(clock.secondsOfDay()))
               const cameraView = map.getCameraView()
               setCameraIs2D(cameraView.pitch < -85)
               // Whole degrees: finer than the needle can show, and the
@@ -1120,7 +1178,8 @@ export default function App() {
           //   interaction/camera flight → ~60 fps (15 ms threshold: one
           //   16.7 ms display frame plus ~2 ms vsync-jitter margin, so the
           //   gate does not flip-flop between 60 and 30)
-          //   vehicles visibly moving → ~30 fps
+          //   falling rain → ~30 fps: the drops are an animation of their
+          //   own, with or without the sim
           //   only tiles streaming in → ~30 fps as well: the tile
           //   traversal (selecting, requesting, and swapping in loaded
           //   tiles) only advances once per rendered frame, and an LOD
@@ -1129,21 +1188,18 @@ export default function App() {
           //   tiles visibly appeared seconds late after zooming. The
           //   streaming phase lasts a few seconds at most, then the idle
           //   states below take over again.
-          //   otherwise → event-driven: one-off scene changes request a
-          //   frame via CesiumMap.requestRender(); apart from that only a
+          //   otherwise → event-driven: the moving fleets ask for a frame
+          //   through CesiumMap.requestRender() once something in view has
+          //   moved by a visible step on screen (see map/screen-motion.ts)
+          //   – every tick close up, every few seconds in the home view,
+          //   where the vehicles used to hold the loop at 30 fps for
+          //   motion of a fortieth of a pixel per frame; a camera that
+          //   moved since the last frame (chase cam, leash) gets one too;
+          //   one-off scene changes request theirs; apart from that only a
           //   slow heartbeat runs. A truly idle map renders nothing – even
           //   a cheap 1 fps keep-alive kept macOS GPU monitoring at ~30 %,
           //   because the utilization gauge counts any periodic activity.
-          // A map behind a finished diagram is not worth a frame either
-          const hints =
-            render && !mapIsHidden()
-              ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
-              : null
-          // Falling rain is an animation too – even with the sim paused
-          const animating =
-            (lastAnyVehicleInView && !clock.paused) ||
-            lastMovingVesselInView ||
-            rainActiveRef.current
+          const animating = rainActiveRef.current
           const renderInterval = !hints
             ? Number.POSITIVE_INFINITY
             : hints.interacting
@@ -1151,7 +1207,12 @@ export default function App() {
               : animating || hints.tilesLoading
                 ? 33
                 : 15000
-          if (hints && (map.consumeRenderRequest() || now - lastRender >= renderInterval)) {
+          if (
+            hints &&
+            (map.consumeRenderRequest() ||
+              map.cameraMovedSinceRender() ||
+              now - lastRender >= renderInterval)
+          ) {
             lastRender = now
             map.render()
             if (mapWarmupRef.current > 0) mapWarmupRef.current--
@@ -1246,10 +1307,7 @@ export default function App() {
       tiltShiftState: () => map.tiltShiftState(),
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
-        const animating =
-          (lastAnyVehicleInView && !clock.paused) ||
-          lastMovingVesselInView ||
-          rainActiveRef.current
+        const animating = rainActiveRef.current
         return {
           animating,
           rainActive: rainActiveRef.current,
@@ -1258,6 +1316,8 @@ export default function App() {
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
+          tickIntervalMs: lastTickInterval,
+          motionPxPerSecond: lastMotionPxPerSecond,
         }
       },
       vehicleBoxDriftMeters: () => map.getVehicleBoxDriftMeters(),

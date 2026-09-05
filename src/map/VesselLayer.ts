@@ -43,6 +43,7 @@ import {
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
 import { cameraFramingScale } from './CameraLens'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
+import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
@@ -55,6 +56,8 @@ export interface VesselLayerHost {
   obstacles?: () => readonly ScreenRect[]
   /** Window position of a world point (CSS px), undefined behind the camera. */
   windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
+  /** Device pixels per CSS pixel the map draws at (default 1). */
+  readonly pixelRatio?: number
 }
 
 /**
@@ -280,6 +283,15 @@ interface VesselRecord {
   /** Pose as of the last repaint request – the change detector. */
   lastPosition: Cartesian3
   lastBearing: number
+  /**
+   * Pose as of the frame that was last RENDERED – what on-screen motion
+   * is measured against, so slow movement accumulates across ticks (see
+   * screen-motion.ts and VehicleLayer's twin of this). Refreshed lazily
+   * by renderedStamp on the first tick after a newer frame was drawn.
+   */
+  renderedPosition: Cartesian3
+  renderedBearing: number
+  renderedStamp: number
 }
 
 const positionScratch = new Cartesian3()
@@ -300,6 +312,8 @@ export class VesselLayer {
   private readonly followCamera: FollowCamera
   private frustumSphere = new BoundingSphere()
   private lastSyncMs = 0
+  /** Counts rendered frames (see markRendered / VesselRecord.renderedStamp). */
+  private renderStamp = 0
   /** Lights the hulls' glazing at night (see WINDOW_GLOW_COLOR). */
   private readonly windowGlowShader = new CustomShader({
     uniforms: { u_windowGlow: { type: UniformType.FLOAT, value: 0 } },
@@ -359,7 +373,42 @@ export class VesselLayer {
   sync(
     vessels: AisVessel[],
     nowMs: number,
-  ): { anyMovingVesselInView: boolean; nearestHullMeters: number } {
+  ): {
+    anyMovingVesselInView: boolean
+    nearestHullMeters: number
+    nearestHullWidthM: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
+    // One collectionChanged event per tick instead of one per ship – see
+    // VehicleLayer.sync for the reasoning.
+    const entities = this.viewer.entities
+    entities.suspendEvents()
+    try {
+      return this.syncBatched(vessels, nowMs)
+    } finally {
+      entities.resumeEvents()
+    }
+  }
+
+  /**
+   * The map drew a frame: motion is measured against the poses of the
+   * tick before this call from here on (see VesselRecord.renderedPosition).
+   */
+  markRendered(): void {
+    this.renderStamp++
+  }
+
+  private syncBatched(
+    vessels: AisVessel[],
+    nowMs: number,
+  ): {
+    anyMovingVesselInView: boolean
+    nearestHullMeters: number
+    nearestHullWidthM: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
     const renderMs = nowMs - AIS_PLAYBACK_DELAY_MS
     const alive = new Set<number>()
     // One culling volume per tick, for every repaint decision below.
@@ -378,11 +427,19 @@ export class VesselLayer {
 
     let anyMovingVesselInView = false
     /**
-     * Distance to the closest drawn hull – the map's shadow gate needs to
-     * know whether anything is near enough to cast into the shadow map,
-     * and a 200 m freighter matters from much further out than a tram.
+     * Distance to the closest drawn hull and how wide it is – the map's
+     * shadow gate needs to know whether anything is near enough to cast a
+     * shadow the screen can show, and a 200 m freighter matters from much
+     * further out than a tram.
      */
     let nearestHullMeters = Number.POSITIVE_INFINITY
+    let nearestHullWidthM = DEFAULT_WIDTH
+    // On-screen motion since the last rendered frame (see screen-motion.ts)
+    const pxPerMeterAtUnit = cssPixelsPerMeterAtUnitDistance(this.viewer)
+    const motionThreshold = motionThresholdCssPx(this.host.pixelRatio ?? 1)
+    let maxScreenMotionPx = 0
+    // …and since the last tick alone, for the app's speed estimate
+    let maxTickMotionPx = 0
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -476,7 +533,10 @@ export class VesselLayer {
       }
       const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
       const showBody = this.visible && distance < VESSEL_BODY_VISIBLE_RANGE
-      if (showBody && distance < nearestHullMeters) nearestHullMeters = distance
+      if (showBody && distance < nearestHullMeters) {
+        nearestHullMeters = distance
+        nearestHullWidthM = vessel.widthM ?? DEFAULT_WIDTH
+      }
       // Box stand-in or loaded model – attachModel swaps one for the other,
       // so only ever one of them is on the scene.
       const body = record.model ?? record.primitive
@@ -484,8 +544,13 @@ export class VesselLayer {
         body.show = showBody
         this.host.requestRender()
       }
-      // Repaint per tick while the drawn pose still changes – that is what
-      // makes a ship under way glide at the render loop's own rate.
+      // A frame was drawn since this ship's last tick: that tick's pose is
+      // on screen and is what motion is measured against from now on.
+      if (record.renderedStamp !== this.renderStamp) {
+        Cartesian3.clone(record.lastPosition, record.renderedPosition)
+        record.renderedBearing = record.lastBearing
+        record.renderedStamp = this.renderStamp
+      }
       const poseChanged =
         !Cartesian3.equalsEpsilon(record.displayPosition, record.lastPosition, 0, 0.02) ||
         Math.abs(record.displayBearing - record.lastBearing) > 0.05
@@ -499,7 +564,27 @@ export class VesselLayer {
       const underWay = sample.underWay
       if ((poseChanged || underWay) && this.isOnScreen(cullingVolume, record.displayPosition)) {
         anyMovingVesselInView = true
-        if (poseChanged) this.host.requestRender()
+        // Repaint once the drawn pose has moved ON SCREEN by a visible
+        // step since the rendered frame (see screen-motion.ts): the hull's
+        // translation, or its bow swinging round when it turns on the
+        // spot – half the drawn length times the angle.
+        const halfLength = (spec.length * lengthScale) / 2
+        const swing = (from: number) =>
+          halfLength * CesiumMath.toRadians(Math.abs(((record.displayBearing - from + 540) % 360) - 180))
+        const pxPerMeter = pxPerMeterAtUnit / Math.max(1, distance)
+        const movedMeters = Math.max(
+          Cartesian3.distance(record.displayPosition, record.renderedPosition),
+          swing(record.renderedBearing),
+        )
+        const tickMeters = Math.max(
+          Cartesian3.distance(record.displayPosition, record.lastPosition),
+          swing(record.lastBearing),
+        )
+        const motionPx = movedMeters > 0 ? movedMeters * pxPerMeter : 0
+        const tickPx = tickMeters > 0 ? tickMeters * pxPerMeter : 0
+        if (motionPx > maxScreenMotionPx) maxScreenMotionPx = motionPx
+        if (tickPx > maxTickMotionPx) maxTickMotionPx = tickPx
+        if (motionPx >= motionThreshold) this.host.requestRender()
       }
       if (poseChanged) {
         Cartesian3.clone(record.displayPosition, record.lastPosition)
@@ -534,7 +619,13 @@ export class VesselLayer {
         this.remove(mmsi)
       }
     }
-    return { anyMovingVesselInView, nearestHullMeters }
+    return {
+      anyMovingVesselInView,
+      nearestHullMeters,
+      nearestHullWidthM,
+      maxScreenMotionPx,
+      maxTickMotionPx,
+    }
   }
 
   /** Day→night ramp for the window glow (driven by the map's sun state). */
@@ -609,6 +700,11 @@ export class VesselLayer {
     return this.vessels.size
   }
 
+  /** MMSI of the ship the camera is chasing, null when free. */
+  get followedMmsi(): number | null {
+    return this.followMmsi
+  }
+
   private createVessel(vessel: AisVessel, nowMs: number): VesselRecord {
     const archetype = archetypeFor(vessel.typeCode, vessel.lengthM, vessel.widthM)
     const style = vesselStyle(vessel.typeCode)
@@ -678,6 +774,9 @@ export class VesselLayer {
       displayBearing: sample.bearingDeg,
       lastPosition: Cartesian3.clone(position),
       lastBearing: sample.bearingDeg,
+      renderedPosition: Cartesian3.clone(position),
+      renderedBearing: sample.bearingDeg,
+      renderedStamp: this.renderStamp,
     }
     void this.attachModel(record, vessel.mmsi)
     return record

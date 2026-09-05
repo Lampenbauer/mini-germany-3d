@@ -65,6 +65,8 @@ declare global {
         interacting: boolean
         tilesLoading: boolean
         intervalMs: number
+        tickIntervalMs: number
+        motionPxPerSecond: number
       }
       tunnelTransition: () => {
         id: string

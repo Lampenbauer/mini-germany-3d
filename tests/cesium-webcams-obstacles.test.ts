@@ -149,6 +149,8 @@ describe('a vehicle badge over a picture', () => {
     const viewer = {
       scene: { primitives: { add: (primitive: Primitive) => primitive, remove: () => true } },
       entities: {
+        suspendEvents: () => {},
+        resumeEvents: () => {},
         add: (options: Entity.ConstructorOptions) => {
           const entity = new Entity(options)
           entities.push(entity)
