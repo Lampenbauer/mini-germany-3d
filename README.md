@@ -494,7 +494,7 @@ Every script takes `-- --city <slug>` and runs for every city without it.
 
 | Problem | Solution |
 |---------|----------|
-| Overpass responds with 403/406/429 | The script sends a User-Agent and automatically tries several mirrors (overpass-api.de → kumi.systems). Set your own endpoint via `OVERPASS_URL=… npm run data:update` or feed in a saved response via `OVERPASS_FILE=response.json`. |
+| Overpass responds with 403/406/429/504 | The script sends a User-Agent, tries several mirrors (overpass-api.de → kumi.systems) and, when every mirror failed, waits a minute and walks them once more – a 429 or a 504 is usually load, not the query. Set your own endpoint via `OVERPASS_URL=… npm run data:update` or feed in a saved response via `OVERPASS_FILE=response.json`. |
 | GTFS download takes long | The feed (~280 MB) is cached at `scripts/.cache/gtfs.zip`; delete the file for a fresh download. Reuse an existing zip via `GTFS_FILE=path.zip`. |
 | CI/sandbox without unrestricted internet access | Overpass/gtfs.de are unreachable there – the committed datasets stay active. |
 

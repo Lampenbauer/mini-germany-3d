@@ -73,7 +73,15 @@ jobs:
     # 7 minutes of it). At 30 the cap cut a green run one test short of the
     # finish; 45 leaves room for the retry the `retries: 1` setting exists
     # for, instead of turning one flake into a cancelled run.
-    timeout-minutes: 45
+    #
+    # A run that refreshes data has the pipeline in front of all that: two
+    # Overpass queries and a Mapterhorn pass per city on the Sunday OSM
+    # refresh, seven cities one after the other, each of them minutes when
+    # the mirrors are slow – 10 to 25 minutes before the first test runs.
+    # Those runs get 75, so that a slow Overpass night does not cancel the
+    # week's refresh just before it is committed. A cancelled run loses no
+    # data, but the week.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm) && 75 || 45 }}
     permissions:
       # The nightly run pushes the refreshed src/cities data files back to main
       contents: write
