@@ -13,6 +13,7 @@ import {
   Cartesian3,
   Cartographic,
   Color,
+  createGooglePhotorealistic3DTileset,
   CustomShader,
   Entity,
   GridImageryProvider,
@@ -25,13 +26,12 @@ import {
   Rectangle,
   SceneTransforms,
   ScreenSpaceEventHandler,
-  ShadowMode,
   ScreenSpaceEventType,
+  ShadowMode,
   Simon1994PlanetaryPositions,
   Transforms,
   UniformType,
   Viewer,
-  createGooglePhotorealistic3DTileset,
   type Cesium3DTileset,
 } from 'cesium'
 import { config } from '@/config'
@@ -44,7 +44,9 @@ import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { StopsLayer } from './StopsLayer'
 import { VesselLayer } from './VesselLayer'
+import { WebcamsLayer } from './WebcamsLayer'
 import type { AisVessel } from '@/lib/ais-extract'
+import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -94,6 +96,8 @@ export interface CesiumMapOptions {
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
+  /** A webcam picture was clicked: its windy.com page, which the terms want opened. */
+  onOpenWebcam?: (url: string) => void
   /** Click on a stop disc or name plate (null = click on empty map). */
   onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
@@ -233,6 +237,18 @@ const SHADOW_SUN_MIN = 0.05
 const SHADOW_DARKNESS = 0.52
 const SHADOW_MAP_SIZE = 8192
 const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
+
+/**
+ * A flight to a webcam picture: looking this far down, from this many
+ * half-diagonals of the picture away (scaled by the lens) – the picture
+ * then spans a good third of the frame.
+ */
+const WEBCAM_FOCUS_PITCH = -15
+const WEBCAM_FOCUS_RANGE_FACTOR = 4
+
+/** Scratches of windowPosition / metersPerCssPixel (see there). */
+const windowScratch = new Cartesian2()
+const pixelSizeSphere = new BoundingSphere(new Cartesian3(), 0)
 
 /**
  * How much of the shadow survives the weather, as two anchor points on
@@ -384,6 +400,8 @@ export class CesiumMap {
   private readonly stops: StopsLayer
   /** AIS harbor traffic (see VesselLayer). */
   private vesselLayer: VesselLayer
+  /** Live webcams floating over their spot (see WebcamsLayer). */
+  private readonly webcamsLayer: WebcamsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -531,6 +549,8 @@ export class CesiumMap {
     })
     this.vehicleLayer = new VehicleLayer(this.viewer, {
       requestRender: () => this.requestRender(),
+      obstacles: () => map.webcamsLayer.screenRects,
+      windowPosition: (position) => this.windowPosition(position),
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
       get defaultGroundHeight() {
         return map.defaultGroundHeight
@@ -552,6 +572,8 @@ export class CesiumMap {
     })
     this.stops = new StopsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
+      obstacles: () => map.webcamsLayer.screenRects,
+      obstaclesVersion: () => map.webcamsLayer.screenRectsVersion,
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
       get defaultGroundHeight() {
         return map.defaultGroundHeight
@@ -565,6 +587,8 @@ export class CesiumMap {
     })
     this.vesselLayer = new VesselLayer(this.viewer, {
       requestRender: () => this.requestRender(),
+      obstacles: () => map.webcamsLayer.screenRects,
+      windowPosition: (position) => this.windowPosition(position),
       // Water level like the ferry routes: NHN 0 plus the calibrated
       // offset plus the same lift that clears the tiles' wavy water mesh.
       get waterSurfaceHeight() {
@@ -573,6 +597,15 @@ export class CesiumMap {
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
+    })
+    this.webcamsLayer = new WebcamsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+      windowPosition: (position) => this.windowPosition(position),
+      metersPerPixel: (position) => this.metersPerCssPixel(position),
     })
     // The miniature look this whole map is named after – on or off from
     // the start as the URL or config.camera.miniatureDefault says, and
@@ -692,6 +725,10 @@ export class CesiumMap {
         this.opts.onSelectStop?.(target.id)
       } else if (target?.type === 'vessel') {
         this.opts.onSelectVessel?.(Number(target.id))
+      } else if (target?.type === 'webcam') {
+        // A picture leads to its page; whatever is selected stays so
+        const url = this.webcamsLayer.detailUrl(Number(target.id))
+        if (url) this.opts.onOpenWebcam?.(url)
       } else {
         // Empty map clears whichever selection is up
         this.opts.onSelectVehicle?.(null)
@@ -736,7 +773,7 @@ export class CesiumMap {
    */
   private pickTarget(
     position: Cartesian2,
-  ): { type: 'vehicle' | 'stop' | 'vessel'; id: string } | null {
+  ): { type: 'vehicle' | 'stop' | 'vessel' | 'webcam'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
     const raw =
@@ -745,6 +782,7 @@ export class CesiumMap {
     if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
     if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
     if (raw.startsWith('vessel:')) return { type: 'vessel', id: raw.slice('vessel:'.length) }
+    if (raw.startsWith('webcam:')) return { type: 'webcam', id: raw.slice('webcam:'.length) }
     return null
   }
 
@@ -902,6 +940,7 @@ export class CesiumMap {
    */
   clearCity(): void {
     this.vehicleLayer.clear()
+    this.webcamsLayer.clear()
     this.stops.clear()
     this.routes.clear()
     this.streetLamps.clear()
@@ -1297,6 +1336,41 @@ export class CesiumMap {
    * themselves – is ghosted instead.
    */
   /** Per-tick update of the AIS harbor traffic (see VesselLayer). */
+  /** The city's webcams as last polled (see WebcamsLayer.sync). */
+  syncWebcams(webcams: Webcam[]): void {
+    this.webcamsLayer.sync(webcams)
+  }
+
+  /** Cameras on the map – tests and the debug API. */
+  getWebcamCount(): number {
+    return this.webcamsLayer.count
+  }
+
+  /** The panel's Webcams switch (see WebcamsLayer.setVisible). */
+  setWebcamsVisible(visible: boolean): void {
+    this.webcamsLayer.setVisible(visible)
+  }
+
+  /**
+   * Flies to a camera's picture: level with it, looking slightly down,
+   * far enough back for the picture to fill a good part of the frame.
+   * A camera not on the map (or a picture not loaded yet) is left alone.
+   */
+  flyToWebcam(id: number): void {
+    const target = this.webcamsLayer.focusTarget(id)
+    if (!target) return
+    this.flyingUntil = performance.now() + 1800
+    this.requestRender()
+    this.viewer.camera.flyToBoundingSphere(new BoundingSphere(target.center, target.radius), {
+      duration: 1.5,
+      offset: new HeadingPitchRange(
+        this.viewer.camera.heading,
+        CesiumMath.toRadians(WEBCAM_FOCUS_PITCH),
+        target.radius * WEBCAM_FOCUS_RANGE_FACTOR * cameraFramingScale(this.viewer.camera),
+      ),
+    })
+  }
+
   syncVessels(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
     const info = this.vesselLayer.sync(vessels, nowMs)
     this.nearestVesselMeters = info.nearestHullMeters
@@ -1315,6 +1389,7 @@ export class CesiumMap {
     this.vehicleLayer.setUnderground(underground)
     // The AIS fleet is surface scenery – it leaves with the sky.
     this.vesselLayer.setVisible(!underground)
+    this.webcamsLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
     this.streetLamps.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
@@ -1531,6 +1606,30 @@ export class CesiumMap {
    * Ellipsoidal ground height at a position, measured on the loaded Google
    * 3D tiles. undefined if no tile is loaded there (yet).
    */
+  /**
+   * Window position of a world point in CSS pixels, undefined behind the
+   * camera. Returns a scratch – read it before the next call.
+   */
+  private windowPosition(position: Cartesian3): Cartesian2 | undefined {
+    return SceneTransforms.worldToWindowCoordinates(this.viewer.scene, position, windowScratch)
+  }
+
+  /**
+   * Meters one CSS pixel covers at a world point's distance from the
+   * camera. Cesium folds the scene's pixel ratio in already, so this is
+   * per CSS pixel whatever the display's density (checked against the
+   * projected width of a picture at ratio 1 and 2).
+   */
+  private metersPerCssPixel(position: Cartesian3): number {
+    const scene = this.viewer.scene
+    Cartesian3.clone(position, pixelSizeSphere.center)
+    return this.viewer.camera.getPixelSize(
+      pixelSizeSphere,
+      scene.drawingBufferWidth,
+      scene.drawingBufferHeight,
+    )
+  }
+
   private sampleGroundHeight(lon: number, lat: number): number | undefined {
     if (!this.googleTileset) return undefined
     try {
@@ -1554,6 +1653,7 @@ export class CesiumMap {
     this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
     this.routes.updatePulse()
     this.streetLamps.update()
+    this.webcamsLayer.update()
     this.lens.update()
     this.tiltShift.update()
     this.viewer.render()

@@ -100,6 +100,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
+        webcamsHidden: false,
         tiltShift: miniatureDefault,
         paused: false,
       }),
@@ -111,6 +112,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
+        webcamsHidden: false,
         tiltShift: !miniatureDefault,
         paused: true,
       }),
@@ -124,6 +126,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
+      webcamsHidden: false,
       tiltShift: miniatureDefault,
       paused: false,
     }
@@ -142,6 +145,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
+      webcamsHidden: false,
       tiltShift: miniatureDefault,
       paused: false,
     }
@@ -163,6 +167,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
+      webcamsHidden: false,
       tiltShift: !miniatureDefault,
       paused: true,
     })
@@ -175,6 +180,7 @@ describe('layer and pause state in the hash', () => {
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
+        webcamsHidden: false,
         tiltShift: !miniatureDefault,
         paused: true,
       })
@@ -191,6 +197,7 @@ describe('layer and pause state in the hash', () => {
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
+      webcamsHidden: false,
       tiltShift: miniatureDefault,
       paused: false,
     })

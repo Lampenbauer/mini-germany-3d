@@ -21,6 +21,8 @@ scripts/.cache/
 
 # aisstream.io API key for local ais.php tests (see server/api/ais.php)
 server/api/ais-key.txt
+# Windy API key for local webcams.php tests (see server/api/webcams.php)
+server/api/webcams-key.txt
 
 # Editor/OS
 .vscode/*

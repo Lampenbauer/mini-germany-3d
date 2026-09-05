@@ -42,6 +42,7 @@ and a run of the data pipeline (see [Cities](#cities)).
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation, filtered per city (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Weather | Open-Meteo precipitation, cloud cover and temperature for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the weather button. The live sky is shown only near real time (`?rain=0` opts out); the weather popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one |
 | Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen low-poly archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`) |
+| Live webcams | Windy's webcams as pictures floating over the spot they look from: a world-sized billboard per camera, its longest side 150 m at the picture's own aspect ratio, its bottom edge 180 m above the ground, facing the viewer. Polled every ten minutes through a proxy that keeps the API key (`/api/webcams?city=…`); a click opens the camera's windy.com page and the credit line carries Windy's courtesy text. Stop names, vehicle badges and ship names that would sit on a picture step aside for it. The Layers block has a Webcams switch with the city's cameras folded out under it – a click flies to the picture. `?webcams=0` leaves the layer out entirely |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover, Tabs) |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
@@ -203,6 +204,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
 | `?lamps=0` | Disable the night-time street lighting |
+| `?webcams=0` | Leave the live webcam pictures out |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `?ais=0` | Open with the live AIS ships switched off – the "AIS ships" switch at the end of the traffic list turns them back on |
@@ -211,7 +213,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `#stop=…` | Shared stop selection – opens the stop's departure board and flies to it |
 | `#…&view=linear` / `#…&view=underground` | Which reading of the network to open on – the lines pulled straight, or the city from underneath. The surface is the map itself and needs no word |
-| `…&routes=0&stops=0&tiltshift=1&paused=1` | Layer toggles, the miniature look and the pause state (only present when they deviate from the defaults: layers off, miniature look on, paused) |
+| `…&routes=0&stops=0&labels=0&webcams=0&tiltshift=1&paused=1` | Layer toggles, the miniature look and the pause state (only present when they deviate from the defaults: layers off, miniature look on, paused) |
 
 ## Tests
 
@@ -274,6 +276,9 @@ place (typed and validated by `src/lib/city.ts`):
 - **`ais`** – whether the AIS backdrop is on, and which real vessels this map
   already runs from a timetable (`simulatedByMmsi`), so their AIS twins are
   left out of the backdrop fleet.
+- **`webcams`** – Windy webcam ids left off the map (`exclude`): a camera
+  that shows something other than the city, or one whose picture never
+  changes.
 
 Adding a city:
 
@@ -481,7 +486,9 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/`, `api/realtime.php`,
-   `api/ais.php` and every city's `api/cities/<slug>/city.json` and
+   `api/ais.php`, `api/webcams.php` (with its key written from the
+   `WINDY_KEY` repository secret, kept from the web by `.htaccess`) and
+   every city's `api/cities/<slug>/city.json` and
    `schedule.json` rsynced to the document root from the `KAS_TARGET_DIR`
    secret. PR checks, feature-branch pushes, and failed tests do not deploy. A
    manual run of the CI workflow on `main` also goes through all tests first,
@@ -652,6 +659,7 @@ they are in view.
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
 - Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
+- Webcam pictures: [Windy.com](https://www.windy.com/webcams) Webcams API – shown as delivered, each linked to its windy.com page, with the courtesy line in the credit display, as Windy's terms ask
 - Terrain heights (after `npm run data:heights` / `data:lamps`):
   © [Mapterhorn](https://mapterhorn.com/attribution), built from
   © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from

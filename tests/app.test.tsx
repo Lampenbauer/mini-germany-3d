@@ -24,6 +24,9 @@ vi.mock('@/map/CesiumMap', () => {
     setCloudCover() {}
     flyToStop() {}
     setFollowVessel() {}
+    syncWebcams() {}
+    setWebcamsVisible() {}
+    flyToWebcam() {}
     syncVessels() {
       return { anyMovingVesselInView: false }
     }
