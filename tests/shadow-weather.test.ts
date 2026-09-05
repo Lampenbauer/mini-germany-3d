@@ -42,17 +42,17 @@ describe('shadowStrengthForOvercast', () => {
     expect(shadowStrengthForOvercast(0)).toBe(1)
   })
 
-  it('halves the shadow under a closed sky or light rain', () => {
+  it('leaves under a third of the shadow under a closed sky or light rain', () => {
     // A fully closed sky without rain
-    expect(shadowStrengthForOvercast(cloudOvercastGrade(100))).toBeCloseTo(0.5, 6)
+    expect(shadowStrengthForOvercast(cloudOvercastGrade(100))).toBeCloseTo(0.3, 6)
     // Drizzle sits just past that anchor, so a touch weaker still
     const drizzle = shadowStrengthForOvercast(overcastGrade(0.1, 0))
-    expect(drizzle).toBeLessThan(0.5)
-    expect(drizzle).toBeGreaterThan(0.4)
+    expect(drizzle).toBeLessThan(0.3)
+    expect(drizzle).toBeGreaterThan(0.2)
   })
 
-  it('leaves about a tenth of it in heavy rain', () => {
-    expect(shadowStrengthForOvercast(overcastGrade(3, 100))).toBeCloseTo(0.1, 6)
+  it('leaves about a twentieth of it in heavy rain', () => {
+    expect(shadowStrengthForOvercast(overcastGrade(3, 100))).toBeCloseTo(0.05, 6)
   })
 
   it('never strengthens a shadow and never inverts one', () => {
