@@ -81,7 +81,8 @@ VITE_CESIUM_ION_TOKEN=your-token
   city visited is remembered by the browser for the next session.
 - **Simulation time:** The panel's time field opens the native picker (e.g. jump to
   rush hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any
-  time, and the collapsed panel keeps showing the clock and the pause button.
+  time – play carries on from the simulated moment, a time set by hand survives
+  a pause – and the collapsed panel keeps showing the clock and the pause button.
   The scene lighting follows the simulated clock, so the time input doubles as a
   day/night switch – and the ×120 time-lapse shows a full day/night cycle.
 - **Zoom to a line:** Clicking a line's name in the panel flies the camera so the

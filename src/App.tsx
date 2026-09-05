@@ -1759,11 +1759,10 @@ export default function App() {
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
       const next = !prev
+      // Play carries on from the simulated moment – a time set by hand
+      // survives a pause. "Now" is the way back to the real time; the AIS
+      // ships keep showing the real present regardless (see VesselLayer).
       clockRef.current?.setPaused(next)
-      // Play never resumes a past moment: releasing the pause snaps the
-      // clock to the real time, so trams (GTFS) and ships (AIS) carry on
-      // where reality actually is – not where it was when paused.
-      if (!next) clockRef.current?.resetToRealTime()
       pausedRef.current = next
       writeHashRef.current()
       return next

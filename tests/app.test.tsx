@@ -165,14 +165,17 @@ describe('App (UI shell)', () => {
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('play snaps the clock back to the real time', () => {
+  it('play carries on from a time set by hand, "Now" returns to the real time', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
-    // Time-travel while paused – play must discard it and return to now,
-    // so trams (GTFS) and ships (AIS) continue where reality actually is.
+    // Time-travel while paused – play must continue from there, not
+    // snap back to the present.
     window.__mrt!.setTime('03:00')
     expect(window.__mrt!.secondsOfDay()).toBeCloseTo(3 * 3600, -1)
     fireEvent.click(screen.getByRole('button', { name: 'Resume simulation' }))
+    expect(Math.abs(window.__mrt!.secondsOfDay() - 3 * 3600)).toBeLessThan(5)
+    // The way back to the present is the "Now" button
+    fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     const drift = Math.abs(window.__mrt!.secondsOfDay() - berlinSecondsOfDay(Date.now()))
     expect(drift).toBeLessThan(5)
   })
