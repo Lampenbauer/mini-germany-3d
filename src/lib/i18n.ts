@@ -25,6 +25,9 @@ const en = {
   'layers.showRoutes': 'Show routes',
   'layers.showStops': 'Show stops',
   'layers.showLabels': 'Show vehicle and ship labels',
+  'layers.webcams': 'Webcams',
+  'layers.showWebcams': 'Show webcams',
+  'webcams.flyTo': 'Fly to {name}',
   // What the city is shown under and through, rather than what is drawn
   // on it: the sky in the weather popover, the lens in the camera block.
   'scene.tiltShift': 'Miniature effect',
@@ -218,6 +221,9 @@ const de: Record<MessageKey, string> = {
   'layers.showRoutes': 'Routen anzeigen',
   'layers.showStops': 'Haltestellen anzeigen',
   'layers.showLabels': 'Fahrzeug- und Schiffsbeschriftungen anzeigen',
+  'layers.webcams': 'Webcams',
+  'layers.showWebcams': 'Webcams anzeigen',
+  'webcams.flyTo': 'Zu {name} fliegen',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
   'scene.hideTiltShift': 'Miniatureffekt ausblenden',

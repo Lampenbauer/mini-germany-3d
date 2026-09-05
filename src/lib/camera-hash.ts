@@ -99,6 +99,8 @@ export interface HashUiState {
   routesHidden: boolean
   stopsHidden: boolean
   labelsHidden: boolean
+  /** The webcam pictures switched off in the panel (the layer's own boot flag is ?webcams=0). */
+  webcamsHidden: boolean
   /** The miniature look, as it is – the hash carries it only when it deviates. */
   tiltShift: boolean
   paused: boolean
@@ -114,6 +116,7 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
+    (state.webcamsHidden ? '&webcams=0' : '') +
     tilt +
     (state.paused ? '&paused=1' : '')
   )
@@ -133,6 +136,7 @@ export function parseUiStateHash(hash: string): HashUiState {
     routesHidden: params.get('routes') === '0',
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
+    webcamsHidden: params.get('webcams') === '0',
     tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
     paused: params.get('paused') === '1',
   }

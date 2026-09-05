@@ -64,7 +64,7 @@ import {
   WEATHER_PRESETS,
   type WeatherMode,
 } from '@/lib/weather'
-import { WebcamsClient } from '@/lib/webcams'
+import { WebcamsClient, type Webcam } from '@/lib/webcams'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
@@ -482,6 +482,10 @@ export default function App() {
   const [showRoutes, setShowRoutes] = useState(true)
   const [showStops, setShowStops] = useState(true)
   const [showLabels, setShowLabels] = useState(true)
+  /** The Layers switch for the webcam pictures; the list stays either way. */
+  const [showWebcams, setShowWebcams] = useState(true)
+  /** The city's webcams as last polled – what the panel lists. */
+  const [webcams, setWebcams] = useState<Webcam[]>([])
   const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   /**
@@ -581,6 +585,7 @@ export default function App() {
   // stale React state): layer toggles and pause travel in the URL.
   const showStopsRef = useRef(showStops)
   const showLabelsRef = useRef(showLabels)
+  const showWebcamsRef = useRef(showWebcams)
   const tiltShiftRef = useRef(tiltShift)
   const pausedRef = useRef(paused)
 
@@ -713,6 +718,10 @@ export default function App() {
       showStopsRef.current = false
       setShowStops(false)
     }
+    if (uiState.webcamsHidden) {
+      showWebcamsRef.current = false
+      setShowWebcams(false)
+    }
     if (uiState.labelsHidden) {
       showLabelsRef.current = false
       setShowLabels(false)
@@ -757,6 +766,7 @@ export default function App() {
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
+          webcamsHidden: !showWebcamsRef.current,
           tiltShift: tiltShiftRef.current,
           paused: pausedRef.current,
         })
@@ -827,6 +837,7 @@ export default function App() {
     // Apply the layer visibility restored from the hash to the fresh map
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
+    if (uiState.webcamsHidden) map.setWebcamsVisible(false)
 
     // The hash IS the app state, but so far only the boot ever read it –
     // editing it in the address bar did nothing until a reload. Our own
@@ -853,6 +864,12 @@ export default function App() {
         showStopsRef.current = stopsVisible
         setShowStops(stopsVisible)
         map.setStopsVisible(mapNetworkDrawnRef.current && stopsVisible)
+      }
+      const webcamsVisible = !ui.webcamsHidden
+      if (webcamsVisible !== showWebcamsRef.current) {
+        showWebcamsRef.current = webcamsVisible
+        setShowWebcams(webcamsVisible)
+        map.setWebcamsVisible(webcamsVisible)
       }
       const labelsVisible = !ui.labelsHidden
       if (labelsVisible !== showLabelsRef.current) {
@@ -1436,8 +1453,10 @@ export default function App() {
       if (webcamsEnabled) {
         webcamsClient = new WebcamsClient(
           cityApiUrl(config.webcams.url, sessionCity.slug),
-          (status, webcams) => {
-            if (status.state === 'live') map.syncWebcams(webcams)
+          (status, polled) => {
+            if (status.state !== 'live') return
+            map.syncWebcams(polled)
+            setWebcams(polled)
           },
         )
         webcamsClient.start(config.webcams.pollIntervalMs)
@@ -1506,6 +1525,7 @@ export default function App() {
       simRef.current = null
       cityDataRef.current = null
       setCityData(null)
+      setWebcams([])
       snapshotsRef.current = []
       aisVesselsRef.current = []
       pendingSharedVehicleRef.current = null
@@ -1741,6 +1761,37 @@ export default function App() {
     mapRef.current?.setLabelsVisible(mapNetworkDrawnRef.current && visible)
     writeHashRef.current()
   }, [])
+
+  const handleToggleWebcams = useCallback((visible: boolean) => {
+    showWebcamsRef.current = visible
+    setShowWebcams(visible)
+    mapRef.current?.setWebcamsVisible(visible)
+    writeHashRef.current()
+  }, [])
+
+  /**
+   * A camera in the panel's list: the map flies to its picture. Switched
+   * off, the pictures come back on first – flying to one nobody can see
+   * would be a flight to nothing.
+   */
+  const handleFlyToWebcam = useCallback(
+    (id: number) => {
+      if (!showWebcamsRef.current) handleToggleWebcams(true)
+      if (followingRef.current) {
+        followingRef.current = false
+        setFollowing(false)
+        mapRef.current?.setFollow(null)
+      }
+      leaveLinearFor(() => mapRef.current?.flyToWebcam(id))
+    },
+    [handleToggleWebcams, leaveLinearFor],
+  )
+
+  /** What the panel lists per camera – the array identity only changes with a poll. */
+  const webcamChoices = useMemo(
+    () => webcams.map((webcam) => ({ id: webcam.id, title: webcam.title })),
+    [webcams],
+  )
 
   const handleToggleTiltShift = useCallback((enabled: boolean) => {
     tiltShiftRef.current = enabled
@@ -2278,6 +2329,11 @@ export default function App() {
             onToggleStops={handleToggleStops}
             showLabels={showLabels}
             onToggleLabels={handleToggleLabels}
+            webcams={webcamChoices}
+            showWebcams={showWebcams}
+            webcamsDisabled={underground}
+            onToggleWebcams={handleToggleWebcams}
+            onFlyToWebcam={handleFlyToWebcam}
             aisAvailable={aisAvailable}
             showAisVessels={showAisVessels}
             onToggleAisVessels={handleToggleAisVessels}

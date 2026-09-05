@@ -25,6 +25,7 @@ import {
 import type { PreparedNetwork } from '@/data/network-types'
 import { FRAMING_SCALE } from './camera-fov'
 import { isInTunnel } from '@/lib/tunnels'
+import type { ScreenRect } from './screen-rects'
 import { tunnelOpacity } from './tunnel-view'
 
 /** What the stops layer needs from the map around it. */
@@ -41,6 +42,10 @@ export interface StopsLayerHost {
   readonly hasTileset: boolean
   /** Device pixel ratio the canvases are drawn at. */
   readonly pixelRatio: number
+  /** Screen rectangles the labels keep clear of (the webcam pictures). */
+  obstacles?: () => readonly ScreenRect[]
+  /** Bumped whenever the obstacles changed without the camera moving. */
+  obstaclesVersion?: () => number
 }
 
 /**
@@ -172,13 +177,17 @@ export interface LabelBox {
 /**
  * Screen-space label pruning. The boxes come in nearest-first order, and a
  * label stays visible only where its box overlaps none of the boxes already
- * kept – so the nearest stop wins a collision.
+ * kept – so the nearest stop wins a collision. `obstacles` are kept before
+ * any label: the webcam pictures, which no label may sit on.
  *
  * Pure on purpose: this is the part of the declutter worth testing, and it
  * needs neither a scene nor a camera to do it.
  */
-export function keepNonOverlappingLabels(boxes: readonly LabelBox[]): boolean[] {
-  const kept: { left: number; right: number; top: number; bottom: number }[] = []
+export function keepNonOverlappingLabels(
+  boxes: readonly LabelBox[],
+  obstacles: readonly ScreenRect[] = [],
+): boolean[] {
+  const kept: { left: number; right: number; top: number; bottom: number }[] = [...obstacles]
   return boxes.map((box) => {
     const halfWidth = box.halfWidth + STOP_LABEL_GAP
     // Window y grows downward; the label is anchored bottom-center at
@@ -203,6 +212,8 @@ export class StopsLayer {
   private stopLabelsDirty = true
   /** Camera view matrix of the last declutter pass (all zeros = never ran). */
   private declutterViewMatrix = new Matrix4()
+  /** Obstacle version of the last declutter pass (see host.obstaclesVersion). */
+  private declutterObstaclesVersion = -1
   private lastStopSampleAt = 0
   /** Underground view (see setUnderground). */
   private underground = false
@@ -512,13 +523,16 @@ export class StopsLayer {
   private declutterLabels(): void {
     if (!this.stopBillboards || !this.stopBillboards.show || this.stopRecords.length === 0) return
     const camera = this.viewer.camera
+    const obstaclesVersion = this.host.obstaclesVersion?.() ?? 0
     if (
       !this.stopLabelsDirty &&
+      obstaclesVersion === this.declutterObstaclesVersion &&
       Matrix4.equals(this.declutterViewMatrix, camera.viewMatrix)
     ) {
       return
     }
     this.stopLabelsDirty = false
+    this.declutterObstaclesVersion = obstaclesVersion
     Matrix4.clone(camera.viewMatrix, this.declutterViewMatrix)
 
     const scene = this.viewer.scene
@@ -543,6 +557,7 @@ export class StopsLayer {
 
     const visible = keepNonOverlappingLabels(
       candidates.map((c) => ({ x: c.x, y: c.y, halfWidth: c.record.labelHalfWidth })),
+      this.host.obstacles?.() ?? [],
     )
     let changed = false
     candidates.forEach((candidate, i) => {

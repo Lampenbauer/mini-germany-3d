@@ -48,6 +48,13 @@ import { cameraFramingScale } from './CameraLens'
 import { FollowCamera } from '@/map/FollowCamera'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { tunnelOpacity } from './tunnel-view'
+import { rectCoversBox, type ScreenRect } from './screen-rects'
+
+/** The badge floats this many CSS pixels above the vehicle (negative = up). */
+const BADGE_PIXEL_OFFSET_Y = -30
+/** The badge's extent on screen for the picture test: half its width and its height in CSS px. */
+const BADGE_HALF_WIDTH_PX = 14
+const BADGE_HEIGHT_PX = 22
 
 /** What the vehicle layer needs from the map around it. */
 export interface VehicleLayerHost {
@@ -66,6 +73,10 @@ export interface VehicleLayerHost {
   readonly fixedGroundHeight: number | undefined
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /** Screen rectangles the badges keep clear of (the webcam pictures). */
+  obstacles?: () => readonly ScreenRect[]
+  /** Window position of a world point (CSS px), undefined behind the camera. */
+  windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
 }
 
 interface VehicleRecord {
@@ -558,6 +569,8 @@ export class VehicleLayer {
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
     const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    // Webcam pictures on screen – a badge that would sit on one steps aside
+    const obstacles = this.host.obstacles?.() ?? []
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -599,7 +612,7 @@ export class VehicleLayer {
       }
 
       const show = visibleLines.has(snap.lineId)
-      const showLabel =
+      let showLabel =
         this.labelsVisible && show && (focusedLine === null || focusedLine === snap.lineId)
 
       // Vehicle height: terrain profile of the route (NHN + calibrated
@@ -713,6 +726,21 @@ export class VehicleLayer {
           visibilityChanged = true
         }
         if (model && model.shadows !== wagonShadows) model.shadows = wagonShadows
+      }
+      if (showLabel && obstacles.length > 0) {
+        const window = this.host.windowPosition?.(position)
+        if (
+          window &&
+          rectCoversBox(
+            obstacles,
+            window.x,
+            window.y + BADGE_PIXEL_OFFSET_Y + BADGE_HEIGHT_PX / 2,
+            BADGE_HALF_WIDTH_PX,
+            BADGE_HEIGHT_PX,
+          )
+        ) {
+          showLabel = false
+        }
       }
       if (record.labelEntity.show !== showLabel) {
         record.labelEntity.show = showLabel
@@ -980,7 +1008,7 @@ export class VehicleLayer {
               width: badge.width,
               height: badge.height,
               color: Color.WHITE.withAlpha(alpha),
-              pixelOffset: new Cartesian2(0, -30),
+              pixelOffset: new Cartesian2(0, BADGE_PIXEL_OFFSET_Y),
               distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_LABEL_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
@@ -994,7 +1022,7 @@ export class VehicleLayer {
               outlineColor: color.withAlpha(alpha),
               outlineWidth: 4,
               style: LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new Cartesian2(0, -30),
+              pixelOffset: new Cartesian2(0, BADGE_PIXEL_OFFSET_Y),
               distanceDisplayCondition: new DistanceDisplayCondition(0, VEHICLE_LABEL_VISIBLE_RANGE),
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },

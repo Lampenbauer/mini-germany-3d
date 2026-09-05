@@ -56,8 +56,9 @@ function harness(pictures: Record<string, { width: number; height: number }>, gr
 
 describe('pictureSizeMeters', () => {
   it('spans the longest side and keeps the ratio', () => {
-    expect(pictureSizeMeters(400, 224)).toEqual({ width: 200, height: 112 })
-    expect(pictureSizeMeters(300, 400)).toEqual({ width: 150, height: 200 })
+    const L = WEBCAM_LONG_SIDE_METERS
+    expect(pictureSizeMeters(400, 224)).toEqual({ width: L, height: (L * 224) / 400 })
+    expect(pictureSizeMeters(300, 400)).toEqual({ width: (L * 300) / 400, height: L })
     expect(pictureSizeMeters(0, 0)).toEqual({ width: 0, height: 0 })
   })
 })
@@ -71,7 +72,7 @@ describe('WebcamsLayer', () => {
     expect(billboard.id).toBe('webcam:1')
     expect(billboard.sizeInMeters).toBe(true)
     expect(billboard.width).toBe(WEBCAM_LONG_SIDE_METERS)
-    expect(billboard.height).toBe(112)
+    expect(billboard.height).toBeCloseTo((WEBCAM_LONG_SIDE_METERS * 224) / 400, 6)
     expect(billboard.show).toBe(true)
     const carto = Cartographic.fromCartesian(billboard.position)
     expect(carto.height).toBeCloseTo(50 + WEBCAM_FLOAT_METERS, 3)
@@ -111,6 +112,24 @@ describe('WebcamsLayer', () => {
     h.layer.clear()
     expect(h.layer.count).toBe(0)
     expect(h.viewer.creditDisplay.removeStaticCredit).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes the pictures off the map underground, whatever the switch says', async () => {
+    const h = harness({ 'https://img.example/1.jpg': { width: 400, height: 224 } }, 50)
+    h.layer.sync([webcam(1)])
+    await h.settle()
+    expect(h.collection().show).toBe(true)
+
+    h.layer.setUnderground(true)
+    expect(h.collection().show).toBe(false)
+    expect(h.layer.screenRects).toEqual([])
+
+    // The switch flipped down there applies once the view surfaces again
+    h.layer.setVisible(false)
+    h.layer.setUnderground(false)
+    expect(h.collection().show).toBe(false)
+    h.layer.setVisible(true)
+    expect(h.collection().show).toBe(true)
   })
 
   it('keeps a camera whose picture failed to load off the screen', async () => {

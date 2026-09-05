@@ -25,6 +25,8 @@ vi.mock('@/map/CesiumMap', () => {
     flyToStop() {}
     setFollowVessel() {}
     syncWebcams() {}
+    setWebcamsVisible() {}
+    flyToWebcam() {}
     syncVessels() {
       return { anyMovingVesselInView: false }
     }

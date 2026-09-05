@@ -15,17 +15,25 @@
  * Windy's terms: every picture links to its windy.com page (the map
  * opens it on a click, see CesiumMap), a courtesy line stands in the
  * credit display, and the pictures are used as delivered.
+ *
+ * The pictures also tell the other layers where they are on screen
+ * (screenRects): a stop name, a vehicle badge or a ship name that would
+ * sit on a picture steps aside for it – a label is always drawn on top
+ * of everything, so the picture cannot win that any other way.
  */
 
 import {
   BillboardCollection,
   Cartesian3,
   Credit,
+  Matrix4,
   VerticalOrigin,
   type Billboard,
+  type Cartesian2,
   type Viewer,
 } from 'cesium'
 import type { Webcam } from '@/lib/webcams-extract'
+import { sameRects, type ScreenRect } from './screen-rects'
 
 /** The picture's longest side on the map, in meters. */
 export const WEBCAM_LONG_SIDE_METERS = 150
@@ -48,6 +56,10 @@ export interface WebcamsLayerHost {
   readonly defaultGroundHeight: number
   /** Picture loader – the browser's Image by default, a stub in the tests. */
   loadPicture?: (url: string) => Promise<LoadedPicture>
+  /** Window position of a world point (CSS px), undefined behind the camera. */
+  windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
+  /** Meters one CSS pixel covers at a world point's distance. */
+  metersPerPixel?: (position: Cartesian3) => number
 }
 
 interface WebcamRecord {
@@ -85,6 +97,15 @@ export class WebcamsLayer {
   private records = new Map<number, WebcamRecord>()
   private credit: Credit | null = null
   private frame = 0
+  /** The pictures' screen rectangles as of rectsViewMatrix (see screenRects). */
+  private rects: ScreenRect[] = []
+  private rectsViewMatrix = new Matrix4()
+  private rectsDirty = true
+  private rectsVersion = 0
+  /** The panel's switch: off keeps the cameras polled and listed, but nothing drawn. */
+  private visible = true
+  /** Underground view: pictures floating over a sunken surface have no place there. */
+  private underground = false
 
   constructor(
     private readonly viewer: Viewer,
@@ -99,6 +120,110 @@ export class WebcamsLayer {
   /** The windy.com page of a camera on the map, for the click handler. */
   detailUrl(id: number): string | null {
     return this.records.get(id)?.webcam.detailUrl ?? null
+  }
+
+  /**
+   * Where the pictures stand on screen right now, in CSS pixels – for the
+   * labels to keep clear of. Refreshed when the camera has moved or a
+   * picture came, went or changed size; the same array otherwise, so the
+   * callers' per-tick checks cost a few comparisons.
+   */
+  get screenRects(): readonly ScreenRect[] {
+    if (!this.shown) {
+      if (this.rects.length > 0) {
+        this.rects = []
+        this.rectsVersion++
+      }
+      return this.rects
+    }
+    const camera = this.viewer.camera
+    if (!this.rectsDirty && Matrix4.equals(this.rectsViewMatrix, camera.viewMatrix)) {
+      return this.rects
+    }
+    this.rectsDirty = false
+    Matrix4.clone(camera.viewMatrix, this.rectsViewMatrix)
+    const rects: ScreenRect[] = []
+    const { windowPosition, metersPerPixel } = this.host
+    if (windowPosition && metersPerPixel) {
+      for (const record of this.records.values()) {
+        const billboard = record.billboard
+        if (!billboard.show) continue
+        const position = billboard.position
+        const window = windowPosition(position)
+        if (!window) continue
+        const perPixel = metersPerPixel(position)
+        if (!(perPixel > 0)) continue
+        const halfWidth = (billboard.width ?? 0) / perPixel / 2
+        const height = (billboard.height ?? 0) / perPixel
+        // Anchored bottom-center (VerticalOrigin.BOTTOM); window y grows down
+        rects.push({
+          left: window.x - halfWidth,
+          right: window.x + halfWidth,
+          top: window.y - height,
+          bottom: window.y,
+        })
+      }
+    }
+    if (!sameRects(rects, this.rects)) {
+      this.rects = rects
+      this.rectsVersion++
+    }
+    return this.rects
+  }
+
+  /** The Layers switch: pictures drawn or not (the list in the panel stays). */
+  setVisible(visible: boolean): void {
+    if (visible === this.visible) return
+    this.visible = visible
+    this.applyShown()
+  }
+
+  /**
+   * Underground view: the pictures go out wholesale, whatever the switch
+   * says – they float over a surface that has just sunk to a dark relief,
+   * and the tunnels are the point down there. The switch's state survives
+   * the trip and applies again on the way up.
+   */
+  setUnderground(underground: boolean): void {
+    if (underground === this.underground) return
+    this.underground = underground
+    this.applyShown()
+  }
+
+  /** Whether the pictures are drawn: the switch on and the view on the surface. */
+  private get shown(): boolean {
+    return this.visible && !this.underground
+  }
+
+  private applyShown(): void {
+    if (this.collection) this.collection.show = this.shown
+    this.rectsDirty = true
+    this.host.requestRender()
+  }
+
+  /**
+   * What a flight to a camera aims at: the picture's center and half its
+   * longest side, null for a camera not on the map (or not loaded yet).
+   */
+  focusTarget(id: number): { center: Cartesian3; radius: number } | null {
+    const record = this.records.get(id)
+    if (!record || !record.billboard.show) return null
+    const width = record.billboard.width ?? 0
+    const height = record.billboard.height ?? 0
+    return {
+      center: Cartesian3.fromDegrees(
+        record.webcam.lon,
+        record.webcam.lat,
+        record.groundHeight + WEBCAM_FLOAT_METERS + height / 2,
+      ),
+      radius: Math.max(width, height) / 2,
+    }
+  }
+
+  /** Bumped whenever screenRects changed – the stop declutter reruns on it. */
+  get screenRectsVersion(): number {
+    void this.screenRects
+    return this.rectsVersion
   }
 
   /**
@@ -123,6 +248,7 @@ export class WebcamsLayer {
       if (alive.has(id)) continue
       this.collection?.remove(record.billboard)
       this.records.delete(id)
+      this.rectsDirty = true
       this.host.requestRender()
     }
     this.applyCredit()
@@ -132,6 +258,7 @@ export class WebcamsLayer {
   clear(): void {
     this.collection?.removeAll()
     this.records.clear()
+    this.rectsDirty = true
     this.applyCredit()
     this.host.requestRender()
   }
@@ -152,6 +279,7 @@ export class WebcamsLayer {
       record.groundHeight = height
       record.measured = true
       record.billboard.position = this.positionOf(record)
+      this.rectsDirty = true
       this.host.requestRender()
     }
   }
@@ -196,6 +324,7 @@ export class WebcamsLayer {
     billboard.width = size.width
     billboard.height = size.height
     billboard.show = true
+    this.rectsDirty = true
     this.host.requestRender()
   }
 
@@ -210,6 +339,7 @@ export class WebcamsLayer {
   private ensureCollection(): BillboardCollection {
     if (!this.collection) {
       this.collection = new BillboardCollection()
+      this.collection.show = this.shown
       this.viewer.scene.primitives.add(this.collection)
     }
     return this.collection

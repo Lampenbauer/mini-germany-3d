@@ -42,6 +42,7 @@ import {
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
 import { cameraFramingScale } from './CameraLens'
+import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
@@ -50,6 +51,10 @@ export interface VesselLayerHost {
   readonly waterSurfaceHeight: number
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /** Screen rectangles the names keep clear of (the webcam pictures). */
+  obstacles?: () => readonly ScreenRect[]
+  /** Window position of a world point (CSS px), undefined behind the camera. */
+  windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
 }
 
 /**
@@ -60,6 +65,11 @@ export interface VesselLayerHost {
  * never loses her name before her hull.
  */
 const VESSEL_BODY_VISIBLE_RANGE = 20_000
+/** The name floats this many CSS pixels above the ship (negative = up). */
+const NAME_PIXEL_OFFSET_Y = -16
+/** Rough glyph width of the 10 px name font, for the picture test. */
+const NAME_PX_PER_CHAR = 6
+const NAME_HEIGHT_PX = 12
 /** Ship names fade in below this camera distance (meters). */
 const NAME_VISIBLE_RANGE = 30_000
 /**
@@ -354,6 +364,8 @@ export class VesselLayer {
     const alive = new Set<number>()
     // One culling volume per tick, for every repaint decision below.
     const camera = this.viewer.camera
+    // Webcam pictures on screen – a name that would sit on one steps aside
+    const obstacles = this.host.obstacles?.() ?? []
     const cullingVolume = camera.frustum.computeCullingVolume(
       camera.positionWC,
       camera.directionWC,
@@ -441,6 +453,27 @@ export class VesselLayer {
         Matrix4.multiplyByScale(record.matrix, scaleScratch, record.modelMatrix)
       }
       record.labelPosition.setValue(record.displayPosition)
+      // A name that would sit on a webcam picture steps aside for it
+      let nameShown = this.visible && this.labelsVisible
+      if (nameShown && obstacles.length > 0) {
+        const window = this.host.windowPosition?.(record.displayPosition)
+        if (
+          window &&
+          rectCoversBox(
+            obstacles,
+            window.x,
+            window.y + NAME_PIXEL_OFFSET_Y + NAME_HEIGHT_PX / 2,
+            (record.labelText.length * NAME_PX_PER_CHAR) / 2,
+            NAME_HEIGHT_PX,
+          )
+        ) {
+          nameShown = false
+        }
+      }
+      if (record.labelEntity.show !== nameShown) {
+        record.labelEntity.show = nameShown
+        this.host.requestRender()
+      }
       const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
       const showBody = this.visible && distance < VESSEL_BODY_VISIBLE_RANGE
       if (showBody && distance < nearestHullMeters) nearestHullMeters = distance
@@ -621,7 +654,7 @@ export class VesselLayer {
         outlineColor: color,
         outlineWidth: 2,
         style: LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cartesian2(0, -16),
+        pixelOffset: new Cartesian2(0, NAME_PIXEL_OFFSET_Y),
         distanceDisplayCondition: new DistanceDisplayCondition(0, NAME_VISIBLE_RANGE),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
