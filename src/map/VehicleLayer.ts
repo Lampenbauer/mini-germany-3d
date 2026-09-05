@@ -286,13 +286,13 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
   // the height plus FERRY_FLOAT_LIFT.
   'ferry-warnow-fw': {
     scale: 1,
-    baseLift: 3 + 0.8,
+    baseLift: 3 + 1.1,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fw.glb', length: 39 }],
   },
   'ferry-warnow-fg': {
     scale: 1,
-    baseLift: 1.75 + 0.8,
+    baseLift: 1.75 + 1.1,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fg.glb', length: 19.9 }],
   },
@@ -308,7 +308,7 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
  * Riding high reads as a shallow-draft vessel; riding low reads as
  * sinking, so the lift errs upward.
  */
-export const FERRY_FLOAT_LIFT = 0.8
+export const FERRY_FLOAT_LIFT = 1.1
 
 /** Model consist for a vehicle; undefined keeps the colored box. */
 function modelSpecFor(snap: VehicleSnapshot): VehicleModelSpec | undefined {

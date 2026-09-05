@@ -13,8 +13,11 @@ describe('framing distance scale', () => {
     expect(framingDistanceScale(30)).toBeCloseTo(2.155, 3)
   })
 
-  it('moves it closer as the angle widens', () => {
-    expect(framingDistanceScale(90)).toBeCloseTo(0.577, 3)
+  it('never moves it closer than the reference – the widest angle allowed', () => {
+    // The guard rail ends at the reference angle, so a wider request is
+    // held there and its distances stay as tuned.
+    expect(framingDistanceScale(60)).toBe(1)
+    expect(framingDistanceScale(90)).toBe(1)
   })
 
   it('keeps the same ground in frame at any angle', () => {
@@ -23,15 +26,15 @@ describe('framing distance scale', () => {
     const halfWidth = (fovDeg: number) =>
       1000 * framingDistanceScale(fovDeg) * Math.tan((fovDeg * Math.PI) / 360)
     const reference = halfWidth(REFERENCE_FOV_DEG)
-    for (const fovDeg of [20, 35, 45, 75, 110]) {
+    for (const fovDeg of [25, 35, 45, 60]) {
       expect(halfWidth(fovDeg)).toBeCloseTo(reference, 6)
     }
   })
 
   it('holds an unusable field of view inside its guard rails', () => {
-    expect(clampFovDeg(0)).toBe(10)
-    expect(clampFovDeg(-30)).toBe(10)
-    expect(clampFovDeg(180)).toBe(120)
+    expect(clampFovDeg(0)).toBe(25)
+    expect(clampFovDeg(-30)).toBe(25)
+    expect(clampFovDeg(180)).toBe(60)
     expect(clampFovDeg(Number.NaN)).toBe(REFERENCE_FOV_DEG)
     // A zero angle would otherwise divide the distances by zero
     expect(Number.isFinite(framingDistanceScale(0))).toBe(true)

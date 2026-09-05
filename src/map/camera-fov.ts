@@ -27,13 +27,13 @@ import { config } from '@/config'
 export const REFERENCE_FOV_DEG = 60
 
 /**
- * Sane bounds for the knob. Below ~10° the view is a telescope in which
- * dragging the mouse throws the city across the screen; past ~120° the
+ * Sane bounds for the knob. Below ~25° the view is a telescope in which
+ * dragging the mouse throws the city across the screen; past ~60° the
  * projection stretches the frame edges into a fisheye. Both ends are far
  * outside anything usable – this is a guard rail, not a preference.
  */
-const MIN_FOV_DEG = 10
-const MAX_FOV_DEG = 120
+const MIN_FOV_DEG = 25
+const MAX_FOV_DEG = 60
 
 /** The configured field of view, held inside what a camera can show. */
 export function clampFovDeg(fovDeg: number): number {

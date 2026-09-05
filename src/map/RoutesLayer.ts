@@ -51,7 +51,7 @@ export const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
  * keeps them clear of road surfaces that sit slightly above the DGM (curbs,
  * rails) and of z-fighting with the tile mesh.
  */
-const ROUTE_BASE_LIFT = 0.8
+const ROUTE_BASE_LIFT = 0.15
 
 /**
  * Additional per-line lift stagger. Lines sharing a street would otherwise
