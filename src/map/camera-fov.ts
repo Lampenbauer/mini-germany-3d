@@ -64,7 +64,9 @@ export function framingDistanceScale(fovDeg: number): number {
  * further out than that angle would ask for – a few more discs at the
  * horizon, never one missing.
  *
- * Distances that a flight computes on the spot do follow the lens: they
- * read it off the camera (see cameraFramingScale in CameraLens.ts).
+ * Distances that a flight computes on the spot do follow the lens, and
+ * so do the vehicles' and ships' render ranges – comparisons made per
+ * tick: they read it off the camera (see cameraFramingScale in
+ * CameraLens.ts).
  */
 export const FRAMING_SCALE = framingDistanceScale(config.camera.fovDeg)

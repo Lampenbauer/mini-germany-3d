@@ -44,6 +44,7 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import { FRAMING_SCALE } from './camera-fov'
+import { cameraFramingScale } from './CameraLens'
 import { FollowCamera } from '@/map/FollowCamera'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { tunnelOpacity } from './tunnel-view'
@@ -179,7 +180,15 @@ const HEIGHT_SAMPLE_INTERVAL = 12
  */
 const VEHICLE_BODY_VISIBLE_RANGE = 3_500 * FRAMING_SCALE
 const VEHICLE_LABEL_VISIBLE_RANGE = 35_000 * FRAMING_SCALE
-const VEHICLE_RENDER_RANGE = 20_000 * FRAMING_SCALE
+/**
+ * Beyond this camera distance nothing of a vehicle is drawn and it does
+ * not count as in view – measured at the reference lens and scaled per
+ * tick by the lens the camera wears (cameraFramingScale): through the
+ * miniature lens the same ground lies further out. Not pinned like the
+ * display conditions above, because it is a comparison, not a baked
+ * primitive property.
+ */
+const VEHICLE_RENDER_RANGE_AT_REFERENCE = 20_000
 
 interface VehicleModelSpec {
   /** Uniform scale (tuned visually against the photo tiles). */
@@ -539,7 +548,7 @@ export class VehicleLayer {
     let anyVehicleInView = false
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
-     * anyVehicleInView, which reaches out to VEHICLE_RENDER_RANGE. The map's
+     * anyVehicleInView, which reaches out to the render range. The map's
      * shadow gate keys on it: with nothing near enough to cast, an
      * enabled shadow map still makes every fragment of the full-screen
      * tileset sample four cascade textures for nothing.
@@ -548,6 +557,7 @@ export class VehicleLayer {
     // Resolved once per tick: while a "zoom to line" focus runs, the other
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
+    const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -619,7 +629,7 @@ export class VehicleLayer {
       // fallback tile-height sampling below is worth doing at all.
       let inView = false
       const cameraDistance = Cartesian3.distance(camera.positionWC, position)
-      if (show && cameraDistance < VEHICLE_RENDER_RANGE) {
+      if (show && cameraDistance < renderRange) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
