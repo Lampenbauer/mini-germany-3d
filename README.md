@@ -237,7 +237,8 @@ src/cities/kiel/
 ├── limits.json        # the city limits polygon – written by add-city, read by the pipeline only
 ├── network.json       # lines, routes, stops – generated (data:update, data:simplify, data:heights)
 ├── schedule.json      # real departure times – generated (data:gtfs)
-└── street-lamps.json  # OSM lamps along the routes – generated (data:lamps), optional
+├── street-lamps.json  # OSM lamps along the routes – generated (data:lamps), optional
+└── terrain/           # terrain tiles of the city's own, over Mapterhorn's – optional (build-terrain-patch)
 ```
 
 `city.json` says everything the rest of the project needs to know about the
@@ -272,7 +273,10 @@ place (typed and validated by `src/lib/city.ts`):
   the pipeline samples at (15 ≈ 1.4 m per pixel), the geoid offset the
   height bootstrap starts from, the water level ferries ride at (`null`
   where the terrain model carries the lakes' levels itself, as Berlin's
-  does), and the attribution line the state's license asks for.
+  does), and the attribution line the state's license asks for. A
+  `terrain/{z}/{x}/{y}.webp` in the city folder is read before Mapterhorn
+  is asked for that tile – the way around a hole in Mapterhorn's import
+  (Hamburg, see [Data](#data--gtfs--gtfs-realtime--osm)).
 - **`ais`** – whether the AIS backdrop is on, and which real vessels this map
   already runs from a timetable (`simulatedByMmsi`), so their AIS twins are
   left out of the backdrop fleet.
@@ -316,6 +320,19 @@ summer piers and back), so a fixed line's `from`/`to` also cut the
 relation to that stretch. Routes are clipped to the padded box rather than
 the city limits (`clip: "box"`) – Laboe, Strande and Heikendorf are part of
 the Förde even though they lie outside the city.
+
+**Hamburg**: the four U-Bahn lines, the five S-Bahn lines (cut at the
+city limits – they really run on to Wedel, Stade and Aumühle), the 26
+Metrobus lines of Hochbahn and VHH and the eight HADAG harbour ferries,
+with terrain heights from the city's open DGM1 (via Mapterhorn) and
+~5200 OSM street lamps along the routes. Mapterhorn's Hamburg import
+lacks 20 of the DGM1's 2 km squares – the centre, Ottensen, Hammerbrook,
+Rothenburgsort, Wilhelmsburg – so the city folder carries its own tiles
+for them (`terrain/`, built once by `scripts/build-terrain-patch.mjs` from
+the same DGM1, see [Data](#data--gtfs--gtfs-realtime--osm)). The HADAG
+boats are in the AIS backdrop too, so the city lists their MMSIs as twins
+of the scheduled ferries – by operator, not by line: a harbour ferry runs
+whatever line the roster gives her that day.
 
 **Berlin**: the nine U-Bahn lines, the S-Bahn (all lines, cut at the city
 limits), all 22 BVG tram lines, the Metrobus lines plus the 100, 200 and
@@ -392,11 +409,19 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   tiles are fetched one by one at the city's `terrain.zoom` (15 ≈ 1.4 m per
   pixel; a city's routes touch a few hundred tiles, some 20–35 MB per
   city), nothing is downloaded up front or kept on disk, and no key or fee
-  is involved. Not every Mapterhorn import is complete – Hamburg's city
-  centre falls back to a 30 m surface model there
-  ([mapterhorn/mapterhorn#131](https://github.com/mapterhorn/mapterhorn/issues/131)),
-  which is why Hamburg is not a city of this map – so a new city is worth
-  a look at a few known heights before it goes live. Bridge sections get a
+  is involved. Not every Mapterhorn import is complete – its Hamburg
+  import lacks 19 of the DGM1's 2 km squares (the city centre, Ottensen,
+  Hammerbrook, Rothenburgsort, Wilhelmsburg), where its tiles come from
+  a 30 m surface model, 3–20 m above the ground
+  ([mapterhorn/mapterhorn#131](https://github.com/mapterhorn/mapterhorn/issues/131))
+  – so a new city is worth a look at a few known heights before it goes
+  live. For such a hole a city folder can carry tiles of its own,
+  `terrain/{z}/{x}/{y}.webp` in Mapterhorn's format, which the sampler
+  reads before it asks the server; `scripts/build-terrain-patch.mjs`
+  builds them once from the state's DGM (Hamburg: the LGV's DGM1 zip,
+  compared square by square with Mapterhorn, every tile touching a
+  missing square rebuilt) and they are committed like any other city
+  data. Bridge sections get a
   straight deck interpolated between their end points. With these heights the app draws the route polylines at
   absolute heights instead of clamping them onto the 3D tiles per frame –
   that classification pass costs measurable GPU time on every rendered
@@ -587,6 +612,7 @@ scripts/
 ├── simplify-network.mjs      # thins out route geometries        (npm run data:simplify)
 ├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
 ├── fetch-route-heights.mjs   # terrain heights from Mapterhorn   (npm run data:heights)
+├── build-terrain-patch.mjs   # a city's own terrain tiles where Mapterhorn has holes (one-off, by hand)
 ├── fetch-street-lamps.mjs    # OSM street lamps + terrain heights (npm run data:lamps)
 ├── build-vehicle-models.mjs  # procedural low-poly vehicle GLBs  (npm run models:build)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
@@ -663,7 +689,10 @@ they are in view.
 - Terrain heights (after `npm run data:heights` / `data:lamps`):
   © [Mapterhorn](https://mapterhorn.com/attribution), built from
   © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from
-  © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel and from Geoportal
+  © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel, from © Freie und
+  Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (DGM1,
+  dl-de/by-2-0) for Hamburg (`src/cities/hamburg/terrain/`, the same
+  model Mapterhorn's Hamburg tiles are built from) and from Geoportal
   Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und
   Wohnen, dl-de/zero-2.0) for Berlin – shown in the app inside Cesium's
   "Data attribution" credits

@@ -231,9 +231,12 @@ interface VehicleModelSpec {
  *   sbahn-talent2    Talent 2 – cab car / pantograph middle car / cab car
  *   ubahn-h          Berlin U-Bahn BR H – six third-rail sections, 79.5 m
  *   sbahn-481        Berlin S-Bahn BR 481 half train – the same six sections
+ *   ubahn-dt5        Hamburg U-Bahn DT5 double unit – the same six sections, 79.5 m
+ *   sbahn-490        Hamburg S-Bahn ET 490 unit – five of those sections, 66 m
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
+ *   ferry-hadag      HADAG harbour ferry (Typ 2000, 29.9 m double-ender) – the Breitling hull at 0.77
  *
  * baseLift is half the overall height (origin sits mid-height, the same
  * halfHeight semantics the boxes had). The models are tinted in the line
@@ -294,6 +297,34 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
     ],
   },
+  // Hamburg's third-rail trains use the same 13 m section. A DT5 is a
+  // 39.6 m three-section unit that runs in pairs all day (79 m); an
+  // ET 490 a 66 m three-car unit – five sections come to 66.2 m.
+  'ubahn-dt5': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+  'sbahn-490': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
   'bus-12m': {
     scale: 1,
     baseLift: 1.55,
@@ -315,6 +346,14 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
     baseLift: 1.75 + 1.1,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fg.glb', length: 19.9 }],
+  },
+  // HADAG's Typ 2000 harbour ferries (29.9 × 8.2 m) are double-enders of
+  // the Breitling ferry's proportions: her hull at 0.77 is 30 m by 8.5 m.
+  'ferry-hadag': {
+    scale: 0.77,
+    baseLift: 3 + 1.1 / 0.77,
+    gap: 0,
+    wagons: [{ uri: 'models/ferry-fw.glb', length: 39 }],
   },
 }
 

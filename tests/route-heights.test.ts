@@ -100,7 +100,26 @@ describe('MapterhornSampler', () => {
     const h = await sampler.heightAt(...lonLatFromPixel(px, py, 3))
     expect(h).toBeCloseTo(plane(px, py), 3)
     expect(fake.fetched).toEqual(['3/1/1'])
-    expect(sampler.stats).toEqual({ tiles: 1, bytes: 5, failedTiles: 0 })
+    expect(sampler.stats).toEqual({ tiles: 1, bytes: 5, failedTiles: 0, localTiles: 0 })
+  })
+
+  it('reads a tile from the city folder before asking the server', async () => {
+    const fake = fakeTiles()
+    // tests/fixtures/terrain-patch/3/1/1.webp carries tile 3/2/1's key –
+    // a plane one tile further east – so a sample inside 3/1/1 must come
+    // back 512 m higher than the server's plane, without the server
+    // being asked.
+    // (jsdom's URL mangles file: URLs, so the path is cut from the string.)
+    const here = import.meta.url.slice('file://'.length)
+    const dir = here.slice(0, here.lastIndexOf('/')) + '/fixtures/terrain-patch'
+    const sampler = new MapterhornSampler({ zoom: 3, minZoom: 1, ...fake, retryDelayMs: 0, localDir: dir })
+    const [px, py] = [1000.25, 700.75]
+    expect(await sampler.heightAt(...lonLatFromPixel(px, py, 3))).toBeCloseTo(plane(px, py) + TILE_SIZE, 3)
+    expect(fake.fetched).toEqual([])
+    expect(sampler.stats).toEqual({ tiles: 0, bytes: 0, failedTiles: 0, localTiles: 1 })
+    // The neighbour is not in the folder: fetched as before.
+    await sampler.heightAt(...lonLatFromPixel(100, 700, 3))
+    expect(fake.fetched).toEqual(['3/0/1'])
   })
 
   it('fetches the neighbor tile where the footprint straddles an edge', async () => {
