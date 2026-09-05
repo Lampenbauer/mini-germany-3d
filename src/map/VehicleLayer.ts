@@ -36,6 +36,7 @@ import {
   PerInstanceColorAppearance,
   PlaneGeometry,
   Primitive,
+  PrimitiveCollection,
   ShadowMode,
   Transforms,
   UniformType,
@@ -49,6 +50,7 @@ import { FollowCamera } from '@/map/FollowCamera'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { tunnelOpacity } from './tunnel-view'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
+import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 
 /** The badge floats this many CSS pixels above the vehicle (negative = up). */
 const BADGE_PIXEL_OFFSET_Y = -30
@@ -80,6 +82,18 @@ export interface VehicleLayerHost {
 }
 
 interface VehicleRecord {
+  /**
+   * Everything of the vehicle that is a primitive – body, wagons, glow
+   * pool – in one collection of its own on the scene. Its `show` is the
+   * body cutoff: Cesium's PrimitiveCollection.update returns before
+   * touching its children when it is hidden, whereas a hidden Model runs
+   * its whole per-frame update (scene graph, environment map, draw
+   * command build) and only skips the final submit. With Berlin's ~3000
+   * wagons that difference was 3.6 ms of every frame for vehicles too far
+   * to draw (measured 2026-09-05). Removing the collection destroys its
+   * children, as removing them one by one did.
+   */
+  group: PrimitiveCollection
   /**
    * The vehicle body with a direct modelMatrix: position updates take
    * effect immediately. (Entity boxes rebuild their geometry
@@ -144,6 +158,16 @@ interface VehicleRecord {
   lastSampleFrame: number
   /** Position of the last tick – detects movement for render requests. */
   lastPosition: Cartesian3
+  /**
+   * Position as of the frame that was last RENDERED (not the last tick):
+   * the reference the on-screen motion is measured against, so that slow
+   * movement accumulates over several ticks instead of being compared
+   * tick to tick and never reaching the threshold (see screen-motion.ts).
+   * Kept lazily: renderedStamp records which render it belongs to, and
+   * sync() refreshes it the first tick after a newer frame was drawn.
+   */
+  renderedPosition: Cartesian3
+  renderedStamp: number
   /** Night-time light pool under the vehicle (null without 2D canvas). */
   glow: Primitive | null
   /** Live modelMatrix of the glow quad (updated in place). */
@@ -188,8 +212,16 @@ const HEIGHT_SAMPLE_INTERVAL = 12
  * field of view (see camera-fov.ts). A narrower angle needs a camera that
  * stands further back, and these ranges keep the same tram the same size
  * on screen when it does.
+ *
+ * BODY and RENDER are per-tick comparisons and follow the lens the camera
+ * actually wears (cameraFramingScale); LABEL is baked into a
+ * DistanceDisplayCondition and stays pinned to the narrower angle (see
+ * FRAMING_SCALE). The body range used to be pinned too, which through the
+ * plain 60° lens drew every body out to 7.7 km – three pixels of wagon –
+ * and had Berlin's morning fleet cost 13 ms of every frame in Model
+ * updates alone (measured 2026-09-05).
  */
-const VEHICLE_BODY_VISIBLE_RANGE = 3_500 * FRAMING_SCALE
+const VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE = 3_500
 const VEHICLE_LABEL_VISIBLE_RANGE = 35_000 * FRAMING_SCALE
 /**
  * Beyond this camera distance nothing of a vehicle is drawn and it does
@@ -453,6 +485,12 @@ export class VehicleLayer {
    */
   private frameCounter = 0
   private frustumSphere = new BoundingSphere()
+  /**
+   * Counts rendered frames (see markRendered). A record whose
+   * renderedStamp lags behind it was drawn since its last tick, so the
+   * position of that tick is what is on screen now.
+   */
+  private renderStamp = 0
   /** Lights the models' glazing at night (see WINDOW_GLOW_COLOR). */
   private readonly windowGlowShader = new CustomShader({
     uniforms: { u_windowGlow: { type: UniformType.FLOAT, value: 0 } },
@@ -523,6 +561,15 @@ export class VehicleLayer {
   }
 
   /**
+   * The map drew a frame: from here on, motion is measured against the
+   * poses of the tick before this call (see VehicleRecord.renderedPosition).
+   * O(1) – the records catch up lazily on their next tick.
+   */
+  markRendered(): void {
+    this.renderStamp++
+  }
+
+  /**
    * Takes every vehicle off the map (the map is moving on to another
    * city): the chase and the selection let go first, then one sync with
    * nothing alive removes the bodies, badges and pools.
@@ -583,7 +630,36 @@ export class VehicleLayer {
   sync(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-  ): { anyVehicleInView: boolean; nearestBodyMeters: number } {
+  ): {
+    anyVehicleInView: boolean
+    nearestBodyMeters: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
+    // One collectionChanged event for the whole tick instead of one per
+    // vehicle: every labelPosition.setValue below raised the entity's
+    // definitionChanged, the collection copied its three change lists and
+    // ran all visualizers' listeners on it – 18 000 times a second in
+    // Berlin's morning rush (measured 2026-09-05). Suspended, the
+    // collection folds them into one event on resume.
+    const entities = this.viewer.entities
+    entities.suspendEvents()
+    try {
+      return this.syncBatched(snapshots, visibleLines)
+    } finally {
+      entities.resumeEvents()
+    }
+  }
+
+  private syncBatched(
+    snapshots: VehicleSnapshot[],
+    visibleLines: ReadonlySet<string>,
+  ): {
+    anyVehicleInView: boolean
+    nearestBodyMeters: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
     this.frameCounter++
     const alive = new Set<string>()
 
@@ -607,9 +683,19 @@ export class VehicleLayer {
     // Resolved once per tick: while a "zoom to line" focus runs, the other
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
-    const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    const framingScale = cameraFramingScale(camera)
+    const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * framingScale
+    const bodyRange = VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE * framingScale
     // Webcam pictures on screen – a badge that would sit on one steps aside
     const obstacles = this.host.obstacles?.() ?? []
+    // On-screen motion since the last rendered frame (see screen-motion.ts):
+    // the largest of any vehicle in view is what the app paces its ticks
+    // by, and a vehicle past the threshold asks for a frame itself.
+    const pxPerMeterAtUnit = cssPixelsPerMeterAtUnitDistance(this.viewer)
+    const motionThreshold = motionThresholdCssPx(this.host.pixelRatio)
+    let maxScreenMotionPx = 0
+    // …and within this tick alone, for the app's speed estimate
+    let maxTickMotionPx = 0
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -719,11 +805,29 @@ export class VehicleLayer {
         }
       }
 
+      // A frame was drawn since this vehicle's last tick: the pose of that
+      // tick is what is on screen, and the reference motion is measured
+      // against from now on. Before lastPosition moves on below.
+      if (record.renderedStamp !== this.renderStamp) {
+        Cartesian3.clone(record.lastPosition, record.renderedPosition)
+        record.renderedStamp = this.renderStamp
+      }
+      const tickMeters = Cartesian3.distance(position, record.lastPosition)
+      if (tickMeters > 0.01) Cartesian3.clone(position, record.lastPosition)
       // Movement of an on-screen vehicle (sim tick, time jump, height
-      // adjustment) must reach the screen even outside the 30 fps state.
-      if (!Cartesian3.equalsEpsilon(position, record.lastPosition, 0, 0.01)) {
-        Cartesian3.clone(position, record.lastPosition)
-        if (inView) this.host.requestRender()
+      // adjustment) must reach the screen – once it amounts to something
+      // the screen can show. Far out, a tram advances a fortieth of a
+      // pixel per tick, and drawing that every tick pinned the loop at
+      // 30 fps for nothing visible; the motion accumulates against the
+      // rendered pose and the frame comes when it adds up.
+      if (inView) {
+        const pxPerMeter = pxPerMeterAtUnit / Math.max(1, cameraDistance)
+        const movedMeters = Cartesian3.distance(position, record.renderedPosition)
+        const motionPx = movedMeters > 0 ? movedMeters * pxPerMeter : 0
+        const tickPx = tickMeters > 0 ? tickMeters * pxPerMeter : 0
+        if (motionPx > maxScreenMotionPx) maxScreenMotionPx = motionPx
+        if (tickPx > maxTickMotionPx) maxTickMotionPx = tickPx
+        if (motionPx >= motionThreshold) this.host.requestRender()
       }
 
       record.labelPosition.setValue(position)
@@ -747,23 +851,21 @@ export class VehicleLayer {
       // CPU – a DistanceDisplayCondition attribute on the Primitive
       // measures from the instance matrix, which is identity for these
       // boxes since the position lives in the primitive's own modelMatrix.)
-      const showBody = show && cameraDistance < VEHICLE_BODY_VISIBLE_RANGE
+      const showBody = show && cameraDistance < bodyRange
       // A vehicle under the street is lit by nothing and casts nothing.
       // It is still DRAWN – ghosted, so the route stays followable – so
       // without this it threw a sunlit shadow onto the road above it.
       const castsShadow = showBody && !record.inTunnel
       if (castsShadow && cameraDistance < nearestBodyMeters) nearestBodyMeters = cameraDistance
       let visibilityChanged = false
-      if (record.primitive && record.primitive.show !== showBody) {
-        record.primitive.show = showBody
+      // The whole group at once – body, wagons and pool – so a hidden
+      // vehicle's primitives are not even updated (see VehicleRecord.group).
+      if (record.group.show !== showBody) {
+        record.group.show = showBody
         visibilityChanged = true
       }
       const wagonShadows = castsShadow ? ShadowMode.CAST_ONLY : ShadowMode.DISABLED
       for (const model of record.models) {
-        if (model && model.show !== showBody) {
-          model.show = showBody
-          visibilityChanged = true
-        }
         if (model && model.shadows !== wagonShadows) model.shadows = wagonShadows
       }
       if (showLabel && obstacles.length > 0) {
@@ -829,19 +931,15 @@ export class VehicleLayer {
       if (!alive.has(id)) {
         if (id === this.followId) this.setFollow(null)
         this.viewer.entities.remove(record.labelEntity)
-        // Wagons may still be loading (attachWagon then destroys the late
-        // arrivals itself).
-        if (record.primitive) this.viewer.scene.primitives.remove(record.primitive)
-        for (const model of record.models) {
-          if (model) this.viewer.scene.primitives.remove(model)
-        }
-        if (record.glow) this.viewer.scene.primitives.remove(record.glow)
+        // The group takes body, wagons and pool with it. Wagons may still
+        // be loading (attachWagon then destroys the late arrivals itself).
+        this.viewer.scene.primitives.remove(record.group)
         this.vehicles.delete(id)
         this.host.requestRender()
       }
     }
 
-    return { anyVehicleInView, nearestBodyMeters }
+    return { anyVehicleInView, nearestBodyMeters, maxScreenMotionPx, maxTickMotionPx }
   }
 
   /** Shared radial-gradient sprite of the glow pools (null: no 2D canvas). */
@@ -980,6 +1078,9 @@ export class VehicleLayer {
       initialPosition,
       new HeadingPitchRoll(CesiumMath.toRadians(snap.bearing - 90), 0, 0),
     )
+    // All of this vehicle's primitives live in here (see VehicleRecord.group)
+    const group = new PrimitiveCollection({ destroyPrimitives: true })
+    this.viewer.scene.primitives.add(group)
     let primitive: Primitive | null = null
     let appearance: PerInstanceColorAppearance | null = null
     // Consist layout: wagon centers along the travel axis, vehicle center
@@ -1022,7 +1123,7 @@ export class VehicleLayer {
         asynchronous: false,
         modelMatrix: matrix,
       })
-      this.viewer.scene.primitives.add(primitive)
+      group.add(primitive)
     }
     // IMPORTANT: Primitive CLONES the modelMatrix passed in – for the
     // in-place updates in sync(), the primitive's own instance must be
@@ -1091,11 +1192,12 @@ export class VehicleLayer {
         modelMatrix: Matrix4.multiplyByScale(Matrix4.clone(matrix), glowScale, new Matrix4()),
         show: false, // syncVehicles turns it on at night
       })
-      this.viewer.scene.primitives.add(glow)
+      group.add(glow)
       glowMatrix = glow.modelMatrix
     }
 
     const record: VehicleRecord = {
+      group,
       primitive,
       isModelBody: modelSpec !== undefined,
       models: [],
@@ -1118,6 +1220,8 @@ export class VehicleLayer {
       groundHeight: this.host.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
       lastPosition: Cartesian3.clone(initialPosition),
+      renderedPosition: Cartesian3.clone(initialPosition),
+      renderedStamp: this.renderStamp,
       glow,
       glowMatrix,
       glowScale,
@@ -1168,7 +1272,7 @@ export class VehicleLayer {
     model.colorBlendMode = ColorBlendMode.MIX
     model.colorBlendAmount = MODEL_TINT_AMOUNT
     model.customShader = this.windowGlowShader
-    this.viewer.scene.primitives.add(model)
+    record.group.add(model)
     // fromGltfAsync clones the matrix – rebind so the in-place pose
     // updates in sync() reach the model.
     record.models[index] = model

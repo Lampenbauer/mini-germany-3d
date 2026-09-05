@@ -23,6 +23,7 @@ import {
   Math as CesiumMath,
   Matrix3,
   Matrix4,
+  PerspectiveFrustum,
   Rectangle,
   SceneTransforms,
   ScreenSpaceEventHandler,
@@ -42,6 +43,7 @@ import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './c
 import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
+import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { StopsLayer } from './StopsLayer'
 import { VesselLayer } from './VesselLayer'
 import { WebcamsLayer } from './WebcamsLayer'
@@ -233,10 +235,38 @@ const SHADOW_SUN_MIN = 0.05
  *
  * SHADOW_MAP_SIZE is spread over that extent – raising the distance
  * without the pixels to go with it is what makes the edge stair-step.
+ *
+ * It is the size of ONE cascade. Cesium's sun shadow has four of them
+ * and packs them 2×2 into a single texture, so the texture it allocates
+ * is twice this on each side (ShadowMap.js, resize): 4096 here means an
+ * 8192² depth texture of 256 MB. The 8192 it used to say made that a
+ * 16384² texture – a gigabyte of GPU memory, and ~2.5 ms more per frame
+ * while shadows were on – for an edge that a side-by-side screenshot in
+ * the chase cam could not tell apart (0.01 % of the pixels differed).
  */
 const SHADOW_DARKNESS = 0.52
-const SHADOW_MAP_SIZE = 8192
+const SHADOW_MAP_SIZE = 4096
 const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
+
+/**
+ * How wide the nearest caster's body has to be ON SCREEN, in CSS pixels,
+ * before the shadow pass is worth running. The shadow of a vehicle is
+ * about as wide as the vehicle; narrower than this it is a sub-pixel
+ * smear the eye cannot find. The home view of a city sits ~5 km above
+ * the fleet, where a tram is a pixel wide – there the pass used to cost
+ * half of every frame (9.5 of 19 ms, measured 2026-09-05) to change
+ * 0.026 % of the pixels. SHADOW_CASTER_WIDTH_M is the width the test
+ * assumes: a tram or bus body, the narrowest thing that casts.
+ *
+ * The same numbers bound the shadowed volume: shadowMap.maximumDistance
+ * follows the distance at which a body of that width still spans this
+ * many pixels (see applyShadowState). Fragments beyond the last cascade
+ * skip the shadow lookup in Cesium's receive shader, and the cascades
+ * share their texels over a shorter range, so a tighter volume is both
+ * cheaper and sharper.
+ */
+const SHADOW_MIN_CASTER_PX = 2
+const SHADOW_CASTER_WIDTH_M = 2.65
 
 /**
  * A flight to a webcam picture: looking this far down, from this many
@@ -249,6 +279,17 @@ const WEBCAM_FOCUS_RANGE_FACTOR = 4
 /** Scratches of windowPosition / metersPerCssPixel (see there). */
 const windowScratch = new Cartesian2()
 const pixelSizeSphere = new BoundingSphere(new Cartesian3(), 0)
+
+/** Earth's equatorial radius in meters – the horizon dip (see horizonMayBeInView). */
+const EARTH_RADIUS = 6378137
+
+/**
+ * Margin the horizon test keeps below the frame's top corners, in radians
+ * (~2°): terrain and the tiles' own relief stand a little above the
+ * geometric horizon, and the sky must never be missing where a strip of
+ * it could show.
+ */
+const SKY_MARGIN_RAD = 0.035
 
 /**
  * How much of the shadow survives the weather, as two anchor points on
@@ -289,11 +330,15 @@ export function shadowStrengthForOvercast(grade: number): number {
 const UNDERGROUND_DIM = 0.02
 
 /**
- * Minimum gap between two hover picks in ms. A pick is an offscreen render
- * of a small region, so one per mouse-move event would put a real cost on a
- * cursor change; ~20/s is far more than the eye needs.
+ * Minimum gap between two hover picks in ms. A pick runs the scene update
+ * for a tiny frustum – every selected tile and every vehicle model still
+ * has its update called – so one per mouse-move event would put a real
+ * cost on a cursor change: measured 2026-09-05 at 1 ms in Rostock and
+ * 7.4 ms in Berlin's morning rush. Ten a second is plenty for a cursor
+ * to change under a resting mouse, and none at all are taken while a
+ * button is held (the camera is being dragged, the cursor is a hand).
  */
-const HOVER_PICK_INTERVAL_MS = 50
+const HOVER_PICK_INTERVAL_MS = 100
 
 /**
  * Time-of-day grading for the photorealistic tiles. The tiles are unlit
@@ -452,6 +497,8 @@ export class CesiumMap {
   /** Distance to the closest drawn caster of each fleet (see applyShadowState). */
   private nearestVehicleMeters = Number.POSITIVE_INFINITY
   private nearestVesselMeters = Number.POSITIVE_INFINITY
+  /** Beam of that closest hull – how wide a shadow it can throw. */
+  private nearestVesselWidthM = 10
 
   /** Unit up vector at the city center (sun elevation reference). */
   private cityUp: Cartesian3 | null = null
@@ -466,9 +513,26 @@ export class CesiumMap {
    * this flag plus a slow heartbeat, so an idle map costs no GPU at all.
    */
   private renderRequested = true
+  /**
+   * The camera's view matrix as of the last rendered frame. A camera that
+   * has moved since – a chase cam trailing its vehicle, a flight – needs a
+   * frame whether or not anything else asked for one (see
+   * cameraMovedSinceRender). All zeros before the first frame, which no
+   * real view matrix equals.
+   */
+  private readonly renderedViewMatrix = new Matrix4()
+  /** A pointer button is held on the canvas – the camera is being dragged. */
+  private pointerDown = false
   private resizeObserver: ResizeObserver | null = null
   private readonly noteInteraction = () => {
     this.lastInteractionAt = performance.now()
+  }
+  private readonly onPointerDown = () => {
+    this.pointerDown = true
+    this.noteInteraction()
+  }
+  private readonly onPointerUp = () => {
+    this.pointerDown = false
   }
 
   constructor(container: HTMLElement, opts: CesiumMapOptions) {
@@ -594,6 +658,9 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.routes.heightOffset + FERRY_ROUTE_EXTRA_LIFT
       },
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
@@ -698,7 +765,11 @@ export class CesiumMap {
 
     // Interactions wake the render loop (the app then renders at full rate)
     const canvas = scene.canvas
-    canvas.addEventListener('pointerdown', this.noteInteraction)
+    // pointerdown also marks the drag the hover pick sits out (see the
+    // MOUSE_MOVE hook); the release can land anywhere, hence the window.
+    canvas.addEventListener('pointerdown', this.onPointerDown)
+    window.addEventListener('pointerup', this.onPointerUp)
+    window.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.noteInteraction, { passive: true })
     canvas.addEventListener('touchstart', this.noteInteraction, { passive: true })
     canvas.addEventListener('touchmove', this.noteInteraction, { passive: true })
@@ -744,6 +815,10 @@ export class CesiumMap {
     // move before the mouse comes to rest is exactly the one that decides
     // the cursor, and a plain throttle would swallow it.
     this.handler.setInputAction((movement: { endPosition: Cartesian2 }) => {
+      // Dragging the camera: the cursor is busy and every pick would be
+      // paid for on a scene that is moving anyway. The first move after
+      // the release picks again.
+      if (this.pointerDown) return
       this.hoverPosition = Cartesian2.clone(movement.endPosition, this.hoverPosition ?? undefined)
       if (this.hoverPickTimer !== null) return
       const wait = Math.max(0, HOVER_PICK_INTERVAL_MS - (performance.now() - this.lastHoverPickAt))
@@ -1258,7 +1333,12 @@ export class CesiumMap {
   syncVehicles(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-  ): { anyVehicleInView: boolean; nearestBodyMeters: number } {
+  ): {
+    anyVehicleInView: boolean
+    nearestBodyMeters: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
     this.stops.update()
     const info = this.vehicleLayer.sync(snapshots, visibleLines)
     this.nearestVehicleMeters = info.nearestBodyMeters
@@ -1267,25 +1347,79 @@ export class CesiumMap {
   }
 
   /**
+   * The on-screen motion (CSS px) at which the layers ask for a frame –
+   * the app paces its ticks against it (see screen-motion.ts).
+   */
+  get motionThresholdCssPx(): number {
+    return motionThresholdCssPx(this.effectivePixelRatio)
+  }
+
+  /**
+   * Whether the camera has moved since the last rendered frame – the chase
+   * cam trailing its vehicle, a flight, a leash correction. The app draws
+   * a frame for it whether or not anything else asked for one.
+   */
+  cameraMovedSinceRender(): boolean {
+    return !Matrix4.equals(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
+  }
+
+  /** A chase cam is engaged on a vehicle or a ship – the camera moves per tick. */
+  isChasing(): boolean {
+    return this.vehicleLayer.followedId !== null || this.vesselLayer.followedMmsi !== null
+  }
+
+  /**
+   * How far out a body `widthMeters` across still spans SHADOW_MIN_CASTER_PX
+   * on screen – the distance a shadow of that width is worth drawing to.
+   * Capped at the map's own reach; the whole reach where the camera cannot
+   * say (no perspective frustum, no canvas).
+   */
+  private shadowReachMeters(widthMeters: number): number {
+    const pxPerMeterAtUnit = cssPixelsPerMeterAtUnitDistance(this.viewer)
+    if (!Number.isFinite(pxPerMeterAtUnit)) return SHADOW_MAX_DISTANCE
+    return Math.min(SHADOW_MAX_DISTANCE, (widthMeters * pxPerMeterAtUnit) / SHADOW_MIN_CASTER_PX)
+  }
+
+  /**
    * The sun shadow map is only worth having on while something can cast
-   * into it: a caster within the map's own reach AND a sun high enough
-   * to throw a usable shadow. Off, it costs nothing; on, every fragment
-   * of the full-screen tileset samples four cascade textures whether or
-   * not a caster exists – which is what made the camera feel heavier at
-   * altitudes where nothing is drawn at all.
+   * into it: a caster near enough that its shadow spans a couple of
+   * pixels (see SHADOW_MIN_CASTER_PX) AND a sun high enough to throw a
+   * usable shadow. Off, it costs nothing; on, every fragment of the
+   * full-screen tileset samples the cascade textures whether or not a
+   * caster exists – half of every frame in the home view, where the
+   * fleet is kilometers away and its shadows sub-pixel.
    *
-   * Both fleets count. Keying on the vehicles alone left a 200 m
-   * freighter under the camera casting nothing in the harbour, where no
-   * tram is ever within range.
+   * Both fleets count, each with its own width. Keying on the vehicles
+   * alone left a 200 m freighter under the camera casting nothing in the
+   * harbour, where no tram is ever within range; keying on the tram's
+   * width alone would cut that freighter's 20 m wide shadow off where a
+   * tram's would have become invisible.
+   *
+   * While the shadows are on, the shadowed volume follows the same
+   * reach: fragments beyond the last cascade skip the lookup in Cesium's
+   * receive shader, and the cascades share their texels over the shorter
+   * range – cheaper and sharper at once. Re-set only on a real change,
+   * so the shadow map is not disturbed for a pixel of drift.
    *
    * The underground view switches them off wholesale: down there the sky
    * is gone, the city is a dark relief, and the surface fleet has left
    * with it – a sun shadow would be light from a sun nobody can see.
    */
   private applyShadowState(): void {
-    const nearest = Math.min(this.nearestVehicleMeters, this.nearestVesselMeters)
+    const vehicleReach = this.shadowReachMeters(SHADOW_CASTER_WIDTH_M)
+    const vesselReach = this.shadowReachMeters(this.nearestVesselWidthM)
+    const vehiclesCast = this.nearestVehicleMeters < vehicleReach
+    const vesselsCast = this.nearestVesselMeters < vesselReach
     const wanted =
-      !this.underground && nearest < SHADOW_MAX_DISTANCE && this.sunHighEnoughForShadows
+      !this.underground && (vehiclesCast || vesselsCast) && this.sunHighEnoughForShadows
+    const shadowMap = this.viewer.scene.shadowMap
+    if (wanted) {
+      const reach = Math.max(vehiclesCast ? vehicleReach : 0, vesselsCast ? vesselReach : 0)
+      if (Math.abs(shadowMap.maximumDistance - reach) > reach * 0.05) {
+        shadowMap.maximumDistance = reach
+        this.requestRender()
+      }
+    }
     if (this.viewer.shadows === wanted) return
     this.viewer.shadows = wanted
     this.requestRender()
@@ -1371,9 +1505,13 @@ export class CesiumMap {
     })
   }
 
-  syncVessels(vessels: AisVessel[], nowMs: number): { anyMovingVesselInView: boolean } {
+  syncVessels(
+    vessels: AisVessel[],
+    nowMs: number,
+  ): { anyMovingVesselInView: boolean; maxScreenMotionPx: number; maxTickMotionPx: number } {
     const info = this.vesselLayer.sync(vessels, nowMs)
     this.nearestVesselMeters = info.nearestHullMeters
+    this.nearestVesselWidthM = info.nearestHullWidthM
     return info
   }
 
@@ -1395,9 +1533,44 @@ export class CesiumMap {
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
     // The sky belongs to the surface: with the city sunk into a dark relief
     // a bright daylight atmosphere above it reads as an eclipse.
-    const scene = this.viewer.scene
-    if (scene.skyAtmosphere) scene.skyAtmosphere.show = !underground
+    this.updateSkyVisibility()
     this.requestRender()
+  }
+
+  /**
+   * Draws the sky atmosphere only while the sky can be in the frame.
+   * Cesium renders it every frame with no visibility test of its own – a
+   * full-screen scattering pass, ~2 ms of the home view's 19 (measured
+   * 2026-09-05) – even with the camera pitched down onto a city that
+   * covers every pixel. The underground view hides it regardless (see
+   * setUnderground). Called per rendered frame from render(): the pose
+   * is what it depends on, and a pose change always brings a frame.
+   */
+  private updateSkyVisibility(): void {
+    const sky = this.viewer.scene.skyAtmosphere
+    if (!sky) return
+    const show = !this.underground && this.horizonMayBeInView()
+    if (sky.show !== show) sky.show = show
+  }
+
+  /**
+   * Whether any ray of the view frustum reaches up to the horizon: the
+   * camera's pitch plus the frustum's half-diagonal (its corners look
+   * higher than the middle of its top edge) against the horizon's dip
+   * below the horizontal at the camera's height, with a margin. True
+   * whenever the camera cannot tell – then the sky is drawn as before.
+   */
+  private horizonMayBeInView(): boolean {
+    const camera = this.viewer.camera
+    const frustum = camera.frustum
+    if (!(frustum instanceof PerspectiveFrustum)) return true
+    const { fovy, aspectRatio } = frustum
+    if (fovy === undefined || aspectRatio === undefined) return true
+    const tanY = Math.tan(fovy / 2)
+    const halfDiagonal = Math.atan(Math.hypot(tanY * aspectRatio, tanY))
+    const height = camera.positionCartographic.height
+    const dip = height > 0 ? Math.acos(EARTH_RADIUS / (EARTH_RADIUS + height)) : 0
+    return camera.pitch + halfDiagonal > -dip - SKY_MARGIN_RAD
   }
 
 
@@ -1656,7 +1829,12 @@ export class CesiumMap {
     this.webcamsLayer.update()
     this.lens.update()
     this.tiltShift.update()
+    this.updateSkyVisibility()
     this.viewer.render()
+    // What this frame showed is the reference for the next one's motion
+    this.vehicleLayer.markRendered()
+    this.vesselLayer.markRendered()
+    Matrix4.clone(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
   }
 
   /**
@@ -1876,6 +2054,8 @@ export class CesiumMap {
 
   destroy(): void {
     this.destroyed = true
+    window.removeEventListener('pointerup', this.onPointerUp)
+    window.removeEventListener('pointercancel', this.onPointerUp)
     if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
     if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
     this.resizeObserver?.disconnect()

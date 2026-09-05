@@ -49,6 +49,8 @@ function harness() {
   const viewer = {
     scene: { primitives: { add: (primitive: Primitive) => primitive } },
     entities: {
+      suspendEvents: () => {},
+      resumeEvents: () => {},
       add: (options: Entity.ConstructorOptions) => new Entity(options),
       remove: () => {},
     },

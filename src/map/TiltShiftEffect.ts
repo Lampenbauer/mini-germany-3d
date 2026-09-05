@@ -45,17 +45,23 @@ import {
 
 /**
  * Resolution the blur runs at, as a fraction of the drawing buffer. Its
- * output is unsharp by definition, so halving it is invisible while it
- * costs a quarter of the fill rate. The sharp band never comes from that
- * texture: the composite pass samples the full-size scene for it – the
- * same split Cesium's own depth-of-field stage uses.
+ * output is unsharp by definition, so it can run below full size while
+ * the sharp band never comes from that texture: the composite pass
+ * samples the full-size scene for it – the same split Cesium's own
+ * depth-of-field stage uses.
  *
- * Exactly one half on purpose. At anything but an exact half (0.5, 0.25)
- * or 1.0, the composite pass reads the blur texture at a fraction of a
- * texel that drifts across the screen, and the beat between the two
- * grids lays a fine regular mesh over every blurred area – measured at
- * 0.9 it repeated every 10 pixels, i.e. 1/(1 - scale). Halves land on
- * texel corners everywhere, so their upsample stays even.
+ * 0.8 is the maintainer's choice, picked by eye against the real tiles.
+ * Two things to know before touching it. The fill rate of the two blur
+ * passes goes with its square (0.8 → 64 % of a full frame each, 0.5 →
+ * 25 %); measured 2026-09-05 on a 3200×2000 buffer the whole effect at
+ * full strength costs ~1.3 ms of GPU per frame at this value. And at
+ * anything but an exact half (0.5, 0.25) or 1.0, the composite pass reads
+ * the blur texture at a fraction of a texel that drifts across the
+ * screen, so the beat between the two grids can lay a fine regular mesh
+ * over the blurred areas, repeating every 1/(1 - scale) pixels – 10 px
+ * at 0.9, where it was first seen, 5 px here. At 0.8 it was not judged
+ * visible; halves would land on texel corners everywhere and avoid it
+ * outright.
  */
 const TEXTURE_SCALE = 0.8
 

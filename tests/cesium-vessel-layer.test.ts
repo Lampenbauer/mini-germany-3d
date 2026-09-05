@@ -61,6 +61,8 @@ function harness({
       },
     },
     entities: {
+      suspendEvents: () => {},
+      resumeEvents: () => {},
       add: (options: Entity.ConstructorOptions) => new Entity(options),
       remove: (entity: Entity) => removedEntities.push(entity),
     },
