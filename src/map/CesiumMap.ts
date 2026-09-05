@@ -249,8 +249,8 @@ const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
  * Strength 1 leaves SHADOW_DARKNESS as it is, strength 0 would remove
  * the shadow entirely.
  */
-const SHADOW_WEATHER_LIGHT = { overcast: 0.5, strength: 0.5 }
-const SHADOW_WEATHER_HEAVY = { overcast: 1.0, strength: 0.1 }
+const SHADOW_WEATHER_LIGHT = { overcast: 0.5, strength: 0.3 }
+const SHADOW_WEATHER_HEAVY = { overcast: 1.0, strength: 0.05 }
 
 /** Share of the shadow that survives an overcast grade of 0..1. */
 export function shadowStrengthForOvercast(grade: number): number {
@@ -1551,6 +1551,7 @@ export class CesiumMap {
   /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
+    this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
     this.routes.updatePulse()
     this.streetLamps.update()
     this.lens.update()

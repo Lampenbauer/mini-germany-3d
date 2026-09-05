@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Enriches src/cities/<slug>/network.json with terrain heights from the
- * city's digital terrain model (city.json `terrain` – for Rostock the open
- * WCS of Mecklenburg-Vorpommern at geodaten-mv.de, © GeoBasis-DE/M-V):
+ * Enriches src/cities/<slug>/network.json with terrain heights from
+ * Mapterhorn (see lib/terrain.mjs – Terrarium tiles built from the open
+ * 1 m terrain models of the German states):
  *   - per direction a `heights` array (meters NHN/DHHN2016, one entry per
  *     path vertex; bridge sections become a straight deck interpolated
  *     between anchors just outside the span, plus ~1 m feathered deck
@@ -17,48 +17,40 @@
  * Run AFTER data:update + data:simplify (heights are per final vertex):
  *   npm run data:heights -- --city rostock     (no --city: every city)
  *
- * A city whose terrain provider is 'none' is left alone – the app then
- * clamps its routes onto the 3D tiles.
- *
  * Environment variables:
  *   CITY          – the city, like --city
  *   NETWORK_OUT   – alternative network.json path (one city only)
  *   PREV_NETWORK  – previously enriched network.json (e.g. the git HEAD
  *                   version in CI): directions with identical geometry and
  *                   stops with identical coordinates reuse their heights,
- *                   so unchanged networks cause zero WCS requests
- *   DGM_WCS_URL   – alternative WCS endpoint
- *   DGM_COVERAGE  – coverage id (default mv_dgm5, the 5 m grid)
+ *                   so an unchanged network fetches no tiles at all – as
+ *                   long as the file names the same terrain source; after
+ *                   a source change the whole city is sampled afresh once
  *
- * Data license: the city's terrain attribution (city.json), e.g.
- * © GeoBasis-DE/M-V (source attribution required, no fees).
+ * Data license: the city's terrain attribution (city.json) – Mapterhorn
+ * and the state model it is built from (attribution required, no fees).
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forEachRequestedCity } from './lib/city.mjs'
-import { createTerrainSampler, terrainSummary } from './lib/terrain.mjs'
+import { createTerrainSampler, terrainAttribution, terrainSummary } from './lib/terrain.mjs'
 import {
   applyBridgeProfile,
   cumulativeDistances,
   fillHeightGaps,
   indexPreviousHeights,
   normalizeRanges,
+  sameTerrainSource,
+  withTerrainAttribution,
 } from './lib/route-heights.mjs'
 
 const round1 = (v) => Math.round(v * 10) / 10
 
 async function main(city, paths) {
   const FILE = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
-  if (city.terrain.provider === 'none') {
-    console.log(
-      `${city.name}: no terrain provider – routes stay without heights and are clamped onto the tiles.`,
-    )
-    return
-  }
-  const HEIGHTS_ATTRIBUTION =
-    city.terrain.attribution ?? 'Terrain heights from the city\'s digital terrain model.'
+  const HEIGHTS_ATTRIBUTION = terrainAttribution(city)
   const network = JSON.parse(readFileSync(FILE, 'utf8'))
   const sampler = createTerrainSampler(city)
 
@@ -69,6 +61,10 @@ async function main(city, paths) {
     } catch (err) {
       console.warn(`⚠ PREV_NETWORK not usable (${err.message}) – sampling everything fresh`)
     }
+  }
+  if (prev && !sameTerrainSource(prev, HEIGHTS_ATTRIBUTION)) {
+    console.log('PREV_NETWORK holds heights from another terrain source – sampling everything fresh')
+    prev = null
   }
   const { heightsByPath, nhnByStop } = indexPreviousHeights(prev)
 
@@ -91,9 +87,11 @@ async function main(city, paths) {
         }
         continue
       }
-      if (line.mode === 'ferry') {
-        // Water: the DGM has no meaningful height mid-river; ferries ride
-        // at the city's water level (0 m NHN on tidal Baltic or Elbe water).
+      if (line.mode === 'ferry' && city.terrain.waterLevelNhn !== null) {
+        // Water: a coastal terrain model has no meaningful height mid-river;
+        // ferries ride at the city's water level (0 m NHN on the Baltic).
+        // A city with null here has a model that carries its lakes' levels
+        // (Berlin), and its ferries sample it like any other line.
         dir.heights = dir.path.map(() => city.terrain.waterLevelNhn)
         continue
       }
@@ -106,7 +104,7 @@ async function main(city, paths) {
       const filled = fillHeightGaps(heights, cum)
       if (filled === -1) {
         throw new Error(
-          `Line ${line.id} (${dir.from} → ${dir.to}): no DGM heights at all – ` +
+          `Line ${line.id} (${dir.from} → ${dir.to}): no terrain heights at all – ` +
             'terrain source unreachable or outside coverage; network.json left unchanged',
         )
       }
@@ -114,7 +112,7 @@ async function main(city, paths) {
         const pct = ((missing / heights.length) * 100).toFixed(1)
         console.warn(
           `  ⚠ Line ${line.id} (${dir.from} → ${dir.to}): ` +
-            `${missing} of ${heights.length} vertices without DGM data (${pct} %) – interpolated`,
+            `${missing} of ${heights.length} vertices without terrain data (${pct} %) – interpolated`,
         )
       }
       applyBridgeProfile(heights, cum, normalizeRanges(dir.bridges, cum[cum.length - 1]))
@@ -147,9 +145,7 @@ async function main(city, paths) {
     }
   }
 
-  if (!network.meta.attribution.includes(HEIGHTS_ATTRIBUTION)) {
-    network.meta.attribution = `${network.meta.attribution} ${HEIGHTS_ATTRIBUTION}`
-  }
+  network.meta = withTerrainAttribution(network.meta, HEIGHTS_ATTRIBUTION)
 
   writeFileSync(FILE, JSON.stringify(network, null, 2) + '\n', 'utf8')
   console.log(
@@ -162,7 +158,7 @@ async function main(city, paths) {
       `   Reused from PREV_NETWORK: ${reusedDirs} direction(s), ${reusedStops} stop(s) (unchanged geometry)`,
     )
   }
-  console.log(`   DGM: ${terrainSummary(sampler)}`)
+  console.log(`   Terrain: ${terrainSummary(sampler)}`)
   console.log('Tip: npm test validates the enriched dataset.')
 }
 

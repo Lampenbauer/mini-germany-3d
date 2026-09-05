@@ -136,43 +136,34 @@ export interface CityGtfsConfig {
 }
 
 /**
- * Where the terrain heights of the routes and lamps come from:
- * 'wcs-geotiff' is a WCS 2.0.1 serving float32 GeoTIFF tiles (the
- * Mecklenburg-Vorpommern DGM), 'xyz-zip' a downloadable zip of ASCII XYZ
- * tiles (Hamburg's DGM10), 'none' leaves the heights out and the app
- * clamps the routes onto the 3D tiles instead.
+ * The terrain heights of the routes and lamps come from Mapterhorn for
+ * every city (scripts/lib/terrain.mjs – Terrarium tiles built from the
+ * open 1 m terrain models of the German states). What differs per city is
+ * the zoom the pipeline samples at, the attribution the state's license
+ * asks for, and two heights the app itself needs.
  */
-export type TerrainProvider = 'wcs-geotiff' | 'xyz-zip' | 'none'
-
 export interface CityTerrainConfig {
-  provider: TerrainProvider
-  /** The WCS endpoint, or the zip to download. */
-  url?: string
-  coverage?: string
-  /** Projection the WCS is queried in, or the tiles are in (EPSG code of the UTM zone). */
-  crs?: string
-  /** xyz-zip: tile edge in meters (2000 for the Hamburg DGMs). */
-  tileSizeMeters?: number
-  /** xyz-zip: cell spacing in meters (10 for a DGM10). */
-  gridMeters?: number
+  /**
+   * Tile zoom the pipeline samples at: 15 is ~1.4 m per pixel at German
+   * latitudes, one level under the 1 m sources; 16 is the finest the
+   * sources fill.
+   */
+  zoom: number
   /**
    * NHN→ellipsoid offset in meters until the height bootstrap has
    * measured the real one against the loaded tiles: the geoid undulation
    * over the city (36–50 m across Germany).
    */
   geoidOffsetFallback: number
-  /** Height ferries and their routes ride at, in meters NHN. */
-  waterLevelNhn: number
-  attribution?: string
-}
-
-export interface CityLampsConfig {
-  enabled: boolean
   /**
-   * Fewer lamps than this in the Overpass answer count as a mirror
-   * failure rather than as data (see scripts/fetch-street-lamps.mjs).
+   * Height ferries and their routes ride at, in meters NHN – or null
+   * where the terrain model carries the water levels themselves (Berlin's
+   * DGM has the Havel at 29 m and the Spree at 32 m) and a ferry samples
+   * them like any other line.
    */
-  minPlausible: number
+  waterLevelNhn: number | null
+  /** The line the generated files carry for their heights – Mapterhorn plus the state model. */
+  attribution?: string
 }
 
 export interface CityAisConfig {
@@ -184,7 +175,7 @@ export interface CityAisConfig {
    *
    * The value names the service the boat belongs to, and how precisely
    * depends on the city: in Rostock one vessel keeps to one crossing, so
-   * it is the line id. In Hamburg a HADAG ferry runs whatever line the
+   * it is the line id. A harbour ferry may run whatever line the
    * roster gives her that day, so it is the operator – claiming a line
    * there would be inventing a duty the boat does not keep.
    */
@@ -202,7 +193,7 @@ export interface City {
   /**
    * Bounds of the city limits as Overpass reported them on the date above
    * – the largest outer ring of the relation, so exclaves out at sea
-   * (Hamburg's Neuwerk) do not stretch the box (see scripts/add-city.mjs).
+   * (an island far out at sea) do not stretch the box (see scripts/add-city.mjs).
    */
   cityBounds: BoundingBox
   /** How far beyond the city limits the box reaches, on every side. */
@@ -216,7 +207,6 @@ export interface City {
   gtfs: CityGtfsConfig
   fleet: Partial<Record<TransitMode, CityFleetEntry>>
   terrain: CityTerrainConfig
-  lamps: CityLampsConfig
   ais: CityAisConfig
 }
 
@@ -439,11 +429,6 @@ export function cityFromJson(raw: unknown): City {
   }
 
   const terrainRaw = isObject(raw.terrain) ? raw.terrain : {}
-  const provider = terrainRaw.provider ?? 'none'
-  if (provider !== 'wcs-geotiff' && provider !== 'xyz-zip' && provider !== 'none') {
-    fail('terrain.provider', "'wcs-geotiff', 'xyz-zip' or 'none'")
-  }
-  const lampsRaw = isObject(raw.lamps) ? raw.lamps : {}
   const aisRaw = isObject(raw.ais) ? raw.ais : {}
   const simulatedByMmsi: Record<string, string> = {}
   if (aisRaw.simulatedByMmsi !== undefined) {
@@ -473,28 +458,18 @@ export function cityFromJson(raw: unknown): City {
     gtfs: { nameStrip: optionalStr(gtfsRaw.nameStrip, 'gtfs.nameStrip'), trainBranches },
     fleet,
     terrain: {
-      provider,
-      url: optionalStr(terrainRaw.url, 'terrain.url'),
-      coverage: optionalStr(terrainRaw.coverage, 'terrain.coverage'),
-      crs: optionalStr(terrainRaw.crs, 'terrain.crs'),
-      tileSizeMeters:
-        terrainRaw.tileSizeMeters === undefined
-          ? undefined
-          : num(terrainRaw.tileSizeMeters, 'terrain.tileSizeMeters'),
-      gridMeters:
-        terrainRaw.gridMeters === undefined ? undefined : num(terrainRaw.gridMeters, 'terrain.gridMeters'),
+      zoom: terrainRaw.zoom === undefined ? 15 : num(terrainRaw.zoom, 'terrain.zoom'),
       geoidOffsetFallback:
         terrainRaw.geoidOffsetFallback === undefined
           ? 40
           : num(terrainRaw.geoidOffsetFallback, 'terrain.geoidOffsetFallback'),
       waterLevelNhn:
-        terrainRaw.waterLevelNhn === undefined ? 0 : num(terrainRaw.waterLevelNhn, 'terrain.waterLevelNhn'),
+        terrainRaw.waterLevelNhn === undefined
+          ? 0
+          : terrainRaw.waterLevelNhn === null
+            ? null
+            : num(terrainRaw.waterLevelNhn, 'terrain.waterLevelNhn'),
       attribution: optionalStr(terrainRaw.attribution, 'terrain.attribution'),
-    },
-    lamps: {
-      enabled: lampsRaw.enabled === undefined ? false : lampsRaw.enabled === true,
-      minPlausible:
-        lampsRaw.minPlausible === undefined ? 1000 : num(lampsRaw.minPlausible, 'lamps.minPlausible'),
     },
     ais: { enabled: aisRaw.enabled === undefined ? true : aisRaw.enabled === true, simulatedByMmsi },
   }

@@ -14,8 +14,8 @@ view and vehicle links, day/night lighting that follows the simulated time
 [shadcn/ui](https://ui.shadcn.com/).
 
 It started as **Mini Rostock 3D** and Rostock is still the city it opens on.
-Hamburg is the second one; adding a city is a folder, a `city.json` and a run
-of the data pipeline (see [Cities](#cities)).
+Kiel and Berlin are the others; adding a city is a folder, a `city.json`
+and a run of the data pipeline (see [Cities](#cities)).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -29,13 +29,13 @@ of the data pipeline (see [Cities](#cities)).
 |---------|---------|
 | Several cities, one map | Every city is a definition (`src/cities/<slug>/city.json`) plus generated data next to it. The caret beside the panel title switches; the old city's routes, stops, lamps and vehicles are taken down, the camera flies to the next city's home view with the leash lifted, and the new city's data comes in as a lazy chunk of its own. `#city=<slug>` in the URL names the city a link opens on |
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
-| Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Hamburg's DT5 subway (39.6 m), ET 490 S-Bahn (66 m) and HADAG harbour ferries – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
-| Routes/lines on the map | Polylines at absolute terrain heights in line colors where the city has a terrain source, clamped onto the tiles where it has none; zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
+| Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Kiel's Förde ferries sail as the same double-enders, sized per line; Berlin's U-Bahn (BR H) and S-Bahn (BR 481) run as six-section third-rail consists – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
+| Routes/lines on the map | Polylines at absolute terrain heights in line colors (clamped onto the tiles only for a dataset without heights); zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. The three readings – surface, underground, line diagram – are tabs at the foot of the map, exactly one lit, each reachable from each. `#…&view=linear` and `#…&view=underground` open straight into a reading; the surface needs no word |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
 | Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the aperture button in the camera block and `tiltshift=1` turn it on – it is a lens on the map rather than a command to it, which is why it sits with the camera |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
-| Street lighting at night | For cities that ask for it: a warm light pool under every OSM street lamp along the routes – in Rostock ~7000 of them from the city's open-data import; fades in with the sun ramp and out as the camera climbs |
+| Street lighting at night | A warm light pool under every OSM street lamp along the routes – in Rostock ~7000 of them from the city's open-data import, in Kiel ~1800 community-mapped ones; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); a live compass, 2D/3D, and camera-reset buttons sit at the lower right |
@@ -77,11 +77,12 @@ VITE_CESIUM_ION_TOKEN=your-token
 - **Cities:** The caret beside the panel title lists every city this build
   knows; picking one takes the current city off the map, flies the camera to
   the new city's home view and puts that city's lines up. The URL follows
-  (`#…&city=hamburg`; the default city Rostock needs no name), and the last
+  (`#…&city=kiel`; the default city Rostock needs no name), and the last
   city visited is remembered by the browser for the next session.
 - **Simulation time:** The panel's time field opens the native picker (e.g. jump to
   rush hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any
-  time, and the collapsed panel keeps showing the clock and the pause button.
+  time – play carries on from the simulated moment, a time set by hand survives
+  a pause – and the collapsed panel keeps showing the clock and the pause button.
   The scene lighting follows the simulated clock, so the time input doubles as a
   day/night switch – and the ×120 time-lapse shows a full day/night cycle.
 - **Zoom to a line:** Clicking a line's name in the panel flies the camera so the
@@ -188,7 +189,7 @@ VITE_CESIUM_ION_TOKEN=your-token
   the camera pose; while a vehicle is selected it is just `#vehicle=<trip-id>` –
   opening such a link re-selects the vehicle and starts following it. The city,
   the Routes/Stops layer toggles, the miniature look and the pause state ride along
-  as `city=hamburg`, `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they
+  as `city=kiel`, `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they
   deviate from the defaults (Rostock, layers on, miniature look off, clock running).
 
 ### Useful URL parameters
@@ -205,7 +206,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `?ais=0` | Open with the live AIS ships switched off – the "AIS ships" switch at the end of the traffic list turns them back on |
-| `#city=hamburg` | The city to open on (the default city needs none; unknown slugs fall back to it) |
+| `#city=kiel` | The city to open on (the default city needs none; unknown slugs fall back to it) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `#stop=…` | Shared stop selection – opens the stop's departure board and flies to it |
@@ -229,7 +230,7 @@ A city is a folder under `src/cities/` with a hand-written definition and
 the files the pipeline generates for it:
 
 ```
-src/cities/hamburg/
+src/cities/kiel/
 ├── city.json          # the definition (below)
 ├── limits.json        # the city limits polygon – written by add-city, read by the pipeline only
 ├── network.json       # lines, routes, stops – generated (data:update, data:simplify, data:heights)
@@ -243,8 +244,9 @@ place (typed and validated by `src/lib/city.ts`):
 - **`cityBounds`, `paddingMeters`, `boundingBox`** – the city limits from OSM
   (`osmRelation`) and the padded rectangle everything works with. The limits
   are those of the relation's *largest outer ring*, not the relation's own
-  bounding box: Hamburg's boundary includes Neuwerk, 100 km out in the North
-  Sea, and `out bb` would stretch the box across the water.
+  bounding box: an administrative boundary can include an exclave far away
+  (an island 100 km out at sea), and `out bb` would stretch the box across
+  the water.
 - **`home`** – the ground point the home view looks at, from `height` m up with
   `heading` and `pitch`. **`weather`** – where the live weather is queried.
 - **`network`** – which modes the pipeline fetches (`modes`), how each mode's
@@ -253,9 +255,9 @@ place (typed and validated by `src/lib/city.ts`):
   lines addressed by relation id (`fixedLines` – ferries mostly), and where a
   route leaving the city is cut (`clip`: `city` at the last stop inside the
   limits, `box` inside the padded box, `none`). "Inside the limits" is the
-  polygon in `limits.json` where the city has one (a rectangle around Hamburg
-  reaches Norderstedt and Aumühle, which its terrain model does not cover),
-  and `cityBounds` otherwise; the GTFS import anchors departures at the same
+  polygon in `limits.json` where the city has one (a rectangle around a city
+  reaches the neighbouring towns, and a route is meant to end where the
+  city does), and `cityBounds` otherwise; the GTFS import anchors departures at the same
   test, so a trip leaves the map where its route really ends.
 - **`gtfs`** – the prefix the feed puts in front of stop names (`nameStrip`)
   and, for feeds that lump an S-Bahn's legs into one route, the branch stations
@@ -263,27 +265,26 @@ place (typed and validated by `src/lib/city.ts`):
 - **`fleet`** – per mode the vehicle dimensions and the glTF consist the map
   draws (`model`, see `VEHICLE_CONSISTS` in `src/map/VehicleLayer.ts`; without
   one the mode is a colored box).
-- **`terrain`** – where route heights come from: `wcs-geotiff` (a WCS 2.0.1
-  serving float32 GeoTIFF tiles, with `url`, `coverage`, `crs`), `xyz-zip` (a
-  downloadable zip of ASCII XYZ tiles named after their corner, with `url`,
-  `crs`, `tileSizeMeters`, `gridMeters` – cached under `scripts/.cache/`) or
-  `none` (the app clamps the routes onto the 3D tiles instead), the geoid
-  offset the height bootstrap starts from, the water level ferries ride at,
-  and the attribution.
-- **`lamps`** and **`ais`** – whether the night lighting and the AIS backdrop
-  are on, and which real vessels this map already runs from a timetable
-  (`simulatedByMmsi`), so their AIS twins are left out of the backdrop fleet.
+- **`terrain`** – the heights come from [Mapterhorn](https://mapterhorn.com)
+  (see [Data](#data--gtfs--gtfs-realtime--osm)); per city the tile `zoom`
+  the pipeline samples at (15 ≈ 1.4 m per pixel), the geoid offset the
+  height bootstrap starts from, the water level ferries ride at (`null`
+  where the terrain model carries the lakes' levels itself, as Berlin's
+  does), and the attribution line the state's license asks for.
+- **`ais`** – whether the AIS backdrop is on, and which real vessels this map
+  already runs from a timetable (`simulatedByMmsi`), so their AIS twins are
+  left out of the backdrop fleet.
 
 Adding a city:
 
 ```bash
-node scripts/add-city.mjs hamburg 62782     # bounds from OSM → src/cities/hamburg/city.json
+node scripts/add-city.mjs kiel 27021        # bounds from OSM → src/cities/kiel/city.json
 # edit city.json: home view, modes/operators, fleet, terrain, ferries' AIS twins
-npm run data:update -- --city hamburg
-npm run data:simplify -- --city hamburg
-npm run data:heights -- --city hamburg      # only with a terrain provider
-npm run data:lamps -- --city hamburg        # only with lamps enabled
-npm run data:gtfs -- --city hamburg
+npm run data:update -- --city kiel
+npm run data:simplify -- --city kiel
+npm run data:heights -- --city kiel
+npm run data:lamps -- --city kiel
+npm run data:gtfs -- --city kiel
 ```
 
 …then list it in `src/cities/definitions.ts`. Without `--city` every script
@@ -293,18 +294,38 @@ is recomputed from the limits and the padding) and every network.
 **Rostock** (the default city): the six RSAG tram lines, some 25 RSAG bus
 lines, the three S-Bahn lines on the Warnemünde–Rostock Hbf corridor (S2/S3
 are cut at the city limits – they really continue to Güstrow, far outside the
-map) and the two Warnow ferries, with terrain heights from the open DGM of
-Mecklenburg-Vorpommern and ~7000 street lamps.
+map) and the two Warnow ferries, with terrain heights from the state's open
+DGM1 (via Mapterhorn) and ~7000 street lamps.
 
-**Hamburg**: the four U-Bahn lines, the S-Bahn lines S1, S2, S3, S5 and S7
-(cut at the state border, like every route that leaves the city), the
-Metrobus lines 1–27 and the HADAG harbour ferries, with terrain heights from
-the city's open DGM10 (Transparenzportal, dl-de/by-2-0, a 32 MB download the
-pipeline caches) and the OSM street lamps along the routes – community-mapped
-rather than an official import, so the lighting is patchier than Rostock's.
-The Stadtbus lines with three-digit numbers are left out on purpose – the
-whole HVV bus network would be over 250 lines and thousands of simultaneous
-vehicles, more than the simulation is built for today.
+**Kiel**: some 40 KVG bus lines (day, night and express) and the two SFK
+ferry lines on the Förde – the F1 from the station to Laboe and the F2 up
+the Schwentine to Wellingdorf – with terrain heights from the state's open
+DGM1 (via Mapterhorn) and the OSM street lamps along the routes – some
+1800, community-mapped rather than an official import, so the lighting is
+far sparser than Rostock's (two lamps per kilometer of line against
+sixteen). Two things Kiel taught the pipeline: its OSM relations mostly list
+platforms instead of stop positions, so a platform without a stop
+position within 50 m now stands in for the stop; and its ferry relations
+run on past the piers the map shows (the F1 relation continues to the
+summer piers and back), so a fixed line's `from`/`to` also cut the
+relation to that stretch. Routes are clipped to the padded box rather than
+the city limits (`clip: "box"`) – Laboe, Strande and Heikendorf are part of
+the Förde even though they lie outside the city.
+
+**Berlin**: the nine U-Bahn lines, the S-Bahn (all lines, cut at the city
+limits), all 22 BVG tram lines, the Metrobus lines plus the 100, 200 and
+300, and the six BVG ferries, with terrain heights from the Senate's open
+DGM1 (via Mapterhorn) and the ~18 000 OSM street lamps along the routes
+(the city's lighting is an official import there too). The Ringbahn taught
+the importers two things: a ring relation's ways can be chained either
+way round, so the stops decide the path's orientation; and its trips are
+rounds that end where they began, classified by a stop a quarter of the
+way in rather than by their ends. Berlin's water sits at two levels (Havel
+29 m, Spree 32 m), so its ferries read their height off the terrain model
+(`waterLevelNhn: null`) instead of one figure per city. The other 150 BVG
+bus lines are left out on purpose – the map runs some 700 vehicles here at
+rush hour already, twice Rostock's, and every one of them is simulated
+stop by stop.
 
 ## Data – GTFS / GTFS-Realtime / OSM
 
@@ -322,7 +343,7 @@ vehicles, more than the simulation is built for today.
 - **Tunnels & underground sections:** `data:update` derives per-direction
   tunnel ranges from the OSM tags of each route's member ways (`tunnel=*`,
   `location=underground`, or a negative `layer` – e.g. the tram tunnel under
-  Rostock Hauptbahnhof, or Hamburg's U-Bahn) and stores them as meter ranges
+  Rostock Hauptbahnhof, or a tunnel under a station) and stores them as meter ranges
   (`tunnels`) in `network.json`. The map renders those route sections at
   **20 % opacity**, and while a vehicle travels through one, its 3D box and
   label fade to 20 % as well; the info card of a selected vehicle then shows
@@ -342,7 +363,7 @@ vehicles, more than the simulation is built for today.
 ```bash
 npm run data:update    # Real track geometries + stops from OpenStreetMap (Overpass API)
 npm run data:simplify  # Simplify the path geometry (visually lossless)
-npm run data:heights   # Terrain heights per route vertex from the city's DGM (WCS)
+npm run data:heights   # Terrain heights per route vertex from Mapterhorn's terrain tiles
 npm run data:lamps     # OSM street lamps along the routes → street-lamps.json
 npm run data:gtfs      # Real departure times from a GTFS feed → schedule.json
 npm test               # validates the new datasets
@@ -358,16 +379,24 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   `stop_area` relation, then via the nearest named stop within 60 m; only
   after that does the "Stop" placeholder remain. The Overpass queries (here
   and in `data:lamps`) are limited to the city's bounding box.
-- `data:heights` samples the city's terrain model at every route vertex and
-  stop – for Rostock the official digital terrain model of
-  Mecklenburg-Vorpommern (open WCS at geodaten-mv.de, © GeoBasis-DE/M-V,
-  5 m grid), for Hamburg the DGM10 the city publishes as XYZ tiles. Bridge
-  sections get a straight deck interpolated between their end points. With these heights the app draws the route polylines at
+- `data:heights` samples the terrain at every route vertex and stop from
+  [Mapterhorn](https://mapterhorn.com): Terrarium-encoded terrain tiles built
+  from open terrain models – in Germany the 1 m DGM1 of every state
+  (Mecklenburg-Vorpommern: GeoBasis-DE/M-V, CC BY 4.0; Schleswig-Holstein:
+  GeoBasis-DE/LVermGeo SH, CC BY 4.0). The
+  tiles are fetched one by one at the city's `terrain.zoom` (15 ≈ 1.4 m per
+  pixel; a city's routes touch a few hundred tiles, some 20–35 MB per
+  city), nothing is downloaded up front or kept on disk, and no key or fee
+  is involved. Not every Mapterhorn import is complete – Hamburg's city
+  centre falls back to a 30 m surface model there
+  ([mapterhorn/mapterhorn#131](https://github.com/mapterhorn/mapterhorn/issues/131)),
+  which is why Hamburg is not a city of this map – so a new city is worth
+  a look at a few known heights before it goes live. Bridge sections get a
+  straight deck interpolated between their end points. With these heights the app draws the route polylines at
   absolute heights instead of clamping them onto the 3D tiles per frame –
-  that classification pass costs measurable GPU time on every rendered frame,
-  which is the price a city without a terrain provider pays. The
-  NHN→ellipsoid offset is calibrated at runtime against sampled Google-tile
-  heights.
+  that classification pass costs measurable GPU time on every rendered
+  frame. The NHN→ellipsoid offset is calibrated at runtime against sampled
+  Google-tile heights.
 - `data:lamps` collects the `highway=street_lamp` nodes standing within 25 m
   of a route (© OpenStreetMap contributors, ODbL – in Rostock these come from
   the city's own open-data import, `source=OpenData.HRO`) and gives each one a
@@ -488,7 +517,9 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    `data:heights` + `data:lamps`, city by city) is only refreshed once a week
    (Sunday night). Route directions whose geometry is unchanged reuse the
    committed terrain heights (`PREV_NETWORK`), and lamps that did not move
-   reuse theirs (`PREV_LAMPS`), so a WCS is only queried for actual changes.
+   reuse theirs (`PREV_LAMPS`), so tiles are only fetched for actual changes
+   – unless the terrain attribution in `city.json` changed, which samples the
+   whole city afresh once.
    The same refresh can be started by hand from the Actions tab (`Run
    workflow` → `refresh_data` for the schedules, `refresh_osm` for the weekly
    OSM/height/lamp part). One city's failed fetch (overloaded mirrors, no
@@ -511,7 +542,8 @@ src/
 │   ├── definitions.ts      # The cities this build knows (hand-maintained list of city.json imports)
 │   ├── index.ts            # Lazy loading of a city's generated data (one chunk per city)
 │   ├── rostock/            # city.json + network.json + schedule.json + street-lamps.json
-│   └── hamburg/            # city.json + network.json + schedule.json
+│   ├── kiel/               # city.json + network.json + schedule.json + street-lamps.json
+│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json
 ├── data/
 │   ├── network.ts          # Preparation of a network (distances, direction mirroring, fleet)
 │   ├── network-types.ts    # network.json types
@@ -547,8 +579,8 @@ scripts/
 ├── fetch-osm-network.mjs     # real geometry from OSM/Overpass   (npm run data:update)
 ├── simplify-network.mjs      # thins out route geometries        (npm run data:simplify)
 ├── fetch-gtfs-schedule.mjs   # real departure times from GTFS    (npm run data:gtfs)
-├── fetch-route-heights.mjs   # terrain heights from the city's DGM (npm run data:heights)
-├── fetch-street-lamps.mjs    # OSM street lamps + DGM heights    (npm run data:lamps)
+├── fetch-route-heights.mjs   # terrain heights from Mapterhorn   (npm run data:heights)
+├── fetch-street-lamps.mjs    # OSM street lamps + terrain heights (npm run data:lamps)
 ├── build-vehicle-models.mjs  # procedural low-poly vehicle GLBs  (npm run models:build)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 ├── test-ais-parity.mjs       # parity test Node vs. api/ais.php, incl. the city boxes
@@ -620,10 +652,12 @@ they are in view.
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
 - Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
-- Terrain heights (after `npm run data:heights` / `data:lamps`): the city's
-  terrain source – © GeoBasis-DE/M-V for Rostock (digitales Geländemodell via
-  WCS, [geodaten-mv.de](https://www.geodaten-mv.de)), © Freie und Hansestadt
-  Hamburg, Landesbetrieb Geoinformation und Vermessung for Hamburg (DGM10,
-  dl-de/by-2-0) – shown in the app inside Cesium's "Data attribution" credits
+- Terrain heights (after `npm run data:heights` / `data:lamps`):
+  © [Mapterhorn](https://mapterhorn.com/attribution), built from
+  © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from
+  © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel and from Geoportal
+  Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und
+  Wohnen, dl-de/zero-2.0) for Berlin – shown in the app inside Cesium's
+  "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or the transport
   association's feed – observe the source's license terms

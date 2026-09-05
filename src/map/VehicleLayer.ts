@@ -44,6 +44,7 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import { FRAMING_SCALE } from './camera-fov'
+import { cameraFramingScale } from './CameraLens'
 import { FollowCamera } from '@/map/FollowCamera'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { tunnelOpacity } from './tunnel-view'
@@ -179,7 +180,15 @@ const HEIGHT_SAMPLE_INTERVAL = 12
  */
 const VEHICLE_BODY_VISIBLE_RANGE = 3_500 * FRAMING_SCALE
 const VEHICLE_LABEL_VISIBLE_RANGE = 35_000 * FRAMING_SCALE
-const VEHICLE_RENDER_RANGE = 20_000 * FRAMING_SCALE
+/**
+ * Beyond this camera distance nothing of a vehicle is drawn and it does
+ * not count as in view – measured at the reference lens and scaled per
+ * tick by the lens the camera wears (cameraFramingScale): through the
+ * miniature lens the same ground lies further out. Not pinned like the
+ * display conditions above, because it is a comparison, not a baked
+ * primitive property.
+ */
+const VEHICLE_RENDER_RANGE_AT_REFERENCE = 20_000
 
 interface VehicleModelSpec {
   /** Uniform scale (tuned visually against the photo tiles). */
@@ -209,12 +218,11 @@ interface VehicleModelSpec {
  *
  *   tram-6n2         Vossloh 6N2 – five sections, cab / panto / mid / mid / cab
  *   sbahn-talent2    Talent 2 – cab car / pantograph middle car / cab car
- *   sbahn-et490      Hamburg ET 490 – cab car / middle car / cab car
- *   ubahn-dt5        Hamburg DT5 subway – cab / mid / cab, third-rail powered
+ *   ubahn-h          Berlin U-Bahn BR H – six third-rail sections, 79.5 m
+ *   sbahn-481        Berlin S-Bahn BR 481 half train – the same six sections
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
- *   ferry-hadag      HADAG harbour ferry, Hamburg (29.9 m double-ender)
  *
  * baseLift is half the overall height (origin sits mid-height, the same
  * halfHeight semantics the boxes had). The models are tinted in the line
@@ -245,22 +253,32 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/sbahn-end.glb', length: 18.6, flipped: true },
     ],
   },
-  'sbahn-et490': {
-    scale: 1,
-    baseLift: 2.05,
-    gap: 0.4,
-    wagons: [
-      { uri: 'models/sbahn490-end.glb', length: 21.4 },
-      { uri: 'models/sbahn490-mid.glb', length: 22.4 },
-      { uri: 'models/sbahn490-end.glb', length: 21.4, flipped: true },
-    ],
-  },
-  'ubahn-dt5': {
+  // Berlin's third-rail trains share one 13 m section: cab / four
+  // middle sections / cab, 0.3 m gaps – the BR H is 98 m over six
+  // longer cars, the S-Bahn half train 74 m; both sit within a few
+  // meters of the same silhouette.
+  'ubahn-h': {
     scale: 1,
     baseLift: 1.7,
     gap: 0.3,
     wagons: [
       { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+  'sbahn-481': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
       { uri: 'models/ubahn-mid.glb', length: 13 },
       { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
     ],
@@ -277,21 +295,15 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
   // the height plus FERRY_FLOAT_LIFT.
   'ferry-warnow-fw': {
     scale: 1,
-    baseLift: 3 + 0.8,
+    baseLift: 3 + 1.1,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fw.glb', length: 39 }],
   },
   'ferry-warnow-fg': {
     scale: 1,
-    baseLift: 1.75 + 0.8,
+    baseLift: 1.75 + 1.1,
     gap: 0,
     wagons: [{ uri: 'models/ferry-fg.glb', length: 19.9 }],
-  },
-  'ferry-hadag': {
-    scale: 1,
-    baseLift: 3.25 + 0.8,
-    gap: 0,
-    wagons: [{ uri: 'models/ferry-hadag.glb', length: 29.9 }],
   },
 }
 
@@ -305,7 +317,7 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
  * Riding high reads as a shallow-draft vessel; riding low reads as
  * sinking, so the lift errs upward.
  */
-export const FERRY_FLOAT_LIFT = 0.8
+export const FERRY_FLOAT_LIFT = 1.1
 
 /** Model consist for a vehicle; undefined keeps the colored box. */
 function modelSpecFor(snap: VehicleSnapshot): VehicleModelSpec | undefined {
@@ -536,7 +548,7 @@ export class VehicleLayer {
     let anyVehicleInView = false
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
-     * anyVehicleInView, which reaches out to VEHICLE_RENDER_RANGE. The map's
+     * anyVehicleInView, which reaches out to the render range. The map's
      * shadow gate keys on it: with nothing near enough to cast, an
      * enabled shadow map still makes every fragment of the full-screen
      * tileset sample four cascade textures for nothing.
@@ -545,6 +557,7 @@ export class VehicleLayer {
     // Resolved once per tick: while a "zoom to line" focus runs, the other
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
+    const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
 
     for (const snap of snapshots) {
       alive.add(snap.id)
@@ -616,7 +629,7 @@ export class VehicleLayer {
       // fallback tile-height sampling below is worth doing at all.
       let inView = false
       const cameraDistance = Cartesian3.distance(camera.positionWC, position)
-      if (show && cameraDistance < VEHICLE_RENDER_RANGE) {
+      if (show && cameraDistance < renderRange) {
         Cartesian3.clone(position, this.frustumSphere.center)
         this.frustumSphere.radius = 80
         inView = cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE

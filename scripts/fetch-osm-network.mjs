@@ -38,7 +38,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { containsLonLat } from '../src/lib/city.ts'
 import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
-import { cityInsidePredicate, forEachRequestedCity } from './lib/city.mjs'
+import { forEachRequestedCity, networkInsidePredicate } from './lib/city.mjs'
 import { overpassBbox, postOverpass } from './lib/overpass.mjs'
 import { compactPath } from './lib/simplify.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from './lib/tunnels.mjs'
@@ -282,10 +282,25 @@ export function clipPathAt(path, cum, cutDist, keep, ranges = []) {
   return { path: clippedPath, ranges: clippedRanges }
 }
 
-function projectOntoPath(path, cum, p) {
-  let best = Infinity
-  let bestAlong = 0
+/** Meters per degree of latitude – good enough to turn a squared degree offset into meters. */
+const METERS_PER_DEGREE = 111_320
+
+/**
+ * The point of the path nearest to p: its distance along the path and
+ * how far p stands beside it. Where the path passes p more than once at
+ * (nearly) the same distance, `after` decides: the first pass beyond
+ * that distance along the path wins – a stop on a route's out-and-back
+ * stub goes to the pass that keeps the stops in order, and the first
+ * stop of a ring lands at its start rather than at its closing end
+ * (rounded coordinates make the two passes tie either way). With
+ * `firstPass` the tie is wider (20 m) and always the first pass: a ferry
+ * relation that comes back to a pier is cut where the boat first gets
+ * there.
+ */
+export function nearestOnPath(path, cum, p, { firstPass = false, after = -Infinity } = {}) {
   const cosLat = Math.cos((p[1] * Math.PI) / 180)
+  const passes = []
+  let best = Infinity
   for (let i = 0; i < path.length - 1; i++) {
     const a = path[i]
     const b = path[i + 1]
@@ -297,13 +312,70 @@ function projectOntoPath(path, cum, p) {
     const t = lenSq > 0 ? Math.min(1, Math.max(0, (px * bx + py * by) / lenSq)) : 0
     const dx = px - t * bx
     const dy = py - t * by
-    const dSq = dx * dx + dy * dy
-    if (dSq < best) {
-      best = dSq
-      bestAlong = cum[i] + (cum[i + 1] - cum[i]) * t
+    const meters = Math.sqrt(dx * dx + dy * dy) * METERS_PER_DEGREE
+    passes.push({ meters, along: cum[i] + (cum[i + 1] - cum[i]) * t })
+    if (meters < best) best = meters
+  }
+  const ties = passes.filter((pass) => pass.meters <= best + (firstPass ? 20 : 1))
+  const chosen =
+    (firstPass ? ties[0] : (ties.find((pass) => pass.along > after) ?? ties[0])) ?? {
+      meters: Infinity,
+      along: 0,
+    }
+  return { along: chosen.along, offsetMeters: chosen.meters }
+}
+
+function projectOntoPath(path, cum, p) {
+  return nearestOnPath(path, cum, p).along
+}
+
+/** A stop this far beside the path is not served by it – a pier of another leg, a mis-tagged node. */
+const MAX_STOP_OFFSET_METERS = 250
+
+/**
+ * Cuts a fixed line's relation down to the stretch between the stops
+ * its definition names as `from` and `to` (case-insensitive, first of
+ * each name in relation order). Kiel's F1 relation runs on past Laboe to
+ * its summer piers and back, its F2 relation closes a loop at Reventlou
+ * – the map shows what the definition names, the rest goes together
+ * with its tunnel and bridge ranges. Null when neither name is found.
+ */
+export function boundToFixedLine(path, cum, stopNodes, fixed, tunnels, bridges) {
+  const nameOf = (s) => (s.name || s.node.tags?.name || '').trim().toLowerCase()
+  const indexOf = (wanted) =>
+    wanted ? stopNodes.findIndex((s) => nameOf(s) === wanted.trim().toLowerCase()) : -1
+  // The relation may run the other way round than the definition reads
+  // (Rostock's FW relation goes Hohe Düne → Warnemünde): the stretch is
+  // between the two names whichever comes first.
+  const found = [indexOf(fixed.from), indexOf(fixed.to)].filter((i) => i >= 0)
+  if (found.length === 0) return null
+  const lo = found.length === 2 ? Math.min(...found) : indexOf(fixed.from) >= 0 ? found[0] : 0
+  const hi = found.length === 2 ? Math.max(...found) : indexOf(fixed.to) >= 0 ? found[0] : stopNodes.length - 1
+  const coord = (s) => [s.node.lon, s.node.lat]
+  let out = { path, tunnels, bridges }
+  let changed = false
+  if (hi < stopNodes.length - 1) {
+    const endDist = nearestOnPath(out.path, cum, coord(stopNodes[hi]), { firstPass: true }).along
+    if (endDist > 1 && endDist < cum[cum.length - 1] - 1) {
+      const tunnelsCut = clipPathAt(out.path, cum, endDist, 'before', out.tunnels).ranges
+      const cut = clipPathAt(out.path, cum, endDist, 'before', out.bridges)
+      out = { path: cut.path, tunnels: tunnelsCut, bridges: cut.ranges }
+      changed = true
     }
   }
-  return bestAlong
+  if (lo > 0) {
+    const cumNow = cumulative(out.path)
+    const startDist = nearestOnPath(out.path, cumNow, coord(stopNodes[lo]), { firstPass: true }).along
+    if (startDist > 1 && startDist < cumNow[cumNow.length - 1] - 1) {
+      const tunnelsCut = clipPathAt(out.path, cumNow, startDist, 'after', out.tunnels).ranges
+      const cut = clipPathAt(out.path, cumNow, startDist, 'after', out.bridges)
+      out = { path: cut.path, tunnels: tunnelsCut, bridges: cut.ranges }
+      changed = true
+    }
+  }
+  const kept = stopNodes.slice(lo, hi + 1)
+  if (!changed && kept.length === stopNodes.length) return null
+  return { ...out, stopNodes: kept }
 }
 
 /**
@@ -422,9 +494,9 @@ export async function buildNetwork(city, outPath) {
   const data = await fetchOverpassData(buildQuery(city))
   const isInside =
     city.network.clip === 'city'
-      ? cityInsidePredicate(city)
+      ? networkInsidePredicate(city)
       : city.network.clip === 'box'
-        ? (lon, lat) => containsLonLat(city.boundingBox, lon, lat)
+        ? networkInsidePredicate(city)
         : null
   const fixedByRelation = new Map(city.network.fixedLines.map((line) => [line.osmRelation, line]))
   const wantedModes = new Set(city.network.modes)
@@ -510,8 +582,9 @@ export async function buildNetwork(city, outPath) {
           `Line ${ref} (${rel.id})`,
         )
         const stopNodes = []
+        const isStopRole = (member) => /stop/.test(member?.role || '')
         rel.members.forEach((m, i) => {
-          if (m.type !== 'node' || !/stop/.test(m.role || '')) return
+          if (m.type !== 'node' || !isStopRole(m)) return
           const node = nodeById.get(m.ref)
           if (!node) return
           // Unnamed stop_positions inherit the name of the adjacent
@@ -530,6 +603,37 @@ export async function buildNetwork(city, outPath) {
           }
           stopNodes.push({ node, name })
         })
+        // A platform node with no stop position within 50 m stands in
+        // for the stop: common where only the kerb is mapped (most of
+        // Kiel's relations list two stop positions and thirty
+        // platforms). It sits a few meters beside the way, which the
+        // projection onto the path absorbs. Spatial rather than by list
+        // order, because relations pair stop and platform either way.
+        const orphanPlatforms = []
+        rel.members.forEach((m, i) => {
+          if (m.type !== 'node' || !/platform/.test(m.role || '')) return
+          const node = nodeById.get(m.ref)
+          if (!node) return
+          const sameName = (s) => (s.name || s.node.tags?.name) && (s.name || s.node.tags?.name) === node.tags?.name
+          const paired = stopNodes.some(
+            (s) => sameName(s) || haversineMeters([s.node.lon, s.node.lat], [node.lon, node.lat]) < 50,
+          )
+          if (paired) return
+          const name = railNamed ? (nearestStationName(node) ?? node.tags?.name) : node.tags?.name
+          orphanPlatforms.push({ index: i, stop: { node, name } })
+        })
+        if (orphanPlatforms.length > 0) {
+          // Keep relation order: merge by member index.
+          const stopIndex = new Map()
+          rel.members.forEach((m, i) => {
+            if (m.type === 'node' && isStopRole(m)) stopIndex.set(m.ref, i)
+          })
+          const merged = stopNodes.map((s) => ({ index: stopIndex.get(s.node.id) ?? 0, stop: s }))
+          merged.push(...orphanPlatforms)
+          merged.sort((a, b) => a.index - b.index)
+          stopNodes.length = 0
+          stopNodes.push(...merged.map((entry) => entry.stop))
+        }
         return { rel, path, segUnderground, segBridge, stopNodes }
       })
       // Ferry relations often do not list their piers with stop roles –
@@ -544,7 +648,7 @@ export async function buildNetwork(city, outPath) {
 
     // Pick two directions: the longest relation, and the one that runs
     // back – its from/to are the first one's swapped. A line with two
-    // branches (Hamburg's S1 forks at Ohlsdorf) has several relations
+    // branches (an S-Bahn that forks) has several relations
     // leaving the same terminus; "a different destination" alone would
     // pair the trunk with its own other branch instead of with the way
     // back, and the return direction would then run the wrong way.
@@ -600,13 +704,52 @@ export async function buildNetwork(city, outPath) {
         }
       }
 
+      // A fixed line's from/to also bound its relation (see boundToFixedLine).
+      if (fixed && stopNodes.length >= 2) {
+        const cut = boundToFixedLine(path, cum, stopNodes, fixed, tunnels, bridges)
+        if (cut) {
+          path = cut.path
+          tunnels = cut.tunnels
+          bridges = cut.bridges
+          stopNodes = cut.stopNodes
+          cum = cumulative(path)
+          clipped = true
+          console.log(`  ℹ Line ${ref} (${rel.id}): cut to ${fixed.from ?? '…'} – ${fixed.to ?? '…'}`)
+        }
+      }
+
+      // A ring relation's ways can be chained either way round, and the
+      // stops say which: where most of them run against the path (Berlin's
+      // S41 came out backwards, its S42 forwards), the path is turned
+      // around together with its tunnel and bridge ranges.
+      {
+        const alongs = stopNodes.map(({ node }) => nearestOnPath(path, cum, [node.lon, node.lat]).along)
+        let forwards = 0
+        let backwards = 0
+        for (let i = 1; i < alongs.length; i++) alongs[i] < alongs[i - 1] ? backwards++ : forwards++
+        if (backwards > forwards) {
+          const total = cum[cum.length - 1]
+          const flip = (ranges) => ranges.map(([s, e]) => [total - e, total - s]).reverse()
+          path = [...path].reverse()
+          tunnels = flip(tunnels)
+          bridges = flip(bridges)
+          cum = cumulative(path)
+          console.log(`  ℹ Line ${ref} (${rel.id}): path turned around to follow its stops`)
+        }
+      }
+
       const dirStops = []
       let lastDist = -1
       let dropped = 0
+      let offRoute = 0
       for (const { node, name } of stopNodes) {
         const id = `osm-${node.id}`
         const coord = [Number(node.lon.toFixed(6)), Number(node.lat.toFixed(6))]
-        const dist = projectOntoPath(path, cum, coord)
+        const { along: dist, offsetMeters } = nearestOnPath(path, cum, coord, { after: lastDist })
+        if (offsetMeters > MAX_STOP_OFFSET_METERS) {
+          offRoute++
+          continue // a pier of another leg, or a node the relation should not list
+        }
         if (dist <= lastDist) {
           dropped++
           continue // stop is not monotonic along the route (e.g. a loop)
@@ -621,6 +764,16 @@ export async function buildNetwork(city, outPath) {
       }
       if (dropped > 0) {
         console.warn(`  ⚠ Line ${ref}: removed ${dropped} non-monotonic stops`)
+      }
+      if (offRoute > 0) {
+        console.warn(`  ⚠ Line ${ref}: removed ${offRoute} stop(s) more than ${MAX_STOP_OFFSET_METERS} m off the route`)
+      }
+      // A relation whose stops mostly disagree with the order of its path
+      // (ways chained the other way round, a loop) is no usable
+      // direction – the other one is mirrored, as for any single-relation line.
+      if (dropped > dirStops.length && mode !== 'ferry') {
+        console.warn(`  ⚠ Line ${ref} (${rel.id}): stops out of order along the path – relation skipped`)
+        continue
       }
       if (mode === 'ferry' && dirStops.length < 2) {
         // Derive the piers from the path endpoints; names from the relation's
@@ -796,7 +949,7 @@ if (isMain) {
   forEachRequestedCity((city, paths) =>
     buildNetwork(city, process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network),
   ).catch((err) => {
-    console.error('❌ Error:', err.message)
+    console.error('❌ Error:', process.env.DEBUG ? err.stack : err.message)
     process.exit(1)
   })
 }

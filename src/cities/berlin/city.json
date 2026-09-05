@@ -1,0 +1,63 @@
+{
+  "slug": "berlin",
+  "name": "Berlin",
+  "osmRelation": 62422,
+  "cityBoundsQueriedOn": "2026-09-05",
+  "cityBounds": {
+    "west": 13.088345,
+    "south": 52.3382448,
+    "east": 13.7611609,
+    "north": 52.6755087
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 12.865,
+    "south": 52.2032,
+    "east": 13.9845,
+    "north": 52.8105
+  },
+  "home": {
+    "longitude": 13.405,
+    "latitude": 52.518,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 13.4248,
+    "latitude": 52.5069
+  },
+  "network": {
+    "modes": ["tram", "subway", "train", "bus", "ferry"],
+    "overpass": {
+      "tram": { "operator": "Berliner Verkehrsbetriebe|BVG" },
+      "subway": {},
+      "train": { "ref": "^S[0-9]+$" },
+      "bus": { "operator": "Berliner Verkehrsbetriebe|BVG", "ref": "^(M[0-9]+|100|200|300)$" },
+      "ferry": { "operator": "Berliner Verkehrsbetriebe|BVG" }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "berlin",
+    "trainBranches": []
+  },
+  "fleet": {
+    "tram": { "model": "tram-6n2", "length": 32, "width": 2.65, "height": 3.6 },
+    "subway": { "model": "ubahn-h", "length": 79.5, "width": 2.65, "height": 3.4 },
+    "train": { "model": "sbahn-481", "length": 79.5, "width": 3.0, "height": 3.6 },
+    "bus": { "model": "bus-12m", "length": 12, "width": 2.55, "height": 3.1 },
+    "ferry": { "model": "ferry-warnow-fg", "length": 19.9, "width": 6.6, "height": 3.5 }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 39,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from Geoportal Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und Wohnen, dl-de/zero-2.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {}
+  }
+}

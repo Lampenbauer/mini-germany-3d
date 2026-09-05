@@ -29,7 +29,11 @@ import { routeTunnelOpacity } from './tunnel-view'
 /** What the routes layer needs from the map around it. */
 export interface RoutesLayerHost {
   requestRender(): void
-  /** Offline mode draws on the bare ellipsoid, where DGM heights would float. */
+  /**
+   * Offline mode draws on the bare ellipsoid: its ground is 0 m, known
+   * without asking the scene, so the routes lie there as ordinary
+   * polylines rather than clamped ones (see add).
+   */
   readonly offline: boolean
 }
 
@@ -47,11 +51,25 @@ const ROUTE_ALPHA = 0.85
 export const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
 
 /**
- * Base lift of the route polylines above the terrain height in meters –
- * keeps them clear of road surfaces that sit slightly above the DGM (curbs,
- * rails) and of z-fighting with the tile mesh.
+ * Meters every route polyline rides above the terrain height when the
+ * camera is close to the ground: enough to keep the lines clear of road
+ * surfaces that sit slightly above the DGM (curbs, rails) and of
+ * z-fighting with the tile mesh, little enough for them to hug the road.
  */
-const ROUTE_BASE_LIFT = 0.8
+const ROUTE_BASE_LIFT_NEAR = 0.15
+
+/**
+ * The same lift from further up: under a shallow viewing angle the
+ * 0.15 m vanish into the tile mesh (roofs of the road surface, noise of
+ * the reconstruction), so above ROUTE_LIFT_SWITCH_HEIGHT the lines ride
+ * higher. The layer swaps between the two as the camera crosses the
+ * switch height – with a band around it in which the current lift
+ * holds, so a camera hovering there does not rewrite the routes every
+ * frame.
+ */
+const ROUTE_BASE_LIFT_FAR = 0.8
+export const ROUTE_LIFT_SWITCH_HEIGHT = 500
+const ROUTE_LIFT_SWITCH_BAND = 50
 
 /**
  * Additional per-line lift stagger. Lines sharing a street would otherwise
@@ -121,6 +139,8 @@ export class RoutesLayer {
     []
   /** Current NHN→ellipsoidal offset for route heights (calibrated later). */
   private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
+  /** Lift every height-based piece rides with (see updateForCameraHeight). */
+  private baseLift = ROUTE_BASE_LIFT_FAR
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
   /** Running route attention pulse (see startRoutePulse), null = none. */
@@ -157,6 +177,28 @@ export class RoutesLayer {
       this.credit = null
     }
     this.host.requestRender()
+  }
+
+  /**
+   * Picks the lift for the camera's height above the ellipsoid:
+   * ROUTE_BASE_LIFT_FAR above ROUTE_LIFT_SWITCH_HEIGHT, ROUTE_BASE_LIFT_NEAR
+   * below it, the current one inside the band around it. A change
+   * rewrites every height-based piece – the one-off work the calibration
+   * does, not a per-frame cost.
+   */
+  updateForCameraHeight(cameraHeight: number): void {
+    const far = this.baseLift === ROUTE_BASE_LIFT_FAR
+    const wantFar = far
+      ? cameraHeight > ROUTE_LIFT_SWITCH_HEIGHT - ROUTE_LIFT_SWITCH_BAND
+      : cameraHeight > ROUTE_LIFT_SWITCH_HEIGHT + ROUTE_LIFT_SWITCH_BAND
+    if (wantFar === far) return
+    this.baseLift = wantFar ? ROUTE_BASE_LIFT_FAR : ROUTE_BASE_LIFT_NEAR
+    this.applyRouteHeightOffset()
+  }
+
+  /** The lift the height-based pieces ride with right now (tests). */
+  get currentBaseLift(): number {
+    return this.baseLift
   }
 
   /**
@@ -239,10 +281,10 @@ export class RoutesLayer {
    * from network.json (DGM © GeoBasis-DE/M-V) the routes are ordinary
    * polylines at absolute heights – Cesium's ground-clamping classification
    * passes cost measurable GPU time on EVERY rendered frame, so they are
-   * reserved as a fallback for directions without height data (and for the
-   * offline mode, whose ellipsoid ground sits at 0 m where NHN heights
-   * would float mid-air). Tunnel/underground sections become their own
-   * polyline pieces at 40 % of the normal opacity.
+   * reserved as a fallback for directions without height data. Offline,
+   * where the ground is the bare ellipsoid at 0 m, the routes lie on it as
+   * ordinary polylines as well. Tunnel/underground sections become their
+   * own polyline pieces at 40 % of the normal opacity.
    */
   add(network: PreparedNetwork): void {
     // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a
@@ -260,8 +302,9 @@ export class RoutesLayer {
       // land-calibrated offset does not account for it – without the
       // extra lift the lines visibly dip into the water tiles.
       const modeLift = line.mode === 'ferry' ? FERRY_ROUTE_EXTRA_LIFT : 0
-      const lift =
-        ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
+      // The base lift is added when the positions are written, so it can
+      // follow the camera height (see updateForCameraHeight).
+      const lift = (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
 
       const dirs = [line.directions[0]]
       // Only draw the second direction if it has its own geometry or its
@@ -271,7 +314,12 @@ export class RoutesLayer {
       if (!directionsAreMirrored(d0, d1)) dirs.push(d1)
 
       for (const dir of dirs) {
-        const heights = this.host.offline ? undefined : dir.heights
+        // Offline the ground is the bare ellipsoid at 0 m – known without
+        // asking the scene – so the routes are ordinary polylines there
+        // too, at 0 m plus lift, rather than clamped ones: clamping
+        // classifies against the depth buffer on every rendered frame,
+        // which made the grid globe cost twice the GPU of the photo tiles.
+        const heights = this.host.offline ? dir.path.map(() => 0) : dir.heights
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
           const inTunnel = piece.tunnel
@@ -355,10 +403,10 @@ export class RoutesLayer {
    * Current color of a route piece – the CallbackProperty behind every
    * piece's material, evaluated per rendered frame by Cesium's color
    * batch. Without a pulse it is the base color, so ending a pulse
-   * restores the exact originals by construction. (Offline mode draws
-   * ground-clamped routes in Cesium's per-material batch, which does not
-   * re-evaluate colors per frame – the pulse is only visible on the
-   * height-based routes of the normal online mode.)
+   * restores the exact originals by construction. (A clamped route – a
+   * direction without heights – sits in Cesium's per-material batch,
+   * which does not re-evaluate colors per frame; the pulse shows on the
+   * height-based routes only.)
    */
   private routePieceColor(lineId: string, base: Color, result: Color): Color {
     const pulse = this.routePulse
@@ -399,11 +447,14 @@ export class RoutesLayer {
     this.host.requestRender()
   }
 
-  /** World positions of a height-based route piece at the current offset. */
+  /**
+   * World positions of a height-based route piece at the current offset
+   * and lift. Offline the heights are ellipsoidal already (0 m, see add)
+   * and no NHN→ellipsoid offset applies.
+   */
   private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
-    return path.map(([lon, lat], i) =>
-      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + lift),
-    )
+    const base = (this.host.offline ? 0 : this.routeHeightOffset) + this.baseLift + lift
+    return path.map(([lon, lat], i) => Cartesian3.fromDegrees(lon, lat, heights[i] + base))
   }
 
   /**

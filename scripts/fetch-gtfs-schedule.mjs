@@ -30,7 +30,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
 import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
-import { cityInsidePredicate, forEachRequestedCity } from './lib/city.mjs'
+import { cityInsidePredicate, forEachRequestedCity, networkInsidePredicate } from './lib/city.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, '.cache')
@@ -173,6 +173,12 @@ function scanCsv(u8, onRow) {
   }
 }
 
+/** Great-circle distance between two [lon, lat] points, in meters. */
+const metersBetween = ([lonA, latA], [lonB, latB]) => {
+  const cosLat = Math.cos((latA * Math.PI) / 180)
+  return Math.hypot((lonB - lonA) * cosLat * 111320, (latB - latA) * 110540)
+}
+
 function timeToSeconds(hhmmss) {
   const [h, m, s] = hhmmss.split(':').map(Number)
   return h * 3600 + m * 60 + (s || 0)
@@ -224,8 +230,14 @@ async function loadZipOnce() {
 async function main(city, paths) {
   const OUT = process.env.SCHEDULE_OUT ? resolve(process.env.SCHEDULE_OUT) : paths.schedule
   const NETWORK_JSON = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
-  // The city limits polygon where the city has one, its rectangle otherwise
+  // Two areas: a trip belongs to the city when it serves a stop inside the
+  // city limits (a line 5 of the next town's operator that never enters
+  // Kiel is not Kiel's line 5, however the numbers collide); its departure
+  // anchors at its first stop inside the area the network is cut to
+  // (city.json `network.clip` – Kiel's routes run out to Laboe), where the
+  // route on the map really starts.
   const insideCity = cityInsidePredicate(city)
+  const insideArea = networkInsidePredicate(city)
   const normalizeName = makeNormalizeName(city.gtfs.nameStrip)
   const trainBranchProbes = city.gtfs.trainBranches.map((branch) => ({
     lineId: branch.lineId,
@@ -263,9 +275,10 @@ async function main(city, paths) {
     }
   }
 
-  // ---- stops.txt: stops within the city limits ----------------------------
-  const cityStopCoords = new Map() // stop_id → [lon, lat]
+  // ---- stops.txt: stops within the network area -----------------------------
+  const cityStopCoords = new Map() // stop_id → [lon, lat], every stop in the area
   const cityStopNames = new Map() // stop_id → name (for diagnostics)
+  const limitsStops = new Set() // the area stops that lie inside the city limits
   const trainProbeStops = new Map() // stop_id → lineId (S-Bahn branch, OUTSIDE bbox)
   scanCsv(files['stops.txt'], (get) => {
     const name = get('stop_name')
@@ -274,22 +287,23 @@ async function main(city, paths) {
     }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
-    if (insideCity(lon, lat)) {
+    if (insideArea(lon, lat)) {
       cityStopCoords.set(get('stop_id'), [lon, lat])
       cityStopNames.set(get('stop_id'), name)
+      if (insideCity(lon, lat)) limitsStops.add(get('stop_id'))
     }
   })
   const stopsInCity = cityStopCoords
-  console.log(`${stopsInCity.size} stops within the ${city.name} city limits`)
+  console.log(`${stopsInCity.size} stops inside the ${city.name} network area`)
   // A network stop outside the rectangle means its line's departure time
   // is read one or more stops down the route – say so rather than let the
   // schedule quietly drift.
   const networkStopsOutside = Object.entries(networkJson.stops ?? {}).filter(
-    ([, stop]) => !insideCity(stop.coord[0], stop.coord[1]),
+    ([, stop]) => !insideArea(stop.coord[0], stop.coord[1]),
   )
   if (networkStopsOutside.length > 0) {
     console.warn(
-      `⚠ ${networkStopsOutside.length} network stops lie outside the ${city.name} city limits ` +
+      `⚠ ${networkStopsOutside.length} network stops lie outside the ${city.name} network area ` +
         `(${networkStopsOutside
           .slice(0, 5)
           .map(([id, stop]) => `${stop.name} [${id}]`)
@@ -308,8 +322,10 @@ async function main(city, paths) {
 
   // ---- routes.txt: routes for the network lines (tram, bus, ferry) ---------
   // Trams/buses are matched via the line number (route_short_name), ferries
-  // via the pier names in route_long_name (their short names are
-  // feed-dependent). Bus IDs with the collision prefix "B" match their number.
+  // via that too where the feed numbers them like the network does (Kiel's
+  // F1/F2), else via the pier names in route_long_name (Rostock's ferries
+  // carry feed-dependent short names). Bus IDs with the collision prefix
+  // "B" match their number.
   // Deliberately Germany-wide: the city relevance is established later via
   // the stop coordinates (BBOX filter of the stop_times).
   const routeLine = new Map() // route_id → lineId
@@ -322,7 +338,10 @@ async function main(city, paths) {
       if (mode === 'ferry') {
         const names = normalizeName(`${short} ${get('route_long_name')}`)
         const targets = ferryTargets.get(lineId) ?? []
-        if (targets.length > 0 && targets.some((t) => t.length >= 5 && names.includes(t))) {
+        if (
+          short === lineId ||
+          (targets.length > 0 && targets.some((t) => t.length >= 5 && names.includes(t)))
+        ) {
           routeLine.set(get('route_id'), lineId)
           routeAgency.set(get('route_id'), get('agency_id'))
           break
@@ -388,6 +407,19 @@ async function main(city, paths) {
   console.log('Streaming stop_times.txt … (largest file, please wait)')
   const firstCityStop = new Map() // trip_id → {seq, dep, stopId}
   const lastCityStop = new Map() // trip_id → {seq, stopId}
+  // Trips of loop-prone lines keep every stop: a ferry loop (Kiel's F2
+  // sails Reventlou → Dietrichsdorf → Wellingdorf → Reventlou) is split
+  // at its turning point into the two directions the map has, a ring
+  // line's round (Berlin's S41) runs the ring in one direction – see
+  // classifyLoopTrip. Only those lines, so the memory stays small.
+  const ringLines = new Set()
+  for (const line of networkJson.lines) {
+    const path = line.directions[0]?.path
+    if (path && path.length > 2 && metersBetween(path[0], path[path.length - 1]) < 150) ringLines.add(line.id)
+  }
+  const loopProne = (lineId) =>
+    lineId === FERRY_PENDING || networkLines.get(lineId) === 'ferry' || ringLines.has(lineId)
+  const loopTripStops = new Map() // trip_id → [{seq, stopId, dep}]
   const tripTouchesCity = new Set()
   const tripBranchLine = new Map() // trip_id → lineId (pending S-Bahn trips)
   let rows = 0
@@ -405,8 +437,13 @@ async function main(city, paths) {
       if (branchLine) tripBranchLine.set(tripId, branchLine)
     }
     if (!stopsInCity.has(stopId)) return
-    tripTouchesCity.add(tripId)
+    if (limitsStops.has(stopId)) tripTouchesCity.add(tripId)
     const seq = Number(get('stop_sequence'))
+    if (loopProne(info.lineId)) {
+      let list = loopTripStops.get(tripId)
+      if (!list) loopTripStops.set(tripId, (list = []))
+      list.push({ seq, stopId, dep: get('departure_time') })
+    }
     const cur = firstCityStop.get(tripId)
     if (!cur || seq < cur.seq) {
       firstCityStop.set(tripId, { seq, dep: get('departure_time'), stopId })
@@ -422,10 +459,6 @@ async function main(city, paths) {
   // A ferry trip belongs to a network ferry line when its first and last
   // stop each lie within 400 m of the line's two piers (in either order).
   {
-    const metersBetween = ([lonA, latA], [lonB, latB]) => {
-      const cosLat = Math.cos((latA * Math.PI) / 180)
-      return Math.hypot((lonB - lonA) * cosLat * 111320, (latB - latA) * 110540)
-    }
     const ferryPiers = []
     for (const line of networkJson.lines) {
       if ((line.mode ?? 'tram') !== 'ferry') continue
@@ -745,6 +778,56 @@ async function main(city, paths) {
     return [Math.round(start), Math.round(end)]
   }
 
+  /**
+   * A trip that ends where it began. On a ring line (the path itself is
+   * closed – Berlin's S41/S42) it is one round in the sense the trip runs
+   * it, read off a stop a quarter of the way in. On a ferry line it is
+   * two directions of the map's line: out to the pier farthest from the
+   * start, back from there. The departures are returned, or null for a
+   * trip that is no loop.
+   */
+  const classifyLoopTrip = (tripId, info) => {
+    const targets = dirTargets[info.lineId]
+    const stopsOfTrip = loopTripStops.get(tripId)
+    if (!targets?.path || !stopsOfTrip || stopsOfTrip.length < 3) return null
+    const sorted = [...stopsOfTrip].sort((a, b) => a.seq - b.seq)
+    const first = cityStopCoords.get(sorted[0].stopId)
+    const last = cityStopCoords.get(sorted[sorted.length - 1].stopId)
+    if (!first || !last || metersBetween(first, last) > 100) return null
+    if (!sorted[0].dep) return null
+    const stats = (classifyStats[info.lineId] ??= { path: 0, headsign: 0, skipped: 0 })
+    if (ringLines.has(info.lineId)) {
+      const quarter = cityStopCoords.get(sorted[Math.floor(sorted.length / 4)].stopId)
+      if (!quarter) return null
+      const start = projectOntoPath(targets.path, targets.cum, first)
+      const along = projectOntoPath(targets.path, targets.cum, quarter)
+      const total = targets.cum[targets.cum.length - 1]
+      // Distance run from the start, going the way of the path
+      const run = (along - start + total) % total
+      stats.path++
+      return [{ direction: run < total / 2 ? '0' : '1', sec: timeToSeconds(sorted[0].dep) }]
+    }
+    let turn = null
+    let farthest = 0
+    for (const stop of sorted) {
+      const coord = cityStopCoords.get(stop.stopId)
+      const meters = coord ? metersBetween(first, coord) : 0
+      if (meters > farthest) {
+        farthest = meters
+        turn = stop
+      }
+    }
+    if (!turn?.dep) return null
+    const a = projectOntoPath(targets.path, targets.cum, first)
+    const b = projectOntoPath(targets.path, targets.cum, cityStopCoords.get(turn.stopId))
+    const out = b > a ? '0' : '1'
+    stats.path += 2
+    return [
+      { direction: out, sec: timeToSeconds(sorted[0].dep) },
+      { direction: out === '0' ? '1' : '0', sec: timeToSeconds(turn.dep) },
+    ]
+  }
+
   const useDirectionId = tripsWithDirectionId > 0
 
   // If direction_id is present: check whether it matches the network's
@@ -772,6 +855,16 @@ async function main(city, paths) {
     if (!activeServiceIds.has(info.serviceId)) continue
     const first = firstCityStop.get(tripId)
     if (!first?.dep) continue
+
+    const loop = loopProne(info.lineId) ? classifyLoopTrip(tripId, info) : null
+    if (loop) {
+      for (const leg of loop) {
+        lines[info.lineId] ??= {}
+        lines[info.lineId][leg.direction] ??= { pairs: [] }
+        lines[info.lineId][leg.direction].pairs.push({ sec: leg.sec, tripId, span: null })
+      }
+      continue
+    }
 
     let direction
     if (useDirectionId && (info.rawDir === '0' || info.rawDir === '1')) {

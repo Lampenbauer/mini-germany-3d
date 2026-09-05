@@ -86,7 +86,7 @@ export function parseStopHash(hash: string): string | null {
 export interface HashUiState {
   /**
    * City slug, null for the default city. Written first so a shared link
-   * reads "#city=hamburg&lat=…" – the city is what the rest refers to:
+   * reads "#city=kiel&lat=…" – the city is what the rest refers to:
    * vehicle and stop ids are only meaningful inside it.
    */
   city: string | null

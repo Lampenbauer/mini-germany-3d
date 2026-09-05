@@ -1,8 +1,8 @@
 /**
  * Which city a pipeline script works on, and where its files live.
  *
- *   node scripts/<script>.mjs --city hamburg     one city
- *   CITY=hamburg node scripts/<script>.mjs       the same
+ *   node scripts/<script>.mjs --city kiel     one city
+ *   CITY=kiel node scripts/<script>.mjs       the same
  *   node scripts/<script>.mjs                    every city under src/cities/
  *
  * The definition is read through src/lib/city.ts (Node strips the types
@@ -71,6 +71,24 @@ export function cityInsidePredicate(city) {
   const ring = loadCityLimits(city.slug)
   if (ring) return (lon, lat) => pointInRing(ring, lon, lat)
   return (lon, lat) => containsLonLat(city.cityBounds, lon, lat)
+}
+
+/**
+ * "Is this point on the map?" as the network is cut (city.json
+ * `network.clip`): the city limits, the padded box (Kiel – Laboe and
+ * Strande are part of the Förde), or everything. The network cut
+ * (data:update) and the GTFS anchoring (data:gtfs) share it, so a trip
+ * departs the network where its route really ends.
+ */
+export function networkInsidePredicate(city) {
+  switch (city.network.clip) {
+    case 'city':
+      return cityInsidePredicate(city)
+    case 'box':
+      return (lon, lat) => containsLonLat(city.boundingBox, lon, lat)
+    default:
+      return () => true
+  }
 }
 
 /**

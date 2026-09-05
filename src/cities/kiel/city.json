@@ -1,0 +1,84 @@
+{
+  "slug": "kiel",
+  "name": "Kiel",
+  "osmRelation": 27021,
+  "cityBoundsQueriedOn": "2026-09-04",
+  "cityBounds": {
+    "west": 10.0329284,
+    "south": 54.2507055,
+    "east": 10.2186177,
+    "north": 54.4333247
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 9.8001,
+    "south": 54.1157,
+    "east": 10.4515,
+    "north": 54.5683
+  },
+  "home": {
+    "longitude": 10.1455,
+    "latitude": 54.3265,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 10.1258,
+    "latitude": 54.342
+  },
+  "network": {
+    "modes": ["bus", "ferry"],
+    "overpass": {
+      "bus": { "operator": "KVG|Kieler Verkehrsgesellschaft" }
+    },
+    "fixedLines": [
+      {
+        "osmRelation": 1990221,
+        "mode": "ferry",
+        "id": "F1",
+        "name": "Fördelinie Kiel – Laboe",
+        "from": "Bahnhof",
+        "to": "Laboe",
+        "color": "#0E7490",
+        "vehicle": { "length": 39, "width": 11, "height": 6 },
+        "model": "ferry-warnow-fw"
+      },
+      {
+        "osmRelation": 1957711,
+        "mode": "ferry",
+        "id": "F2",
+        "name": "Schwentinelinie",
+        "from": "Reventlou",
+        "to": "Wellingdorf",
+        "color": "#155E75",
+        "vehicle": { "length": 19.9, "width": 6.6, "height": 3.5 },
+        "model": "ferry-warnow-fg"
+      }
+    ],
+    "clip": "box"
+  },
+  "gtfs": {
+    "nameStrip": "kiel",
+    "trainBranches": []
+  },
+  "fleet": {
+    "bus": { "model": "bus-12m", "length": 12, "width": 2.55, "height": 3.1 },
+    "ferry": { "length": 20, "width": 7, "height": 4 }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 40,
+    "waterLevelNhn": 0,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {
+      "211341930": "F1",
+      "211223120": "F1",
+      "211458210": "F2",
+      "211399920": "F2"
+    }
+  }
+}

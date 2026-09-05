@@ -61,7 +61,7 @@ const LAMP_MAX_ALPHA = 0.42
 const LAMP_POOL_DIAMETER = 15
 
 /**
- * Meters above the terrain height. Below ROUTE_BASE_LIFT (0.8 m), so the
+ * Meters above the terrain height. Below the routes' near lift (0.15 m), so the
  * route polylines stay clearly readable on top of a lit street.
  */
 const LAMP_LIFT = 0.12

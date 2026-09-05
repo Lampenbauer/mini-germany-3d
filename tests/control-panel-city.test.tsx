@@ -16,13 +16,13 @@ afterEach(() => {
 })
 
 const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'] }
-const HAMBURG: CityChoice = { slug: 'hamburg', name: 'Hamburg', modes: ['subway', 'ferry'] }
+const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'] }
 
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onSelectCity = vi.fn()
   const props: ControlPanelProps = {
     city: ROSTOCK,
-    cities: [ROSTOCK, HAMBURG],
+    cities: [ROSTOCK, KIEL],
     cityLoading: false,
     onSelectCity,
     clockText: '12:00:00',
@@ -64,12 +64,12 @@ describe('the city picker in the control panel', () => {
     const options = screen.getAllByRole('option')
     expect(options).toHaveLength(2)
     expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
-    const hamburg = screen.getByRole('option', { name: 'Switch to Hamburg' })
-    expect(hamburg).toHaveAttribute('aria-selected', 'false')
-    fireEvent.click(hamburg)
-    expect(onSelectCity).toHaveBeenCalledWith('hamburg')
+    const kiel = screen.getByRole('option', { name: 'Switch to Kiel' })
+    expect(kiel).toHaveAttribute('aria-selected', 'false')
+    fireEvent.click(kiel)
+    expect(onSelectCity).toHaveBeenCalledWith('kiel')
     // The list closes with the choice
-    expect(screen.queryByRole('option', { name: 'Switch to Hamburg' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Switch to Kiel' })).not.toBeInTheDocument()
   })
 
   it('does not switch to the city already shown', () => {
@@ -89,6 +89,6 @@ describe('the city picker in the control panel', () => {
     panel()
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
     fireEvent.click(screen.getByRole('button', { name: 'Stadt wählen' }))
-    expect(screen.getByRole('option', { name: 'Nach Hamburg wechseln' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Nach Kiel wechseln' })).toBeInTheDocument()
   })
 })

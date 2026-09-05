@@ -41,7 +41,7 @@ import {
   type Viewer,
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
-import { FRAMING_SCALE } from './camera-fov'
+import { cameraFramingScale } from './CameraLens'
 import { FollowCamera } from '@/map/FollowCamera'
 
 export interface VesselLayerHost {
@@ -74,7 +74,12 @@ const NAME_VISIBLE_RANGE = 30_000
  * A distance that means an on-screen size, so it follows the field of
  * view like the trams' ranges do (see camera-fov.ts).
  */
-const VESSEL_RENDER_RANGE = 5_000 * FRAMING_SCALE
+/**
+ * Beyond this camera distance a ship is off screen for the layer –
+ * measured at the reference lens and scaled per check by the lens the
+ * camera wears (cameraFramingScale), like the vehicles' render range.
+ */
+const VESSEL_RENDER_RANGE_AT_REFERENCE = 5_000
 /**
  * Time constant of the display smoothing in ms: the drawn position eases
  * toward the playback target instead of snapping. Between ticks that
@@ -320,7 +325,9 @@ export class VesselLayer {
     position: Cartesian3,
   ): boolean {
     if (!this.visible) return false
-    if (Cartesian3.distance(this.viewer.camera.positionWC, position) >= VESSEL_RENDER_RANGE) return false
+    const camera = this.viewer.camera
+    const renderRange = VESSEL_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    if (Cartesian3.distance(camera.positionWC, position) >= renderRange) return false
     Cartesian3.clone(position, this.frustumSphere.center)
     this.frustumSphere.radius = 80
     return cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE

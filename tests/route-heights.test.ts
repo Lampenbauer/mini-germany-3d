@@ -1,169 +1,195 @@
 import { describe, expect, it } from 'vitest'
-import { lonLatToUtm, lonLatToUtm33, parseFloat32Tiff, sampleTile } from '../scripts/lib/dgm.mjs'
-import { parseXyzTile, sampleXyzTile, tileCornerFromName } from '../scripts/lib/xyz-terrain.mjs'
+import {
+  DEFAULT_ATTRIBUTION,
+  MapterhornSampler,
+  TILE_SIZE,
+  heightsFromPixels,
+  lonLatToPixel,
+  terrainAttribution,
+  terrariumHeight,
+} from '../scripts/lib/terrain.mjs'
 import {
   applyBridgeProfile,
   fillHeightGaps,
   heightAtDistance,
   indexPreviousHeights,
   normalizeRanges,
+  sameTerrainSource,
+  withTerrainAttribution,
 } from '../scripts/lib/route-heights.mjs'
 import { prepareNetwork } from '@/data/network'
 import { testNetworkJson } from './fixtures'
 import type { NetworkJson } from '@/data/network-types'
 
-describe('lonLatToUtm33', () => {
-  it('maps Rostock into the EPSG:25833 coverage window of the MV DGM', () => {
-    // Reference values computed with proj4 (EPSG:4326 → ETRS89 / UTM 33N);
-    // the WCS coverage envelope is x 200000–465000, y 5886000–6075000.
-    const [x, y] = lonLatToUtm33(12.123295, 54.084875)
-    expect(x).toBeCloseTo(311841.7, 0)
-    expect(y).toBeCloseTo(5996791.8, 0)
+describe('terrarium encoding', () => {
+  it('decodes R·256 + G + B/256 − 32768', () => {
+    expect(terrariumHeight(0, 0, 0)).toBe(-32768)
+    expect(terrariumHeight(128, 0, 0)).toBe(0)
+    expect(terrariumHeight(128, 10, 128)).toBe(10.5)
   })
 
-  it('maps Hamburg into UTM zone 32 for its DGM', () => {
-    // Hamburg Rathaus; zone 32 has its central meridian at 9° E, so the
-    // easting lands just east of 500 km.
-    const [x, y] = lonLatToUtm(9.9937, 53.5503, 'EPSG:25832')
-    expect(x).toBeGreaterThan(560_000)
-    expect(x).toBeLessThan(570_000)
-    expect(y).toBeGreaterThan(5_930_000)
-    expect(y).toBeLessThan(5_940_000)
-    // Zone 33 would put the same point 400 km further west
-    expect(lonLatToUtm(9.9937, 53.5503, 'EPSG:25833')[0]).toBeLessThan(200_000)
-    expect(() => lonLatToUtm(9.99, 53.55, 'EPSG:4326')).toThrow(/Unsupported terrain CRS/)
+  it('reads interleaved pixels whatever their channel count', () => {
+    const rgba = [128, 1, 0, 255, 128, 2, 64, 255]
+    expect(Array.from(heightsFromPixels(rgba, 4))).toEqual([1, 2.25])
+    expect(Array.from(heightsFromPixels([128, 3, 0], 3))).toEqual([3])
   })
 })
 
-describe('XYZ terrain tiles (Hamburg DGM10)', () => {
-  it('reads a tile corner off the file name', () => {
-    expect(tileCornerFromName('DGM10_HH_2016-01-04/DGM10_32548_5934_2_FHH.xyz')).toEqual({
-      east: 548_000,
-      north: 5_934_000,
-    })
-    expect(tileCornerFromName('DGM10_HH_2016-01-04/')).toBeNull()
-    expect(tileCornerFromName('readme.txt')).toBeNull()
+describe('lonLatToPixel', () => {
+  it('puts the origin at the center of the single z0 tile', () => {
+    expect(lonLatToPixel(0, 0, 0)).toEqual([TILE_SIZE / 2, TILE_SIZE / 2])
   })
 
-  it('parses cell centers into a grid and interpolates between them', () => {
-    // A 40 m tile at 10 m spacing: heights rise 1 m per cell eastwards,
-    // 10 m per cell northwards; one cell (2, 1) is missing.
-    const corner = { east: 1000, north: 2000 }
-    const lines: string[] = []
-    for (let iy = 0; iy < 4; iy++) {
-      for (let ix = 0; ix < 4; ix++) {
-        if (ix === 2 && iy === 1) continue
-        lines.push(`${1005 + ix * 10}.00 ${2005 + iy * 10}.00 ${(ix + iy * 10).toFixed(2)}`)
-      }
-    }
-    const tile = parseXyzTile(lines.join('\n') + '\n', corner, 40, 10)
-    expect(tile.width).toBe(4)
-    expect(tile.points).toBe(15)
-    // Exactly on a cell center
-    expect(sampleXyzTile(tile, 1005, 2005)).toBeCloseTo(0, 6)
-    expect(sampleXyzTile(tile, 1015, 2025)).toBeCloseTo(21, 6)
-    // Halfway between four centers: the mean of their heights
-    expect(sampleXyzTile(tile, 1010, 2010)).toBeCloseTo((0 + 1 + 10 + 11) / 4, 6)
-    // Beside the hole the nearest valid center answers: (1023, 2016) lies
-    // closest to cell (1, 1), with (2, 1) missing
-    expect(sampleXyzTile(tile, 1023, 2016)).toBeCloseTo(11, 6)
-    // Off the tile there is nothing
-    expect(sampleXyzTile(tile, 1200, 2200)).toBeUndefined()
+  it('lands a known position on the z15 tile the live endpoint serves it from', () => {
+    // 15/17294/10590 – checked against tiles.mapterhorn.com.
+    const [px, py] = lonLatToPixel(10.0, 53.55, 15)
+    expect(Math.floor(px / TILE_SIZE)).toBe(17294)
+    expect(Math.floor(py / TILE_SIZE)).toBe(10590)
   })
 })
 
-/**
- * Builds the exact TIFF flavor the WCS delivers: little-endian, single
- * strip, float32, 5 m pixel scale, raster origin at world (1000, 2000).
- * `omitTiepoint` produces a file without georeferencing for the error case.
- */
-function syntheticTile(
-  width: number,
-  height: number,
-  value: (x: number, y: number) => number,
-  omitTiepoint = false,
-) {
-  const entries = omitTiepoint ? 8 : 9
-  const headerSize = 8
-  const ifdSize = 2 + entries * 12 + 4
-  const scaleOffset = headerSize + ifdSize
-  const tieOffset = scaleOffset + 3 * 8
-  const dataOffset = tieOffset + 6 * 8
-  const bytes = new Uint8Array(dataOffset + width * height * 4)
-  const view = new DataView(bytes.buffer)
-  view.setUint16(0, 0x4949, true)
-  view.setUint16(2, 42, true)
-  view.setUint32(4, headerSize, true)
-  view.setUint16(headerSize, entries, true)
-  const entry = (i: number, tag: number, type: number, count: number, val: number) => {
-    const off = headerSize + 2 + i * 12
-    view.setUint16(off, tag, true)
-    view.setUint16(off + 2, type, true)
-    view.setUint32(off + 4, count, true)
-    view.setUint32(off + 8, val, true)
-  }
-  entry(0, 256, 4, 1, width)
-  entry(1, 257, 4, 1, height)
-  entry(2, 258, 3, 1, 32)
-  entry(3, 273, 4, 1, dataOffset)
-  entry(4, 278, 4, 1, height)
-  entry(5, 279, 4, 1, width * height * 4)
-  entry(6, 339, 3, 1, 3)
-  entry(7, 33550, 12, 3, scaleOffset)
-  view.setFloat64(scaleOffset, 5, true) // 5 m per pixel
-  view.setFloat64(scaleOffset + 8, 5, true)
-  view.setFloat64(scaleOffset + 16, 0, true)
-  if (!omitTiepoint) {
-    entry(8, 33922, 12, 6, tieOffset)
-    const tiepoint = [0, 0, 0, 1000, 2000, 0] // raster (0,0) = world (1000, 2000)
-    tiepoint.forEach((v, i) => view.setFloat64(tieOffset + i * 8, v, true))
-  }
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      view.setFloat32(dataOffset + (y * width + x) * 4, value(x, y), true)
-    }
-  }
-  return bytes
+/** Inverse of lonLatToPixel, so a test can ask for an exact pixel position. */
+function lonLatFromPixel(px: number, py: number, zoom: number): [number, number] {
+  const size = 2 ** zoom * TILE_SIZE
+  const lon = (px / size) * 360 - 180
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * py) / size))) * 180) / Math.PI
+  return [lon, lat]
 }
 
-describe('parseFloat32Tiff / sampleTile', () => {
-  it('parses dimensions, georeferencing, and pixel values', () => {
-    const tile = parseFloat32Tiff(syntheticTile(4, 3, (x, y) => 10 + x + y * 4))
-    expect(tile.width).toBe(4)
-    expect(tile.height).toBe(3)
-    expect(tile.originX).toBe(1000)
-    expect(tile.originY).toBe(2000)
-    expect(tile.scaleX).toBe(5)
-    expect(tile.data[0]).toBe(10)
-    expect(tile.data[4 * 3 - 1]).toBe(10 + 3 + 2 * 4)
+/**
+ * A fake tile server plus decoder: every tile's bytes spell out its
+ * z/x/y, and decoding paints the plane h = gx + gy / 1024 in global pixel
+ * coordinates of that zoom – bilinear interpolation of a plane is exact,
+ * so a sample must read back the position it was taken at.
+ */
+function fakeTiles(opts: { missingZooms?: number[]; fail?: boolean } = {}) {
+  const fetched: string[] = []
+  let decodes = 0
+  const fetchImpl = async (url: string) => {
+    const match = /(\d+)\/(\d+)\/(\d+)\.webp$/.exec(url)!
+    const key = `${match[1]}/${match[2]}/${match[3]}`
+    fetched.push(key)
+    if (opts.fail) throw new Error('connection reset')
+    if (opts.missingZooms?.includes(Number(match[1]))) {
+      return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) }
+    }
+    const bytes = new TextEncoder().encode(key)
+    return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer as ArrayBuffer }
+  }
+  const decodeImpl = (bytes: Uint8Array) => {
+    decodes++
+    const [, x, y] = new TextDecoder().decode(bytes).split('/').map(Number)
+    const heights = new Float32Array(TILE_SIZE * TILE_SIZE)
+    for (let j = 0; j < TILE_SIZE; j++) {
+      for (let i = 0; i < TILE_SIZE; i++) {
+        heights[j * TILE_SIZE + i] = x * TILE_SIZE + i + (y * TILE_SIZE + j) / 1024
+      }
+    }
+    return heights
+  }
+  return { fetchImpl, decodeImpl, fetched, decodes: () => decodes }
+}
+
+const plane = (px: number, py: number) => px - 0.5 + (py - 0.5) / 1024
+
+describe('MapterhornSampler', () => {
+  it('interpolates bilinearly between the pixel centers of one tile', async () => {
+    const fake = fakeTiles()
+    const sampler = new MapterhornSampler({ zoom: 3, minZoom: 1, ...fake, retryDelayMs: 0 })
+    const [px, py] = [1000.25, 700.75]
+    const h = await sampler.heightAt(...lonLatFromPixel(px, py, 3))
+    expect(h).toBeCloseTo(plane(px, py), 3)
+    expect(fake.fetched).toEqual(['3/1/1'])
+    expect(sampler.stats).toEqual({ tiles: 1, bytes: 5, failedTiles: 0 })
   })
 
-  it('rejects TIFFs without georeferencing tags', () => {
-    expect(() => parseFloat32Tiff(syntheticTile(2, 2, () => 1, true))).toThrow(/georeferencing/)
+  it('fetches the neighbor tile where the footprint straddles an edge', async () => {
+    const fake = fakeTiles()
+    const sampler = new MapterhornSampler({ zoom: 3, minZoom: 1, ...fake, retryDelayMs: 0 })
+    // 0.3 px into tile 1: the western pair of corners lies in tile 0.
+    const [px, py] = [TILE_SIZE + 0.3, 700]
+    const h = await sampler.heightAt(...lonLatFromPixel(px, py, 3))
+    expect(h).toBeCloseTo(plane(px, py), 3)
+    expect(fake.fetched.sort()).toEqual(['3/0/1', '3/1/1'])
   })
 
-  it('interpolates bilinearly between grid cells', () => {
-    // Height rises 1 m per pixel eastward → 0.2 m per meter at 5 m grid
-    const tile = parseFloat32Tiff(syntheticTile(4, 4, (x) => 10 + x))
-    // Pixel centers are at originX + (px + 0.5) * scale = 1002.5, 1007.5, …
-    expect(sampleTile(tile, 1002.5, 1990)).toBeCloseTo(10, 5)
-    expect(sampleTile(tile, 1007.5, 1990)).toBeCloseTo(11, 5)
-    expect(sampleTile(tile, 1005.0, 1990)).toBeCloseTo(10.5, 5)
+  it('answers one level coarser where the zoom has no tile', async () => {
+    const fake = fakeTiles({ missingZooms: [5, 4] })
+    const sampler = new MapterhornSampler({ zoom: 5, minZoom: 1, ...fake, retryDelayMs: 0 })
+    const lonLat = lonLatFromPixel(4000.5, 3000.5, 5)
+    const h = await sampler.heightAt(...lonLat)
+    const [px3, py3] = lonLatToPixel(lonLat[0], lonLat[1], 3)
+    expect(h).toBeCloseTo(plane(px3, py3), 3)
+    expect(fake.fetched.map((k) => k.split('/')[0])).toEqual(['5', '4', '3'])
+    // The 404s are remembered – a second point in the same tiles asks once.
+    await sampler.heightAt(...lonLatFromPixel(4010, 3010, 5))
+    expect(fake.fetched).toHaveLength(3)
   })
 
-  it('falls back to the nearest valid corner next to nodata', () => {
-    const NODATA = -3.4e38
-    const tile = parseFloat32Tiff(syntheticTile(2, 2, (x) => (x === 0 ? 7 : NODATA)))
-    // Between the pixel centers (1002.5/1007.5 × 1997.5/1992.5): the east
-    // column is nodata, the nearest valid corner in the west supplies 7.
-    expect(sampleTile(tile, 1003, 1995)).toBe(7)
+  it('gives up on an unreachable server without guessing', async () => {
+    const fake = fakeTiles({ fail: true })
+    const sampler = new MapterhornSampler({ zoom: 3, minZoom: 1, ...fake, retryDelayMs: 0 })
+    const lonLat = lonLatFromPixel(1000, 700, 3)
+    expect(await sampler.heightAt(...lonLat)).toBeUndefined()
+    expect(sampler.stats.failedTiles).toBe(1)
+    // One retry, then the failure is remembered for the run.
+    expect(fake.fetched).toEqual(['3/1/1', '3/1/1'])
+    expect(await sampler.heightAt(...lonLat)).toBeUndefined()
+    expect(fake.fetched).toHaveLength(2)
   })
 
-  it('returns undefined outside the tile and on all-nodata cells', () => {
-    const tile = parseFloat32Tiff(syntheticTile(2, 2, () => -3.4e38))
-    expect(sampleTile(tile, 1005, 1995)).toBeUndefined()
-    const ok = parseFloat32Tiff(syntheticTile(2, 2, () => 5))
-    expect(sampleTile(ok, 900, 1995)).toBeUndefined()
+  it('keeps every tile fetched but only a few decoded', async () => {
+    const fake = fakeTiles()
+    const sampler = new MapterhornSampler({ zoom: 3, minZoom: 1, ...fake, retryDelayMs: 0, maxDecodedTiles: 2 })
+    const tiles: [number, number][] = [
+      [100, 100],
+      [700, 100],
+      [1300, 100],
+    ]
+    for (const [px, py] of tiles) await sampler.heightAt(...lonLatFromPixel(px, py, 3))
+    expect(fake.fetched).toEqual(['3/0/0', '3/1/0', '3/2/0'])
+    expect(fake.decodes()).toBe(3)
+    // Back to the first tile: evicted from the decoded set, so decoded
+    // again – from the bytes kept in memory, not from the server.
+    await sampler.heightAt(...lonLatFromPixel(100, 100, 3))
+    expect(fake.fetched).toHaveLength(3)
+    expect(fake.decodes()).toBe(4)
+    // The most recently used one is still decoded.
+    await sampler.heightAt(...lonLatFromPixel(1300, 100, 3))
+    expect(fake.decodes()).toBe(4)
+  })
+})
+
+describe('terrain attribution', () => {
+  it('names Mapterhorn when a city names no source of its own', () => {
+    expect(terrainAttribution({ terrain: {} })).toBe(DEFAULT_ATTRIBUTION)
+    expect(terrainAttribution({ terrain: { attribution: 'Terrain © X.' } })).toBe('Terrain © X.')
+  })
+
+  it('lets a previous file lend its heights only for the same source', () => {
+    const attribution = 'Terrain heights © Mapterhorn (mapterhorn.com).'
+    const prev = { meta: { attribution: `Routes © OSM. ${attribution}`, terrainAttribution: attribution } }
+    expect(sameTerrainSource(prev, attribution)).toBe(true)
+    expect(sameTerrainSource({ meta: { terrainAttribution: 'Terrain © X (z16).' } }, attribution)).toBe(false)
+    // Files from before the field existed came from the state services.
+    expect(sameTerrainSource({ meta: { attribution: `Routes © OSM. ${attribution}` } }, attribution)).toBe(false)
+    expect(sameTerrainSource(null, attribution)).toBe(false)
+  })
+
+  it('appends the terrain line once and replaces it on a source change', () => {
+    const osm = 'Route and stop data © OpenStreetMap contributors (ODbL 1.0).'
+    const old = 'Terrain heights © GeoBasis-DE/M-V (DGM via WCS).'
+    const line = 'Terrain heights © Mapterhorn (mapterhorn.com).'
+    // Fresh from data:update
+    const first = withTerrainAttribution({ source: 'osm', attribution: osm }, line)
+    expect(first).toEqual({ source: 'osm', attribution: `${osm} ${line}`, terrainAttribution: line })
+    // Rerun on the enriched file: byte-stable
+    expect(withTerrainAttribution(first, line)).toEqual(first)
+    // Source change: the recorded line goes, the new one comes
+    expect(withTerrainAttribution(first, old)).toEqual({ source: 'osm', attribution: `${osm} ${old}`, terrainAttribution: old })
+    // A file from before the field existed that already carries the line
+    expect(withTerrainAttribution({ attribution: `${osm} ${line}` }, line)).toEqual({ attribution: `${osm} ${line}`, terrainAttribution: line })
+    expect(withTerrainAttribution({}, line)).toEqual({ attribution: line, terrainAttribution: line })
   })
 })
 

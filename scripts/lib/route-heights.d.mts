@@ -35,6 +35,13 @@ export function applyBridgeProfile(
   opts?: BridgeProfileOptions,
 ): void
 
+export function sameTerrainSource(prev: unknown, attribution: string): boolean
+
+export function withTerrainAttribution<M extends { attribution?: string; terrainAttribution?: string }>(
+  meta: M,
+  line: string,
+): M & { attribution: string; terrainAttribution: string }
+
 export function indexPreviousHeights(prevNetwork: unknown): {
   heightsByPath: Map<string, number[]>
   nhnByStop: Map<string, number>

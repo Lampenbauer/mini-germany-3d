@@ -436,7 +436,7 @@ export default function App() {
   /**
    * Frames the map still owes the city it holds. A city raised behind an
    * open diagram is never drawn, and its route polylines only compile as
-   * they are rendered – Hamburg's are twelve hundred primitives. Without
+   * they are rendered – a big city's are over a thousand primitives. Without
    * this the map comes back empty and fills in over several seconds; with
    * it those frames are drawn into the hidden canvas instead. Counted
    * down by the render loop.
@@ -1759,11 +1759,10 @@ export default function App() {
   const handleTogglePause = useCallback(() => {
     setPaused((prev) => {
       const next = !prev
+      // Play carries on from the simulated moment – a time set by hand
+      // survives a pause. "Now" is the way back to the real time; the AIS
+      // ships keep showing the real present regardless (see VesselLayer).
       clockRef.current?.setPaused(next)
-      // Play never resumes a past moment: releasing the pause snaps the
-      // clock to the real time, so trams (GTFS) and ships (AIS) carry on
-      // where reality actually is – not where it was when paused.
-      if (!next) clockRef.current?.resetToRealTime()
       pausedRef.current = next
       writeHashRef.current()
       return next

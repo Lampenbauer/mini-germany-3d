@@ -123,6 +123,40 @@ test('renders OSM tunnel route sections at reduced opacity', async () => {
   expect(line2Opacities.some((opacity) => Math.abs(opacity - 0.85) < 1e-6)).toBe(true)
 })
 
+test('offline routes lie on the ellipsoid as ordinary polylines, none clamped', async () => {
+  // Clamping classifies against the depth buffer on every rendered frame
+  // – the reason the grid globe used to cost twice the GPU of the photo
+  // tiles. Offline the ground is 0 m, so nothing needs clamping.
+  const routes = await page.evaluate(() => {
+    const viewer = window.__cesiumViewer!
+    const polylines = viewer.entities.values.filter((entity) => entity.id.startsWith('route:'))
+    // The visualizers park (empty) collections of their own in
+    // groundPrimitives, nested two deep – count the primitives at the
+    // leaves, not the collections.
+    type Collection = { length: number; get: (index: number) => Collection | object }
+    const leaves = (node: Collection | object): number => {
+      const collection = node as Collection
+      if (typeof collection.length !== 'number') return 1
+      // The innermost (ordered) collection has a length but no get()
+      if (typeof collection.get !== 'function') return collection.length
+      let n = 0
+      for (let i = 0; i < collection.length; i++) n += leaves(collection.get(i))
+      return n
+    }
+    const groundPrimitives = leaves(viewer.scene.groundPrimitives)
+    return {
+      count: polylines.length,
+      clamped: polylines.filter(
+        (entity) => entity.polyline?.clampToGround?.getValue(viewer.clock.currentTime) === true,
+      ).length,
+      groundPrimitives,
+    }
+  })
+  expect(routes.count).toBeGreaterThan(0)
+  expect(routes.clamped).toBe(0)
+  expect(routes.groundPrimitives).toBe(0)
+})
+
 test('changes a rendered vehicle body between 40% and 100% at a tunnel portal', async () => {
   const source = await page.evaluate(() => window.__mrt!.dataSource)
   test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')

@@ -16,7 +16,7 @@ import { cityBySlug } from '../src/cities/definitions'
 /** Layers off – see the note above. */
 const CHEAP = 'routes=0&stops=0&labels=0'
 
-const HAMBURG = cityBySlug('hamburg')!.boundingBox
+const KIEL = cityBySlug('kiel')!.boundingBox
 const ROSTOCK = cityBySlug('rostock')!.boundingBox
 
 function cameraView(page: Page) {
@@ -30,10 +30,10 @@ function cameraView(page: Page) {
   })
 }
 
-const inside = (view: { lat: number; lon: number }, box: typeof HAMBURG) =>
+const inside = (view: { lat: number; lon: number }, box: typeof KIEL) =>
   view.lon >= box.west && view.lon <= box.east && view.lat >= box.south && view.lat <= box.north
 
-test('the picker flies from Rostock to Hamburg', async ({ page }) => {
+test('the picker flies from Rostock to Kiel', async ({ page }) => {
   test.setTimeout(300_000)
   await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}`)
   await page.waitForFunction(
@@ -47,33 +47,33 @@ test('the picker flies from Rostock to Hamburg', async ({ page }) => {
   expect(rostockLines).toContain('FG')
 
   await page.getByRole('button', { name: 'Choose a city' }).click()
-  await page.getByRole('option', { name: 'Switch to Hamburg' }).click()
+  await page.getByRole('option', { name: 'Switch to Kiel' }).click()
 
   // The old city is torn down at once, the new one is up once its data
   // is in and its simulation runs.
   await page.waitForFunction(
     () =>
       window.__mrt?.ready === true &&
-      window.__mrt.city() === 'hamburg' &&
+      window.__mrt.city() === 'kiel' &&
       window.__mrt.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
-  await expect(page).toHaveTitle('Mini Hamburg 3D')
-  await expect(page.getByTestId('app-title')).toHaveText('Mini Hamburg 3D')
-  expect(page.url()).toContain('city=hamburg')
-  const hamburgLines = await page.evaluate(() => window.__mrt!.lineIds())
-  expect(hamburgLines).toContain('U1')
-  expect(hamburgLines).not.toContain('FG')
+  await expect(page).toHaveTitle('Mini Kiel 3D')
+  await expect(page.getByTestId('app-title')).toHaveText('Mini Kiel 3D')
+  expect(page.url()).toContain('city=kiel')
+  const kielLines = await page.evaluate(() => window.__mrt!.lineIds())
+  expect(kielLines).toContain('F1')
+  expect(kielLines).not.toContain('FG')
 
-  // The flight ends inside Hamburg's leash – under its ceiling, which the
+  // The flight ends inside Kiel's leash – under its ceiling, which the
   // arc of the flight climbs well above on the way – and the leash holds
   // there. Polled on both: the camera enters the box while still high up.
   await expect
     .poll(
       async () => {
         const view = await cameraView(page)
-        return inside(view, HAMBURG) && view.height <= 25_000 + 1
+        return inside(view, KIEL) && view.height <= 25_000 + 1
       },
       { timeout: 60_000 },
     )
@@ -83,14 +83,14 @@ test('the picker flies from Rostock to Hamburg', async ({ page }) => {
 
 test('a link naming the city opens it', async ({ page }) => {
   test.setTimeout(240_000)
-  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}&city=hamburg`)
+  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}&city=kiel`)
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.city() === 'hamburg',
+    () => window.__mrt?.ready === true && window.__mrt.city() === 'kiel',
     undefined,
     { timeout: 120_000 },
   )
-  await expect(page).toHaveTitle('Mini Hamburg 3D')
-  expect(inside(await cameraView(page), HAMBURG)).toBe(true)
+  await expect(page).toHaveTitle('Mini Kiel 3D')
+  expect(inside(await cameraView(page), KIEL)).toBe(true)
   // The default city needs no name in the URL, every other city keeps its
   await page.getByRole('button', { name: 'Choose a city' }).click()
   await page.getByRole('option', { name: 'Switch to Rostock' }).click()

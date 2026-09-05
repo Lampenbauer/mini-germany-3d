@@ -6,26 +6,26 @@
  * (data:update, data:gtfs, …) takes it from there.
  *
  *   node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 15000]
- *   node scripts/add-city.mjs hamburg 62782
- *   node scripts/add-city.mjs hamburg 62782 --limits-only    (refresh limits.json only)
+ *   node scripts/add-city.mjs kiel 27021
+ *   node scripts/add-city.mjs kiel 27021 --limits-only    (refresh limits.json only)
  *
  * Next to city.json it writes limits.json: the largest outer ring itself,
  * thinned to a few hundred points. The pipeline cuts routes and anchors
  * timetables at that polygon rather than at the rectangle – a rectangle
- * around Hamburg reaches Norderstedt and Aumühle, which the state's
- * terrain model does not cover.
+ * around a city reaches the neighbouring towns, and a route is meant to
+ * end where the city does.
  *
  * The bounds are those of the relation's LARGEST outer ring, not the
  * relation's own bounding box: an administrative boundary can include
- * exclaves far away (Hamburg's Neuwerk stands in the North Sea, 100 km
- * west of the city), and `out bb` would stretch the box across the
+ * exclaves far away (an island 100 km out at sea), and `out bb` would
+ * stretch the box across the
  * water – the camera leash, the AIS subscription and the Overpass
  * queries with it.
  *
  * What the skeleton cannot know is left for the maintainer: the home
  * view (it opens on the box's center), which modes and operators to
  * fetch (every mode, no operator filter), the fleet, the terrain
- * provider (none) and the ferries' AIS twins. An existing city.json is
+ * attribution the state's license asks for, and the ferries' AIS twins. An existing city.json is
  * never overwritten – delete it first, or edit it.
  *
  * Environment variables:
@@ -236,8 +236,7 @@ async function main() {
     },
     gtfs: { nameStrip: (options.name ?? name ?? slug).toLowerCase(), trainBranches: [] },
     fleet: {},
-    terrain: { provider: 'none', geoidOffsetFallback: 40, waterLevelNhn: 0 },
-    lamps: { enabled: false, minPlausible: 1000 },
+    terrain: { zoom: 15, geoidOffsetFallback: 40, waterLevelNhn: 0 },
     ais: { enabled: true, simulatedByMmsi: {} },
   }
   writeFileSync(file, JSON.stringify(city, null, 2) + '\n', 'utf8')

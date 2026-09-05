@@ -21,7 +21,7 @@ export interface CityData {
   network: PreparedNetwork
   /** Real GTFS departures; null lets the synthetic headway run instead. */
   schedule: ScheduleJson | null
-  /** OSM street lamps for the night lighting; null where a city has none. */
+  /** OSM street lamps for the night lighting; null until the pipeline has run data:lamps for the city. */
   lamps: StreetLampData | null
 }
 
@@ -42,6 +42,6 @@ export async function loadCityData(slug: string): Promise<CityData> {
     city,
     network: prepareNetwork(networkJson, city),
     schedule: schedule ?? null,
-    lamps: city.lamps.enabled ? (lampData ?? null) : null,
+    lamps: lampData ?? null,
   }
 }
