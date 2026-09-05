@@ -1,0 +1,61 @@
+{
+  "slug": "munich",
+  "name": "Munich",
+  "osmRelation": 62428,
+  "cityBoundsQueriedOn": "2026-09-05",
+  "cityBounds": {
+    "west": 11.360777,
+    "south": 48.0616244,
+    "east": 11.7229099,
+    "north": 48.2481162
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 11.1575,
+    "south": 47.9266,
+    "east": 11.9262,
+    "north": 48.3831
+  },
+  "home": {
+    "longitude": 11.5755,
+    "latitude": 48.1405,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 11.5755,
+    "latitude": 48.1372
+  },
+  "network": {
+    "modes": ["tram", "subway", "train", "bus"],
+    "overpass": {
+      "tram": { "operator": "Münchner Verkehrsgesellschaft|MVG", "ref": "^(N?[0-9]+)$" },
+      "subway": { "operator": "Münchner Verkehrsgesellschaft|MVG" },
+      "train": { "service": "commuter", "ref": "^S[0-9]+$" },
+      "bus": { "operator": "Münchner Verkehrsgesellschaft|MVG", "ref": "^([5-6][0-9]|X[0-9]+)$" }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "münchen",
+    "trainBranches": []
+  },
+  "fleet": {
+    "tram": { "model": "tram-avenio", "length": 38.1, "width": 2.65, "height": 3.6 },
+    "subway": { "model": "ubahn-c2", "length": 119.4, "width": 2.9, "height": 3.55 },
+    "train": { "model": "sbahn-423", "length": 132.7, "width": 3.02, "height": 4.3 },
+    "bus": { "model": "bus-12m", "length": 12, "width": 2.55, "height": 3.1 }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 47,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © Bayerische Vermessungsverwaltung – geodaten.bayern.de (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": false,
+    "simulatedByMmsi": {}
+  }
+}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { detectLanguage, getLanguage, localizeLineName, setLanguage, t } from '@/lib/i18n'
+import { detectLanguage, getLanguage, localizeCityName, localizeLineName, setLanguage, t } from '@/lib/i18n'
 
 afterEach(() => {
   setLanguage('en')
@@ -65,5 +65,23 @@ describe('localizeLineName', () => {
     // Already language-neutral names stay as they are
     expect(localizeLineName('Bus 22')).toBe('Bus 22')
     expect(localizeLineName('S-Bahn S1')).toBe('S-Bahn S1')
+  })
+})
+
+describe('localizeCityName', () => {
+  it('shows the English name of the definition by default', () => {
+    expect(localizeCityName('munich', 'Munich')).toBe('Munich')
+    expect(localizeCityName('cologne', 'Cologne')).toBe('Cologne')
+    expect(localizeCityName('rostock', 'Rostock')).toBe('Rostock')
+  })
+
+  it('shows the German name where it differs, and the definition where it does not', () => {
+    setLanguage('de')
+    expect(localizeCityName('munich', 'Munich')).toBe('München')
+    expect(localizeCityName('cologne', 'Cologne')).toBe('Köln')
+    // Rostock, Kiel, Hamburg, Berlin have no entry and read the same
+    expect(localizeCityName('rostock', 'Rostock')).toBe('Rostock')
+    // A city this build's messages do not know keeps its definition name
+    expect(localizeCityName('elsewhere', 'Elsewhere')).toBe('Elsewhere')
   })
 })

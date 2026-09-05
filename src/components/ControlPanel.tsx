@@ -29,7 +29,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { TransitMode } from '@/data/network-types'
-import { MODE_KEY, t } from '@/lib/i18n'
+import { MODE_KEY, localizeCityName, t } from '@/lib/i18n'
 import { TRANSIT_MODES } from '@/lib/transit-mode'
 
 export interface LineToggleInfo {
@@ -277,7 +277,7 @@ export function ControlPanel(props: ControlPanelProps) {
         <CardTitle className="flex min-w-0 items-center gap-1.5 text-base">
           <TramFront className="size-5 shrink-0 text-primary" aria-hidden />
           <span className="truncate" data-testid="app-title">
-            {t('city.title', { name: props.city.name })}
+            {t('city.title', { name: localizeCityName(props.city.slug, props.city.name) })}
           </span>
           {/* The caret beside the title opens the list of cities. Only
               offered when there is somewhere else to go – a single city
@@ -300,13 +300,14 @@ export function ControlPanel(props: ControlPanelProps) {
                 <ul role="listbox" aria-label={t('city.pick')} className="flex flex-col gap-0.5">
                   {props.cities.map((city) => {
                     const current = city.slug === props.city.slug
+                    const name = localizeCityName(city.slug, city.name)
                     return (
                       <li key={city.slug}>
                         <button
                           type="button"
                           role="option"
                           aria-selected={current}
-                          aria-label={current ? city.name : t('city.switchTo', { name: city.name })}
+                          aria-label={current ? name : t('city.switchTo', { name })}
                           className={cn(
                             'flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent/60',
                             current && 'bg-accent/40',
@@ -316,7 +317,7 @@ export function ControlPanel(props: ControlPanelProps) {
                             if (!current) props.onSelectCity(city.slug)
                           }}
                         >
-                          <span className="min-w-0 flex-1 truncate">{city.name}</span>
+                          <span className="min-w-0 flex-1 truncate">{name}</span>
                           <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
                             {city.modes.map((mode) => {
                               const Icon = MODE_ICON[mode]

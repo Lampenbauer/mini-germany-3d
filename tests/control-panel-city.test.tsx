@@ -17,6 +17,7 @@ afterEach(() => {
 
 const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'] }
 const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'] }
+const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'] }
 
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onSelectCity = vi.fn()
@@ -95,5 +96,21 @@ describe('the city picker in the control panel', () => {
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
     fireEvent.click(screen.getByRole('button', { name: 'Stadt wählen' }))
     expect(screen.getByRole('option', { name: 'Nach Kiel wechseln' })).toBeInTheDocument()
+  })
+
+  it('names a city in the language of the interface', () => {
+    // The definition spells the city in English (slug and folder are
+    // English too); the German interface shows the German name.
+    panel({ city: MUNICH, cities: [ROSTOCK, MUNICH] })
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Munich 3D')
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    expect(screen.getByRole('option', { name: 'Munich' })).toHaveAttribute('aria-selected', 'true')
+    cleanup()
+    setLanguage('de')
+    panel({ city: ROSTOCK, cities: [ROSTOCK, MUNICH] })
+    fireEvent.click(screen.getByRole('button', { name: 'Stadt wählen' }))
+    const munich = screen.getByRole('option', { name: 'Nach München wechseln' })
+    expect(munich).toHaveTextContent('München')
+    fireEvent.click(munich)
   })
 })

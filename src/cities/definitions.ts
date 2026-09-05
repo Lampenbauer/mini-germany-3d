@@ -15,10 +15,21 @@ import { cityFromJson, type City } from '../lib/city.ts'
 import rostock from './rostock/city.json' with { type: 'json' }
 import kiel from './kiel/city.json' with { type: 'json' }
 import hamburg from './hamburg/city.json' with { type: 'json' }
+import bremen from './bremen/city.json' with { type: 'json' }
 import berlin from './berlin/city.json' with { type: 'json' }
+import cologne from './cologne/city.json' with { type: 'json' }
+import munich from './munich/city.json' with { type: 'json' }
 
 /** Every city, in the order the city picker lists them. */
-export const CITIES: readonly City[] = [cityFromJson(rostock), cityFromJson(kiel), cityFromJson(hamburg), cityFromJson(berlin)]
+export const CITIES: readonly City[] = [
+  cityFromJson(rostock),
+  cityFromJson(kiel),
+  cityFromJson(hamburg),
+  cityFromJson(bremen),
+  cityFromJson(berlin),
+  cityFromJson(cologne),
+  cityFromJson(munich),
+]
 
 /** The city the app opens on when neither the URL nor a saved choice says otherwise. */
 export const DEFAULT_CITY_SLUG = 'rostock'

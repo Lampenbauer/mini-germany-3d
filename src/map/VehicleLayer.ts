@@ -265,6 +265,10 @@ interface VehicleModelSpec {
  *   sbahn-481        Berlin S-Bahn BR 481 half train – the same six sections
  *   ubahn-dt5        Hamburg U-Bahn DT5 double unit – the same six sections, 79.5 m
  *   sbahn-490        Hamburg S-Bahn ET 490 unit – five of those sections, 66 m
+ *   ubahn-c2         Munich U-Bahn C2 – nine of those sections, 119 m
+ *   sbahn-423        Munich/Cologne S-Bahn ET 423 full train – two five-section units, 133 m
+ *   tram-avenio      Munich Avenio – the 6N2's sections with one more middle, 38 m
+ *   stadtbahn-k4000  Cologne Stadtbahn K4000/K5000 double unit – two four-section trams, 51 m
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
@@ -355,6 +359,77 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/ubahn-mid.glb', length: 13 },
       { uri: 'models/ubahn-mid.glb', length: 13 },
       { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+   // Munich's U-Bahn runs six-car trains of 115 m (the C2, or three A/B
+  // double units): nine of the 13 m third-rail sections come to 119 m.
+  'ubahn-c2': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+  // The ET 423 of the Munich and Cologne S-Bahn is a 67 m four-car unit
+  // that runs in pairs through the day (a "Vollzug", 135 m): two of the
+  // ET 490's five-section units, cab to cab.
+  'sbahn-423': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+    ],
+  },
+  // Munich's trams (Avenio T, R3.3) are 37 m four-section cars: the
+  // 6N2's sections with one middle section more, 38 m.
+  'tram-avenio': {
+    scale: 1,
+    baseLift: 1.8,
+    gap: 0.12,
+    wagons: [
+      { uri: 'models/tram-end.glb', length: 6.55 },
+      { uri: 'models/tram-mid-panto.glb', length: 6.1 },
+      { uri: 'models/tram-mid.glb', length: 6.1 },
+      { uri: 'models/tram-mid.glb', length: 6.1 },
+      { uri: 'models/tram-mid.glb', length: 6.1 },
+      { uri: 'models/tram-end-rear.glb', length: 6.55, flipped: true },
+    ],
+  },
+  // Cologne's Stadtbahn cars (K4000/K4500 low-floor, K5000/K5200 high-floor)
+  // are 28 m two-section units coupled in pairs, 57 m: two four-section
+  // trams of the 6N2's sections, cab to cab, 51 m.
+  'stadtbahn-k4000': {
+    scale: 1,
+    baseLift: 1.8,
+    gap: 0.12,
+    wagons: [
+      { uri: 'models/tram-end.glb', length: 6.55 },
+      { uri: 'models/tram-mid-panto.glb', length: 6.1 },
+      { uri: 'models/tram-mid.glb', length: 6.1 },
+      { uri: 'models/tram-end-rear.glb', length: 6.55, flipped: true },
+      { uri: 'models/tram-end.glb', length: 6.55 },
+      { uri: 'models/tram-mid-panto.glb', length: 6.1 },
+      { uri: 'models/tram-mid.glb', length: 6.1 },
+      { uri: 'models/tram-end-rear.glb', length: 6.55, flipped: true },
     ],
   },
   'bus-12m': {

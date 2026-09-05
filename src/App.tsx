@@ -50,7 +50,7 @@ import {
   toggleFullscreen,
 } from '@/lib/fullscreen'
 import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
-import { getLanguage, localizeLineName, t, type MessageKey } from '@/lib/i18n'
+import { getLanguage, localizeCityName, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import type { MapView } from '@/lib/map-view'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
@@ -1393,7 +1393,7 @@ export default function App() {
       const view = parseCameraHash(bootHash)
       if (view) map.setView(view)
     }
-    document.title = t('city.title', { name: sessionCity.name })
+    document.title = t('city.title', { name: localizeCityName(sessionCity.slug, sessionCity.name) })
     rememberCity(sessionCity.slug)
     // The URL names the city at once, whichever form it is in – unless it
     // carries a selection still to be restored: writing now would replace

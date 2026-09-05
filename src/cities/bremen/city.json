@@ -1,0 +1,59 @@
+{
+  "slug": "bremen",
+  "name": "Bremen",
+  "osmRelation": 62559,
+  "cityBoundsQueriedOn": "2026-09-05",
+  "cityBounds": {
+    "west": 8.4815929,
+    "south": 53.0111644,
+    "east": 8.99083,
+    "north": 53.2289101
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 8.2554,
+    "south": 52.8761,
+    "east": 9.2171,
+    "north": 53.3639
+  },
+  "home": {
+    "longitude": 8.807,
+    "latitude": 53.079,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 8.8072,
+    "latitude": 53.0758
+  },
+  "network": {
+    "modes": ["tram", "train", "bus"],
+    "overpass": {
+      "tram": { "operator": "Bremer Straßenbahn|BSAG", "ref": "^(N?[0-9]+)$" },
+      "train": { "service": "commuter", "ref": "^RS[0-9]+$" },
+      "bus": { "operator": "Bremer Straßenbahn|BSAG" }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "bremen",
+    "trainBranches": []
+  },
+  "fleet": {
+    "tram": { "model": "tram-avenio", "length": 38.1, "width": 2.65, "height": 3.6 },
+    "train": { "model": "sbahn-talent2", "length": 56.8, "width": 2.92, "height": 4.3 },
+    "bus": { "model": "bus-12m", "length": 12, "width": 2.55, "height": 3.1 }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 40.5,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © Landesamt GeoInformation Bremen (ATKIS DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {}
+  }
+}

@@ -172,7 +172,7 @@ describe('the cities this build knows', () => {
       expect(containsLonLat(box, box.west, box.south)).toBe(true) // edges included
       expect(containsLonLat(box, city.home.longitude, city.home.latitude)).toBe(true)
       expect(containsLonLat(box, city.weather.longitude, city.weather.latitude)).toBe(true)
-      expect(containsLonLat(box, 11.575, 48.137)).toBe(false) // Munich
+      expect(containsLonLat(box, 2.352, 48.857)).toBe(false) // Paris – outside every German city
     })
 
     it('spells its box the way Overpass wants it', () => {

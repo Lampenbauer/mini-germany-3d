@@ -14,8 +14,9 @@ view and vehicle links, day/night lighting that follows the simulated time
 [shadcn/ui](https://ui.shadcn.com/).
 
 It started as **Mini Rostock 3D** and Rostock is still the city it opens on.
-Kiel and Berlin are the others; adding a city is a folder, a `city.json`
-and a run of the data pipeline (see [Cities](#cities)).
+Kiel, Hamburg, Bremen, Berlin, Cologne and Munich are the others; adding a
+city is a folder, a `city.json` and a run of the data pipeline (see
+[Cities](#cities)).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -334,6 +335,41 @@ boats are in the AIS backdrop too, so the city lists their MMSIs as twins
 of the scheduled ferries – by operator, not by line: a harbour ferry runs
 whatever line the roster gives her that day.
 
+**Cologne** (Köln): the twelve KVB Stadtbahn lines (drawn as trams – they run
+as coupled pairs of 28 m cars, in tunnels under the centre and over the
+Rhine bridges), the four S-Bahn lines that stop in the city (S6, S11,
+S12, S19 – cut at the city limits), the KVB bus network (some 60
+lines; the 181 is left out until its OSM relation is whole again – it
+came back as a four-stop stub that placed 18 of its 216 trips) and no
+ferries, with terrain heights from the state's open DGM1 via Mapterhorn
+(Geobasis NRW) and ~7000 OSM street lamps along the routes. The Rhine is
+busy, so the AIS backdrop is on; nothing the map runs from a timetable
+sails, so it lists no twins. Some 370 vehicles at 08:30.
+
+**Munich** (München): the eight U-Bahn lines (the U8 stays idle on weekdays – it
+runs on Saturdays only, and so does the map's), the nine S-Bahn lines
+(S1–S8 and the S20, cut at the city limits – they really run to the
+airport, Freising, Erding or Herrsching), the twelve day and four night
+tram lines, and of the buses the MetroBus (50–68) and ExpressBus (X30,
+X35, X36) lines alone – the 80 StadtBus lines would double the fleet –
+with terrain heights from Bavaria's open DGM1 via Mapterhorn and ~2300
+community-mapped OSM street lamps along the routes. The U-Bahn runs as a
+115 m six-car train (C2), the S-Bahn as a pair of ET 423 units, the trams
+as 37 m Avenio-sized cars; all three are composed from the sections the
+other cities' fleets already had. No navigable water, so no AIS. Some
+370 vehicles at 08:30, Rostock's size.
+
+**Bremen**: the whole BSAG network – the eight tram lines and their
+three night trams, some 40 bus lines including the night buses – and
+the Regio-S-Bahn (RS1–RS4, NordWestBahn; selected by their `RS` refs
+and cut at the city limits, which the RS3 and RS4 leave one stop after
+the station), with terrain heights from the state's open DGM1 via
+Mapterhorn (Landesamt GeoInformation Bremen) and ~1900 community-mapped
+OSM street lamps along the routes. The Weser ferries are not on the map:
+OSM has no relations for the Vegesack, Blumenthal and Farge crossings
+and the feed has no timetable for them – the AIS backdrop shows the real
+boats instead. Some 220 vehicles at 08:30.
+
 **Berlin**: the nine U-Bahn lines, the S-Bahn (all lines, cut at the city
 limits), all 22 BVG tram lines, the Metrobus lines plus the 100, 200 and
 300, and the six BVG ferries, with terrain heights from the Senate's open
@@ -405,7 +441,9 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   [Mapterhorn](https://mapterhorn.com): Terrarium-encoded terrain tiles built
   from open terrain models – in Germany the 1 m DGM1 of every state
   (Mecklenburg-Vorpommern: GeoBasis-DE/M-V, CC BY 4.0; Schleswig-Holstein:
-  GeoBasis-DE/LVermGeo SH, CC BY 4.0). The
+  GeoBasis-DE/LVermGeo SH, CC BY 4.0; Bremen: Landesamt GeoInformation
+  Bremen, CC BY 4.0; Nordrhein-Westfalen: Geobasis NRW, dl-de/zero-2.0;
+  Bayern: Bayerische Vermessungsverwaltung, CC BY 4.0). The
   tiles are fetched one by one at the city's `terrain.zoom` (15 ≈ 1.4 m per
   pixel; a city's routes touch a few hundred tiles, some 20–35 MB per
   city), nothing is downloaded up front or kept on disk, and no key or fee
@@ -692,9 +730,12 @@ they are in view.
   © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel, from © Freie und
   Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (DGM1,
   dl-de/by-2-0) for Hamburg (`src/cities/hamburg/terrain/`, the same
-  model Mapterhorn's Hamburg tiles are built from) and from Geoportal
+  model Mapterhorn's Hamburg tiles are built from), from © Landesamt
+  GeoInformation Bremen (ATKIS DGM1, CC BY 4.0) for Bremen, from Geoportal
   Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und
-  Wohnen, dl-de/zero-2.0) for Berlin – shown in the app inside Cesium's
-  "Data attribution" credits
+  Wohnen, dl-de/zero-2.0) for Berlin, from Geobasis NRW – DGM1 (Land
+  Nordrhein-Westfalen, dl-de/zero-2.0) for Cologne and from © Bayerische
+  Vermessungsverwaltung (DGM1, CC BY 4.0) for Munich – shown in the app
+  inside Cesium's "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or the transport
   association's feed – observe the source's license terms

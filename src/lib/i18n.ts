@@ -88,6 +88,12 @@ const en = {
   'city.switchTo': 'Switch to {name}',
   'city.current': 'Shown now',
   'city.loading': 'Loading {name} …',
+  // City names: the definitions carry the English name (the slug is
+  // English too – src/cities/munich/), the German UI shows the German one.
+  // Rostock, Kiel, Hamburg and Berlin read the same in both languages
+  // and need no entry; see localizeCityName.
+  'city.name.cologne': 'Cologne',
+  'city.name.munich': 'Munich',
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
@@ -278,6 +284,8 @@ const de: Record<MessageKey, string> = {
   'city.switchTo': 'Nach {name} wechseln',
   'city.current': 'Gerade zu sehen',
   'city.loading': '{name} wird geladen …',
+  'city.name.cologne': 'Köln',
+  'city.name.munich': 'München',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',
@@ -448,6 +456,17 @@ export function localizeLineName(name: string): string {
     .replace(/^Line /, 'Linie ')
     .replace(/^Subway /, 'U-Bahn ')
     .replace(/^Ferry /, 'Fähre ')
+}
+
+/**
+ * A city's name in the current language. The definition's `name` is the
+ * English one; a city whose German name differs (Cologne/Köln,
+ * Munich/München) has a `city.name.<slug>` message, everything else is
+ * shown as the definition spells it.
+ */
+export function localizeCityName(slug: string, name: string): string {
+  const key = `city.name.${slug}`
+  return key in en ? t(key as MessageKey) : name
 }
 
 /** Label key per transit mode – shared by the line panel and the vehicle card. */
