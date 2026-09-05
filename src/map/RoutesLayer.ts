@@ -47,11 +47,25 @@ const ROUTE_ALPHA = 0.85
 export const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
 
 /**
- * Base lift of the route polylines above the terrain height in meters –
- * keeps them clear of road surfaces that sit slightly above the DGM (curbs,
- * rails) and of z-fighting with the tile mesh.
+ * Meters every route polyline rides above the terrain height when the
+ * camera is close to the ground: enough to keep the lines clear of road
+ * surfaces that sit slightly above the DGM (curbs, rails) and of
+ * z-fighting with the tile mesh, little enough for them to hug the road.
  */
-const ROUTE_BASE_LIFT = 0.15
+const ROUTE_BASE_LIFT_NEAR = 0.15
+
+/**
+ * The same lift from further up: under a shallow viewing angle the
+ * 0.15 m vanish into the tile mesh (roofs of the road surface, noise of
+ * the reconstruction), so above ROUTE_LIFT_SWITCH_HEIGHT the lines ride
+ * higher. The layer swaps between the two as the camera crosses the
+ * switch height – with a band around it in which the current lift
+ * holds, so a camera hovering there does not rewrite the routes every
+ * frame.
+ */
+const ROUTE_BASE_LIFT_FAR = 0.8
+export const ROUTE_LIFT_SWITCH_HEIGHT = 500
+const ROUTE_LIFT_SWITCH_BAND = 50
 
 /**
  * Additional per-line lift stagger. Lines sharing a street would otherwise
@@ -121,6 +135,8 @@ export class RoutesLayer {
     []
   /** Current NHN→ellipsoidal offset for route heights (calibrated later). */
   private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
+  /** Lift every height-based piece rides with (see updateForCameraHeight). */
+  private baseLift = ROUTE_BASE_LIFT_FAR
   /** Route coordinates per line as a flat [lon, lat, …] array (camera fit). */
   private linePaths = new Map<string, number[]>()
   /** Running route attention pulse (see startRoutePulse), null = none. */
@@ -157,6 +173,28 @@ export class RoutesLayer {
       this.credit = null
     }
     this.host.requestRender()
+  }
+
+  /**
+   * Picks the lift for the camera's height above the ellipsoid:
+   * ROUTE_BASE_LIFT_FAR above ROUTE_LIFT_SWITCH_HEIGHT, ROUTE_BASE_LIFT_NEAR
+   * below it, the current one inside the band around it. A change
+   * rewrites every height-based piece – the one-off work the calibration
+   * does, not a per-frame cost.
+   */
+  updateForCameraHeight(cameraHeight: number): void {
+    const far = this.baseLift === ROUTE_BASE_LIFT_FAR
+    const wantFar = far
+      ? cameraHeight > ROUTE_LIFT_SWITCH_HEIGHT - ROUTE_LIFT_SWITCH_BAND
+      : cameraHeight > ROUTE_LIFT_SWITCH_HEIGHT + ROUTE_LIFT_SWITCH_BAND
+    if (wantFar === far) return
+    this.baseLift = wantFar ? ROUTE_BASE_LIFT_FAR : ROUTE_BASE_LIFT_NEAR
+    this.applyRouteHeightOffset()
+  }
+
+  /** The lift the height-based pieces ride with right now (tests). */
+  get currentBaseLift(): number {
+    return this.baseLift
   }
 
   /**
@@ -260,8 +298,9 @@ export class RoutesLayer {
       // land-calibrated offset does not account for it – without the
       // extra lift the lines visibly dip into the water tiles.
       const modeLift = line.mode === 'ferry' ? FERRY_ROUTE_EXTRA_LIFT : 0
-      const lift =
-        ROUTE_BASE_LIFT + (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
+      // The base lift is added when the positions are written, so it can
+      // follow the camera height (see updateForCameraHeight).
+      const lift = (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
 
       const dirs = [line.directions[0]]
       // Only draw the second direction if it has its own geometry or its
@@ -399,10 +438,11 @@ export class RoutesLayer {
     this.host.requestRender()
   }
 
-  /** World positions of a height-based route piece at the current offset. */
+  /** World positions of a height-based route piece at the current offset and lift. */
   private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
+    const totalLift = this.baseLift + lift
     return path.map(([lon, lat], i) =>
-      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + lift),
+      Cartesian3.fromDegrees(lon, lat, heights[i] + this.routeHeightOffset + totalLift),
     )
   }
 

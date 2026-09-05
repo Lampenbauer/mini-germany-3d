@@ -1551,6 +1551,7 @@ export class CesiumMap {
   /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
+    this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
     this.routes.updatePulse()
     this.streetLamps.update()
     this.lens.update()
