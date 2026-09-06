@@ -155,6 +155,14 @@ const HAZE_DISTANCE_M = 22_000
 /**
  * The cloud cover eases at the pace of the tile grade (see WeatherOverlay):
  * a poll landing must not switch a sky on.
+ *
+ * Paced by the wall clock from the moment the cover changed, the way the
+ * lens ease is (see CameraLens), rather than by summing up per-frame
+ * steps: the frames this fade is drawn on are the expensive ones – the
+ * ray march runs on every one of them – so a step-per-frame ease takes as
+ * long as the renderer is slow. On a software renderer at two seconds a
+ * frame it stretched a six-second fade past two minutes. Fewer frames now
+ * means a coarser fade, not a longer one.
  */
 const COVER_FADE_SECONDS = 6
 
@@ -467,7 +475,9 @@ export class CloudLayer {
   /** Cloud cover in percent, as applied and as asked for. */
   private coverApplied = 0
   private coverTarget = 0
-  private lastCoverUpdateMs = 0
+  /** Where the running fade started, and when (see COVER_FADE_SECONDS). */
+  private coverFadeFrom = 0
+  private coverFadeStartedMs = 0
   private fields: CloudFields | null = null
   private resources: CloudResources | null = null
   private unsupported = false
@@ -549,7 +559,7 @@ export class CloudLayer {
     this.enabled = enabled
     // The fields were put off while the switch was off (see setCloudCover)
     if (enabled && this.coverTarget > 0 && !this.fields) this.buildFields()
-    this.lastCoverUpdateMs = performance.now()
+    if (enabled) this.startCoverFade()
     this.pushShadowUniforms()
     this.host.requestRender()
   }
@@ -567,7 +577,7 @@ export class CloudLayer {
     // frames – the switch pays for all of that when it is turned on
     if (!this.enabled) return
     if (target > 0 && !this.fields) this.buildFields()
-    this.lastCoverUpdateMs = performance.now()
+    this.startCoverFade()
     this.host.requestRender()
   }
 
@@ -678,19 +688,26 @@ export class CloudLayer {
     this.tileShader?.setUniform(CLOUD_SHADOW_UNIFORMS.coverage, coverageUniform)
   }
 
-  /** Eases the applied cover towards its target on the wall clock. */
+  /** Starts a fade from wherever the cover stands to its new target. */
+  private startCoverFade(): void {
+    this.coverFadeFrom = this.coverApplied
+    this.coverFadeStartedMs = performance.now()
+  }
+
+  /**
+   * Carries the fade forward to where the wall clock says it should be.
+   * Ends exactly on the target, so a settled sky asks for no more frames.
+   */
   private updateCover(): void {
     if (this.coverApplied === this.coverTarget) return
-    const now = performance.now()
-    // Capped: a background tab must not fast-forward the fade
-    const dt = Math.min(0.1, Math.max(0, (now - this.lastCoverUpdateMs) / 1000))
-    this.lastCoverUpdateMs = now
-    const step = (100 * dt) / COVER_FADE_SECONDS
-    this.coverApplied =
-      this.coverApplied < this.coverTarget
-        ? Math.min(this.coverTarget, this.coverApplied + step)
-        : Math.max(this.coverTarget, this.coverApplied - step)
-    if (this.coverApplied !== this.coverTarget) this.host.requestRender()
+    const elapsed = performance.now() - this.coverFadeStartedMs
+    const t = elapsed / (COVER_FADE_SECONDS * 1000)
+    if (t >= 1) {
+      this.coverApplied = this.coverTarget
+      return
+    }
+    this.coverApplied = this.coverFadeFrom + (this.coverTarget - this.coverFadeFrom) * t
+    this.host.requestRender()
   }
 
   /** Places the slab over the city, once and again when the ground moves. */

@@ -104,7 +104,7 @@ describe('CloudLayer', () => {
     expect(uniform(CLOUD_SHADOW_UNIFORMS.coverage)).toBeInstanceOf(TextureUniform)
   })
 
-  it('eases the cover in over six seconds on frames it asks for', () => {
+  it('eases the cover in over six seconds of wall clock, however many frames that takes', () => {
     const { layer, frame, requestRender } = layerHarness()
     layer.setCloudCover(50)
     expect(requestRender).toHaveBeenCalled()
@@ -116,16 +116,31 @@ describe('CloudLayer', () => {
     expect(first).toBeLessThan(5)
     // Still fading: the layer keeps the frames coming
     expect(requestRender).toHaveBeenCalled()
-    // A frame that arrives late does not fast-forward the fade
-    frame(2000)
-    expect(layer.state.coverApplied).toBeLessThan(first + 2)
+    // A frame that arrives late lands where the clock says, rather than
+    // taking a step of its own: the ray march makes these frames slow,
+    // and a step-per-frame ease would stretch the fade to the frame rate
+    frame(2900)
+    expect(layer.state.coverApplied).toBeCloseTo(25, 5)
 
-    for (let i = 0; i < 80; i++) frame(100)
+    // Six seconds in, whatever the frames did in between
+    frame(3100)
     expect(layer.state.coverApplied).toBe(50)
     requestRender.mockClear()
     frame(100)
     // Settled: nothing more to ask for
     expect(requestRender).not.toHaveBeenCalled()
+  })
+
+  it('lands on the target in a handful of frames on a slow renderer', () => {
+    // What CI does under SwiftShader: seconds per frame. The fade is over
+    // in six seconds of wall clock, so it takes the frames it takes.
+    const { layer, frame } = layerHarness()
+    layer.setCloudCover(100)
+    frame(2300)
+    frame(2300)
+    expect(layer.state.coverApplied).toBeGreaterThan(70)
+    frame(2300)
+    expect(layer.state.coverApplied).toBe(100)
   })
 
   it('cuts the coverage field lower as the cover rises', () => {
