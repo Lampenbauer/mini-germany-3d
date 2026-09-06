@@ -68,7 +68,11 @@ describe('WeatherClient', () => {
     expect(url).toContain('latitude=54.09')
     expect(url).toContain('longitude=12.14')
     // All three values ride on the same request – no extra call for either
-    expect(url).toContain('current=precipitation,cloud_cover,temperature_2m')
+    expect(url).toContain(
+      'current=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m',
+    )
+    // Open-Meteo's default is km/h – the clouds drift in m/s
+    expect(url).toContain('wind_speed_unit=ms')
     expect(fetchMock).toHaveBeenCalledOnce()
 
     // Next poll only after the interval; stop() cancels it
@@ -77,6 +81,45 @@ describe('WeatherClient', () => {
     client.stop()
     await vi.advanceTimersByTimeAsync(1_200_000)
     expect(statuses).toHaveLength(2)
+  })
+
+  it('reports the wind in m/s, and a calm without one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              current: {
+                precipitation: 0,
+                cloud_cover: 60,
+                temperature_2m: 9,
+                wind_speed_10m: 5.5,
+                wind_direction_10m: 250,
+              },
+            }),
+          ),
+      ),
+    )
+    makeClient().start(600_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(statuses[0].windSpeedMps).toBe(5.5)
+    expect(statuses[0].windFromDeg).toBe(250)
+
+    // A feed without the wind leaves the clouds standing, not the poll failing
+    statuses.length = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ current: { precipitation: 0, cloud_cover: 60 } })),
+      ),
+    )
+    makeClient().start(600_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(statuses[0].state).toBe('live')
+    expect(statuses[0].windSpeedMps).toBe(0)
+    expect(statuses[0].windFromDeg).toBe(0)
   })
 
   it('goes dry on HTTP errors instead of raining on stale data', async () => {

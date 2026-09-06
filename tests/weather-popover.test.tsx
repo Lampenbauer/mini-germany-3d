@@ -16,15 +16,18 @@ afterEach(() => {
 
 function weather(overrides: Partial<WeatherPopoverProps> = {}) {
   const onWeatherModeChange = vi.fn()
+  const onToggleClouds = vi.fn()
   const props: WeatherPopoverProps = {
     weatherMode: 'live',
     onWeatherModeChange,
     liveWeatherAvailable: true,
     temperatureC: null,
+    showClouds: true,
+    onToggleClouds,
     ...overrides,
   }
   render(<WeatherPopover {...props} />)
-  return { onWeatherModeChange }
+  return { onWeatherModeChange, onToggleClouds }
 }
 
 /** Opens the popover the way a viewer does – nothing inside exists before. */
@@ -96,6 +99,8 @@ describe('the weather popover', () => {
         onWeatherModeChange={vi.fn()}
         liveWeatherAvailable
         temperatureC={12.4}
+        showClouds
+        onToggleClouds={vi.fn()}
       />,
     )
     // Whole degrees on the button, the exact reading in its label
@@ -107,6 +112,8 @@ describe('the weather popover', () => {
         onWeatherModeChange={vi.fn()}
         liveWeatherAvailable
         temperatureC={null}
+        showClouds
+        onToggleClouds={vi.fn()}
       />,
     )
     const bare = screen.getByRole('button', { name: 'Weather' })
@@ -120,6 +127,29 @@ describe('the weather popover', () => {
     expect(screen.getByRole('button', { name: 'Weather, -3 °C' })).toHaveTextContent('-3°')
   })
 
+  it('offers the switch for the volumetric clouds and reports a flip', () => {
+    const { onToggleClouds } = weather({ showClouds: true })
+    open()
+    const clouds = screen.getByRole('switch', { name: 'Show the 3D clouds' })
+    expect(clouds).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(clouds)
+    expect(onToggleClouds).toHaveBeenCalledWith(false)
+    // Still on – the state lives in the app
+    expect(clouds).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('shows the clouds switch off when they are, without lighting the button', () => {
+    weather({ showClouds: false })
+    // The button lights up for a picked sky only; the clouds are how the
+    // sky is drawn, not which one it is
+    expect(screen.getByRole('button', { name: 'Weather' })).not.toHaveClass('bg-primary/90')
+    open()
+    expect(screen.getByRole('switch', { name: 'Show the 3D clouds' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+  })
+
   it('translates into German', () => {
     setLanguage('de')
     weather()
@@ -128,5 +158,6 @@ describe('the weather popover', () => {
     for (const label of ['Live-Wetter', 'Sonnig', 'Bewölkt', 'Regen']) {
       expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
     }
+    expect(screen.getByRole('switch', { name: '3D-Wolken anzeigen' })).toBeInTheDocument()
   })
 })

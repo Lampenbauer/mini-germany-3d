@@ -89,6 +89,7 @@ describe('layer and pause state in the hash', () => {
   const view = { latitude: 54.0901, longitude: 12.1405, height: 800, heading: 61, pitch: -57 }
 
   const miniatureDefault = config.camera.miniatureDefault
+  const cloudsDefault = config.weather.clouds3dDefault
   /** What the hash says when the miniature look deviates from its default. */
   const tiltDeviation = miniatureDefault ? '&tiltshift=0' : '&tiltshift=1'
 
@@ -101,6 +102,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: false,
         labelsHidden: false,
         webcamsHidden: false,
+        clouds: cloudsDefault,
         tiltShift: miniatureDefault,
         paused: false,
       }),
@@ -113,6 +115,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: true,
         labelsHidden: true,
         webcamsHidden: false,
+        clouds: cloudsDefault,
         tiltShift: !miniatureDefault,
         paused: true,
       }),
@@ -127,6 +130,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      clouds: cloudsDefault,
       tiltShift: miniatureDefault,
       paused: false,
     }
@@ -146,6 +150,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      clouds: cloudsDefault,
       tiltShift: miniatureDefault,
       paused: false,
     }
@@ -168,6 +173,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: true,
       webcamsHidden: false,
+      clouds: cloudsDefault,
       tiltShift: !miniatureDefault,
       paused: true,
     })
@@ -181,6 +187,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: false,
         labelsHidden: true,
         webcamsHidden: false,
+        clouds: cloudsDefault,
         tiltShift: !miniatureDefault,
         paused: true,
       })
@@ -198,9 +205,29 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      clouds: cloudsDefault,
       tiltShift: miniatureDefault,
       paused: false,
     })
+  })
+
+  it('carries the clouds only when they deviate from the default, from either spelling', () => {
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').clouds).toBe(cloudsDefault)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&clouds=1').clouds).toBe(true)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&clouds=0').clouds).toBe(false)
+    const flipped: HashUiState = {
+      city: null,
+      view: 'surface',
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      webcamsHidden: false,
+      clouds: !cloudsDefault,
+      tiltShift: miniatureDefault,
+      paused: false,
+    }
+    expect(formatUiStateHash(flipped)).toBe(cloudsDefault ? '&clouds=0' : '&clouds=1')
+    expect(parseUiStateHash(formatUiStateHash(flipped)).clouds).toBe(!cloudsDefault)
   })
 
   it('reads the miniature look from either spelling, whatever the default', () => {

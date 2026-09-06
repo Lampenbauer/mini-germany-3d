@@ -18,13 +18,14 @@ afterEach(() => {
  * jsdom has no 2D canvas context, and without a sprite the overlay
  * deliberately stays inert (see "stays inert without a 2D canvas").
  */
-function rainHarness({ sprite = true } = {}) {
+function rainHarness({ sprite = true, ceiling = null as number | null } = {}) {
   const setUniform = vi.fn()
   const added: unknown[] = []
   const removed: unknown[] = []
   const listeners: (() => void)[] = []
+  const camera = { positionWC: Cartesian3.fromDegrees(12.1, 54.0, 500) }
   const viewer = {
-    camera: { positionWC: Cartesian3.fromDegrees(12.1, 54.0, 500) },
+    camera,
     scene: {
       primitives: {
         add: (p: unknown) => added.push(p),
@@ -39,7 +40,7 @@ function rainHarness({ sprite = true } = {}) {
       },
     },
   } as unknown as Viewer
-  const overlay = new WeatherOverlay(viewer, vi.fn())
+  const overlay = new WeatherOverlay(viewer, vi.fn(), undefined, () => ceiling)
   overlay.attachTileShader({ setUniform } as never)
   if (sprite) {
     // Stands in for the streak gradient jsdom cannot draw – the pool below
@@ -66,7 +67,7 @@ function rainHarness({ sprite = true } = {}) {
     const call = [...setUniform.mock.calls].reverse().find((c) => c[0] === 'u_rainFactor')
     return call?.[1] as number | undefined
   }
-  return { overlay, added, removed, listeners, frame, shownCount, tint, setUniform }
+  return { overlay, camera, added, removed, listeners, frame, shownCount, tint, setUniform }
 }
 
 describe('rain overlay', () => {
@@ -146,5 +147,48 @@ describe('rain overlay', () => {
     expect(added).toEqual([])
     overlay.setRain(0)
     expect(removed).toEqual([])
+  })
+})
+
+describe('rain under the cloud base', () => {
+  it('keeps every drop where there is no ceiling', () => {
+    const { overlay, frame, shownCount } = rainHarness()
+    overlay.setRain(1)
+    frame(16)
+    expect(shownCount()).toBe(1800)
+    expect(overlay.rainVisible).toBe(true)
+  })
+
+  it('hides the drops above the cloud base', () => {
+    // Camera at 500 m, base at 800 m: the drops in the top 50 m of the
+    // ±350 m volume are above the clouds
+    const { overlay, frame, shownCount } = rainHarness({ ceiling: 800 })
+    overlay.setRain(1)
+    frame(16)
+    const shown = shownCount()
+    expect(shown).toBeGreaterThan(1800 * 0.8)
+    expect(shown).toBeLessThan(1800)
+    expect(overlay.rainVisible).toBe(true)
+    // The drops keep falling through the ceiling: the hidden share stays
+    // about the same frame to frame, not the same drops
+    frame(100)
+    expect(shownCount()).toBeGreaterThan(1800 * 0.8)
+    expect(shownCount()).toBeLessThan(1800)
+  })
+
+  it('shows no rain at all with the camera above the clouds, and says so', () => {
+    const { overlay, camera, frame, shownCount } = rainHarness({ ceiling: 800 })
+    camera.positionWC = Cartesian3.fromDegrees(12.1, 54.0, 2000)
+    overlay.setRain(1)
+    // Still raining as far as the weather goes – just not around this camera
+    expect(overlay.rainVisible).toBe(false)
+    frame(16)
+    expect(shownCount()).toBe(0)
+
+    // Back under the clouds the drops are around the camera again
+    camera.positionWC = Cartesian3.fromDegrees(12.1, 54.0, 300)
+    expect(overlay.rainVisible).toBe(true)
+    frame(16)
+    expect(shownCount()).toBe(1800)
   })
 })

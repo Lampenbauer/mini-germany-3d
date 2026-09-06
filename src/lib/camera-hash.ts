@@ -78,10 +78,11 @@ export function parseStopHash(hash: string): string | null {
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the city, the Routes/Stops/Labels layer toggles, the miniature look and
- * the pause state. Only deviations from the defaults (the default city,
- * all layers on, the miniature look at config.camera.miniatureDefault,
- * clock running) appear in the URL, so default sessions keep clean hashes.
+ * the city, the Routes/Stops/Labels layer toggles, the webcams and the
+ * clouds, the miniature look and the pause state. Only deviations from
+ * the defaults (the default city, all layers on, the miniature look at
+ * config.camera.miniatureDefault, clock running) appear in the URL, so
+ * default sessions keep clean hashes.
  */
 export interface HashUiState {
   /**
@@ -101,6 +102,12 @@ export interface HashUiState {
   labelsHidden: boolean
   /** The webcam pictures switched off in the panel (the layer's own boot flag is ?webcams=0). */
   webcamsHidden: boolean
+  /**
+   * The volumetric clouds, as they are – switched from the weather
+   * popover; the hash carries them only when they deviate from
+   * config.weather.clouds3dDefault (clouds=1 or clouds=0).
+   */
+  clouds: boolean
   /** The miniature look, as it is – the hash carries it only when it deviates. */
   tiltShift: boolean
   paused: boolean
@@ -110,6 +117,8 @@ export interface HashUiState {
 export function formatUiStateHash(state: HashUiState): string {
   const tilt =
     state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
+  const clouds =
+    state.clouds === config.weather.clouds3dDefault ? '' : state.clouds ? '&clouds=1' : '&clouds=0'
   return (
     (state.city ? `&city=${encodeURIComponent(state.city)}` : '') +
     (state.view === 'surface' ? '' : `&view=${state.view}`) +
@@ -117,6 +126,7 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
     (state.webcamsHidden ? '&webcams=0' : '') +
+    clouds +
     tilt +
     (state.paused ? '&paused=1' : '')
   )
@@ -126,6 +136,7 @@ export function parseUiStateHash(hash: string): HashUiState {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const params = new URLSearchParams(raw)
   const tilt = params.get('tiltshift')
+  const clouds = params.get('clouds')
   const city = params.get('city')
   return {
     // Whether the slug names a city this build knows is the caller's
@@ -137,6 +148,7 @@ export function parseUiStateHash(hash: string): HashUiState {
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
     webcamsHidden: params.get('webcams') === '0',
+    clouds: clouds === '1' ? true : clouds === '0' ? false : config.weather.clouds3dDefault,
     tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
     paused: params.get('paused') === '1',
   }

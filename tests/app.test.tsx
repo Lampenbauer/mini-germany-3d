@@ -21,7 +21,13 @@ vi.mock('@/map/CesiumMap', () => {
     clearCity() {}
     setGroundReference() {}
     setRain() {}
+    isRainVisible() {
+      return false
+    }
     setCloudCover() {}
+    setWind() {}
+    advanceClouds() {}
+    setCloudsEnabled() {}
     flyToStop() {}
     setFollowVessel() {}
     syncWebcams() {}

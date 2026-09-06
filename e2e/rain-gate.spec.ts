@@ -18,7 +18,11 @@ test('the underground view stops the rain', async ({ page }) => {
   const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
   const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
 
-  await page.goto('/?offline=1&time=08:30&paused=1&drops=40#routes=0&stops=0')
+  // A pose under the cloud base: rain falls from the clouds, and a camera
+  // above them – the home view is – sees none (see WeatherOverlay)
+  await page.goto(
+    '/?offline=1&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
+  )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -50,7 +54,11 @@ test('a picked sky puts rain in the air and takes it out again', async ({ page }
   const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
   const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
 
-  await page.goto('/?offline=1&time=08:30&paused=1&drops=40#routes=0&stops=0')
+  // A pose under the cloud base: rain falls from the clouds, and a camera
+  // above them – the home view is – sees none (see WeatherOverlay)
+  await page.goto(
+    '/?offline=1&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
+  )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })

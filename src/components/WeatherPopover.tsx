@@ -15,11 +15,18 @@
  * The temperature stays the live reading whichever sky is picked: a
  * chosen sky is a way to look at the city, not a claim about the weather,
  * and inventing a temperature to go with it would be one.
+ *
+ * Below the skies sits the switch for the volumetric clouds (see
+ * map/CloudLayer.ts). It is not a sky: the cover the weather reports
+ * keeps grading the tiles either way, the switch only decides whether
+ * that cover is also drawn as clouds – which is why it is a switch and
+ * not a fifth tile, and why it does not light the button up.
  */
 
 import { Cloudy, CloudRain, CloudSun, Sun, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { defaultWeatherMode, type WeatherMode } from '@/lib/weather'
@@ -43,6 +50,9 @@ export interface WeatherPopoverProps {
   liveWeatherAvailable: boolean
   /** Live air temperature in °C, or null while there is none to show. */
   temperatureC: number | null
+  /** Whether the volumetric clouds are drawn (see CloudLayer). */
+  showClouds: boolean
+  onToggleClouds: (visible: boolean) => void
 }
 
 export function WeatherPopover(props: WeatherPopoverProps) {
@@ -127,6 +137,15 @@ export function WeatherPopover(props: WeatherPopoverProps) {
             {!props.liveWeatherAvailable && (
               <p className="text-muted-foreground text-xs">{t('weather.liveUnavailable')}</p>
             )}
+          </div>
+          <div className="bg-border h-px" role="separator" />
+          <div className="flex items-center justify-between">
+            <span className="text-sm">{t('weather.clouds')}</span>
+            <Switch
+              aria-label={t('weather.showClouds')}
+              checked={props.showClouds}
+              onCheckedChange={props.onToggleClouds}
+            />
           </div>
         </div>
       </PopoverContent>

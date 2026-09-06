@@ -12,6 +12,7 @@ import {
   type Billboard,
   BillboardCollection,
   Cartesian3,
+  Cartographic,
   Color,
   Credit,
   type CustomShader,
@@ -84,6 +85,8 @@ const rainWorldScratch = new Cartesian3()
 
 interface RainDrop {
   billboard: Billboard
+  /** In the pool the current intensity uses (billboard.show may still hide it above the ceiling). */
+  active: boolean
   east: number
   north: number
   /** Initial height in the wrap window (meters). */
@@ -146,6 +149,13 @@ export class WeatherOverlay {
      * handful of drops exercises the same code paths.
      */
     private readonly maxDrops: number = RAIN_MAX_DROPS,
+    /**
+     * Ellipsoidal height the rain falls from – the cloud base (see
+     * CloudLayer) – or null for rain everywhere. Drops above it are
+     * hidden, and a camera above it sees no rain at all: the drops are
+     * around the camera, and above the clouds there are none.
+     */
+    private readonly rainCeiling: () => number | null = () => null,
   ) {}
 
   /**
@@ -167,9 +177,24 @@ export class WeatherOverlay {
     )
   }
 
-  /** True while drops are on screen – the app renders at animation rate then. */
+  /**
+   * True while drops can be on screen – the app renders at animation
+   * rate then. Not with the camera above the clouds: the whole drop
+   * volume sits above the ceiling there and nothing of it is drawn.
+   */
   get rainVisible(): boolean {
-    return this.rainIntensity > 0
+    if (this.rainIntensity <= 0) return false
+    const ceiling = this.rainCeiling()
+    if (ceiling === null) return true
+    const cameraHeight = this.cameraHeight()
+    return cameraHeight === null || cameraHeight - RAIN_VOLUME_HALF_HEIGHT < ceiling
+  }
+
+  /** Ellipsoidal height of the camera, or null when it has none to give. */
+  private cameraHeight(): number | null {
+    const position = this.viewer.camera.positionWC
+    if (!position) return null
+    return Cartographic.fromCartesian(position)?.height ?? null
   }
 
   /** Drops currently shown – the E2E tests read the rain through this. */
@@ -193,7 +218,10 @@ export class WeatherOverlay {
       // Drops stop immediately; the overcast grade fades out in updateRain,
       // which then tears the collection and its frame listener down.
       if (this.rainBillboards) {
-        for (const drop of this.rainDrops) drop.billboard.show = false
+        for (const drop of this.rainDrops) {
+          drop.active = false
+          drop.billboard.show = false
+        }
         this.requestRender()
       }
       return
@@ -203,8 +231,11 @@ export class WeatherOverlay {
       this.maxDrops,
       Math.round(RAIN_DROPS_BASE + intensity * RAIN_DROPS_PER_MM),
     )
+    // updateRain, run before the frame is drawn, hides the active drops
+    // that sit above the ceiling again
     this.rainDrops.forEach((drop, index) => {
-      drop.billboard.show = index < visible
+      drop.active = index < visible
+      drop.billboard.show = drop.active
     })
     this.requestRender()
   }
@@ -305,6 +336,7 @@ export class WeatherOverlay {
           alignedAxis: up,
           show: false,
         }),
+        active: false,
         east: radius * Math.cos(angle),
         north: radius * Math.sin(angle),
         phase: Math.random() * 2 * RAIN_VOLUME_HALF_HEIGHT,
@@ -372,10 +404,16 @@ export class WeatherOverlay {
       rainFrameScratch,
     )
     const window = 2 * RAIN_VOLUME_HALF_HEIGHT
+    // Rain falls from the clouds: a drop above their base is not drawn
+    const ceiling = this.rainCeiling()
+    const cameraHeight = ceiling === null ? null : this.cameraHeight()
     for (const drop of this.rainDrops) {
-      if (!drop.billboard.show) continue
+      if (!drop.active) continue
       const fallen = drop.phase - this.rainFallDistance * drop.speed
       const up = ((fallen % window) + window) % window - RAIN_VOLUME_HALF_HEIGHT
+      const shown = ceiling === null || cameraHeight === null || cameraHeight + up <= ceiling
+      if (drop.billboard.show !== shown) drop.billboard.show = shown
+      if (!shown) continue
       rainLocalScratch.x = drop.east
       rainLocalScratch.y = drop.north
       rainLocalScratch.z = up

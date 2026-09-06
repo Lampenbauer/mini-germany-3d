@@ -23,6 +23,14 @@ export interface WeatherStatus {
    * is the number the scene button shows.
    */
   temperatureC: number | null
+  /**
+   * Wind at 10 m: speed in m/s and the direction it blows from in degrees
+   * (meteorological, 0 = north). The clouds drift with it (see
+   * map/CloudLayer.ts); a feed without it leaves them standing, which is
+   * a calm day rather than a failure.
+   */
+  windSpeedMps: number
+  windFromDeg: number
   lastSuccessAt: number | null
   lastError: string | null
 }
@@ -58,11 +66,12 @@ export function defaultWeatherMode(liveWeatherAvailable: boolean): WeatherMode {
 
 export const WEATHER_PRESETS: Record<
   Exclude<WeatherMode, 'live'>,
-  { precipitationMm: number; cloudCoverPercent: number }
+  { precipitationMm: number; cloudCoverPercent: number; windSpeedMps: number; windFromDeg: number }
 > = {
-  clear: { precipitationMm: 0, cloudCoverPercent: 0 },
-  cloudy: { precipitationMm: 0, cloudCoverPercent: 100 },
-  rain: { precipitationMm: 1.5, cloudCoverPercent: 100 },
+  clear: { precipitationMm: 0, cloudCoverPercent: 0, windSpeedMps: 3, windFromDeg: 250 },
+  // A brisk westerly – the wind northern Germany's cloudy days come on
+  cloudy: { precipitationMm: 0, cloudCoverPercent: 100, windSpeedMps: 6, windFromDeg: 250 },
+  rain: { precipitationMm: 1.5, cloudCoverPercent: 100, windSpeedMps: 8, windFromDeg: 240 },
 }
 
 /**
@@ -87,6 +96,8 @@ export class WeatherClient {
     precipitationMm: 0,
     cloudCoverPercent: 0,
     temperatureC: null,
+    windSpeedMps: 0,
+    windFromDeg: 0,
     lastSuccessAt: null,
     lastError: null,
   }
@@ -122,11 +133,19 @@ export class WeatherClient {
     try {
       const url =
         `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
-        `&current=precipitation,cloud_cover,temperature_2m`
+        `&current=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m` +
+        // Open-Meteo answers wind in km/h unless told otherwise
+        `&wind_speed_unit=ms`
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = (await response.json()) as {
-        current?: { precipitation?: unknown; cloud_cover?: unknown; temperature_2m?: unknown }
+        current?: {
+          precipitation?: unknown
+          cloud_cover?: unknown
+          temperature_2m?: unknown
+          wind_speed_10m?: unknown
+          wind_direction_10m?: unknown
+        }
       }
       const precipitation = Number(data?.current?.precipitation)
       if (!Number.isFinite(precipitation) || precipitation < 0) {
@@ -139,12 +158,17 @@ export class WeatherClient {
       // a label: a feed without one leaves the scene button showing its
       // icon alone rather than failing the poll the sky depends on.
       const temperature = Number(data?.current?.temperature_2m)
+      // The wind is graceful too: without it the clouds stand still
+      const windSpeed = Number(data?.current?.wind_speed_10m)
+      const windFrom = Number(data?.current?.wind_direction_10m)
       this.status = {
         state: 'live',
         precipitationMm: precipitation,
         cloudCoverPercent:
           Number.isFinite(cloudCover) && cloudCover >= 0 ? Math.min(100, cloudCover) : 0,
         temperatureC: Number.isFinite(temperature) ? temperature : null,
+        windSpeedMps: Number.isFinite(windSpeed) && windSpeed >= 0 ? windSpeed : 0,
+        windFromDeg: Number.isFinite(windFrom) ? ((windFrom % 360) + 360) % 360 : 0,
         lastSuccessAt: Date.now(),
         lastError: null,
       }
@@ -157,6 +181,7 @@ export class WeatherClient {
         precipitationMm: 0,
         cloudCoverPercent: 0,
         temperatureC: null,
+        windSpeedMps: 0,
         lastError: String(error),
       }
       this.onUpdate(this.status)

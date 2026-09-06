@@ -132,6 +132,8 @@ export interface MrtTestApi {
    * judge a frame (see tilt-shift.spec.ts).
    */
   tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
+  /** The volumetric clouds: cover, threshold, whether drawn (see CloudLayer). */
+  cloudState: () => ReturnType<CesiumMap['cloudState']>
   renderPacing: () => {
     /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
@@ -473,13 +475,19 @@ export default function App() {
    * sky, or the test API), which skips the near-real-time gate.
    */
   const rainRef = useRef({ mm: 0, forced: false })
-  const cloudRef = useRef({ percent: 0, forced: false })
+  /** Cloud cover and the wind the clouds drift with (see CloudLayer). */
+  const cloudRef = useRef({ percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 })
   /**
    * What the weather client last reported, whichever sky is picked – so
    * switching back to live shows the real weather at once instead of
    * waiting out the poll interval.
    */
-  const liveWeatherRef = useRef({ precipitationMm: 0, cloudCoverPercent: 0 })
+  const liveWeatherRef = useRef({
+    precipitationMm: 0,
+    cloudCoverPercent: 0,
+    windSpeedMps: 0,
+    windFromDeg: 0,
+  })
   /** Which sky is in force (see defaultWeatherMode for what it opens on). */
   const weatherModeRef = useRef<WeatherMode>(defaultWeatherMode(liveWeatherAvailable))
   /** Rain currently visible – keeps the render loop at animation rate. */
@@ -491,6 +499,12 @@ export default function App() {
   const [showLabels, setShowLabels] = useState(true)
   /** The Layers switch for the webcam pictures; the list stays either way. */
   const [showWebcams, setShowWebcams] = useState(true)
+  /**
+   * The switch in the weather popover for the volumetric clouds (see
+   * CloudLayer). Opens on config.weather.clouds3dDefault; the URL hash
+   * carries only a deviation from it.
+   */
+  const [showClouds, setShowClouds] = useState<boolean>(config.weather.clouds3dDefault)
   /** The city's webcams as last polled – what the panel lists. */
   const [webcams, setWebcams] = useState<Webcam[]>([])
   /**
@@ -598,6 +612,7 @@ export default function App() {
   const showStopsRef = useRef(showStops)
   const showLabelsRef = useRef(showLabels)
   const showWebcamsRef = useRef(showWebcams)
+  const showCloudsRef = useRef(showClouds)
   const photoRef = useRef(photo)
   const pausedRef = useRef(paused)
 
@@ -734,6 +749,10 @@ export default function App() {
       showWebcamsRef.current = false
       setShowWebcams(false)
     }
+    if (uiState.clouds !== showCloudsRef.current) {
+      showCloudsRef.current = uiState.clouds
+      setShowClouds(uiState.clouds)
+    }
     if (uiState.labelsHidden) {
       showLabelsRef.current = false
       setShowLabels(false)
@@ -779,6 +798,7 @@ export default function App() {
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
           webcamsHidden: !showWebcamsRef.current,
+          clouds: showCloudsRef.current,
           tiltShift: photoRef.current.tiltShift.enabled,
           paused: pausedRef.current,
         })
@@ -814,6 +834,7 @@ export default function App() {
       // The map is built wearing the look the URL asked for (or the
       // default), so no swap has to run before the first frame.
       tiltShift: photoRef.current.tiltShift.enabled,
+      clouds: showCloudsRef.current,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
@@ -882,6 +903,12 @@ export default function App() {
         showWebcamsRef.current = webcamsVisible
         setShowWebcams(webcamsVisible)
         map.setWebcamsVisible(webcamsVisible)
+      }
+      const cloudsVisible = ui.clouds
+      if (cloudsVisible !== showCloudsRef.current) {
+        showCloudsRef.current = cloudsVisible
+        setShowClouds(cloudsVisible)
+        map.setCloudsEnabled(cloudsVisible)
       }
       const labelsVisible = !ui.labelsHidden
       if (labelsVisible !== showLabelsRef.current) {
@@ -1160,13 +1187,19 @@ export default function App() {
               const rainNow =
                 weatherVisible && rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
               map.setRain(rainNow)
-              rainActiveRef.current = rainNow > 0
+              // Animation rate only while drops can be on screen – not with
+              // the camera above the clouds the rain falls from
+              rainActiveRef.current = rainNow > 0 && map.isRainVisible()
               // Same gate for the overcast grade – a grey sky is as much
               // "now" as the rain is.
               const cloud = cloudRef.current
               map.setCloudCover(
                 weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
               )
+              // The clouds drift with the wind on the simulated clock –
+              // the layer asks for frames itself as the drift shows
+              map.setWind(cloud.windSpeedMps, cloud.windFromDeg)
+              map.advanceClouds(simMs)
               const selId = selectedIdRef.current
               if (selId) {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
@@ -1278,7 +1311,11 @@ export default function App() {
         rainRef.current = { mm: precipitationMm, forced: precipitationMm > 0 }
       },
       setCloudCover: (cloudCoverPercent: number) => {
-        cloudRef.current = { percent: cloudCoverPercent, forced: cloudCoverPercent > 0 }
+        cloudRef.current = {
+          ...cloudRef.current,
+          percent: cloudCoverPercent,
+          forced: cloudCoverPercent > 0,
+        }
       },
       rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
@@ -1311,6 +1348,7 @@ export default function App() {
         return renderTimes.length / 5
       },
       tiltShiftState: () => map.tiltShiftState(),
+      cloudState: () => map.cloudState(),
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating = rainActiveRef.current
@@ -1499,13 +1537,20 @@ export default function App() {
             liveWeatherRef.current = {
               precipitationMm: status.precipitationMm,
               cloudCoverPercent: status.cloudCoverPercent,
+              windSpeedMps: status.windSpeedMps,
+              windFromDeg: status.windFromDeg,
             }
             setTemperatureC(status.temperatureC)
             // A picked sky outranks the live one until the viewer asks for
             // it back (see handleWeatherMode).
             if (weatherModeRef.current !== 'live') return
             rainRef.current = { mm: status.precipitationMm, forced: false }
-            cloudRef.current = { percent: status.cloudCoverPercent, forced: false }
+            cloudRef.current = {
+              percent: status.cloudCoverPercent,
+              forced: false,
+              windSpeedMps: status.windSpeedMps,
+              windFromDeg: status.windFromDeg,
+            }
           },
         )
         weatherClient.start(config.weather.pollIntervalMs)
@@ -1600,10 +1645,15 @@ export default function App() {
       // its own first poll lands. A picked sky is a choice about the
       // scene rather than a claim about a place, so that one stays.
       setTemperatureC(null)
-      liveWeatherRef.current = { precipitationMm: 0, cloudCoverPercent: 0 }
+      liveWeatherRef.current = {
+        precipitationMm: 0,
+        cloudCoverPercent: 0,
+        windSpeedMps: 0,
+        windFromDeg: 0,
+      }
       if (weatherModeRef.current === 'live') {
         rainRef.current = { mm: 0, forced: false }
-        cloudRef.current = { percent: 0, forced: false }
+        cloudRef.current = { percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 }
         rainActiveRef.current = false
         mapRef.current?.setRain(0)
         mapRef.current?.setCloudCover(0)
@@ -1828,6 +1878,14 @@ export default function App() {
     writeHashRef.current()
   }, [])
 
+  /** The clouds switch in the weather popover – a deviation from the default rides in the hash. */
+  const handleToggleClouds = useCallback((visible: boolean) => {
+    showCloudsRef.current = visible
+    setShowClouds(visible)
+    mapRef.current?.setCloudsEnabled(visible)
+    writeHashRef.current()
+  }, [])
+
   const handleToggleWebcams = useCallback((visible: boolean) => {
     showWebcamsRef.current = visible
     setShowWebcams(visible)
@@ -1883,12 +1941,22 @@ export default function App() {
     if (mode === 'live') {
       const live = liveWeatherRef.current
       rainRef.current = { mm: live.precipitationMm, forced: false }
-      cloudRef.current = { percent: live.cloudCoverPercent, forced: false }
+      cloudRef.current = {
+        percent: live.cloudCoverPercent,
+        forced: false,
+        windSpeedMps: live.windSpeedMps,
+        windFromDeg: live.windFromDeg,
+      }
       return
     }
     const preset = WEATHER_PRESETS[mode]
     rainRef.current = { mm: preset.precipitationMm, forced: true }
-    cloudRef.current = { percent: preset.cloudCoverPercent, forced: true }
+    cloudRef.current = {
+      percent: preset.cloudCoverPercent,
+      forced: true,
+      windSpeedMps: preset.windSpeedMps,
+      windFromDeg: preset.windFromDeg,
+    }
   }, [])
 
   /** What the compass button will do from here (see CARDINAL_KEY). */
@@ -2422,6 +2490,8 @@ export default function App() {
               onWeatherModeChange={handleWeatherMode}
               liveWeatherAvailable={liveWeatherAvailable}
               temperatureC={temperatureC}
+              showClouds={showClouds}
+              onToggleClouds={handleToggleClouds}
             />
           </div>
         )}

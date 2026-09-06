@@ -58,6 +58,16 @@ declare global {
       streetLamps: () => { drawn: number; alpha: number }
       /** The miniature effect: on, how much the pose carries, passes compiled. */
       tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
+      /** The volumetric clouds: cover, threshold, whether drawn, drift. */
+      cloudState: () => {
+        enabled: boolean
+        coverPercent: number
+        coverApplied: number
+        threshold: number
+        drawn: boolean
+        supported: boolean
+        driftMeters: { east: number; north: number }
+      }
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

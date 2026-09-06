@@ -29,7 +29,10 @@ import {
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   ShadowMode,
+  PixelDatatype,
+  PixelFormat,
   Simon1994PlanetaryPositions,
+  TextureUniform,
   Transforms,
   UniformType,
   Viewer,
@@ -42,6 +45,13 @@ import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
+import {
+  CLOUD_BASE_M,
+  CLOUD_SHADOW_FUNCTION_GLSL,
+  CLOUD_SHADOW_GLSL,
+  CLOUD_SHADOW_UNIFORMS,
+  CloudLayer,
+} from './CloudLayer'
 import { PhotoGradeEffect } from './PhotoGradeEffect'
 import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
@@ -97,6 +107,12 @@ export interface CesiumMapOptions {
    * answer here rather than switching after the fact.
    */
   tiltShift?: boolean
+  /**
+   * Whether the volumetric clouds are drawn from the start; default
+   * config.weather.clouds3dDefault. A restored URL hash passes its own
+   * answer here (see CloudLayer).
+   */
+  clouds?: boolean
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
@@ -383,6 +399,9 @@ const HOVER_PICK_INTERVAL_MS = 100
  * from daylight photogrammetry, this is an ambience grade.
  */
 const TIME_OF_DAY_SHADER = `
+${CLOUD_SHADOW_GLSL}
+${CLOUD_SHADOW_FUNCTION_GLSL}
+
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
 {
   // sin of the sun elevation at this fragment (up = away from Earth center)
@@ -414,6 +433,20 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   float luminance = dot(material.diffuse, vec3(0.2126, 0.7152, 0.0722));
   vec3 color = mix(material.diffuse, vec3(luminance), 0.45 * night);
   material.diffuse = color * tint;
+
+  // Cloud shadow (see CloudLayer): follow the sun's ray up from this
+  // fragment to the middle of the cloud layer and read how much of the
+  // sun the column there lets through. u_cloudShadow is 0 without
+  // clouds, at night and underground, and the whole block is skipped.
+  if (u_cloudShadow > 0.0) {
+    vec3 local = (u_cloudToLocal * vec4(fsInput.attributes.positionWC, 1.0)).xyz;
+    vec3 sunLocal = mat3(u_cloudToLocal) * czm_sunDirectionWC;
+    float toLayer = (0.5 * CLOUD_THICKNESS_M - local.z) / max(sunLocal.z, 0.05);
+    vec2 hit = local.xy + sunLocal.xy * toLayer;
+    float coverage = texture(u_cloudCoverage, (hit + u_cloudDrift) / CLOUD_TILE_M).r;
+    float column = cloudColumn(coverage, u_cloudThreshold, CLOUD_SOFTNESS);
+    material.diffuse *= mix(1.0, cloudShadowFactor(column), u_cloudShadow);
+  }
 
   // Overcast grade (faded in softly): flatter (desaturated), dimmer, and
   // slightly cool – overcast daylight really is bluer than direct sun, and
@@ -498,6 +531,10 @@ export class CesiumMap {
   private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
+  /** Volumetric clouds and their shadow on the tiles (see CloudLayer). */
+  private readonly clouds: CloudLayer
+  /** Unit sun direction in the earth-fixed frame (see updateNightFactor). */
+  private sunDirection: Cartesian3 | null = null
   /** Exposure, white balance and picture grade (see PhotoGradeEffect). */
   private readonly grade: PhotoGradeEffect
   /** Miniature look: band blur and toy grade (see TiltShiftEffect). */
@@ -651,6 +688,32 @@ export class CesiumMap {
       this.viewer,
       () => this.requestRender(),
       opts.maxRainDrops,
+      // Rain falls from the clouds: no drop above their base, whether or
+      // not the clouds themselves are drawn
+      () => this.defaultGroundHeight + CLOUD_BASE_M,
+    )
+    // The clouds the weather's cover puts up, and the shadow they throw
+    // through the tile shader (which createTileset hands them).
+    this.clouds = new CloudLayer(
+      this.viewer,
+      {
+        requestRender: () => this.requestRender(),
+        get groundHeight() {
+          return map.defaultGroundHeight
+        },
+        get sunDirection() {
+          return map.sunDirection
+        },
+        get overcast() {
+          return map.overcast
+        },
+        horizonMayBeInView: () => this.horizonMayBeInView(),
+        get pixelRatio() {
+          return map.effectivePixelRatio
+        },
+      },
+      opts.city,
+      opts.clouds ?? config.weather.clouds3dDefault,
     )
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -983,6 +1046,26 @@ export class CesiumMap {
         [CLOUD_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
         u_underground: { type: UniformType.FLOAT, value: this.underground ? 1 : 0 },
         u_undergroundDim: { type: UniformType.FLOAT, value: UNDERGROUND_DIM },
+        // The cloud shadow's inputs, driven by the cloud layer once it
+        // has the shader (see CloudLayer.attachTileShader); a strength of
+        // 0 skips the block, so the placeholders are never read.
+        [CLOUD_SHADOW_UNIFORMS.coverage]: {
+          type: UniformType.SAMPLER_2D,
+          value: new TextureUniform({
+            typedArray: new Uint8Array([0]),
+            width: 1,
+            height: 1,
+            pixelFormat: PixelFormat.LUMINANCE,
+            pixelDatatype: PixelDatatype.UNSIGNED_BYTE,
+          }),
+        },
+        [CLOUD_SHADOW_UNIFORMS.toLocal]: {
+          type: UniformType.MAT4,
+          value: Matrix4.clone(Matrix4.IDENTITY),
+        },
+        [CLOUD_SHADOW_UNIFORMS.drift]: { type: UniformType.VEC2, value: new Cartesian2() },
+        [CLOUD_SHADOW_UNIFORMS.threshold]: { type: UniformType.FLOAT, value: 2 },
+        [CLOUD_SHADOW_UNIFORMS.strength]: { type: UniformType.FLOAT, value: 0 },
       },
     })
     tileset.customShader = this.tileShader
@@ -997,6 +1080,7 @@ export class CesiumMap {
         return
       }
       this.weather.attachTileShader(this.tileShader)
+      this.clouds.attachTileShader(this.tileShader)
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
@@ -1142,6 +1226,7 @@ export class CesiumMap {
       this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
     }
     this.routes.resetHeightOffset(city.terrain.geoidOffsetFallback)
+    this.clouds.setCity(city)
     const limits = boundingBoxCameraLimits(city.boundingBox, config.cameraLimits.maxHeightMeters)
     if (transition === 'jump') {
       this.cameraLimits = limits
@@ -1474,10 +1559,43 @@ export class CesiumMap {
     this.applyShadowDarkness()
   }
 
+  /**
+   * Whether drops can be on screen right now: rain is set, and the camera
+   * is not above the clouds it falls from (see WeatherOverlay). The app
+   * renders at animation rate only while this holds.
+   */
+  isRainVisible(): boolean {
+    return this.weather.rainVisible
+  }
+
   setCloudCover(cloudCoverPercent: number): void {
     this.weather.setCloudCover(cloudCoverPercent)
+    this.clouds.setCloudCover(cloudCoverPercent)
     this.cloudPercent = cloudCoverPercent
     this.applyShadowDarkness()
+  }
+
+  /** The switch in the weather popover: whether the volumetric clouds are drawn at all. */
+  setCloudsEnabled(enabled: boolean): void {
+    this.clouds.setEnabled(enabled)
+  }
+
+  /** The wind the clouds drift with: speed in m/s, direction it blows from. */
+  setWind(windSpeedMps: number, windFromDeg: number): void {
+    this.clouds.setWind(windSpeedMps, windFromDeg)
+  }
+
+  /**
+   * Per UI tick: carries the cloud drift forward on the simulated clock.
+   * The layer asks for a frame itself once the drift shows on screen.
+   */
+  advanceClouds(simEpochMs: number): void {
+    this.clouds.advance(simEpochMs)
+  }
+
+  /** Debug/test: what the cloud layer is doing (see CloudLayer.state). */
+  cloudState(): CloudLayer['state'] {
+    return this.clouds.state
   }
 
   /**
@@ -1715,6 +1833,8 @@ export class CesiumMap {
     this.webcamsLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
     this.streetLamps.setUnderground(underground)
+    // No weather below ground – the clouds and their shadow go with the sky
+    this.clouds.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
     // The sky belongs to the surface: with the city sunk into a dark relief
     // a bright daylight atmosphere above it reads as an eclipse.
@@ -2026,6 +2146,7 @@ export class CesiumMap {
     // What this frame showed is the reference for the next one's motion
     this.vehicleLayer.markRendered()
     this.vesselLayer.markRendered()
+    this.clouds.markRendered()
     Matrix4.clone(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
   }
 
@@ -2065,6 +2186,8 @@ export class CesiumMap {
       sun,
     )
     const sunUp = Cartesian3.dot(Cartesian3.normalize(sun, sun), this.cityUp)
+    // The clouds light themselves by the same sun (see CloudLayer)
+    this.sunDirection = Cartesian3.clone(sun, this.sunDirection ?? new Cartesian3())
     // A low sun casts a shadow the length of the horizon and the map's
     // resolution goes with it; below the horizon there is nothing to cast.
     // Only recorded here (this runs on the ~1-sim-minute throttle) – the
@@ -2262,6 +2385,7 @@ export class CesiumMap {
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()
+    this.clouds.destroy()
     this.streetLamps.destroy()
     this.viewer.destroy()
   }

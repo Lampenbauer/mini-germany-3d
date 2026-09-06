@@ -56,6 +56,8 @@ const en = {
   'weather.cloudy': 'Cloudy',
   'weather.rain': 'Rain',
   'weather.liveUnavailable': 'No live weather to reach here',
+  'weather.clouds': '3D clouds',
+  'weather.showClouds': 'Show the 3D clouds',
   // The scrolling section at the bottom of the panel. It holds the
   // scheduled lines AND the AIS ships, which run to no timetable at all –
   // "Traffic" is the word that covers both.
@@ -271,6 +273,8 @@ const de: Record<MessageKey, string> = {
   'weather.cloudy': 'Bewölkt',
   'weather.rain': 'Regen',
   'weather.liveUnavailable': 'Hier ist kein Live-Wetter erreichbar',
+  'weather.clouds': '3D-Wolken',
+  'weather.showClouds': '3D-Wolken anzeigen',
   'traffic.title': 'Verkehr',
   'traffic.ais': 'AIS-Schiffe',
   'traffic.aisHint': 'Echter Schiffsverkehr im Hafen',

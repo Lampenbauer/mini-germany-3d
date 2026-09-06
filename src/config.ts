@@ -51,6 +51,15 @@ export const config = {
      * knows only "now", and time-traveled views must not show today's sky.
      */
     maxSimTimeDriftSeconds: 600,
+    /**
+     * Whether the volumetric clouds (see map/CloudLayer.ts) are drawn when
+     * the app opens and the URL has no say. Off: they cost a ray march per
+     * pixel they cover and, seen from above, veil the city. The switch in
+     * the weather popover turns them on, and the URL hash carries only the
+     * deviation from this default (clouds=1 or clouds=0, see
+     * lib/camera-hash.ts), so links keep working when this flips.
+     */
+    clouds3dDefault: false,
   },
 
   /**
