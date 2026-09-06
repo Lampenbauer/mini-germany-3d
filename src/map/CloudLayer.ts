@@ -533,10 +533,19 @@ export class CloudLayer {
     this.pushShadowUniforms()
   }
 
-  /** Another city: the slab moves over it on the next frame. */
+  /**
+   * Another city: the slab moves over it on the next frame, and its sky
+   * starts empty. Whatever cover was applied belonged to the sky left
+   * behind; the new city's fades in from nothing over COVER_FADE_SECONDS,
+   * so the clouds come into the picture rather than standing there
+   * already when the camera arrives (see CesiumMap.setCity, which holds
+   * the cover at zero for the flight and lets it go on arrival).
+   */
   setCity(city: City): void {
     this.city = city
     this.placedGroundHeight = Number.NaN
+    this.coverApplied = 0
+    this.startCoverFade()
     this.host.requestRender()
   }
 

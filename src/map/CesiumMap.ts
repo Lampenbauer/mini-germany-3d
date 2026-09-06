@@ -617,6 +617,8 @@ export class CesiumMap {
   private overcast = 0
   private rainMm = 0
   private cloudPercent = 0
+  /** A flight to another city is under way: the volumetric clouds wait for the arrival. */
+  private cloudsHeldForFlight = false
 
   /** Distance to the closest drawn caster of each fleet (see applyShadowState). */
   private nearestVehicleMeters = Number.POSITIVE_INFINITY
@@ -1286,11 +1288,14 @@ export class CesiumMap {
       this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
     }
     this.routes.resetHeightOffset(city.terrain.geoidOffsetFallback)
-    this.clouds.setCity(city)
     const limits = boundingBoxCameraLimits(city.boundingBox, config.cameraLimits.maxHeightMeters)
     if (transition === 'jump') {
       this.cameraLimits = limits
       this.setCameraHome(false)
+      // The clouds move with the jump and fade in over the new place
+      this.cloudsHeldForFlight = false
+      this.clouds.setCity(city)
+      this.clouds.setCloudCover(this.cloudPercent)
       // A fresh tileset for the new place, at once: the old one would
       // load the same tiles for the same view, on top of the tree it
       // carries from the place left behind (see replaceTileset).
@@ -1313,11 +1318,20 @@ export class CesiumMap {
     )
     this.flyingUntil = performance.now() + duration * 1000 + 500
     this.requestRender()
+    // The clouds sit the flight out: the sky over the city left behind
+    // fades away as the camera leaves it, and the next city's is brought
+    // in on arrival (see arrive) rather than standing there on approach.
+    this.cloudsHeldForFlight = true
+    this.clouds.setCloudCover(0)
     const arrive = () => {
       // A later setCity has taken over; its own flight ends its own way.
       if (this.destroyed || this.city !== city) return
       this.cameraLimits = limits
       this.enforceCameraLimits()
+      // Now the clouds: over this city, from an empty sky, fading in
+      this.cloudsHeldForFlight = false
+      this.clouds.setCity(city)
+      this.clouds.setCloudCover(this.cloudPercent)
       // The city left behind is not coming back, and neither is its tile
       // tree: a fresh tileset starts now, out of sight, and takes over
       // as soon as it holds the arrival view or after the grace period.
@@ -1625,7 +1639,12 @@ export class CesiumMap {
 
   setCloudCover(cloudCoverPercent: number): void {
     this.weather.setCloudCover(cloudCoverPercent)
-    this.clouds.setCloudCover(cloudCoverPercent)
+    // The volumetric clouds sit out a flight to another city: the sky
+    // over the city left behind fades out, the next city's comes in only
+    // once the camera is there (see setCity). The tile grade and the
+    // shadow keep following the weather – they are the weather, the
+    // clouds are the picture of it.
+    this.clouds.setCloudCover(this.cloudsHeldForFlight ? 0 : cloudCoverPercent)
     this.cloudPercent = cloudCoverPercent
     this.applyShadowDarkness()
   }

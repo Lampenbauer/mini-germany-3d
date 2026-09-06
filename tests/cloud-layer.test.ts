@@ -104,6 +104,21 @@ describe('CloudLayer', () => {
     expect(uniform(CLOUD_SHADOW_UNIFORMS.coverage)).toBeInstanceOf(TextureUniform)
   })
 
+  it('starts another city with an empty sky and fades the cover back in there', () => {
+    const { layer, frame } = layerHarness()
+    layer.setCloudCover(50)
+    frame(6100)
+    expect(layer.state.coverApplied).toBe(50)
+    // The map arrives over Hamburg: the sky it brought along is not
+    // Hamburg's, and the clouds come in over the six seconds again
+    layer.setCity(cityBySlug('hamburg')!)
+    expect(layer.state.coverApplied).toBe(0)
+    frame(3000)
+    expect(layer.state.coverApplied).toBeCloseTo(25, 5)
+    frame(3100)
+    expect(layer.state.coverApplied).toBe(50)
+  })
+
   it('eases the cover in over six seconds of wall clock, however many frames that takes', () => {
     const { layer, frame, requestRender } = layerHarness()
     layer.setCloudCover(50)
