@@ -301,18 +301,42 @@ const SHADOW_CASTER_WIDTH_M = 2.65
  * tiles, every city visited adds ~35–45 000 more at ~3 KB each, and a
  * tour of seven cities stood at 282 000 tiles and a gigabyte of JS heap
  * – towards V8's 4 GB ceiling the collector stutters the map into
- * stop-motion, then the tab dies. Two cities' worth, generously.
+ * stop-motion, then the tab dies.
+ *
+ * The limit has to sit far above what ONE view puts in the tree, and
+ * that depends on the screen: the tile budget is a constant in CSS
+ * pixels, so a bigger drawing buffer means finer tiles everywhere. The
+ * home view alone is ~31 000 tiles on a 3200×2000 buffer and ~124 000 on
+ * a 5K display's 5120×2880 (measured 2026-09-06). A limit of 120 000
+ * tripped there before the camera had moved at all, and every wide view
+ * after that – a fresh tileset every minute, the city thrown away and
+ * reloaded each time, two tilesets traversing per frame in between. So:
+ * generous, and only ever acted on at rest (see tendTileset).
  */
-const TILE_TREE_LIMIT = 120_000
+const TILE_TREE_LIMIT = 300_000
 
 /**
  * How long after a city flight lands the old tileset stays up while the
  * new one is still loading the arrival view, in ms. Past this the swap
  * happens anyway – the old tileset carries the old city's tree, which
  * is the thing being got rid of, and the tiles still missing arrive in
- * the new one just as they would have in the old.
+ * the new one just as they would have in the old. Long, because the wait
+ * costs nothing but the second tree's memory, while a forced swap shows:
+ * the arrival view is ~120 000 tiles on a 5K display and takes ~15 s to
+ * come in from the network.
  */
-const TILESET_SWAP_GRACE_MS = 6000
+const TILESET_SWAP_GRACE_MS = 30_000
+
+/**
+ * A tree rebuild inside a city starts only after the camera has been at
+ * rest this long (ms) – no input, no flight, no chase – and is dropped
+ * the moment it is touched again: the copy would otherwise chase a
+ * moving view with a second traversal per frame, which is exactly the
+ * sluggishness it must never cause. And at most one such rebuild per
+ * TILE_TREE_REBUILD_COOLDOWN_MS, however the tree grows.
+ */
+const TILESET_REST_MS = 3000
+const TILE_TREE_REBUILD_COOLDOWN_MS = 5 * 60_000
 
 /**
  * A flight to a webcam picture: looking this far down, from this many
@@ -569,10 +593,17 @@ export class CesiumMap {
    * has been given so far, and the moment it may take over regardless
    * (see replaceTileset).
    */
-  private replacement: { tileset: Cesium3DTileset; swapAfter: number; frames: number } | null =
-    null
+  private replacement: {
+    tileset: Cesium3DTileset
+    swapAfter: number
+    frames: number
+    /** A city switch's copy must come; a tree rebuild's yields to any input. */
+    reason: 'city' | 'tree'
+  } | null = null
   /** A replacement is on its way from Ion – one at a time. */
   private replacementInFlight = false
+  /** No tree rebuild before this moment (see TILE_TREE_REBUILD_COOLDOWN_MS). */
+  private treeRebuildAllowedAt = 0
   /** Most recently measured plausible ground height – initial value for new vehicles. */
   private defaultGroundHeight: number
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
@@ -1118,13 +1149,14 @@ export class CesiumMap {
    * keeps the swap from showing as a blank city.
    *
    * One at a time: a call while one is under way only moves its deadline
-   * closer, never further. A failed creation (network) keeps the old
-   * tileset and tries again on the next occasion.
+   * closer, never further, and a city switch's claim outranks a tree
+   * rebuild's (see armTilesetSwap). A failed creation (network) keeps
+   * the old tileset and tries again on the next occasion.
    */
-  private replaceTileset(deadlineMs: number): void {
+  private replaceTileset(deadlineMs: number, reason: 'city' | 'tree'): void {
     if (this.destroyed || !this.googleTileset) return
     if (this.replacement) {
-      this.armTilesetSwap(deadlineMs)
+      if (reason === 'city') this.armTilesetSwap(deadlineMs)
       return
     }
     if (this.replacementInFlight) return
@@ -1140,25 +1172,34 @@ export class CesiumMap {
         tileset.show = false
         tileset.preloadWhenHidden = true
         this.viewer.scene.primitives.add(tileset)
-        this.replacement = { tileset, swapAfter, frames: 0 }
+        this.replacement = { tileset, swapAfter, frames: 0, reason }
         this.requestRender()
       })
       .catch((error: unknown) => {
         this.replacementInFlight = false
-        // The current one stays, flight preloads and all (see setCity)
-        if (this.googleTileset) this.googleTileset.preloadFlightDestinations = true
         console.warn('[MiniGermany3D] Tileset rebuild failed, keeping the current one:', error)
       })
   }
 
-  /** Brings a running replacement's deadline forward to `inMs` from now. */
+  /**
+   * A city switch's claim on the tileset: brings a running replacement's
+   * deadline forward to `inMs` from now and makes it a city one – a tree
+   * rebuild that happened to be under way becomes the fresh start the
+   * city needs, and stops yielding to input – or starts one.
+   */
   private armTilesetSwap(inMs: number): void {
     const swapAfter = performance.now() + inMs
     if (this.replacement) {
       this.replacement.swapAfter = Math.min(this.replacement.swapAfter, swapAfter)
+      this.replacement.reason = 'city'
     } else {
-      this.replaceTileset(inMs)
+      this.replaceTileset(inMs, 'city')
     }
+  }
+
+  /** The camera is being moved, flown or chased – not a moment to rebuild in. */
+  private cameraBusy(now: number): boolean {
+    return now - this.lastInteractionAt < TILESET_REST_MS || now < this.flyingUntil || this.isChasing()
   }
 
   /**
@@ -1168,31 +1209,50 @@ export class CesiumMap {
    * traversal only advances with rendered frames, which getRenderHints
    * keeps coming, and tilesLoaded reads true before the first traversal
    * has requested anything, hence the few frames of patience.
+   *
+   * A tree rebuild is the invisible kind: started at rest, swapped only
+   * once the copy holds the whole view (so the picture does not change
+   * by a pixel), and thrown away the moment the camera is touched –
+   * better a tree that grows a while longer than a second traversal per
+   * frame under a moving camera. A city's replacement is the other kind:
+   * it must come, ready or not, by its deadline.
    */
   private tendTileset(): void {
     const current = this.googleTileset
     if (!current) return
+    const now = performance.now()
     const replacement = this.replacement
     if (replacement) {
-      replacement.frames++
       const { tileset } = replacement
+      if (replacement.reason === 'tree' && this.cameraBusy(now)) {
+        this.replacement = null
+        this.viewer.scene.primitives.remove(tileset)
+        this.treeRebuildAllowedAt = now + TILE_TREE_REBUILD_COOLDOWN_MS
+        return
+      }
+      replacement.frames++
       const ready =
         replacement.frames >= 3 &&
         tileset.tilesLoaded &&
         tileStatistics(tileset).numberOfTilesWithContentReady > 0
-      if (!ready && performance.now() < replacement.swapAfter) return
+      if (!ready && now < replacement.swapAfter) return
       this.replacement = null
       tileset.preloadWhenHidden = false
       tileset.show = true
       this.googleTileset = tileset
       // remove() destroys the old tileset, tree and all
       this.viewer.scene.primitives.remove(current)
+      this.treeRebuildAllowedAt = now + TILE_TREE_REBUILD_COOLDOWN_MS
       this.requestRender()
       return
     }
-    if (tileStatistics(current).numberOfTilesTotal > TILE_TREE_LIMIT) {
-      // Swap when the copy has caught up with the view; a minute at most
-      this.replaceTileset(60_000)
+    if (
+      now >= this.treeRebuildAllowedAt &&
+      !this.cameraBusy(now) &&
+      tileStatistics(current).numberOfTilesTotal > TILE_TREE_LIMIT
+    ) {
+      // No deadline: it takes over when it is ready, or not at all
+      this.replaceTileset(Number.POSITIVE_INFINITY, 'tree')
     }
   }
 
@@ -1234,7 +1294,7 @@ export class CesiumMap {
       // A fresh tileset for the new place, at once: the old one would
       // load the same tiles for the same view, on top of the tree it
       // carries from the place left behind (see replaceTileset).
-      this.replaceTileset(0)
+      this.replaceTileset(0, 'city')
       this.scheduleGroundBootstrap(500)
       return
     }
@@ -1259,22 +1319,17 @@ export class CesiumMap {
       this.cameraLimits = limits
       this.enforceCameraLimits()
       // The city left behind is not coming back, and neither is its tile
-      // tree: the fresh tileset started with the flight takes over as
-      // soon as it has the arrival view, or after the grace period.
+      // tree: a fresh tileset starts now, out of sight, and takes over
+      // as soon as it holds the arrival view or after the grace period.
+      // Not during the flight: the old tileset preloads the destination
+      // for the arrival as it always did, and a second tileset chasing
+      // the moving view with a traversal of its own per frame was what
+      // made the flights heavy (measured 2026-09-05/06). The copy gets
+      // the same tiles from the browser's cache a few seconds later.
       this.armTilesetSwap(TILESET_SWAP_GRACE_MS)
       this.scheduleGroundBootstrap(500)
       this.requestRender()
     }
-    // The replacement loads the destination out of sight during the
-    // flight (preloadWhenHidden + preloadFlightDestinations), so the
-    // arrival finds its tiles there – not blank where the old tileset
-    // would have had them. The old one gives up preloading the same
-    // destination: it is not going to show it, and its tree is the big
-    // one to traverse – with both of them at it, the flight cost ~25
-    // points more of the main thread (measured 2026-09-05). Should the
-    // replacement fail to come, replaceTileset hands the job back.
-    if (this.googleTileset) this.googleTileset.preloadFlightDestinations = false
-    this.replaceTileset(duration * 1000 + 500 + TILESET_SWAP_GRACE_MS)
     this.viewer.camera.flyTo({ destination, orientation, duration, complete: arrive, cancel: arrive })
   }
 
