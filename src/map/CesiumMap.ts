@@ -238,14 +238,19 @@ const SHADOW_SUN_MIN = 0.05
  *
  * It is the size of ONE cascade. Cesium's sun shadow has four of them
  * and packs them 2×2 into a single texture, so the texture it allocates
- * is twice this on each side (ShadowMap.js, resize): 4096 here means an
- * 8192² depth texture of 256 MB. The 8192 it used to say made that a
- * 16384² texture – a gigabyte of GPU memory, and ~2.5 ms more per frame
- * while shadows were on – for an edge that a side-by-side screenshot in
- * the chase cam could not tell apart (0.01 % of the pixels differed).
+ * is twice this on each side (ShadowMap.js, resize): 8192 here is a
+ * 16384² depth texture – a gigabyte of GPU memory and the largest
+ * texture most GPUs allow (Cesium halves the size where one allows
+ * less). The maintainer's choice, for the edge. The alternative, 4096,
+ * would be an 8192² texture of 256 MB and ~2.5 ms less per frame while
+ * shadows are on (measured 2026-09-05), at half the texels per meter of
+ * shadow. Since the shadowed volume ends where a caster stops spanning a
+ * couple of pixels (applyShadowState), the cascades spend these texels
+ * on a short range, and the edge is finer than it was at the map's old
+ * 8.8 km reach.
  */
 const SHADOW_DARKNESS = 0.52
-const SHADOW_MAP_SIZE = 4096
+const SHADOW_MAP_SIZE = 8192
 const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
 
 /**
