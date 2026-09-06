@@ -76,16 +76,16 @@ export const WEATHER_PRESETS: Record<
 
 /**
  * The live overlays only make sense near real time: the current weather
- * knows nothing about time-traveled simulation clocks. Both times are
- * seconds of day; the comparison wraps across midnight.
+ * knows nothing about time-traveled simulation clocks. Both are instants
+ * in epoch ms – the day counts as much as the hour, now that the clock
+ * can be set to another day: tomorrow at this hour is not "now".
  */
-export function weatherIsCurrent(
-  simSecondsOfDay: number,
-  realSecondsOfDay: number,
+export function weatherIsCurrentAt(
+  simEpochMs: number,
+  realEpochMs: number,
   maxDriftSeconds: number,
 ): boolean {
-  const diff = Math.abs(simSecondsOfDay - realSecondsOfDay)
-  return Math.min(diff, 86400 - diff) <= maxDriftSeconds
+  return Math.abs(simEpochMs - realEpochMs) <= maxDriftSeconds * 1000
 }
 
 export class WeatherClient {

@@ -41,7 +41,7 @@ import {
   parseVehicleHash,
 } from '@/lib/camera-hash'
 import { cityApiUrl } from '@/lib/city-api'
-import { berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
+import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
 import {
   fullscreenElement,
@@ -60,7 +60,7 @@ import { AisClient } from '@/lib/ais'
 import type { AisVessel } from '@/lib/ais-extract'
 import {
   defaultWeatherMode,
-  weatherIsCurrent,
+  weatherIsCurrentAt,
   WeatherClient,
   WEATHER_PRESETS,
   type WeatherMode,
@@ -78,6 +78,9 @@ export interface MrtTestApi {
   visibleVehicleCount: () => number
   vehicles: () => VehicleSnapshot[]
   setTime: (hhmm: string) => void
+  /** The simulated calendar day, "YYYY-MM-DD" in Europe/Berlin. */
+  setDate: (dateKey: string) => void
+  dateKey: () => string
   setSpeed: (speed: number) => void
   setPaused: (paused: boolean) => void
   /** Injects GTFS-RT delays for tests (sim trip id → seconds). */
@@ -1177,9 +1180,9 @@ export default function App() {
               setCameraHeading((wound) => windAngleTo(wound, Math.round(cameraView.heading)))
               // Rain: only with live precipitation AND a sim clock near the
               // real time – time travel must not show today's weather.
-              const nearRealTime = weatherIsCurrent(
-                clock.secondsOfDay(),
-                berlinSecondsOfDay(Date.now()),
+              const nearRealTime = weatherIsCurrentAt(
+                clock.now(),
+                Date.now(),
                 config.weather.maxSimTimeDriftSeconds,
               )
               // Below ground there is no weather: no drops falling around the
@@ -1299,6 +1302,8 @@ export default function App() {
         const sec = parseTimeOfDay(hhmm)
         if (sec !== null) clock.setSecondsOfDay(sec)
       },
+      setDate: (dateKey: string) => clock.setDate(dateKey),
+      dateKey: () => clock.dateKey(),
       setSpeed: (s: number) => clock.setSpeed(s),
       setPaused: (p: boolean) => {
         clock.setPaused(p)
@@ -2084,6 +2089,10 @@ export default function App() {
     if (sec !== null) clockRef.current?.setSecondsOfDay(sec)
   }, [])
 
+  const handleSetDate = useCallback((dateKey: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) clockRef.current?.setDate(dateKey)
+  }, [])
+
   const handleResetTime = useCallback(() => {
     const clock = clockRef.current
     if (!clock) return
@@ -2466,6 +2475,7 @@ export default function App() {
             onSpeedChange={handleSpeedChange}
             onTogglePause={handleTogglePause}
             onSetTime={handleSetTime}
+            onSetDate={handleSetDate}
             onResetTime={handleResetTime}
             lines={lineInfos}
             onToggleLine={handleToggleLine}

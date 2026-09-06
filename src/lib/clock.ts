@@ -14,6 +14,42 @@ const BERLIN_FORMATTER = new Intl.DateTimeFormat('de-DE', {
   hour12: false,
 })
 
+const BERLIN_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Berlin',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** The calendar day (Europe/Berlin) of an epoch-ms instant as "YYYY-MM-DD". */
+export function berlinDateKey(epochMs: number): string {
+  // en-CA formats as YYYY-MM-DD, which is also what <input type="date"> speaks
+  return BERLIN_DATE_FORMATTER.format(epochMs)
+}
+
+/**
+ * The epoch-ms instant of a time of day on a calendar day, both in
+ * Europe/Berlin. The zone's offset is one or two hours; the candidate
+ * that formats back to the requested day and second is the one – on the
+ * spring-forward night, when the requested time does not exist, the
+ * standard-time candidate stands in. Fractions of a second carry over.
+ */
+export function berlinEpoch(dateKey: string, secondsOfDay: number): number {
+  const [y, m, d] = dateKey.split('-').map((part) => parseInt(part, 10))
+  const wholeSeconds = Math.floor(secondsOfDay)
+  const fraction = secondsOfDay - wholeSeconds
+  const midnightUtc = Date.UTC(y, m - 1, d, 0, 0, 0)
+  let fallback = Number.NaN
+  for (const offsetHours of [2, 1]) {
+    const candidate = midnightUtc - offsetHours * 3_600_000 + wholeSeconds * 1000
+    if (Number.isNaN(fallback)) fallback = candidate
+    if (berlinDateKey(candidate) === dateKey && berlinSecondsOfDay(candidate) === wholeSeconds) {
+      return candidate + fraction * 1000
+    }
+  }
+  return fallback + fraction * 1000
+}
+
 /** Seconds since midnight (Europe/Berlin) for an epoch-ms instant. */
 export function berlinSecondsOfDay(epochMs: number): number {
   const parts = BERLIN_FORMATTER.formatToParts(epochMs)
@@ -104,6 +140,22 @@ export class SimClock {
     const currentSec = berlinSecondsOfDay(now) + (((now % 1000) + 1000) % 1000) / 1000
     this.anchorSim = now + (targetSec - currentSec) * 1000
     this.anchorReal = Date.now()
+  }
+
+  /**
+   * Jumps to a calendar day ("YYYY-MM-DD", Europe/Berlin) at the same time
+   * of day. What the day changes is the sun – and the timetable does not
+   * change with it: the schedule is built for one service day (see
+   * schedule.json's meta.serviceDate), so a Sunday runs the weekday service.
+   */
+  setDate(dateKey: string): void {
+    this.anchorSim = berlinEpoch(dateKey, this.secondsOfDay())
+    this.anchorReal = Date.now()
+  }
+
+  /** The simulated calendar day (Europe/Berlin) as "YYYY-MM-DD". */
+  dateKey(): string {
+    return berlinDateKey(this.now())
   }
 
   secondsOfDay(): number {

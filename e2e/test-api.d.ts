@@ -24,6 +24,8 @@ declare global {
         inTunnel: boolean
       }[]
       setTime: (hhmm: string) => void
+      setDate: (dateKey: string) => void
+      dateKey: () => string
       setSpeed: (speed: number) => void
       setPaused: (paused: boolean) => void
       setRealtimeDelays: (delays: Record<string, number>) => void

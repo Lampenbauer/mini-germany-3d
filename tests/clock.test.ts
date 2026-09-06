@@ -1,10 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  berlinDateKey,
+  berlinEpoch,
   berlinSecondsOfDay,
   formatSecondsOfDay,
   parseTimeOfDay,
   SimClock,
 } from '@/lib/clock'
+
+describe('berlinEpoch / SimClock.setDate', () => {
+  it('lands on the requested day and second in Berlin, in winter and in summer', () => {
+    for (const [key, sec] of [
+      ['2026-01-15', 8 * 3600 + 30 * 60],
+      ['2026-07-15', 23 * 3600 + 59 * 60 + 59],
+    ] as const) {
+      const epoch = berlinEpoch(key, sec)
+      expect(berlinDateKey(epoch)).toBe(key)
+      expect(berlinSecondsOfDay(epoch)).toBe(sec)
+    }
+    // Fractions of a second carry over
+    expect(berlinEpoch('2026-07-15', 12 * 3600 + 0.25) - berlinEpoch('2026-07-15', 12 * 3600)).toBe(250)
+  })
+
+  it('moves the clock to another day at the same time of day', () => {
+    const clock = new SimClock(berlinEpoch('2026-09-06', 12 * 3600))
+    clock.setDate('2026-09-10')
+    expect(clock.dateKey()).toBe('2026-09-10')
+    expect(Math.abs(clock.secondsOfDay() - 12 * 3600)).toBeLessThan(1)
+  })
+
+  it('keeps the time of day across the night the clocks go back', () => {
+    const clock = new SimClock(berlinEpoch('2026-10-24', 15 * 3600))
+    clock.setDate('2026-10-25')
+    expect(clock.dateKey()).toBe('2026-10-25')
+    expect(Math.round(clock.secondsOfDay())).toBe(15 * 3600)
+    // …and forward again, past the night they go forward
+    clock.setDate('2026-03-28')
+    clock.setDate('2026-03-29')
+    expect(clock.dateKey()).toBe('2026-03-29')
+    expect(Math.round(clock.secondsOfDay())).toBe(15 * 3600)
+  })
+})
 
 describe('berlinSecondsOfDay', () => {
   it('converts UTC to Europe/Berlin correctly (daylight saving time)', () => {

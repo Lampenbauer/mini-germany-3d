@@ -1,4 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
+import { de, enGB } from 'react-day-picker/locale'
 import {
   Camera,
   Check,
@@ -14,6 +16,7 @@ import {
   TramFront,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MODE_ICON } from '@/components/mode-icon'
 import { Input } from '@/components/ui/input'
@@ -29,8 +32,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { berlinDateKey } from '@/lib/clock'
 import type { TransitMode } from '@/data/network-types'
-import { MODE_KEY, localizeCityName, t } from '@/lib/i18n'
+import { MODE_KEY, getLanguage, localizeCityName, t } from '@/lib/i18n'
 import { TRANSIT_MODES } from '@/lib/transit-mode'
 
 export interface LineToggleInfo {
@@ -72,6 +76,8 @@ export interface ControlPanelProps {
   onTogglePause: () => void
   /** Set the simulation time to "HH:MM". */
   onSetTime: (hhmm: string) => void
+  /** Set the simulated calendar day, "YYYY-MM-DD" (today to a week ahead). */
+  onSetDate: (dateKey: string) => void
   /** Reset the simulation time to the real clock. */
   onResetTime: () => void
   lines: LineToggleInfo[]
@@ -111,6 +117,19 @@ export interface ControlPanelProps {
 
 /** Display order of the transit-mode groups. */
 const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
+
+/**
+ * How far ahead the day picker reaches. A week is as far as a timetable
+ * can be trusted to stay what it is, and as far as a weather forecast
+ * goes – should the live sky ever follow the simulated day.
+ */
+const DATE_PICKER_DAYS_AHEAD = 7
+
+/** A "YYYY-MM-DD" day as the local-time Date the calendar shows it as. */
+function localDay(dateKey: string): Date {
+  const [y, m, d] = dateKey.split('-').map((part) => parseInt(part, 10))
+  return new Date(y, m - 1, d)
+}
 /**
  * One transit-mode group of the line list (header only when >1 group).
  * Memoized: the panel re-renders 4×/s for the clock, but the line rows only
@@ -261,6 +280,30 @@ export function ControlPanel(props: ControlPanelProps) {
    * time the simulation left behind.
    */
   const timeInputRef = useRef<HTMLInputElement>(null)
+  // The day picked in the calendar (none until one is), and whether the
+  // calendar is open – it closes itself on a pick, as shadcn's does.
+  const [pickedDate, setPickedDate] = useState<Date | undefined>(undefined)
+  const [dateOpen, setDateOpen] = useState(false)
+  // The picker's range: today to a week ahead, as calendar days in the
+  // timetable's zone. Re-read on every render – the panel renders once a
+  // second for the clock, so midnight moves the range on its own. The
+  // calendar speaks local Dates; a Berlin day is handed to it as the local
+  // day of the same name, and the day picked goes back by name too, so
+  // the key that reaches the clock is the day on the calendar whatever
+  // zone the browser is in.
+  const minDay = localDay(berlinDateKey(Date.now()))
+  const maxDay = localDay(berlinDateKey(Date.now() + DATE_PICKER_DAYS_AHEAD * 86_400_000))
+  const calendarLocale = getLanguage() === 'de' ? de : enGB
+  // The picked day on the button, short: the button shares its row with
+  // the time field and Now, and a four-digit year did not fit beside the
+  // chevron ("07.09.2…"). Two digits do, in either language's own order.
+  const pickedLabel = pickedDate
+    ? new Intl.DateTimeFormat(getLanguage() === 'de' ? 'de-DE' : 'en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+      }).format(pickedDate)
+    : t('sim.date')
 
   // Stable group arrays so the memoized LineGroups skip the clock re-renders
   const lineGroups = useMemo(() => {
@@ -372,52 +415,61 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {!collapsed && (
           <>
-            {/* Set the simulation time (e.g. jump to rush hour). The field is
-                picker-only: typing is blocked and a click anywhere on it opens
-                the native time dropdown, so no invalid input can be entered. */}
+            {/* Set the simulated day and time (e.g. jump to rush hour, or to
+                tomorrow's sunset) – shadcn's date picker with a time field:
+                the day from a calendar in a popover, bounded to the week
+                ahead, the time typed into a plain time field. The sun follows
+                the day; the timetable is built for one service day and does
+                not (see SimClock.setDate). */}
             <div className="flex items-center gap-2">
-              <Tooltip delayDuration={500}>
-                <TooltipTrigger asChild>
-                  <Input
-                    ref={timeInputRef}
-                    type="time"
-                    aria-label={t('sim.setTime')}
-                    className="h-8 flex-1 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    inputMode="none"
-                    onKeyDown={(e) => {
-                      // Only block typing where the picker can take over
-                      if (
-                        'showPicker' in e.currentTarget &&
-                        e.key !== 'Tab' &&
-                        e.key !== 'Escape' &&
-                        e.key !== 'Enter'
-                      ) {
-                        e.preventDefault()
-                      }
-                    }}
-                    onClick={(e) => {
-                      // Not supported by every browser (Safari < 16) – typing
-                      // into the field parts still works as the fallback there.
-                      try {
-                        e.currentTarget.showPicker()
-                      } catch {
-                        /* picker already open or unsupported */
-                      }
-                    }}
-                    onChange={(e) => {
-                      if (e.target.value) props.onSetTime(e.target.value)
+              <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={t('sim.setDate')}
+                    data-empty={!pickedDate}
+                    className="min-w-0 flex-1 justify-between font-normal data-[empty=true]:text-muted-foreground"
+                  >
+                    <span className="truncate">{pickedLabel}</span>
+                    <ChevronDown className="shrink-0 opacity-60" aria-hidden />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto overflow-hidden p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    locale={calendarLocale}
+                    selected={pickedDate}
+                    defaultMonth={pickedDate ?? minDay}
+                    startMonth={minDay}
+                    endMonth={maxDay}
+                    disabled={{ before: minDay, after: maxDay }}
+                    onSelect={(day) => {
+                      if (!day) return
+                      setPickedDate(day)
+                      props.onSetDate(format(day, 'yyyy-MM-dd'))
+                      setDateOpen(false)
                     }}
                   />
-                </TooltipTrigger>
-                <TooltipContent side="top">{t('sim.setTime')}</TooltipContent>
-              </Tooltip>
+                </PopoverContent>
+              </Popover>
+              <Input
+                ref={timeInputRef}
+                type="time"
+                aria-label={t('sim.setTime')}
+                className="h-8 w-[5.5rem] shrink-0 appearance-none bg-transparent [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                onChange={(e) => {
+                  if (e.target.value) props.onSetTime(e.target.value)
+                }}
+              />
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // Back to the real clock – and back to an empty field, so it
-                  // does not keep advertising a time that is no longer set.
+                  // Back to the real clock – and back to empty fields, so they
+                  // do not keep advertising a day or time no longer set.
                   if (timeInputRef.current) timeInputRef.current.value = ''
+                  setPickedDate(undefined)
                   props.onResetTime()
                 }}
               >

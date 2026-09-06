@@ -28,6 +28,7 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     onTogglePause: vi.fn(),
     onSetTime: vi.fn(),
     onResetTime: vi.fn(),
+    onSetDate: vi.fn(),
     lines: [],
     onToggleLine: vi.fn(),
     onFocusLine: vi.fn(),

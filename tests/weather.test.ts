@@ -1,28 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultWeatherMode,
-  weatherIsCurrent,
+  weatherIsCurrentAt,
   WeatherClient,
   WEATHER_PRESETS,
   type WeatherStatus,
 } from '@/lib/weather'
 import { overcastGrade } from '@/map/WeatherOverlay'
 
-describe('weatherIsCurrent', () => {
-  it('accepts sim times near the real clock', () => {
-    expect(weatherIsCurrent(12 * 3600, 12 * 3600, 600)).toBe(true)
-    expect(weatherIsCurrent(12 * 3600 + 300, 12 * 3600, 600)).toBe(true)
-    expect(weatherIsCurrent(12 * 3600 - 599, 12 * 3600, 600)).toBe(true)
+describe('weatherIsCurrentAt', () => {
+  const now = Date.UTC(2026, 8, 6, 10, 0, 0)
+
+  it('accepts sim instants near the real clock', () => {
+    expect(weatherIsCurrentAt(now, now, 600)).toBe(true)
+    expect(weatherIsCurrentAt(now + 300_000, now, 600)).toBe(true)
+    expect(weatherIsCurrentAt(now - 599_000, now, 600)).toBe(true)
   })
 
-  it('rejects time-traveled sim clocks', () => {
-    expect(weatherIsCurrent(8 * 3600, 12 * 3600, 600)).toBe(false)
-    expect(weatherIsCurrent(12 * 3600 + 601, 12 * 3600, 600)).toBe(false)
-  })
-
-  it('wraps across midnight', () => {
-    expect(weatherIsCurrent(10, 86390, 600)).toBe(true)
-    expect(weatherIsCurrent(86390, 10, 600)).toBe(true)
+  it('rejects time-traveled sim clocks, the same hour on another day included', () => {
+    expect(weatherIsCurrentAt(now - 4 * 3_600_000, now, 600)).toBe(false)
+    expect(weatherIsCurrentAt(now + 601_000, now, 600)).toBe(false)
+    expect(weatherIsCurrentAt(now + 86_400_000, now, 600)).toBe(false)
   })
 })
 
