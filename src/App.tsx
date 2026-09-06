@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Aperture,
   Building2,
   Home,
   Maximize,
@@ -10,6 +9,7 @@ import {
 } from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { CompassIcon } from '@/components/CompassIcon'
+import { PhotoModePopover } from '@/components/PhotoModePopover'
 import { WeatherPopover } from '@/components/WeatherPopover'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
@@ -52,6 +52,7 @@ import {
 import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
 import { getLanguage, localizeCityName, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import type { MapView } from '@/lib/map-view'
+import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
@@ -492,7 +493,12 @@ export default function App() {
   const [showWebcams, setShowWebcams] = useState(true)
   /** The city's webcams as last polled – what the panel lists. */
   const [webcams, setWebcams] = useState<Webcam[]>([])
-  const [tiltShift, setTiltShift] = useState<boolean>(config.camera.miniatureDefault)
+  /**
+   * The camera the city is shot with – lens, exposure, grade and the
+   * miniature effect (see lib/photo-settings.ts). Only the effect's
+   * on/off travels in the URL; the rest is the session's.
+   */
+  const [photo, setPhoto] = useState<PhotoSettings>(DEFAULT_PHOTO_SETTINGS)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   /**
    * Air temperature over the city in °C, straight from the weather client
@@ -592,7 +598,7 @@ export default function App() {
   const showStopsRef = useRef(showStops)
   const showLabelsRef = useRef(showLabels)
   const showWebcamsRef = useRef(showWebcams)
-  const tiltShiftRef = useRef(tiltShift)
+  const photoRef = useRef(photo)
   const pausedRef = useRef(paused)
 
   const applyRouteVisibility = useCallback(() => {
@@ -732,9 +738,9 @@ export default function App() {
       showLabelsRef.current = false
       setShowLabels(false)
     }
-    if (uiState.tiltShift !== tiltShiftRef.current) {
-      tiltShiftRef.current = uiState.tiltShift
-      setTiltShift(uiState.tiltShift)
+    if (uiState.tiltShift !== photoRef.current.tiltShift.enabled) {
+      photoRef.current = withTiltShift(photoRef.current, uiState.tiltShift)
+      setPhoto(photoRef.current)
     }
     // A shared link may open into any of the three readings. Neither of
     // the other two can go up here: the diagram has no network to lay out
@@ -773,7 +779,7 @@ export default function App() {
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
           webcamsHidden: !showWebcamsRef.current,
-          tiltShift: tiltShiftRef.current,
+          tiltShift: photoRef.current.tiltShift.enabled,
           paused: pausedRef.current,
         })
       if (hash !== window.location.hash) {
@@ -807,7 +813,7 @@ export default function App() {
       offline: urlOpts.offline,
       // The map is built wearing the look the URL asked for (or the
       // default), so no swap has to run before the first frame.
-      tiltShift: tiltShiftRef.current,
+      tiltShift: photoRef.current.tiltShift.enabled,
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
@@ -884,10 +890,10 @@ export default function App() {
         map.setLabelsVisible(mapNetworkDrawnRef.current && labelsVisible)
       }
       const tiltShiftOn = ui.tiltShift
-      if (tiltShiftOn !== tiltShiftRef.current) {
-        tiltShiftRef.current = tiltShiftOn
-        setTiltShift(tiltShiftOn)
-        map.setTiltShift(tiltShiftOn)
+      if (tiltShiftOn !== photoRef.current.tiltShift.enabled) {
+        photoRef.current = withTiltShift(photoRef.current, tiltShiftOn)
+        setPhoto(photoRef.current)
+        map.setPhotoSettings(photoRef.current)
       }
       // Any of the three, the same way the tabs pick them
       if (ui.view !== currentViewRef.current()) selectViewRef.current(ui.view)
@@ -1853,10 +1859,13 @@ export default function App() {
     [webcams],
   )
 
-  const handleToggleTiltShift = useCallback((enabled: boolean) => {
-    tiltShiftRef.current = enabled
-    setTiltShift(enabled)
-    mapRef.current?.setTiltShift(enabled)
+  /** A knob turned in the photo popover – the whole settings object comes back. */
+  const handlePhotoChange = useCallback((settings: PhotoSettings) => {
+    photoRef.current = settings
+    setPhoto(settings)
+    mapRef.current?.setPhotoSettings(settings)
+    // Only the miniature switch is in the hash; the writer skips a URL
+    // that has not changed.
     writeHashRef.current()
   }, [])
 
@@ -2571,27 +2580,15 @@ export default function App() {
                 <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
               </Tooltip>
             )}
-            {/* The miniature look is a lens on the map, not a command to
-                it, so it goes with the map and not with the diagram. */}
+            {/* The photo mode – lens, exposure, grade and the miniature
+                look – is a camera on the map, not a command to it, so it
+                goes with the map and not with the diagram. */}
             {!linear && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className={cn(
-                      GROUPED_CONTROL,
-                      tiltShift && 'bg-primary/90 text-primary-foreground hover:bg-primary/80',
-                    )}
-                    aria-label={tiltShift ? t('scene.hideTiltShift') : t('scene.showTiltShift')}
-                    aria-pressed={tiltShift}
-                    onClick={() => handleToggleTiltShift(!tiltShift)}
-                  >
-                    <Aperture aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">{t('scene.tiltShift')}</TooltipContent>
-              </Tooltip>
+              <PhotoModePopover
+                settings={photo}
+                onChange={handlePhotoChange}
+                triggerClassName={GROUPED_CONTROL}
+              />
             )}
             {/* Full screen is the window's, not the camera's – it stays */}
             {fullscreenAvailable && (

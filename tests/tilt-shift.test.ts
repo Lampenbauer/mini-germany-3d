@@ -1,6 +1,7 @@
 import { Math as CesiumMath, type PostProcessStage, type Viewer } from 'cesium'
 import { describe, expect, it } from 'vitest'
 import { TiltShiftEffect, tiltShiftStrength } from '@/map/TiltShiftEffect'
+import { DEFAULT_TILT_SHIFT_SETTINGS } from '@/lib/photo-settings'
 
 /** A pose the effect is meant for: a few hundred meters up, looking down. */
 const oblique = { pitchDeg: -45, heightMeters: 900 }
@@ -76,10 +77,14 @@ function effectHarness(groundHeight = 0) {
   } as unknown as Viewer
   const effect = new TiltShiftEffect(viewer, () => groundHeight)
   const composite = added[0]
+  // The blur is a composite of its own inside the outer one
+  const blur = composite.get(0) as unknown as { get(i: number): PostProcessStage }
   return {
     effect,
     camera,
     composite,
+    /** The three passes: blur x, blur y, composite. */
+    passes: { blurX: blur.get(0), blurY: blur.get(1), grade: composite.get(1) },
     /** Strength the grading pass would run with. */
     uniformStrength: () => composite.get(1).uniforms.u_strength as number,
   }
@@ -129,5 +134,61 @@ describe('TiltShiftEffect', () => {
     effect.update()
     expect(composite.enabled).toBe(false)
     expect(effect.strength).toBe(0)
+  })
+})
+
+describe('TiltShiftEffect settings', () => {
+  it('opens at the defaults of the photo settings', () => {
+    const { passes } = effectHarness()
+    const d = DEFAULT_TILT_SHIFT_SETTINGS
+    for (const stage of Object.values(passes)) {
+      expect(stage.uniforms.u_maxRadius).toBe(d.maxBlurRadius)
+      expect(stage.uniforms.u_bandHalfHeight).toBe(d.bandHalfHeight)
+      expect(stage.uniforms.u_bandFeather).toBe(d.bandFeather)
+      expect(stage.uniforms.u_focusY).toBe(d.focusY)
+    }
+    expect(passes.blurX.uniforms.u_highlightGain).toBe(d.highlightGain)
+    expect(passes.grade.uniforms.u_sharpen).toBe(d.sharpen)
+  })
+
+  it('pushes every knob into every pass that reads it', () => {
+    const { effect, passes } = effectHarness()
+    effect.setSettings({
+      enabled: true,
+      maxBlurRadius: 0.05,
+      bandHalfHeight: 0.1,
+      bandFeather: 0.3,
+      focusY: 0.6,
+      highlightGain: 4,
+      sharpen: 0.5,
+    })
+    expect(effect.enabled).toBe(true)
+    // The band is shared by all three – the blur sizes its disc by it,
+    // the composite decides where the sharp scene ends by it
+    for (const stage of Object.values(passes)) {
+      expect(stage.uniforms.u_maxRadius).toBe(0.05)
+      expect(stage.uniforms.u_bandHalfHeight).toBe(0.1)
+      expect(stage.uniforms.u_bandFeather).toBe(0.3)
+      expect(stage.uniforms.u_focusY).toBe(0.6)
+    }
+    expect(passes.blurX.uniforms.u_highlightGain).toBe(4)
+    expect(passes.blurY.uniforms.u_highlightGain).toBe(4)
+    expect(passes.grade.uniforms.u_sharpen).toBe(0.5)
+  })
+
+  it('never hands the shader a feather of zero', () => {
+    // (distance - band) / feather – a zero would be a division by zero
+    const { effect, passes } = effectHarness()
+    effect.setSettings({ ...DEFAULT_TILT_SHIFT_SETTINGS, bandFeather: 0 })
+    expect(passes.grade.uniforms.u_bandFeather as number).toBeGreaterThan(0)
+  })
+
+  it('switches the effect on and off through the settings too', () => {
+    const { effect, composite } = effectHarness()
+    effect.setSettings({ ...DEFAULT_TILT_SHIFT_SETTINGS, enabled: true })
+    expect(composite.enabled).toBe(true)
+    effect.setSettings({ ...DEFAULT_TILT_SHIFT_SETTINGS, enabled: false })
+    expect(composite.enabled).toBe(false)
+    expect(effect.enabled).toBe(false)
   })
 })

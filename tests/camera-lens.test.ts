@@ -123,6 +123,28 @@ describe('CameraLens', () => {
     expect(factors.reduce((a, b) => a * b, 1)).toBeCloseTo(1, 6)
   })
 
+  it('eases to any angle the photo popover asks for, and holds the framing', () => {
+    const { lens, fovDeg, factors, settle } = lensHarness(false)
+    lens.update()
+    lens.setFovDeg(40)
+    settle()
+    expect(lens.fovDeg).toBe(40)
+    expect(fovDeg()).toBeCloseTo(40, 6)
+    const total = factors.reduce((a, b) => a * b, 1)
+    expect(total).toBeCloseTo(framingFactor(config.camera.fovOffDeg, 40), 6)
+  })
+
+  it('keeps a requested angle inside the guard rails', () => {
+    const { lens, settle } = lensHarness(false)
+    lens.update()
+    lens.setFovDeg(5)
+    settle()
+    expect(lens.fovDeg).toBe(25)
+    lens.setFovDeg(120)
+    settle()
+    expect(lens.fovDeg).toBe(60)
+  })
+
   it('ignores a swap to the lens it already wears', () => {
     const { lens, factors, settle } = lensHarness()
     lens.update()

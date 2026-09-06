@@ -34,7 +34,8 @@ city is a folder, a `city.json` and a run of the data pipeline (see
 | Routes/lines on the map | Polylines at absolute terrain heights in line colors (clamped onto the tiles only for a dataset without heights); zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. The three readings – surface, underground, line diagram – are tabs at the foot of the map, exactly one lit, each reachable from each. `#…&view=linear` and `#…&view=underground` open straight into a reading; the surface needs no word |
 | Stops layer | One disc + name plate per stop position, the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins), stops disappear with their lines |
-| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the aperture button in the camera block and `tiltshift=1` turn it on – it is a lens on the map rather than a command to it, which is why it sits with the camera |
+| Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the switch in the photo popover (the aperture button in the camera block) and `tiltshift=1` turn it on, and the popover's knobs set its blur radius, sharp band, feather, focus line, bokeh weighting and sharpening – it is a lens on the map rather than a command to it, which is why it sits with the camera |
+| Photo mode | The aperture button in the camera block opens the camera the city is shot with: focal length (31–81 mm in 35 mm terms, a dolly zoom – see Field of view), exposure in EV stops, white balance in kelvin, contrast, saturation and a vignette – one post-process pass, skipped outright at the neutral settings – plus the miniature effect's switch and its own knobs. A reset button puts every knob back, and the button lights up while any of them stands off its default. Session state: only the miniature switch travels in the URL |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every OSM street lamp along the routes – in Rostock ~7000 of them from the city's open-data import, in Kiel ~1800 community-mapped ones; fades in with the sun ramp and out as the camera climbs |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – a departure whose vehicle is already on the map links straight to it |
@@ -128,7 +129,8 @@ VITE_CESIUM_ION_TOKEN=your-token
   up, where the group still clears the panel; below that the icons carry it
   alone. Arrow keys move between the tabs, Enter picks.
 - **Map controls:** at the lower right edge of the map, one block – compass,
-  2D/3D pitch toggle, camera reset, the miniature look, and full screen last.
+  2D/3D pitch toggle, camera reset, the photo mode (the miniature look lives in
+  its popover), and full screen last.
   All of it belongs to the map, so the diagram keeps only full screen.
 - **Weather popover:** upper right, the opposite corner from the camera controls
   – it dresses the map rather than commanding it. That corner belongs to the
@@ -149,12 +151,14 @@ VITE_CESIUM_ION_TOKEN=your-token
   weather to reach (offline, `?rain=0`, no endpoint) the session opens on the
   clear sky, the live tile is greyed out and the button shows its icon alone.
 - **Field of view:** 25° horizontal while the miniature look is on, Cesium's
-  60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), eased
-  between the two when the switch is flipped – and the camera walks along the
-  view axis as it goes, so the same ground stays in frame and only the
-  perspective flattens or steepens. A dolly zoom, in other words: the switch
-  shows the lens change the effect is built on instead of jumping somewhere
-  else. The miniature look lives on the long-lens end: a
+  60° default while it is off (`config.camera.fovDeg` / `fovOffDeg`), or any
+  angle between the two from the focal-length knob of the photo popover – eased
+  whenever it changes, and the camera walks along the view axis as it goes, so
+  the same ground stays in frame and only the perspective flattens or steepens.
+  A dolly zoom, in other words: the switch shows the lens change the effect is
+  built on instead of jumping somewhere else, and the knob turns it into a
+  slow one. The miniature switch brings its lens along; a focal length set by
+  hand is given up in the process. The miniature look lives on the long-lens end: a
   narrower angle keeps the foreground from looming and towers from leaning out of
   the frame, and it makes the tilt-shift band a better stand-in for a plane of
   focus – at 60° the blurred edges span 1.5× the depth of the sharp band, at 25°

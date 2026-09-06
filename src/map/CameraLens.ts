@@ -1,7 +1,8 @@
 /**
  * The lens the camera wears: the narrow one while the miniature look is
- * on, the plain wide one while it is off (see config.camera), eased from
- * one to the other in a few frames.
+ * on, the plain wide one while it is off (see config.camera), or any
+ * angle in between that the photo popover asks for – eased from one to
+ * the next in a few frames.
  *
  * Swapping the angle alone would swap what is in frame with it – the plain
  * lens takes in about twice the city, so the switch would drop the viewer
@@ -19,6 +20,7 @@
 
 import { Math as CesiumMath, PerspectiveFrustum, type Camera, type Viewer } from 'cesium'
 import { config } from '@/config'
+import { lensFovDeg } from '@/lib/photo-settings'
 import { clampFovDeg, framingDistanceScale, REFERENCE_FOV_DEG } from './camera-fov'
 
 /**
@@ -85,7 +87,7 @@ export class CameraLens {
     // The camera is built wearing the lens of the starting look – and
     // the home view, flown right after this, measures its distance
     // against exactly that.
-    this.applied = clampFovDeg(miniature ? config.camera.fovDeg : config.camera.fovOffDeg)
+    this.applied = lensFovDeg(miniature)
     this.target = this.applied
     this.from = this.applied
     const frustum = this.viewer.camera.frustum
@@ -94,9 +96,19 @@ export class CameraLens {
     }
   }
 
-  /** Which lens to wear from now on (see config.camera). */
+  /** The lens of a look: the long one with the miniature effect, the plain one without. */
   setMiniature(on: boolean): void {
-    const target = clampFovDeg(on ? config.camera.fovDeg : config.camera.fovOffDeg)
+    this.setFovDeg(lensFovDeg(on))
+  }
+
+  /**
+   * Any angle from now on, held inside the guard rails of camera-fov.ts
+   * – the focal length knob of the photo popover. Eased and dollied
+   * exactly like the swap between the two looks; a knob turned mid-ease
+   * restarts the ease from wherever the angle stands.
+   */
+  setFovDeg(fovDeg: number): void {
+    const target = clampFovDeg(fovDeg)
     if (target === this.target) return
     this.target = target
     // Before the first frame there is nothing to ease in front of, and

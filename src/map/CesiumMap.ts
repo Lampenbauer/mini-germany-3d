@@ -37,10 +37,12 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import { boundingBoxCenter, type BoundingBox, type City } from '@/lib/city'
+import type { PhotoSettings } from '@/lib/photo-settings'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
+import { PhotoGradeEffect } from './PhotoGradeEffect'
 import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
@@ -496,6 +498,8 @@ export class CesiumMap {
   private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
+  /** Exposure, white balance and picture grade (see PhotoGradeEffect). */
+  private readonly grade: PhotoGradeEffect
   /** Miniature look: band blur and toy grade (see TiltShiftEffect). */
   private readonly tiltShift: TiltShiftEffect
   /** Field of view and its dolly (see CameraLens). */
@@ -732,6 +736,12 @@ export class CesiumMap {
     // poses where it would look wrong: the ramps in TiltShiftEffect.update
     // disable the stages outright.
     const miniature = opts.tiltShift ?? config.camera.miniatureDefault
+    // The photo grade goes in first: post-process stages run in the order
+    // they are added, and the exposure belongs in front of the blur (see
+    // PhotoGradeEffect). Both open at their defaults – neutral, and off –
+    // where neither costs a pass; the popover changes them through
+    // setPhotoSettings.
+    this.grade = new PhotoGradeEffect(this.viewer)
     this.tiltShift = new TiltShiftEffect(this.viewer, () => this.defaultGroundHeight)
     this.tiltShift.setEnabled(miniature)
 
@@ -1800,10 +1810,16 @@ export class CesiumMap {
     }
   }
 
-  /** Miniature look on/off – the effect and the lens it is shot with. */
-  setTiltShift(enabled: boolean): void {
-    this.tiltShift.setEnabled(enabled)
-    this.lens.setMiniature(enabled)
+  /**
+   * The camera the city is shot with, as the photo popover has it: the
+   * lens (eased and dollied by CameraLens), the picture grade, and the
+   * miniature effect with its knobs. Applied whole – the settings object
+   * is the one source of truth, and pushing an unchanged value is cheap.
+   */
+  setPhotoSettings(settings: PhotoSettings): void {
+    this.grade.setSettings(settings)
+    this.tiltShift.setSettings(settings.tiltShift)
+    this.lens.setFovDeg(settings.fovDeg)
     this.requestRender()
   }
 

@@ -27,6 +27,11 @@
  * instead of averaging it into the grey around it, and those glowing
  * roofs and cars are most of what says "macro photo" to the eye.
  *
+ * The band, the blur radius, the bokeh weighting and the sharpening are
+ * knobs in the photo popover (see lib/photo-settings.ts); the toy grade
+ * and the vignette below are not – they are what makes the look the
+ * miniature look, and the photo grade has knobs of its own for the rest.
+ *
  * Cost when it is on: two blur passes over a quarter-size frame
  * (TEXTURE_SCALE 0.5 on both axes), plus one full-size composite pass
  * with a handful of taps. Off – switched off by the user, or ramped to
@@ -42,6 +47,7 @@ import {
   PostProcessStageSampleMode,
   type Viewer,
 } from 'cesium'
+import { DEFAULT_TILT_SHIFT_SETTINGS, type TiltShiftSettings } from '@/lib/photo-settings'
 
 /**
  * Resolution the blur runs at, as a fraction of the drawing buffer. Its
@@ -66,46 +72,12 @@ import {
 const TEXTURE_SCALE = 0.8
 
 /**
- * The band, in fractions of the viewport: how far from the focus line the
- * frame stays sharp, and how far it then takes to reach the full blur
- * radius. Their sum is measured against half the screen, so whatever is
- * left over at the top and bottom edges is the part that carries the
- * blur undiluted – raising either number leaves less of it.
- *
- * The radius grows linearly across the feather, as it does behind a real
- * lens: the circle of confusion is proportional to the distance from the
- * plane of focus. An eased ramp would keep the rows next to the band
- * nearly sharp and make the band look wider than it is set to.
+ * The band, the blur radius, the highlight weighting and the sharpening
+ * are the viewer's to set from the photo popover: they live in
+ * lib/photo-settings.ts (TiltShiftSettings, with what each one does),
+ * start at DEFAULT_TILT_SHIFT_SETTINGS and arrive here through
+ * setSettings. What follows are the parts that are not knobs.
  */
-const BAND_HALF_HEIGHT = 0.18
-const BAND_FEATHER = 0.44
-
-/**
- * Blur radius at the top and bottom edges, as a fraction of the viewport
- * height. Sized against the frame rather than in pixels: a bigger window
- * shows the same city bigger, and the discs have to scale with it or a
- * 4K display gets the blur of a thumbnail. 0.03 is 24 px on an 800 px
- * tall window – a strong blur, which is the point: the timid version
- * reads as a slightly soft photo, not as a model.
- */
-const MAX_BLUR_RADIUS = 0.03
-
-/**
- * How much brighter than average a highlight is weighted inside the
- * disc (1 = plain average). A lens does not average a bright roof into
- * the street around it, it spreads it into a bright disc – the bokeh.
- * Kept moderate: pushed further the blurred areas start to sparkle with
- * white squares.
- */
-const HIGHLIGHT_GAIN = 3.0
-
-/**
- * Unsharp-mask amount inside the band. A miniature photograph is not only
- * blurred outside the plane of focus, it is crisp inside it – the
- * contrast between the two is what the eye measures the depth by. Small:
- * the photo tiles are already sharp, this only crisps the edges.
- */
-const BAND_SHARPEN = 0.35
 
 /**
  * Color grade at full strength. Toy models are painted plastic under a
@@ -154,7 +126,7 @@ float circleOfConfusion(float y)
  * The weights are a wide Gaussian cut off at the radius, so the disc is
  * flat-topped with a soft rim – closer to a lens's aperture than the
  * pointed Gaussian a plain blur uses. Each tap is also weighted by its
- * own brightness (HIGHLIGHT_GAIN) and the sum renormalized, so a bright
+ * own brightness (u_highlightGain) and the sum renormalized, so a bright
  * spot pulls the disc towards its color instead of being averaged away.
  * The second pass reads the first's output, so a highlight spread along
  * x is spread again along y at its already-raised weight: a rounded
@@ -342,6 +314,11 @@ export class TiltShiftEffect {
   private readonly composite: PostProcessStageComposite
   /** Every stage that reads the strength; all get it pushed per frame. */
   private readonly strengthStages: readonly PostProcessStage[]
+  /** The two blur passes – the only readers of the highlight gain. */
+  private readonly blurStages: readonly PostProcessStage[]
+  /** The composite pass – the only reader of the sharpening amount. */
+  private readonly gradeStage: PostProcessStage
+  private settings: TiltShiftSettings = DEFAULT_TILT_SHIFT_SETTINGS
   private on = false
   /** Last strength pushed into the shaders (-1 = nothing pushed yet). */
   private appliedStrength = -1
@@ -356,28 +333,28 @@ export class TiltShiftEffect {
      */
     private readonly groundHeight: () => number,
   ) {
-    // The band, as the circle-of-confusion function reads it. The camera
-    // points at the middle of the screen, so the row that shows what the
-    // view is aimed at is the middle one: sharp there, blurred towards
-    // both edges.
+    // The band, as the circle-of-confusion function reads it: sharp along
+    // the focus row, blurred towards both edges. Built at the defaults;
+    // setSettings pushes whatever the viewer turns the knobs to.
+    const defaults = DEFAULT_TILT_SHIFT_SETTINGS
     const band = {
       u_strength: 0,
-      u_focusY: 0.5,
-      u_bandHalfHeight: BAND_HALF_HEIGHT,
-      u_bandFeather: BAND_FEATHER,
-      u_maxRadius: MAX_BLUR_RADIUS,
+      u_focusY: defaults.focusY,
+      u_bandHalfHeight: defaults.bandHalfHeight,
+      u_bandFeather: defaults.bandFeather,
+      u_maxRadius: defaults.maxBlurRadius,
     }
     const blurX = new PostProcessStage({
       name: 'mrt_tilt_shift_blur_x',
       fragmentShader: BLUR_SHADER,
-      uniforms: { ...band, u_direction: 0, u_highlightGain: HIGHLIGHT_GAIN },
+      uniforms: { ...band, u_direction: 0, u_highlightGain: defaults.highlightGain },
       textureScale: TEXTURE_SCALE,
       sampleMode: PostProcessStageSampleMode.LINEAR,
     })
     const blurY = new PostProcessStage({
       name: 'mrt_tilt_shift_blur_y',
       fragmentShader: BLUR_SHADER,
-      uniforms: { ...band, u_direction: 1, u_highlightGain: HIGHLIGHT_GAIN },
+      uniforms: { ...band, u_direction: 1, u_highlightGain: defaults.highlightGain },
       textureScale: TEXTURE_SCALE,
       sampleMode: PostProcessStageSampleMode.LINEAR,
     })
@@ -396,7 +373,7 @@ export class TiltShiftEffect {
         // texture – this is what lets the blur run at half size while the
         // pass reading it stays full size.
         u_blurTexture: blur.name,
-        u_sharpen: BAND_SHARPEN,
+        u_sharpen: defaults.sharpen,
         u_saturation: SATURATION,
         u_contrast: CONTRAST,
         u_vignette: VIGNETTE,
@@ -404,6 +381,8 @@ export class TiltShiftEffect {
       sampleMode: PostProcessStageSampleMode.LINEAR,
     })
     this.strengthStages = [blurX, blurY, grade]
+    this.blurStages = [blurX, blurY]
+    this.gradeStage = grade
 
     // inputPreviousStageTexture: false – both stages take the rendered
     // scene as their input. The grading pass needs the sharp original for
@@ -431,6 +410,36 @@ export class TiltShiftEffect {
       return
     }
     this.update()
+  }
+
+  /**
+   * The knobs, as the photo popover has them – pushed straight into the
+   * uniforms, on/off included. The pose ramp (update) is untouched: the
+   * settings say how the effect draws, the pose says how much of it.
+   */
+  setSettings(settings: TiltShiftSettings): void {
+    const previous = this.settings
+    this.settings = settings
+    if (settings.enabled !== this.on) this.setEnabled(settings.enabled)
+    if (
+      settings.focusY === previous.focusY &&
+      settings.bandHalfHeight === previous.bandHalfHeight &&
+      settings.bandFeather === previous.bandFeather &&
+      settings.maxBlurRadius === previous.maxBlurRadius &&
+      settings.highlightGain === previous.highlightGain &&
+      settings.sharpen === previous.sharpen
+    ) {
+      return
+    }
+    for (const stage of this.strengthStages) {
+      stage.uniforms.u_focusY = settings.focusY
+      stage.uniforms.u_bandHalfHeight = settings.bandHalfHeight
+      // A feather of zero would divide the circle of confusion by zero
+      stage.uniforms.u_bandFeather = Math.max(settings.bandFeather, 1e-3)
+      stage.uniforms.u_maxRadius = settings.maxBlurRadius
+    }
+    for (const stage of this.blurStages) stage.uniforms.u_highlightGain = settings.highlightGain
+    this.gradeStage.uniforms.u_sharpen = settings.sharpen
   }
 
   /**

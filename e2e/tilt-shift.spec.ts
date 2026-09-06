@@ -131,19 +131,19 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   await settled()
 
   // The look starts off (config.camera.miniatureDefault) and is switched
-  // on from the camera block at the lower right; on is the deviation, so
-  // it rides along in the URL. It is a lens on the map rather than a
-  // command to it, which is why it sits with the camera and not with the
-  // sky (see the weather popover).
-  const toggle = page.getByRole('button', { name: 'Show the miniature effect' })
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  // on from the photo popover in the camera block at the lower right; on
+  // is the deviation, so it rides along in the URL. It is a lens on the
+  // map rather than a command to it, which is why it sits with the
+  // camera and not with the sky (see the weather popover). The popover
+  // is DOM over the canvas, not part of the frame, so it can stay open
+  // while the canvas is read.
+  await page.getByRole('button', { name: 'Photo mode' }).click()
+  const toggle = page.getByRole('switch', { name: 'Show the miniature effect' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
   const withoutEffect = await steadyFrameDetail()
 
   await toggle.click()
-  await expect(page.getByRole('button', { name: 'Hide the miniature effect' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
   await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('tiltshift=1')
   // The three passes are compiled and running, and the camera pose is one
   // that carries the effect at all – without both, the frame below would
@@ -163,11 +163,61 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   const standsOut = (frame: { top: number; band: number }) => frame.band / frame.top
   expect(standsOut(withEffect)).toBeGreaterThan(standsOut(withoutEffect) * 3)
 
-  await page.getByRole('button', { name: 'Hide the miniature effect' }).click()
-  await expect(page.getByRole('button', { name: 'Show the miniature effect' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('tiltshift=')
+  expect(pageErrors).toEqual([])
+})
+
+/**
+ * Mean luminance of the rendered frame, 0 … 255 – read out of the canvas
+ * the same way frameDetail is, and for the same reasons.
+ */
+const frameLuminance = () =>
+  page.evaluate(() => {
+    const viewer = window.__cesiumViewer!
+    viewer.render()
+    const source = viewer.canvas
+    const copy = document.createElement('canvas')
+    copy.width = source.width
+    copy.height = source.height
+    const ctx = copy.getContext('2d')!
+    ctx.drawImage(source, 0, 0)
+    const { data } = ctx.getImageData(0, 0, source.width, source.height)
+    let sum = 0
+    for (let i = 0; i < data.length; i += 4) {
+      sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+    }
+    return sum / (data.length / 4)
+  })
+
+test('the photo grade brightens the frame at a raised exposure', async () => {
+  test.setTimeout(240_000)
+
+  // The grade is a fourth hand-written pass (see src/map/PhotoGradeEffect.ts),
+  // and it is compiled only once a knob leaves neutral – the test above
+  // never turns one, so a GLSL error in it would surface nowhere but here.
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  // Whatever the test above left open, start from a closed popover
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Photo mode' }).click()
+  const exposure = page.getByRole('slider', { name: 'Exposure' })
+  await expect(exposure).toHaveAttribute('aria-valuenow', '0')
+  const plain = await frameLuminance()
+
+  // Two stops up is four times the light – on the mostly dark offline
+  // globe that lifts the mean well clear of any noise in the readback
+  await exposure.focus()
+  await page.keyboard.press('End')
+  await expect(exposure).toHaveAttribute('aria-valuenow', '2')
+  // Polled: the pass is compiled asynchronously and skipped until it is
+  await expect.poll(frameLuminance, { timeout: 60_000 }).toBeGreaterThan(plain * 1.5)
+
+  // The reset button puts the knob – and the picture – back
+  await page.getByRole('button', { name: 'Reset to defaults' }).click()
+  await expect(exposure).toHaveAttribute('aria-valuenow', '0')
+  await expect.poll(frameLuminance, { timeout: 60_000 }).toBeLessThan(plain * 1.1)
   expect(pageErrors).toEqual([])
 })
