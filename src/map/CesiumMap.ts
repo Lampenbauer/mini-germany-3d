@@ -269,6 +269,29 @@ const SHADOW_MIN_CASTER_PX = 2
 const SHADOW_CASTER_WIDTH_M = 2.65
 
 /**
+ * How many tiles the tileset's tree may hold before a fresh copy takes
+ * its place (see replaceTileset). Cesium unloads tile CONTENT to stay
+ * inside cacheBytes, but never the tree itself: an external tileset,
+ * once fetched, keeps its subtree of Cesium3DTile objects for the life
+ * of the tileset, and Google's globe is stitched from hundreds of
+ * thousands of them. Measured 2026-09-05: a city's home view is ~31 000
+ * tiles, every city visited adds ~35–45 000 more at ~3 KB each, and a
+ * tour of seven cities stood at 282 000 tiles and a gigabyte of JS heap
+ * – towards V8's 4 GB ceiling the collector stutters the map into
+ * stop-motion, then the tab dies. Two cities' worth, generously.
+ */
+const TILE_TREE_LIMIT = 120_000
+
+/**
+ * How long after a city flight lands the old tileset stays up while the
+ * new one is still loading the arrival view, in ms. Past this the swap
+ * happens anyway – the old tileset carries the old city's tree, which
+ * is the thing being got rid of, and the tiles still missing arrive in
+ * the new one just as they would have in the old.
+ */
+const TILESET_SWAP_GRACE_MS = 6000
+
+/**
  * A flight to a webcam picture: looking this far down, from this many
  * half-diagonals of the picture away (scaled by the lens) – the picture
  * then spans a good third of the frame.
@@ -429,6 +452,21 @@ const STOP_FOCUS_PITCH = -55
 const sunPositionScratch = new Cartesian3()
 const sunTransformScratch = new Matrix3()
 
+/**
+ * The tileset's per-frame statistics – public in Cesium's JS API (the
+ * inspector reads them), missing from its TS typings.
+ */
+function tileStatistics(tileset: Cesium3DTileset): {
+  numberOfTilesTotal: number
+  numberOfTilesWithContentReady: number
+} {
+  return (
+    tileset as unknown as {
+      statistics: { numberOfTilesTotal: number; numberOfTilesWithContentReady: number }
+    }
+  ).statistics
+}
+
 
 
 
@@ -480,6 +518,15 @@ export class CesiumMap {
   private handler: ScreenSpaceEventHandler
   private destroyed = false
   private googleTileset: Cesium3DTileset | null = null
+  /**
+   * A fresh copy of the tileset warming up out of sight, the frames it
+   * has been given so far, and the moment it may take over regardless
+   * (see replaceTileset).
+   */
+  private replacement: { tileset: Cesium3DTileset; swapAfter: number; frames: number } | null =
+    null
+  /** A replacement is on its way from Ion – one at a time. */
+  private replacementInFlight = false
   /** Most recently measured plausible ground height – initial value for new vehicles. */
   private defaultGroundHeight: number
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
@@ -861,63 +908,80 @@ export class CesiumMap {
     return null
   }
 
+  /**
+   * A tileset the way this map wants it: Google's photorealistic tiles
+   * with the collision, shadow, LOD and memory settings below and the
+   * shared time-of-day shader. Built once at startup (loadGoogleTiles)
+   * and again for every replacement (replaceTileset), so the two can
+   * never drift apart. Not yet on the scene – the caller decides when.
+   */
+  private async createTileset(): Promise<Cesium3DTileset> {
+    const tileset = await createGooglePhotorealistic3DTileset()
+    // enableCollision: prevents the camera from getting below the tiles
+    tileset.enableCollision = true
+    // Receives the vehicles' shadows, casts none of its own: the photo
+    // texture already contains the survey flight's own shadows, and a
+    // second set from the simulated sun would contradict them building
+    // by building. It is also what keeps the shadow pass cheap.
+    tileset.shadows = ShadowMode.RECEIVE_ONLY
+    // Tile LOD budget. Screen-space error is measured in drawing-buffer
+    // pixels, so the budget scales with the pixel ratio to stay a
+    // constant CSS-pixel tolerance across displays. Cesium's default
+    // (16 CSS px equivalent) left mid-distance buildings visibly mushy
+    // at tilted views – tuned via the ?sse= override to 6 CSS px, the
+    // value where the middle distance reads as sharp. A tilted city
+    // view then needs roughly 1.1 GB of tile memory, still inside the
+    // cache budget below.
+    const TILE_SSE_CSS_PX = 6
+    tileset.maximumScreenSpaceError =
+      this.opts.maximumScreenSpaceError ?? TILE_SSE_CSS_PX * this.effectivePixelRatio
+    // Cesium's dynamic SSE (on by default) additionally relaxes the error
+    // budget for tiles far from a tilted camera by up to
+    // dynamicScreenSpaceErrorFactor pixels – and because the "street
+    // level" reference height comes from the global tileset's enormous
+    // bounding volume, the full effect applies even kilometers above the
+    // city, leaving the horizon visibly mushy. A factor of 6 instead of
+    // 24 keeps some horizon savings without the smeared backdrop;
+    // 0 would disable the optimization entirely.
+    tileset.dynamicScreenSpaceErrorFactor = 6
+    // Tile memory budget. With the default 512 MB cache (+512 MB
+    // overflow) a tilted city view exceeds the limit, and Cesium then
+    // raises the EFFECTIVE screen-space error by 2 % per frame
+    // (memoryAdjustedScreenSpaceError) until the view fits – silently
+    // overriding every SSE setting above and leaving distant tiles far
+    // coarser than configured, no matter how the knobs are tuned. Give
+    // the photorealistic tileset a budget that matches its appetite,
+    // scaled down for low-memory devices (navigator.deviceMemory is in
+    // GB and Chrome-only, capped at 8; elsewhere assume mid-range).
+    const deviceMemoryGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 4
+    tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
+    tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
+    // Day/night ambience following the simulated time (see setSceneTime).
+    // One shader for every tileset this map ever holds: the two overcast
+    // uniforms are driven by the weather overlay, which pushes its current
+    // grades as soon as it gets the shader, the underground flag is set on
+    // it as well – a replacement inherits all of it with the object.
+    this.tileShader ??= new CustomShader({
+      fragmentShaderText: TIME_OF_DAY_SHADER,
+      uniforms: {
+        [RAIN_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
+        [CLOUD_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
+        u_underground: { type: UniformType.FLOAT, value: this.underground ? 1 : 0 },
+        u_undergroundDim: { type: UniformType.FLOAT, value: UNDERGROUND_DIM },
+      },
+    })
+    tileset.customShader = this.tileShader
+    return tileset
+  }
+
   private async loadGoogleTiles(): Promise<void> {
     try {
-      const tileset = await createGooglePhotorealistic3DTileset()
-      if (this.destroyed) return
-      // enableCollision: prevents the camera from getting below the tiles
-      tileset.enableCollision = true
-      // Receives the vehicles' shadows, casts none of its own: the photo
-      // texture already contains the survey flight's own shadows, and a
-      // second set from the simulated sun would contradict them building
-      // by building. It is also what keeps the shadow pass cheap.
-      tileset.shadows = ShadowMode.RECEIVE_ONLY
-      // Tile LOD budget. Screen-space error is measured in drawing-buffer
-      // pixels, so the budget scales with the pixel ratio to stay a
-      // constant CSS-pixel tolerance across displays. Cesium's default
-      // (16 CSS px equivalent) left mid-distance buildings visibly mushy
-      // at tilted views – tuned via the ?sse= override to 6 CSS px, the
-      // value where the middle distance reads as sharp. A tilted city
-      // view then needs roughly 1.1 GB of tile memory, still inside the
-      // cache budget below.
-      const TILE_SSE_CSS_PX = 6
-      tileset.maximumScreenSpaceError =
-        this.opts.maximumScreenSpaceError ?? TILE_SSE_CSS_PX * this.effectivePixelRatio
-      // Cesium's dynamic SSE (on by default) additionally relaxes the error
-      // budget for tiles far from a tilted camera by up to
-      // dynamicScreenSpaceErrorFactor pixels – and because the "street
-      // level" reference height comes from the global tileset's enormous
-      // bounding volume, the full effect applies even kilometers above the
-      // city, leaving the horizon visibly mushy. A factor of 6 instead of
-      // 24 keeps some horizon savings without the smeared backdrop;
-      // 0 would disable the optimization entirely.
-      tileset.dynamicScreenSpaceErrorFactor = 6
-      // Tile memory budget. With the default 512 MB cache (+512 MB
-      // overflow) a tilted city view exceeds the limit, and Cesium then
-      // raises the EFFECTIVE screen-space error by 2 % per frame
-      // (memoryAdjustedScreenSpaceError) until the view fits – silently
-      // overriding every SSE setting above and leaving distant tiles far
-      // coarser than configured, no matter how the knobs are tuned. Give
-      // the photorealistic tileset a budget that matches its appetite,
-      // scaled down for low-memory devices (navigator.deviceMemory is in
-      // GB and Chrome-only, capped at 8; elsewhere assume mid-range).
-      const deviceMemoryGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 4
-      tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
-      tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
-      // Day/night ambience following the simulated time (see setSceneTime).
-      // The two overcast uniforms are driven by the weather overlay, which
-      // pushes its current grades as soon as it gets the shader.
-      this.tileShader = new CustomShader({
-        fragmentShaderText: TIME_OF_DAY_SHADER,
-        uniforms: {
-          [RAIN_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
-          [CLOUD_UNIFORM]: { type: UniformType.FLOAT, value: 0 },
-          u_underground: { type: UniformType.FLOAT, value: this.underground ? 1 : 0 },
-          u_undergroundDim: { type: UniformType.FLOAT, value: UNDERGROUND_DIM },
-        },
-      })
+      const tileset = await this.createTileset()
+      if (this.destroyed) {
+        tileset.destroy()
+        return
+      }
       this.weather.attachTileShader(this.tileShader)
-      tileset.customShader = this.tileShader
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
@@ -939,6 +1003,97 @@ export class CesiumMap {
       )
       this.requestRender()
       this.opts.onTilesetStatus?.('failed')
+    }
+  }
+
+  /**
+   * Starts a fresh copy of the tileset that loads out of sight and takes
+   * the current one's place once it holds the current view – or after
+   * `deadlineMs`, whichever comes first (see tendTileset).
+   *
+   * Why replace a tileset at all: Cesium's tile cache unloads content,
+   * never the tree of tile objects, so a session that moves from city to
+   * city keeps every subtree it ever touched until the tab runs out of
+   * heap (see TILE_TREE_LIMIT). Destroying the tileset is the one way to
+   * let a tree go, and a hidden replacement warming up first is what
+   * keeps the swap from showing as a blank city.
+   *
+   * One at a time: a call while one is under way only moves its deadline
+   * closer, never further. A failed creation (network) keeps the old
+   * tileset and tries again on the next occasion.
+   */
+  private replaceTileset(deadlineMs: number): void {
+    if (this.destroyed || !this.googleTileset) return
+    if (this.replacement) {
+      this.armTilesetSwap(deadlineMs)
+      return
+    }
+    if (this.replacementInFlight) return
+    this.replacementInFlight = true
+    const swapAfter = performance.now() + deadlineMs
+    void this.createTileset()
+      .then((tileset) => {
+        this.replacementInFlight = false
+        if (this.destroyed) {
+          tileset.destroy()
+          return
+        }
+        tileset.show = false
+        tileset.preloadWhenHidden = true
+        this.viewer.scene.primitives.add(tileset)
+        this.replacement = { tileset, swapAfter, frames: 0 }
+        this.requestRender()
+      })
+      .catch((error: unknown) => {
+        this.replacementInFlight = false
+        // The current one stays, flight preloads and all (see setCity)
+        if (this.googleTileset) this.googleTileset.preloadFlightDestinations = true
+        console.warn('[MiniGermany3D] Tileset rebuild failed, keeping the current one:', error)
+      })
+  }
+
+  /** Brings a running replacement's deadline forward to `inMs` from now. */
+  private armTilesetSwap(inMs: number): void {
+    const swapAfter = performance.now() + inMs
+    if (this.replacement) {
+      this.replacement.swapAfter = Math.min(this.replacement.swapAfter, swapAfter)
+    } else {
+      this.replaceTileset(inMs)
+    }
+  }
+
+  /**
+   * Per rendered frame: swaps a replacement in once it is ready, and
+   * starts one when the tree has outgrown its limit. Ready means the
+   * hidden tileset reports every tile of the current view loaded – its
+   * traversal only advances with rendered frames, which getRenderHints
+   * keeps coming, and tilesLoaded reads true before the first traversal
+   * has requested anything, hence the few frames of patience.
+   */
+  private tendTileset(): void {
+    const current = this.googleTileset
+    if (!current) return
+    const replacement = this.replacement
+    if (replacement) {
+      replacement.frames++
+      const { tileset } = replacement
+      const ready =
+        replacement.frames >= 3 &&
+        tileset.tilesLoaded &&
+        tileStatistics(tileset).numberOfTilesWithContentReady > 0
+      if (!ready && performance.now() < replacement.swapAfter) return
+      this.replacement = null
+      tileset.preloadWhenHidden = false
+      tileset.show = true
+      this.googleTileset = tileset
+      // remove() destroys the old tileset, tree and all
+      this.viewer.scene.primitives.remove(current)
+      this.requestRender()
+      return
+    }
+    if (tileStatistics(current).numberOfTilesTotal > TILE_TREE_LIMIT) {
+      // Swap when the copy has caught up with the view; a minute at most
+      this.replaceTileset(60_000)
     }
   }
 
@@ -976,6 +1131,10 @@ export class CesiumMap {
     if (transition === 'jump') {
       this.cameraLimits = limits
       this.setCameraHome(false)
+      // A fresh tileset for the new place, at once: the old one would
+      // load the same tiles for the same view, on top of the tree it
+      // carries from the place left behind (see replaceTileset).
+      this.replaceTileset(0)
       this.scheduleGroundBootstrap(500)
       return
     }
@@ -999,12 +1158,23 @@ export class CesiumMap {
       if (this.destroyed || this.city !== city) return
       this.cameraLimits = limits
       this.enforceCameraLimits()
-      // The tiles of the city left behind are not coming back; free
-      // their memory now instead of letting the cache evict them slowly.
-      this.googleTileset?.trimLoadedTiles()
+      // The city left behind is not coming back, and neither is its tile
+      // tree: the fresh tileset started with the flight takes over as
+      // soon as it has the arrival view, or after the grace period.
+      this.armTilesetSwap(TILESET_SWAP_GRACE_MS)
       this.scheduleGroundBootstrap(500)
       this.requestRender()
     }
+    // The replacement loads the destination out of sight during the
+    // flight (preloadWhenHidden + preloadFlightDestinations), so the
+    // arrival finds its tiles there – not blank where the old tileset
+    // would have had them. The old one gives up preloading the same
+    // destination: it is not going to show it, and its tree is the big
+    // one to traverse – with both of them at it, the flight cost ~25
+    // points more of the main thread (measured 2026-09-05). Should the
+    // replacement fail to come, replaceTileset hands the job back.
+    if (this.googleTileset) this.googleTileset.preloadFlightDestinations = false
+    this.replaceTileset(duration * 1000 + 500 + TILESET_SWAP_GRACE_MS)
     this.viewer.camera.flyTo({ destination, orientation, duration, complete: arrive, cancel: arrive })
   }
 
@@ -1830,6 +2000,7 @@ export class CesiumMap {
     this.lens.update()
     this.tiltShift.update()
     this.updateSkyVisibility()
+    this.tendTileset()
     this.viewer.render()
     // What this frame showed is the reference for the next one's motion
     this.vehicleLayer.markRendered()
@@ -1913,8 +2084,11 @@ export class CesiumMap {
     const now = performance.now()
     const interacting = now - this.lastInteractionAt < 2500 || now < this.flyingUntil
     const scene = this.viewer.scene
+    // A replacement warming up counts too: its traversal, like any
+    // tileset's, only advances with rendered frames (see tendTileset).
     const tilesLoading =
       (this.googleTileset !== null && !this.googleTileset.tilesLoaded) ||
+      (this.replacement !== null && !this.replacement.tileset.tilesLoaded) ||
       (scene.globe.show && !scene.globe.tilesLoaded)
     return { interacting, tilesLoading }
   }
@@ -1978,6 +2152,10 @@ export class CesiumMap {
     cacheMB: number
     configuredSse: number
     effectiveSse: number
+    /** Tile objects in the tree – the thing replaceTileset keeps bounded. */
+    tilesTotal: number
+    /** A hidden replacement is warming up (see replaceTileset). */
+    replacing: boolean
   } | null {
     const tileset = this.googleTileset
     if (!tileset) return null
@@ -1990,6 +2168,8 @@ export class CesiumMap {
       cacheMB: Math.round(tileset.cacheBytes / 1024 / 1024),
       configuredSse: Math.round(tileset.maximumScreenSpaceError * 10) / 10,
       effectiveSse: Math.round(effectiveSse * 10) / 10,
+      tilesTotal: tileStatistics(tileset).numberOfTilesTotal,
+      replacing: this.replacement !== null || this.replacementInFlight,
     }
   }
 

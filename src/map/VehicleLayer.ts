@@ -52,6 +52,25 @@ import { tunnelOpacity } from './tunnel-view'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 
+/**
+ * A rendered line badge, shared by every vehicle of that line (and delay).
+ *
+ * `image` is the badge as a data URL rather than the canvas it was drawn
+ * on, and that is the whole point: Cesium keys a billboard's image in the
+ * texture atlas by the URL when it gets one, but a canvas gets a fresh
+ * GUID per billboard, and a texture atlas never gives a region back. With
+ * canvases every vehicle that ever started a trip left its own copy of
+ * the badge in the atlas – measured 2026-09-05 in Berlin at 60× speed:
+ * one atlas image per trip, the atlas texture growing from 2048² to
+ * 4096² in two minutes and on towards the 16384² the GPU allows. Keyed
+ * by URL, a line's badge is in the atlas once.
+ */
+interface LineBadge {
+  image: string
+  width: number
+  height: number
+}
+
 /** The badge floats this many CSS pixels above the vehicle (negative = up). */
 const BADGE_PIXEL_OFFSET_Y = -30
 /** The badge's extent on screen for the picture test: half its width and its height in CSS px. */
@@ -548,7 +567,7 @@ export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delay
 export class VehicleLayer {
   private vehicles = new Map<string, VehicleRecord>()
   /** Rendered line badges (rounded rectangle + line number), one per line. */
-  private badgeCache = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>()
+  private badgeCache = new Map<string, LineBadge>()
   private selectedId: string | null = null
   private followId: string | null = null
   private readonly followCamera: FollowCamera
@@ -800,7 +819,7 @@ export class VehicleLayer {
         const badge = this.lineBadge(snap.lineId, record.baseColor, delaySuffix)
         const billboard = record.labelEntity.billboard
         if (badge && billboard) {
-          billboard.image = new ConstantProperty(badge.canvas)
+          billboard.image = new ConstantProperty(badge.image)
           billboard.width = new ConstantProperty(badge.width)
           billboard.height = new ConstantProperty(badge.height)
         } else if (record.labelEntity.label) {
@@ -1077,11 +1096,7 @@ export class VehicleLayer {
    * Returns undefined where no 2D canvas is available (jsdom) – the caller
    * then falls back to a plain text label.
    */
-  private lineBadge(
-    lineId: string,
-    color: Color,
-    delaySuffix = '',
-  ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
+  private lineBadge(lineId: string, color: Color, delaySuffix = ''): LineBadge | undefined {
     // ??= : prototype-based test instances skip the class field initializers
     this.badgeCache ??= new Map()
     const cacheKey = delaySuffix ? `${lineId}|${delaySuffix}` : lineId
@@ -1129,7 +1144,11 @@ export class VehicleLayer {
       ctx.fillText(delaySuffix, textX + textWidth + suffixGap, textY)
     }
 
-    const entry = { canvas, width: width / ratio, height: height / ratio }
+    const entry: LineBadge = {
+      image: canvas.toDataURL('image/png'),
+      width: width / ratio,
+      height: height / ratio,
+    }
     this.badgeCache.set(cacheKey, entry)
     return entry
   }
@@ -1219,7 +1238,7 @@ export class VehicleLayer {
       ...(badge
         ? {
             billboard: {
-              image: badge.canvas,
+              image: badge.image,
               width: badge.width,
               height: badge.height,
               color: Color.WHITE.withAlpha(alpha),

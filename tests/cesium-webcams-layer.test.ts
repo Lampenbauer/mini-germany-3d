@@ -29,7 +29,16 @@ function webcam(id: number, image = `https://img.example/${id}.jpg`): Webcam {
 function harness(pictures: Record<string, { width: number; height: number }>, groundHeight?: number) {
   const primitives: unknown[] = []
   const viewer = {
-    scene: { primitives: { add: (p: unknown) => primitives.push(p) } },
+    scene: {
+      primitives: {
+        add: (p: unknown) => primitives.push(p),
+        remove: (p: unknown) => {
+          const index = primitives.indexOf(p)
+          if (index >= 0) primitives.splice(index, 1)
+          return index >= 0
+        },
+      },
+    },
     creditDisplay: { addStaticCredit: vi.fn(), removeStaticCredit: vi.fn() },
   } as unknown as Viewer
   const sampleGroundHeight = vi.fn<(lon: number, lat: number) => number | undefined>(

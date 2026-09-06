@@ -256,7 +256,14 @@ export class WebcamsLayer {
 
   /** Takes every camera off the map (the map is moving on to another city). */
   clear(): void {
-    this.collection?.removeAll()
+    // The whole collection goes, not just its billboards: a collection's
+    // texture atlas only ever grows (every picture ever set stays in it,
+    // and the pictures change with each poll), so the city's pictures are
+    // let go of with the city. sync() builds a fresh one for the next.
+    if (this.collection) {
+      this.viewer.scene.primitives.remove(this.collection)
+      this.collection = null
+    }
     this.records.clear()
     this.rectsDirty = true
     this.applyCredit()

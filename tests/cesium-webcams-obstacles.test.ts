@@ -68,7 +68,16 @@ describe('WebcamsLayer.screenRects', () => {
     const camera = { viewMatrix: Matrix4.clone(Matrix4.IDENTITY) }
     const viewer = {
       camera,
-      scene: { primitives: { add: (p: unknown) => primitives.push(p) } },
+      scene: {
+        primitives: {
+          add: (p: unknown) => primitives.push(p),
+          remove: (p: unknown) => {
+            const index = primitives.indexOf(p)
+            if (index >= 0) primitives.splice(index, 1)
+            return index >= 0
+          },
+        },
+      },
       creditDisplay: { addStaticCredit: vi.fn(), removeStaticCredit: vi.fn() },
     } as unknown as Viewer
     const windowPosition = vi.fn(() => new Cartesian2(500, 300))
