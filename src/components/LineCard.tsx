@@ -2,6 +2,7 @@ import { ArrowLeftRight, ArrowRight, Crosshair, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { MODE_ICON } from '@/components/mode-icon'
 import { formatDelay } from '@/components/VehicleCard'
 import { MODE_KEY, t } from '@/lib/i18n'
@@ -184,52 +185,55 @@ export function LineCard({
           )}
         </div>
         {byDirection.length > 0 && (
-          <div
-            className="scroll-fade-y flex max-h-48 flex-col gap-1 overflow-y-auto"
+          <ScrollArea
+            className="max-h-48"
+            viewportClassName="scroll-fade-y"
             data-testid="line-vehicles"
           >
-            {byDirection.map((group) => (
-              <div key={group.direction} className="flex flex-col">
-                <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-                  <ArrowRight className="size-3 shrink-0" aria-hidden />
-                  {group.destination}
-                </span>
-                <ol className="flex flex-col">
-                  {group.vehicles.map((v) => {
-                    // Where it is, in one phrase – the row's text and its
-                    // accessible name say the same thing.
-                    const position =
-                      v.status === 'dwell'
-                        ? t('line.atStop', { name: v.nextStopName })
-                        : t('line.towards', { name: v.nextStopName })
-                    return (
-                      <li key={v.id}>
-                        {/* Every vehicle here is on the map by definition, so
-                            unlike the stop card's departures each row is a link. */}
-                        <button
-                          type="button"
-                          className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
-                          onClick={() => onSelectVehicle(v.id)}
-                          aria-label={t('line.showVehicle', {
-                            name: position,
-                            destination: group.destination,
-                          })}
-                        >
-                          <ModeIcon className="size-3.5 shrink-0" aria-hidden />
-                          <span className="min-w-0 flex-1 truncate text-sm">{position}</span>
-                          {v.realtime && (
-                            <Badge variant="secondary" className="shrink-0 text-[10px]">
-                              {formatDelay(v.delaySeconds)}
-                            </Badge>
-                          )}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ol>
-              </div>
-            ))}
-          </div>
+            <div className="flex flex-col gap-1">
+              {byDirection.map((group) => (
+                <div key={group.direction} className="flex flex-col">
+                  <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                    <ArrowRight className="size-3 shrink-0" aria-hidden />
+                    {group.destination}
+                  </span>
+                  <ol className="flex flex-col">
+                    {group.vehicles.map((v) => {
+                      // Where it is, in one phrase – the row's text and its
+                      // accessible name say the same thing.
+                      const position =
+                        v.status === 'dwell'
+                          ? t('line.atStop', { name: v.nextStopName })
+                          : t('line.towards', { name: v.nextStopName })
+                      return (
+                        <li key={v.id}>
+                          {/* Every vehicle here is on the map by definition, so
+                              unlike the stop card's departures each row is a link. */}
+                          <button
+                            type="button"
+                            className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+                            onClick={() => onSelectVehicle(v.id)}
+                            aria-label={t('line.showVehicle', {
+                              name: position,
+                              destination: group.destination,
+                            })}
+                          >
+                            <ModeIcon className="size-3.5 shrink-0" aria-hidden />
+                            <span className="min-w-0 flex-1 truncate text-sm">{position}</span>
+                            {v.realtime && (
+                              <Badge variant="secondary" className="shrink-0 text-[10px]">
+                                {formatDelay(v.delaySeconds)}
+                              </Badge>
+                            )}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
         )}
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onFlyTo}>

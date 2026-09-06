@@ -3,6 +3,7 @@ import { ArrowRight, Crosshair, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
@@ -204,72 +205,74 @@ export function VehicleCard({
             // marker sits on that segment at its current travel progress
             // (on the dot itself while dwelling). Served stops are dimmed;
             // the destination dot is filled in the line color.
-            <ol
-              ref={listRef}
-              className="scroll-fade-y flex max-h-52 flex-col overflow-y-auto text-sm"
+            <ScrollArea
+              className="max-h-52"
+              viewportClassName="scroll-fade-y"
               data-testid="vehicle-trip-stops"
             >
-              {stops.map((stop, index) => {
-                const isLast = index === stops.length - 1
-                const hasMarker = index === markerIndex
-                return (
-                  <li
-                    key={`${index}-${stop.name}`}
-                    className="relative"
-                    data-vehicle-position={hasMarker ? 'true' : undefined}
-                  >
-                    <button
-                      type="button"
-                      className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent/60"
-                      aria-label={t('vehicle.flyToStop', { name: stop.name })}
-                      title={t('vehicle.flyToThisStop')}
-                      onClick={() => onFlyToStop(stop)}
+              <ol ref={listRef} className="flex flex-col text-sm">
+                {stops.map((stop, index) => {
+                  const isLast = index === stops.length - 1
+                  const hasMarker = index === markerIndex
+                  return (
+                    <li
+                      key={`${index}-${stop.name}`}
+                      className="relative"
+                      data-vehicle-position={hasMarker ? 'true' : undefined}
                     >
-                      <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>
-                        {/* Segment to the next stop (dot center to dot center) */}
-                        {!isLast && (
-                          <span className="absolute -bottom-2.5 left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-border" />
-                        )}
-                        <span
-                          className={`relative mt-[5px] size-2.5 rounded-full border-2 bg-card ${
-                            stop.passed && !hasMarker ? 'opacity-40' : ''
-                          }`}
-                          style={{
-                            borderColor: vehicle.color,
-                            backgroundColor: isLast ? vehicle.color : undefined,
-                          }}
-                        />
-                        {hasMarker && (
+                      <button
+                        type="button"
+                        className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent/60"
+                        aria-label={t('vehicle.flyToStop', { name: stop.name })}
+                        title={t('vehicle.flyToThisStop')}
+                        onClick={() => onFlyToStop(stop)}
+                      >
+                        <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>
+                          {/* Segment to the next stop (dot center to dot center) */}
+                          {!isLast && (
+                            <span className="absolute -bottom-2.5 left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-border" />
+                          )}
                           <span
-                            data-testid="vehicle-position"
-                            className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background"
+                            className={`relative mt-[5px] size-2.5 rounded-full border-2 bg-card ${
+                              stop.passed && !hasMarker ? 'opacity-40' : ''
+                            }`}
                             style={{
-                              top: `calc(${markerFraction * 100}% + 0.625rem)`,
-                              backgroundColor: vehicle.color,
+                              borderColor: vehicle.color,
+                              backgroundColor: isLast ? vehicle.color : undefined,
                             }}
                           />
-                        )}
-                      </span>
-                      <span
-                        className={`flex min-w-0 items-baseline gap-2 pb-2 ${
-                          stop.passed ? 'opacity-50' : ''
-                        }`}
-                      >
-                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                          {formatArrival(stop.arrivalSec)}
+                          {hasMarker && (
+                            <span
+                              data-testid="vehicle-position"
+                              className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background"
+                              style={{
+                                top: `calc(${markerFraction * 100}% + 0.625rem)`,
+                                backgroundColor: vehicle.color,
+                              }}
+                            />
+                          )}
                         </span>
                         <span
-                          className="truncate"
-                          data-testid={index === nextIndex ? 'vehicle-next-stop' : undefined}
+                          className={`flex min-w-0 items-baseline gap-2 pb-2 ${
+                            stop.passed ? 'opacity-50' : ''
+                          }`}
                         >
-                          {stop.name}
+                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                            {formatArrival(stop.arrivalSec)}
+                          </span>
+                          <span
+                            className="truncate"
+                            data-testid={index === nextIndex ? 'vehicle-next-stop' : undefined}
+                          >
+                            {stop.name}
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            </ScrollArea>
           ) : (
             // No timetable window (edge case) – at least name the next stop
             <span className="text-sm" data-testid="vehicle-next-stop">

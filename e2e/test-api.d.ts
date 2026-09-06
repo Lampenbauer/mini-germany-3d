@@ -49,6 +49,7 @@ declare global {
       realtimeStatus: () => { state: string; matchedCount: number } | null
       lineIds: () => string[]
       secondsOfDay: () => number
+      speed: () => number
       loopTicks: () => number
       lastLoopError: () => string | null
       vehicleBoxDriftMeters: () => number

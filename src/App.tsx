@@ -113,6 +113,8 @@ export interface MrtTestApi {
   realtimeStatus: () => RealtimeStatus | null
   lineIds: () => string[]
   secondsOfDay: () => number
+  /** The time-lapse factor the clock runs at (1 = real time). */
+  speed: () => number
   loopTicks: () => number
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
@@ -1333,6 +1335,7 @@ export default function App() {
       realtimeStatus: () => realtimeStatusRef.current,
       lineIds: () => cityDataRef.current?.network.lines.map((l) => l.id) ?? [],
       secondsOfDay: () => clock.secondsOfDay(),
+      speed: () => clock.speed,
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
@@ -2082,7 +2085,15 @@ export default function App() {
   }, [])
 
   const handleResetTime = useCallback(() => {
-    clockRef.current?.resetToRealTime()
+    const clock = clockRef.current
+    if (!clock) return
+    clock.resetToRealTime()
+    // "Now" means now at real pace: a time-lapse left running would race
+    // away from the moment just jumped to before it could be looked at.
+    if (clock.speed !== 1) {
+      clock.setSpeed(1)
+      setSpeed(1)
+    }
   }, [])
 
   const handleToggleFollow = useCallback(() => {

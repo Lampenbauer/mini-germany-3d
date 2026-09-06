@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MODE_ICON } from '@/components/mode-icon'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
 import {
   Accordion,
@@ -226,23 +227,25 @@ const WebcamsRow = memo(function WebcamsRow(props: {
           />
         </div>
         <AccordionContent className="pt-1.5 pb-0">
-          <ul className="scroll-fade-y flex max-h-48 flex-col gap-1 overflow-y-auto pl-5">
-            {props.webcams.map((webcam) => (
-              <li key={webcam.id}>
-                <button
-                  type="button"
-                  className="-mx-1 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
-                  aria-label={t('webcams.flyTo', { name: webcam.title })}
-                  title={webcam.title}
-                  disabled={props.disabled}
-                  onClick={() => props.onFlyToWebcam(webcam.id)}
-                >
-                  <Camera className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-sm leading-tight">{webcam.title}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <ScrollArea className="max-h-48" viewportClassName="scroll-fade-y">
+            <ul className="flex flex-col pl-5">
+              {props.webcams.map((webcam) => (
+                <li key={webcam.id}>
+                  <button
+                    type="button"
+                    className="-mx-1 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
+                    aria-label={t('webcams.flyTo', { name: webcam.title })}
+                    title={webcam.title}
+                    disabled={props.disabled}
+                    onClick={() => props.onFlyToWebcam(webcam.id)}
+                  >
+                    <Camera className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="truncate text-sm leading-tight">{webcam.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
         </AccordionContent>
       </AccordionItem>
     </Accordion>
@@ -495,67 +498,70 @@ export function ControlPanel(props: ControlPanelProps) {
                 the vehicle card's stop list uses) signals what is cut off. */}
             <div className="flex min-h-0 flex-1 flex-col gap-2">
               <div className="text-sm font-medium">{t('traffic.title')}</div>
-              <div
-                className="scroll-fade-y flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+              <ScrollArea
+                className="min-h-0 flex-1"
+                viewportClassName="scroll-fade-y"
                 data-testid="line-list"
               >
-                {lineGroups.map((g) => (
-                  <LineGroup
-                    key={g.mode}
-                    mode={g.mode}
-                    lines={g.lines}
-                    showHeader={lineGroups.length > 1}
-                    onToggleLine={props.onToggleLine}
-                    onFocusLine={props.onFocusLine}
-                    onSetLinesVisible={props.onSetLinesVisible}
-                  />
-                ))}
-                {/* The AIS fleet closes the list, after the ferries it
-                    shares the water with. Styled as a group header rather
-                    than a line row because that is what it is – a whole
-                    category behind one switch – and it carries a subtitle
-                    the mode groups do not need: "AIS" says nothing to
-                    anyone who has not met the acronym. */}
-                {props.aisAvailable && (
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        <Ship className="size-3.5" aria-hidden />
-                        {t('traffic.ais')}
-                      </span>
-                      <Switch
-                        aria-label={t('traffic.showAis')}
-                        checked={props.showAisVessels}
-                        onCheckedChange={props.onToggleAisVessels}
-                      />
+                <div className="flex flex-col gap-2">
+                  {lineGroups.map((g) => (
+                    <LineGroup
+                      key={g.mode}
+                      mode={g.mode}
+                      lines={g.lines}
+                      showHeader={lineGroups.length > 1}
+                      onToggleLine={props.onToggleLine}
+                      onFocusLine={props.onFocusLine}
+                      onSetLinesVisible={props.onSetLinesVisible}
+                    />
+                  ))}
+                  {/* The AIS fleet closes the list, after the ferries it
+                      shares the water with. Styled as a group header rather
+                      than a line row because that is what it is – a whole
+                      category behind one switch – and it carries a subtitle
+                      the mode groups do not need: "AIS" says nothing to
+                      anyone who has not met the acronym. */}
+                  {props.aisAvailable && (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          <Ship className="size-3.5" aria-hidden />
+                          {t('traffic.ais')}
+                        </span>
+                        <Switch
+                          aria-label={t('traffic.showAis')}
+                          checked={props.showAisVessels}
+                          onCheckedChange={props.onToggleAisVessels}
+                        />
+                      </div>
+                      {/* pl-5 lines the hint up with the label above it, past
+                          the icon (size-3.5) and its gap-1.5. The note behind
+                          the ⓘ is the one thing about this layer that surprises
+                          people: every other moving thing on the map obeys the
+                          panel's clock, and the ships do not. A real button, so
+                          the keyboard reaches the note too – Radix opens the
+                          tooltip on focus as well as on hover. */}
+                      <div className="flex items-center gap-1 pl-5 text-xs leading-tight text-muted-foreground">
+                        {t('traffic.aisHint')}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="cursor-help rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+                              aria-label={t('traffic.aisClockLabel')}
+                            >
+                              <Info className="size-3.5" aria-hidden />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-56">
+                            {t('traffic.aisClockNote')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
-                    {/* pl-5 lines the hint up with the label above it, past
-                        the icon (size-3.5) and its gap-1.5. The note behind
-                        the ⓘ is the one thing about this layer that surprises
-                        people: every other moving thing on the map obeys the
-                        panel's clock, and the ships do not. A real button, so
-                        the keyboard reaches the note too – Radix opens the
-                        tooltip on focus as well as on hover. */}
-                    <div className="flex items-center gap-1 pl-5 text-xs leading-tight text-muted-foreground">
-                      {t('traffic.aisHint')}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="cursor-help rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
-                            aria-label={t('traffic.aisClockLabel')}
-                          >
-                            <Info className="size-3.5" aria-hidden />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-56">
-                          {t('traffic.aisClockNote')}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </ScrollArea>
             </div>
 
           </>

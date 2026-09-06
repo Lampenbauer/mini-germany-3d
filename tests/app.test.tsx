@@ -247,14 +247,25 @@ describe('App (UI shell)', () => {
     expect(input).toHaveValue('')
   })
 
+  it('brings a running time-lapse back to real pace along with the real time', () => {
+    render(<App />)
+    window.__mrt!.setSpeed(30)
+    expect(window.__mrt!.speed()).toBe(30)
+    fireEvent.click(screen.getByRole('button', { name: 'Now' }))
+    expect(window.__mrt!.speed()).toBe(1)
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
+  })
+
   it('scrolls only the line list, not the whole panel', () => {
     render(<App />)
     // The panel itself must not scroll – the clock and the layer switches
     // stay put however long the line list gets.
     const list = screen.getByTestId('line-list')
-    expect(list.className).toContain('overflow-y-auto')
-    // Same fade the vehicle card's stop list uses
-    expect(list.className).toContain('scroll-fade-y')
+    // A scroll area of its own (Radix): the element that scrolls is its
+    // viewport, and the fade the vehicle card's stop list uses sits there
+    const viewport = list.querySelector('[data-slot="scroll-area-viewport"]')
+    expect(viewport).not.toBeNull()
+    expect(viewport!.className).toContain('scroll-fade-y')
     const panel = screen.getByText('Mini Rostock 3D').closest('[data-slot="card"]')!
     expect(panel.className).toContain('overflow-hidden')
     expect(panel.className).not.toContain('overflow-y-auto')

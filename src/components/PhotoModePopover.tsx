@@ -21,6 +21,7 @@ import { useId, type ReactNode } from 'react'
 import { Aperture, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -125,164 +126,165 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
         <TooltipContent side="left">{t('photo.title')}</TooltipContent>
       </Tooltip>
       {/* Thirteen knobs at most: taller than a small window, so the panel
-          scrolls inside itself instead of growing past the top edge. */}
-      <PopoverContent
-        side="left"
-        className="pointer-events-auto max-h-[calc(100dvh-2rem)] w-72 overflow-y-auto"
-      >
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">{t('photo.title')}</div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t('photo.reset')}
-              title={t('photo.reset')}
-              disabled={!adjusted}
-              onClick={() => props.onChange(DEFAULT_PHOTO_SETTINGS)}
-            >
-              <RotateCcw aria-hidden />
-            </Button>
-          </div>
-
-          <Section title="photo.camera">
-            {/* The slider runs in degrees – that is what the lens is set
-                in, and it keeps the default angle on the grid – but reads
-                as a focal length, and is inverted so that right is the
-                longer lens, as a photographer expects. */}
-            <Knob
-              label="photo.focalLength"
-              value={settings.fovDeg}
-              format={(fov) => `${Math.round(focalLengthMm(fov))} mm · ${Math.round(fov)}°`}
-              min={25}
-              max={60}
-              step={1}
-              inverted
-              onChange={(fovDeg) => set('fovDeg', fovDeg)}
-            />
-            <Knob
-              label="photo.exposure"
-              value={settings.exposureEv}
-              format={(ev) => `${signed(ev, 1)} EV`}
-              min={-2}
-              max={2}
-              step={0.1}
-              onChange={(exposureEv) => set('exposureEv', exposureEv)}
-            />
-            <Knob
-              label="photo.whiteBalance"
-              value={settings.whiteBalanceK}
-              format={(kelvin) => `${kelvin} K`}
-              min={3000}
-              max={10_000}
-              step={100}
-              onChange={(whiteBalanceK) => set('whiteBalanceK', whiteBalanceK)}
-            />
-          </Section>
-
-          <Section title="photo.look">
-            <Knob
-              label="photo.contrast"
-              value={settings.contrast}
-              format={(contrast) => signed(Math.round((contrast - 1) * 100), 0)}
-              min={0.5}
-              max={1.5}
-              step={0.01}
-              onChange={(contrast) => set('contrast', contrast)}
-            />
-            <Knob
-              label="photo.saturation"
-              value={settings.saturation}
-              format={(saturation) => signed(Math.round((saturation - 1) * 100), 0)}
-              min={0}
-              max={2}
-              step={0.01}
-              onChange={(saturation) => set('saturation', saturation)}
-            />
-            <Knob
-              label="photo.vignette"
-              value={settings.vignette}
-              format={percent}
-              min={0}
-              max={1}
-              step={0.01}
-              onChange={(vignette) => set('vignette', vignette)}
-            />
-          </Section>
-
-          <div className="bg-border h-px" role="separator" />
-
-          <div className="flex flex-col gap-2.5">
+          scrolls inside itself instead of growing past the top edge – the
+          scroll area's ceiling is the window less the popover's margin
+          and padding. */}
+      <PopoverContent side="left" className="pointer-events-auto w-72">
+        <ScrollArea className="max-h-[calc(100dvh-3.5rem)]">
+          <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm">{t('scene.tiltShift')}</span>
-              {/* The switch brings the lens of its look along (see
-                  withTiltShift) – the effect is built on the long one. */}
-              <Switch
-                aria-label={t('scene.showTiltShift')}
-                checked={settings.tiltShift.enabled}
-                onCheckedChange={(enabled) => props.onChange(withTiltShift(settings, enabled))}
-              />
+              <div className="text-sm font-medium">{t('photo.title')}</div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t('photo.reset')}
+                title={t('photo.reset')}
+                disabled={!adjusted}
+                onClick={() => props.onChange(DEFAULT_PHOTO_SETTINGS)}
+              >
+                <RotateCcw aria-hidden />
+              </Button>
             </div>
-            {settings.tiltShift.enabled && (
-              <>
-                <Knob
-                  label="photo.blur"
-                  value={settings.tiltShift.maxBlurRadius}
-                  format={(radius) => `${(radius * 100).toFixed(1)} %`}
-                  min={0}
-                  max={0.06}
-                  step={0.002}
-                  onChange={(maxBlurRadius) => setTiltShift('maxBlurRadius', maxBlurRadius)}
+
+            <Section title="photo.camera">
+              {/* The slider runs in degrees – that is what the lens is set
+                  in, and it keeps the default angle on the grid – but reads
+                  as a focal length, and is inverted so that right is the
+                  longer lens, as a photographer expects. */}
+              <Knob
+                label="photo.focalLength"
+                value={settings.fovDeg}
+                format={(fov) => `${Math.round(focalLengthMm(fov))} mm · ${Math.round(fov)}°`}
+                min={25}
+                max={60}
+                step={1}
+                inverted
+                onChange={(fovDeg) => set('fovDeg', fovDeg)}
+              />
+              <Knob
+                label="photo.exposure"
+                value={settings.exposureEv}
+                format={(ev) => `${signed(ev, 1)} EV`}
+                min={-2}
+                max={2}
+                step={0.1}
+                onChange={(exposureEv) => set('exposureEv', exposureEv)}
+              />
+              <Knob
+                label="photo.whiteBalance"
+                value={settings.whiteBalanceK}
+                format={(kelvin) => `${kelvin} K`}
+                min={3000}
+                max={10_000}
+                step={100}
+                onChange={(whiteBalanceK) => set('whiteBalanceK', whiteBalanceK)}
+              />
+            </Section>
+
+            <Section title="photo.look">
+              <Knob
+                label="photo.contrast"
+                value={settings.contrast}
+                format={(contrast) => signed(Math.round((contrast - 1) * 100), 0)}
+                min={0.5}
+                max={1.5}
+                step={0.01}
+                onChange={(contrast) => set('contrast', contrast)}
+              />
+              <Knob
+                label="photo.saturation"
+                value={settings.saturation}
+                format={(saturation) => signed(Math.round((saturation - 1) * 100), 0)}
+                min={0}
+                max={2}
+                step={0.01}
+                onChange={(saturation) => set('saturation', saturation)}
+              />
+              <Knob
+                label="photo.vignette"
+                value={settings.vignette}
+                format={percent}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(vignette) => set('vignette', vignette)}
+              />
+            </Section>
+
+            <div className="bg-border h-px" role="separator" />
+
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{t('scene.tiltShift')}</span>
+                {/* The switch brings the lens of its look along (see
+                    withTiltShift) – the effect is built on the long one. */}
+                <Switch
+                  aria-label={t('scene.showTiltShift')}
+                  checked={settings.tiltShift.enabled}
+                  onCheckedChange={(enabled) => props.onChange(withTiltShift(settings, enabled))}
                 />
-                <Knob
-                  label="photo.band"
-                  value={settings.tiltShift.bandHalfHeight}
-                  format={percent}
-                  min={0}
-                  max={0.5}
-                  step={0.01}
-                  onChange={(bandHalfHeight) => setTiltShift('bandHalfHeight', bandHalfHeight)}
-                />
-                <Knob
-                  label="photo.feather"
-                  value={settings.tiltShift.bandFeather}
-                  format={percent}
-                  min={0.02}
-                  max={1}
-                  step={0.02}
-                  onChange={(bandFeather) => setTiltShift('bandFeather', bandFeather)}
-                />
-                <Knob
-                  label="photo.focusLine"
-                  value={settings.tiltShift.focusY}
-                  format={percent}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  onChange={(focusY) => setTiltShift('focusY', focusY)}
-                />
-                <Knob
-                  label="photo.bokeh"
-                  value={settings.tiltShift.highlightGain}
-                  format={(gain) => `${gain.toFixed(1)}×`}
-                  min={1}
-                  max={6}
-                  step={0.1}
-                  onChange={(highlightGain) => setTiltShift('highlightGain', highlightGain)}
-                />
-                <Knob
-                  label="photo.sharpen"
-                  value={settings.tiltShift.sharpen}
-                  format={percent}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={(sharpen) => setTiltShift('sharpen', sharpen)}
-                />
-              </>
-            )}
+              </div>
+              {settings.tiltShift.enabled && (
+                <>
+                  <Knob
+                    label="photo.blur"
+                    value={settings.tiltShift.maxBlurRadius}
+                    format={(radius) => `${(radius * 100).toFixed(1)} %`}
+                    min={0}
+                    max={0.06}
+                    step={0.002}
+                    onChange={(maxBlurRadius) => setTiltShift('maxBlurRadius', maxBlurRadius)}
+                  />
+                  <Knob
+                    label="photo.band"
+                    value={settings.tiltShift.bandHalfHeight}
+                    format={percent}
+                    min={0}
+                    max={0.5}
+                    step={0.01}
+                    onChange={(bandHalfHeight) => setTiltShift('bandHalfHeight', bandHalfHeight)}
+                  />
+                  <Knob
+                    label="photo.feather"
+                    value={settings.tiltShift.bandFeather}
+                    format={percent}
+                    min={0.02}
+                    max={1}
+                    step={0.02}
+                    onChange={(bandFeather) => setTiltShift('bandFeather', bandFeather)}
+                  />
+                  <Knob
+                    label="photo.focusLine"
+                    value={settings.tiltShift.focusY}
+                    format={percent}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    onChange={(focusY) => setTiltShift('focusY', focusY)}
+                  />
+                  <Knob
+                    label="photo.bokeh"
+                    value={settings.tiltShift.highlightGain}
+                    format={(gain) => `${gain.toFixed(1)}×`}
+                    min={1}
+                    max={6}
+                    step={0.1}
+                    onChange={(highlightGain) => setTiltShift('highlightGain', highlightGain)}
+                  />
+                  <Knob
+                    label="photo.sharpen"
+                    value={settings.tiltShift.sharpen}
+                    format={percent}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={(sharpen) => setTiltShift('sharpen', sharpen)}
+                  />
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )
