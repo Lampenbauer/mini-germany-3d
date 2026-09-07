@@ -59,6 +59,8 @@ declare global {
       renderRate: () => number
       anyVehicleInView: () => boolean
       streetLamps: () => { drawn: number; alpha: number }
+      /** The sun shadow map: switched on, and whether its texture is currently allocated. */
+      shadowMap: () => { enabled: boolean; allocated: boolean }
       /** The miniature effect: on, how much the pose carries, passes compiled. */
       tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
       /** The volumetric clouds: cover, threshold, whether drawn, drift. */

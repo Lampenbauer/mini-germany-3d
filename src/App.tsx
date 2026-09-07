@@ -175,6 +175,8 @@ export interface MrtTestApi {
     configuredSse: number
     effectiveSse: number
   } | null
+  /** The sun shadow map: switched on, and whether its texture is currently allocated. */
+  shadowMap: () => { enabled: boolean; allocated: boolean }
 }
 
 declare global {
@@ -1345,6 +1347,7 @@ export default function App() {
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
       tileMemory: () => map.getTileMemoryInfo(),
+      shadowMap: () => map.getShadowMapInfo(),
       anyVehicleInView: () => lastAnyVehicleInView,
       streetLamps: () => map.getStreetLampInfo(),
       renderRate: () => {

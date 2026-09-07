@@ -30,6 +30,7 @@ import {
   ScreenSpaceEventType,
   ShadowMode,
   type Scene,
+  type ShadowMap,
   PixelDatatype,
   PixelFormat,
   Simon1994PlanetaryPositions,
@@ -293,6 +294,18 @@ const SHADOW_MIN_CASTER_PX = 2
 const SHADOW_CASTER_WIDTH_M = 2.65
 
 /**
+ * Shadows off for this long and the shadow map's texture is released
+ * (see releaseShadowMap). Cesium allocates it on the first shadowed frame
+ * and frees it only with the scene: at SHADOW_MAP_SIZE, the four cascades
+ * packed 2×2, that is a 16384² depth texture – 1 GB by Cesium's count,
+ * ~1.5 GB by the OS's (measured 2026-09-07) – sitting in the GPU process
+ * for the rest of the session after one visit to the streets. Re-creating
+ * it costs the first shadowed frame 5–10 ms, so a moment's hold keeps the
+ * gate flapping at the edge of the reach from paying that twice.
+ */
+const SHADOW_MAP_RELEASE_MS = 5000
+
+/**
  * How many tiles the tileset's tree may hold before a fresh copy takes
  * its place (see replaceTileset). Cesium unloads tile CONTENT to stay
  * inside cacheBytes, but never the tree itself: an external tileset,
@@ -546,9 +559,43 @@ function tileStatistics(tileset: Cesium3DTileset): {
   ).statistics
 }
 
-/** Cesium's private shadow-map pass state (ShadowMap.js). */
+/** Cesium's private shadow-map framebuffer state (ShadowMap.js). */
 interface ShadowMapInternals {
-  _passes?: { commandList: unknown[] }[]
+  _passes?: {
+    framebuffer?: { isDestroyed(): boolean; destroy(): void }
+    commandList: unknown[]
+  }[]
+  _depthAttachment?: { destroy(): void }
+  _colorAttachment?: { destroy(): void }
+}
+
+/**
+ * Frees the shadow map's framebuffer and its attachments – what Cesium's
+ * own destroyFramebuffer does when the map is resized, done here while
+ * the map is switched off. ShadowMap.update builds them afresh on the
+ * next frame it runs: for cascaded shadows that is every frame the map
+ * is in view (checkVisibility sets _needsUpdate), and while it is off
+ * nothing reads them. The cast-command lists go with them – Cesium only
+ * resets those while shadows are on (see purgeStaleCommands).
+ */
+function releaseShadowMap(shadowMap: ShadowMap): void {
+  const internals = shadowMap as unknown as ShadowMapInternals
+  for (const pass of internals._passes ?? []) {
+    const framebuffer = pass.framebuffer
+    if (framebuffer && !framebuffer.isDestroyed()) framebuffer.destroy()
+    pass.framebuffer = undefined
+    pass.commandList.length = 0
+  }
+  internals._depthAttachment?.destroy()
+  internals._depthAttachment = undefined
+  internals._colorAttachment?.destroy()
+  internals._colorAttachment = undefined
+}
+
+/** Whether the shadow map's framebuffer is currently allocated. */
+function shadowMapAllocated(shadowMap: ShadowMap): boolean {
+  const internals = shadowMap as unknown as ShadowMapInternals
+  return internals._passes?.[0]?.framebuffer !== undefined
 }
 
 /** Cesium's per-view command bins (View.js, FrustumCommands.js). */
@@ -659,6 +706,8 @@ export class CesiumMap {
   private hoverPickTimer: number | null = null
   /** A tileset was let go or the shadows switched off: purge Cesium's stale commands after the next frame. */
   private commandPurgePending = false
+  /** Shadows have been off for a while: release the shadow map (see SHADOW_MAP_RELEASE_MS). */
+  private shadowMapReleaseTimer: number | null = null
   private hoverPosition: Cartesian2 | null = null
   private hoveringVehicle = false
   private handler: ScreenSpaceEventHandler
@@ -1920,9 +1969,29 @@ export class CesiumMap {
     }
     if (this.viewer.shadows === wanted) return
     this.viewer.shadows = wanted
-    // Off, the last shadowed frame's cast lists would otherwise stay put
-    if (!wanted) this.commandPurgePending = true
+    if (wanted) {
+      if (this.shadowMapReleaseTimer !== null) {
+        window.clearTimeout(this.shadowMapReleaseTimer)
+        this.shadowMapReleaseTimer = null
+      }
+    } else {
+      // The last shadowed frame's cast lists would otherwise stay put
+      this.commandPurgePending = true
+      this.shadowMapReleaseTimer ??= window.setTimeout(() => {
+        this.shadowMapReleaseTimer = null
+        if (this.destroyed || this.viewer.shadows) return
+        releaseShadowMap(this.viewer.scene.shadowMap)
+      }, SHADOW_MAP_RELEASE_MS)
+    }
     this.requestRender()
+  }
+
+  /** Debug/tests: whether the sun shadow map is on and whether its texture exists. */
+  getShadowMapInfo(): { enabled: boolean; allocated: boolean } {
+    return {
+      enabled: this.viewer.shadows,
+      allocated: shadowMapAllocated(this.viewer.scene.shadowMap),
+    }
   }
 
   setSelected(id: string | null): void {
@@ -2580,6 +2649,7 @@ export class CesiumMap {
     if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
     if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
     if (this.handoverTimer !== null) window.clearTimeout(this.handoverTimer)
+    if (this.shadowMapReleaseTimer !== null) window.clearTimeout(this.shadowMapReleaseTimer)
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()
