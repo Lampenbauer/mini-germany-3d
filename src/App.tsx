@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Building2,
+  CircleHelp,
   Home,
   Maximize,
   Minimize,
@@ -52,6 +53,7 @@ import {
 import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
 import { getLanguage, localizeCityName, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import type { MapView } from '@/lib/map-view'
+import { AboutDialog } from '@/components/AboutDialog'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
@@ -250,6 +252,53 @@ const VIEW_TABS = [
   { value: 'underground', labelKey: 'view.underground', Icon: TrainFrontTunnel },
   { value: 'linear', labelKey: 'view.diagram', Icon: Rows3 },
 ] as const satisfies readonly { value: MapView; labelKey: MessageKey; Icon: typeof Building2 }[]
+
+/**
+ * Whether Space belongs to the element the keyboard stands on rather than
+ * to the simulation: a button, a link, or anything wearing a role that is
+ * activated with it. See the keyboard effect below.
+ */
+const SPACE_TAGS = new Set(['BUTTON', 'A', 'SUMMARY', 'DETAILS', 'OPTION'])
+const SPACE_ROLES = new Set([
+  'button',
+  'checkbox',
+  'link',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'radio',
+  'switch',
+  'tab',
+])
+function usesSpaceItself(target: HTMLElement | null): boolean {
+  if (!target) return false
+  if (SPACE_TAGS.has(target.tagName)) return true
+  const role = target.getAttribute?.('role')
+  return role !== null && role !== undefined && SPACE_ROLES.has(role)
+}
+
+/**
+ * The keys that mean something on their own (see the keyboard effect).
+ * Space pauses and is handled beside them, because it is the one key that
+ * has to give way to a focused control.
+ */
+const KEY_SHORTCUTS = new Set([
+  'h', 'f', 'u', 's', 'r', 'l', 'n', 'c', 'm',
+  '2', '3',
+  '+', '=', '-', '_',
+  '?', 'Escape',
+])
+
+/**
+ * The two most layouts cannot type without Shift – a US keyboard puts +
+ * over the equals sign and ? over the slash, a German one ? over the ß.
+ * On a letter Shift still means somebody else's shortcut.
+ */
+const SHIFTED_SHORTCUTS = new Set(['?', '+', '_'])
+
+/** The time-lapse speeds the keyboard steps through (the slider is free). */
+const SPEED_STEPS = [1, 2, 5, 10, 20, 30, 60, 120] as const
 
 /** No line at all – what the map's vehicles are filtered by while the diagram has them. */
 const NO_LINES: ReadonlySet<string> = new Set()
@@ -543,6 +592,8 @@ export default function App() {
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
+  /** The About dialog (press ?, or the button under the map controls). */
+  const [aboutOpen, setAboutOpen] = useState(false)
   /** Whether the page is full screen right now – the button's face. */
   const [fullscreen, setFullscreen] = useState(false)
   /**
@@ -552,6 +603,9 @@ export default function App() {
    */
   const [fullscreenAvailable] = useState(fullscreenSupported)
   const [speed, setSpeed] = useState<number>(config.simulation.initialSpeed)
+  /** The speed the keyboard steps from, without re-arming the listener. */
+  const speedRef = useRef(1)
+  speedRef.current = speed
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
   // Nothing renders these any more – they exist so the map's basemap and
@@ -2082,67 +2136,6 @@ export default function App() {
   )
 
   /**
-   * The two bare keys: H takes the whole interface away and brings it
-   * back – the panel, whichever card is open, and the map controls, for a
-   * screenshot of the city with nothing on top of it – and P holds the
-   * simulation where it stands and lets it run on again, the same toggle
-   * as the button beside the clock.
-   *
-   * Bare letters rather than modifier combinations, because there is no
-   * modifier combination that is free everywhere. Ctrl+Shift+letter is
-   * crowded in both Chrome and Firefox, differently per browser, per
-   * platform and per installed extension – Ctrl+Shift+H itself opens
-   * Firefox's history library. Browsers reserve almost no unmodified
-   * letters, so a bare key sidesteps that whole class, and it costs the
-   * same keystroke on every keyboard layout. Not Space for the pause,
-   * which every video player uses: in a browser Space scrolls, and on a
-   * focused switch or button it is the click. Not Tab either, which every
-   * creative tool uses to hide its interface: in a browser Tab is how the
-   * keyboard reaches the switches and buttons in the panel, and taking it
-   * would shut those users out.
-   *
-   * What the MAP draws is deliberately untouched – stop plates, vehicle
-   * numbers, ship names and routes all live in the WebGL scene rather than
-   * in the DOM, and the Layers switches are what turn those off. Cesium's
-   * credit line stays for the same reason plus a better one: it belongs to
-   * the map widget, and the Google and Cesium terms want it visible
-   * wherever their data is (see README, "Attribution").
-   *
-   * The hidden interface is not persisted in the URL. A shared link that
-   * opened with no interface would leave the recipient hunting for a
-   * shortcut nobody told them about; a reload is the way back for anyone
-   * who forgets it here. A pause is persisted, because a link to a held
-   * moment is a picture worth sharing (see writeHash).
-   */
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      // Bare keys only: with a modifier this is somebody else's shortcut,
-      // and a held key would flicker the interface rather than toggle it.
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
-      if (event.repeat) return
-      // key, not code: the shortcut is the letter as the reader sees it on
-      // the keycap. On Dvorak the physical KeyH carries a D, and hiding the
-      // interface on D would be a surprise nobody asked for.
-      const key = event.key.toLowerCase()
-      if (key !== 'h' && key !== 'p') return
-      // Where a letter means a letter, it is not a shortcut. Only the time
-      // field qualifies today, and it refuses typing anyway, but a bare key
-      // has to check rather than assume that stays true.
-      const target = event.target as HTMLElement | null
-      if (target?.isContentEditable) return
-      const tag = target?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      // Nothing of the browser's own hangs on a bare letter, except
-      // Firefox's opt-in type-ahead find.
-      event.preventDefault()
-      if (key === 'h') setUiHidden((hidden) => !hidden)
-      else handleTogglePause()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [handleTogglePause])
-
-  /**
    * Full screen is state the browser owns: Escape and F11 change it behind
    * the app's back, so the button's face comes from the change event
    * rather than from what was last clicked.
@@ -2506,6 +2499,41 @@ export default function App() {
    * same question – it stands in that corner and gives it up when a card
    * comes for it.
    */
+  /**
+   * Escape, and the click on empty map it stands for: whichever card is
+   * open goes away and the camera stops riding along. One key for all
+   * four cards – a reader who wants out does not care which of them is
+   * up.
+   */
+  const handleDismiss = useCallback(() => {
+    setSelectedLineId(null)
+    if (selectedIdRef.current !== null) selectVehicle(null)
+    if (selectedMmsiRef.current !== null) selectVessel(null)
+    if (selectedStopIdRef.current !== null) selectStop(null)
+  }, [selectStop, selectVehicle, selectVessel])
+
+  /** The miniature lens on and off – the switch in the photo popover. */
+  const handleToggleMiniature = useCallback(() => {
+    handlePhotoChange(withTiltShift(photoRef.current, !photoRef.current.tiltShift.enabled))
+  }, [handlePhotoChange])
+
+  /**
+   * The time-lapse a step up or down. The slider is continuous (1–120),
+   * the keyboard walks the speeds worth stopping at: from where it stands
+   * to the next one in that direction, so a slider left at ×7 still moves
+   * to ×10 rather than snapping somewhere behind it.
+   */
+  const handleStepSpeed = useCallback(
+    (direction: 1 | -1) => {
+      const next =
+        direction > 0
+          ? (SPEED_STEPS.find((step) => step > speedRef.current) ?? SPEED_STEPS[SPEED_STEPS.length - 1])
+          : ([...SPEED_STEPS].reverse().find((step) => step < speedRef.current) ?? SPEED_STEPS[0])
+      handleSpeedChange(next)
+    },
+    [handleSpeedChange],
+  )
+
   const lineCard = selectedLine !== null && lineProfile !== null
   const vesselCard = !lineCard && selectedLine === null && selectedVessel !== null
   const vehicleCard = selected !== null && selectedLine === null
@@ -2514,6 +2542,120 @@ export default function App() {
 
   /** Which tab stands lit – the same three-way state selectView acts on. */
   const mapView: MapView = linear ? 'linear' : underground ? 'underground' : 'surface'
+
+  /**
+   * The bare keys. Every one of them is the keyboard's way to a control
+   * that is on screen anyway, named by the first letter of what it does
+   * in English: Space pauses, S/U/L pick the three readings of the
+   * network, F goes full screen, R puts the camera on the city's home
+   * view, N returns to the real time, C turns to the next quarter, M is
+   * the miniature lens, 2 and 3 the flat and the tilted view, + and −
+   * step the time-lapse, H takes the interface away, Escape closes
+   * whichever card is open, and ? lists the lot.
+   *
+   * Bare letters rather than modifier combinations, because there is no
+   * modifier combination that is free everywhere. Ctrl+Shift+letter is
+   * crowded in both Chrome and Firefox, differently per browser, per
+   * platform and per installed extension – Ctrl+Shift+H itself opens
+   * Firefox's history library. Browsers reserve almost no unmodified
+   * letters, so a bare key sidesteps that whole class, and it costs the
+   * same keystroke on every keyboard layout. Not Tab, which every
+   * creative tool uses to hide its interface: in a browser Tab is how the
+   * keyboard reaches the switches and buttons in the panel, and taking it
+   * would shut those users out. Shift is refused on a letter (Shift+H is
+   * somebody else's shortcut, and the caps-lock H arrives without it) but
+   * allowed on ? and +, which most layouts cannot type without it.
+   *
+   * Space is the one key that has to give way. On a focused button,
+   * switch or tab it IS the click – taking it there would leave the
+   * keyboard unable to work the interface – so it pauses only where the
+   * focus is on nothing that uses it. Checked by what the focus is rather
+   * than by "is it the page", because a click on the map leaves the focus
+   * on Cesium's canvas, which is exactly where the pause has to work.
+   *
+   * What the MAP draws is deliberately untouched by H – stop plates,
+   * vehicle numbers, ship names and routes all live in the WebGL scene
+   * rather than in the DOM, and the Layers switches are what turn those
+   * off. Cesium's credit line stays for the same reason plus a better
+   * one: it belongs to the map widget, and the Google and Cesium terms
+   * want it visible wherever their data is (see README, "Attribution").
+   *
+   * Neither the hidden interface nor the shortcut list is persisted in
+   * the URL. A shared link that opened with no interface would leave the
+   * recipient hunting for a shortcut nobody told them about; a reload is
+   * the way back for anyone who forgets it here. A pause is persisted,
+   * because a link to a held moment is a picture worth sharing (see
+   * writeHash).
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // With a modifier this is somebody else's shortcut, and a held key
+      // would flicker rather than toggle.
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.repeat) return
+      // key, not code: the shortcut is the character as the reader sees it
+      // on the keycap. On Dvorak the physical KeyH carries a D, and hiding
+      // the interface on D would be a surprise nobody asked for.
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+      if (event.shiftKey && !SHIFTED_SHORTCUTS.has(key)) return
+      const pause = key === ' ' || key === 'spacebar'
+      if (!pause && !KEY_SHORTCUTS.has(key)) return
+      // Where a letter means a letter, it is not a shortcut. Only the time
+      // field qualifies today, and it refuses typing anyway, but a bare key
+      // has to check rather than assume that stays true.
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable) return
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (pause && usesSpaceItself(target)) return
+      // Escape belongs to whatever is open on top: the popovers, the
+      // picker, the calendar and the shortcut dialog all close themselves
+      // on it, and only when none of them is up does it reach the cards.
+      if (
+        key === 'Escape' &&
+        document.querySelector('[data-slot="popover-content"], [data-slot="dialog-content"]')
+      ) {
+        return
+      }
+      // Nothing of the browser's own hangs on a bare letter, except
+      // Firefox's opt-in type-ahead find; Space would scroll the page.
+      event.preventDefault()
+      if (pause) handleTogglePause()
+      else if (key === 'Escape') handleDismiss()
+      else if (key === '?') setAboutOpen((open) => !open)
+      else if (key === 'h') setUiHidden((hidden) => !hidden)
+      else if (key === 'f') {
+        // Left out where the browser has no Fullscreen API (iOS Safari),
+        // exactly as the button is.
+        if (fullscreenAvailable) handleToggleFullscreen()
+      } else if (key === 'r') handleResetCamera()
+      else if (key === 'n') handleResetTime()
+      else if (key === 'c') handleAlignHeading()
+      else if (key === 'm') handleToggleMiniature()
+      else if (key === '2' || key === '3') {
+        // The digit says which view to be in, not which way to flip: 2
+        // twice leaves the map flat rather than tipping it back up.
+        if (cameraIs2D !== (key === '2')) handleToggleViewMode()
+      } else if (key === '+' || key === '=') handleStepSpeed(1)
+      else if (key === '-' || key === '_') handleStepSpeed(-1)
+      else selectView(key === 'u' ? 'underground' : key === 'l' ? 'linear' : 'surface')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [
+    cameraIs2D,
+    fullscreenAvailable,
+    handleAlignHeading,
+    handleDismiss,
+    handleResetCamera,
+    handleResetTime,
+    handleStepSpeed,
+    handleToggleFullscreen,
+    handleToggleMiniature,
+    handleTogglePause,
+    handleToggleViewMode,
+    selectView,
+  ])
 
   return (
     <div
@@ -2538,6 +2680,11 @@ export default function App() {
           whether it was collapsed, an open card stays open, and the time
           field keeps what was picked in it. */}
       <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
+        {/* What this map is and is not, with the keyboard at the end –
+            opened with ? or the question mark under the map controls,
+            dismissed with ?, Escape, the close button or a click outside.
+            Inside the overlay, so H takes it away with everything else. */}
+        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
         <div ref={panelRef} className="pointer-events-none absolute left-4 top-4 z-10">
           <ControlPanel
             city={{ slug: city.slug, name: city.name, modes: city.network.modes }}
@@ -2684,7 +2831,7 @@ export default function App() {
             2D/3D, camera reset, and full screen last. All of it belongs to
             the map, so the diagram keeps only full screen, which is the
             window's. */}
-        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-2">
+        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-3">
           <div
             role="group"
             aria-label={t('view.controls')}
@@ -2777,6 +2924,26 @@ export default function App() {
               </Tooltip>
             )}
           </div>
+          {/* What the map is, and the keyboard at the end of it – on its
+              own below the block. It is not a control of the map: it
+              commands nothing and aims nothing, it is where the reader is
+              told what they are looking at, so it stands apart from the
+              group rather than in it. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto border border-border/60 bg-card/85 shadow-xs backdrop-blur-md"
+                aria-label={t('about.open')}
+                aria-pressed={aboutOpen}
+                onClick={() => setAboutOpen((open) => !open)}
+              >
+                <CircleHelp aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('about.open')}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </div>

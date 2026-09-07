@@ -230,6 +230,53 @@ const en = {
   /** What a transit operator calls the strip over the door: one line drawn
       straight with its stops along it, geography left out entirely. */
   'view.diagram': 'Line diagram',
+  // The About dialog (press ? or the question mark below the map
+  // controls): where this comes from, what it is not, and the keyboard at
+  // the end of it.
+  'about.open': 'About this project',
+  'about.title': 'Mini Germany 3D',
+  'about.lead':
+    'Thirteen German cities and their public transport, running to the timetable of the day on a photorealistic 3D map.',
+  'about.rootsTitle': 'Where it comes from',
+  'about.miniTokyo':
+    'put Tokyo\u2019s trains on a 3D map and let them run to the timetable. This map is that idea, brought to German cities.',
+  'about.legibleCities':
+    'draws schematic maps and timetable animations out of open GTFS data. The line diagram here \u2013 every line pulled straight, the geography left out \u2013 is at home in that corner of the world.',
+  'about.notTitle': 'What it is not',
+  'about.notLive':
+    'Not live vehicle tracking. The open feeds carry the timetable and, for many trips, how late they are running \u2013 not where the vehicle is. So every tram here drives its scheduled trip, and a GTFS-Realtime delay shifts it: one running three minutes late is drawn where it should have been three minutes ago.',
+  'about.notShips':
+    'The ships are the exception. They carry AIS transponders, so the harbour traffic is where it really is, in real time.',
+  'about.notRouting':
+    'Not a journey planner. Nothing here will tell you how to get from A to B \u2013 the operators\u2019 apps do that far better.',
+  'about.notComplete':
+    'Not every line. The larger cities show a selection \u2013 Berlin\u2019s and Munich\u2019s Metro buses rather than all of their bus networks \u2013 so the map keeps its frame rate.',
+  'about.whoTitle': 'Who made it',
+  // The name links to his own page, which is where he introduces himself
+  // – "Mario", product designer and photographer – so this says no more
+  // about him than he does.
+  'about.who': 'is a product designer and photographer, and made this map.',
+  'about.builtTitle': 'What it is built from',
+  'about.built':
+    'Routes and stops from OpenStreetMap, departures from the Germany-wide GTFS feed (gtfs.de / DELFI), terrain from the states\u2019 open 1 m elevation models via Mapterhorn, the city itself from Google Photorealistic 3D Tiles through CesiumJS, weather from Open-Meteo, ships from aisstream.io, webcams from Windy. The licences are named in the credit line at the bottom of the map.',
+  // The keyboard, listed at the end of the dialog. Every entry names what
+  // the key does, not the control it stands in for – the reader is
+  // looking for a verb here.
+  'keys.title': 'Keyboard',
+  'keys.open': 'Keyboard shortcuts',
+  'keys.close': 'Close the shortcut list',
+  'keys.pause': 'Pause and play',
+  'keys.readings': 'Surface, underground, line diagram',
+  'keys.fullscreen': 'Full screen on and off',
+  'keys.home': 'Camera back to the city',
+  'keys.hideUi': 'Interface away and back',
+  'keys.now': 'Back to the real time',
+  'keys.compass': 'Turn to the next quarter',
+  'keys.miniature': 'Miniature effect on and off',
+  'keys.pitch': 'Look from above, look across',
+  'keys.speed': 'Time-lapse faster, slower',
+  'keys.dismiss': 'Close the card, stop following',
+  'keys.help': 'This dialog',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -435,6 +482,44 @@ const de: Record<MessageKey, string> = {
   'view.surface': 'Oberfläche',
   'view.underground': 'Untergrund',
   'view.diagram': 'Linienband',
+  'about.open': 'Über dieses Projekt',
+  'about.title': 'Mini Germany 3D',
+  'about.lead':
+    'Dreizehn deutsche Städte und ihr Nahverkehr, nach dem Fahrplan des Tages unterwegs auf einer fotorealistischen 3D-Karte.',
+  'about.rootsTitle': 'Woher es kommt',
+  'about.miniTokyo':
+    'hat Tokios Züge auf eine 3D-Karte gesetzt und nach Fahrplan fahren lassen. Diese Karte ist dieselbe Idee, übertragen auf deutsche Städte.',
+  'about.legibleCities':
+    'zeichnet schematische Netzpläne und Fahrplan-Animationen aus offenen GTFS-Daten. Das Linienband hier – jede Linie geradegezogen, die Geografie weggelassen – ist in dieser Ecke zu Hause.',
+  'about.notTitle': 'Was es nicht ist',
+  'about.notLive':
+    'Kein Echtzeit-Tracking. Die offenen Daten liefern den Fahrplan und für viele Fahrten die Verspätung – nicht die Position des Fahrzeugs. Jede Straßenbahn hier fährt deshalb ihre Fahrplanfahrt, und eine GTFS-Realtime-Verspätung verschiebt sie: drei Minuten zu spät heißt, sie wird dort gezeichnet, wo sie vor drei Minuten hätte sein sollen.',
+  'about.notShips':
+    'Die Schiffe sind die Ausnahme. Sie tragen AIS-Transponder, der Hafenverkehr steht also wirklich dort, wo er gerade ist.',
+  'about.notRouting':
+    'Keine Fahrplanauskunft. Von A nach B hilft hier nichts – das können die Apps der Verkehrsbetriebe weit besser.',
+  'about.notComplete':
+    'Nicht jede Linie. Die großen Städte zeigen eine Auswahl – Berlins und Münchens Metrobusse statt ihrer kompletten Busnetze –, damit die Karte flüssig bleibt.',
+  'about.whoTitle': 'Wer es gemacht hat',
+  'about.who': 'ist Produktdesigner und Fotograf und hat diese Karte gebaut.',
+  'about.builtTitle': 'Woraus es gebaut ist',
+  'about.built':
+    'Linienwege und Haltestellen aus OpenStreetMap, Abfahrten aus dem deutschlandweiten GTFS-Feed (gtfs.de / DELFI), Gelände aus den offenen 1-m-Höhenmodellen der Länder über Mapterhorn, die Stadt selbst aus Googles fotorealistischen 3D-Kacheln über CesiumJS, Wetter von Open-Meteo, Schiffe von aisstream.io, Webcams von Windy. Die Lizenzen stehen in der Nachweiszeile am unteren Kartenrand.',
+  'keys.title': 'Tastatur',
+  'keys.open': 'Tastaturkürzel',
+  'keys.close': 'Kürzelliste schließen',
+  'keys.pause': 'Pause und weiter',
+  'keys.readings': 'Oberfläche, Untergrund, Linienband',
+  'keys.fullscreen': 'Vollbild an und aus',
+  'keys.home': 'Kamera zurück auf die Stadt',
+  'keys.hideUi': 'Oberfläche weg und zurück',
+  'keys.now': 'Zurück zur echten Zeit',
+  'keys.compass': 'Zur nächsten Himmelsrichtung drehen',
+  'keys.miniature': 'Miniatureffekt an und aus',
+  'keys.pitch': 'Von oben schauen, quer schauen',
+  'keys.speed': 'Zeitraffer schneller, langsamer',
+  'keys.dismiss': 'Karte schließen, Verfolgung beenden',
+  'keys.help': 'Dieses Fenster',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }

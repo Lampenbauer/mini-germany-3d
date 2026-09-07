@@ -1,6 +1,20 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+/**
+ * How often the map was sent back to the city's home view. Hoisted with
+ * the mock factory (vitest only lets a factory reach variables named
+ * mock*), so a test can watch what the camera reset does.
+ */
+const mockCameraHomeCalls = vi.hoisted(() => ({ count: 0 }))
+
+/**
+ * The little the map double remembers about its camera: enough for the
+ * controls that read the pose back before they act (the 2D/3D button asks
+ * the map which way it is looking, rather than trusting a flag).
+ */
+const mockCamera = vi.hoisted(() => ({ orientations: 0, tiltShift: false, pitch: -38 }))
+
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
   class CesiumMap {
@@ -49,7 +63,7 @@ vi.mock('@/map/CesiumMap', () => {
     setSceneTime() {}
     setView() {}
     getCameraView() {
-      return { longitude: 12.13, latitude: 54.08, height: 3000, heading: 0, pitch: -38 }
+      return { longitude: 12.13, latitude: 54.08, height: 3000, heading: 0, pitch: mockCamera.pitch }
     }
     getGroundHeights() {
       return []
@@ -76,12 +90,21 @@ vi.mock('@/map/CesiumMap', () => {
     setRoutesVisible() {}
     setStopsVisible() {}
     setLabelsVisible() {}
-    setPhotoSettings() {}
+    setPhotoSettings(settings: { tiltShift: { enabled: boolean } }) {
+      mockCamera.tiltShift = settings.tiltShift.enabled
+    }
+    setCameraOrientation(orientation: { pitchDeg?: number } = {}) {
+      mockCamera.orientations++
+      if (orientation.pitchDeg !== undefined) mockCamera.pitch = orientation.pitchDeg
+    }
     setLineRouteVisible() {}
     setVisibleLines() {}
     setSelected() {}
     setFollow() {}
-    setCameraHome() {}
+    setCameraHome() {
+      mockCameraHomeCalls.count++
+    }
+    setUnderground() {}
     hasVehicle() {
       return false
     }
@@ -98,6 +121,9 @@ import { setLanguage } from '@/lib/i18n'
 afterEach(() => {
   cleanup()
   setLanguage('en')
+  mockCamera.orientations = 0
+  mockCamera.tiltShift = false
+  mockCamera.pitch = -38
   window.__mrt = undefined
   window.localStorage.clear()
   window.history.replaceState(null, '', window.location.pathname)
@@ -336,29 +362,145 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
   })
 
-  it('pauses and plays again on P', () => {
+  it('pauses and plays again on Space', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'p', code: 'KeyP' })
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' })
     expect(screen.getByRole('button', { name: 'Resume simulation' })).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'p', code: 'KeyP' })
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' })
     expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
-    // A held or modified P is somebody else's, as it is for H
+    // A held or modified Space is somebody else's, as it is for H
     for (const event of [
-      { key: 'p', code: 'KeyP', ctrlKey: true },
-      { key: 'p', code: 'KeyP', metaKey: true },
-      { key: 'p', code: 'KeyP', repeat: true },
+      { key: ' ', code: 'Space', ctrlKey: true },
+      { key: ' ', code: 'Space', metaKey: true },
+      { key: ' ', code: 'Space', repeat: true },
     ]) {
       fireEvent.keyDown(window, event)
       expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
     }
   })
 
-  it('takes an upper-case P too, and leaves the interface where it is', () => {
+  it('leaves Space to the button the keyboard stands on', () => {
+    // Space is how a keyboard clicks a focused control; pausing instead
+    // would leave the interface unusable without a mouse.
     render(<App />)
-    fireEvent.keyDown(window, { key: 'P', code: 'KeyP' })
-    expect(screen.getByRole('button', { name: 'Resume simulation' })).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Pause simulation' })
+    fireEvent.keyDown(button, { key: ' ', code: 'Space' })
+    expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+    const stopsSwitch = screen.getByRole('switch', { name: 'Show stops' })
+    fireEvent.keyDown(stopsSwitch, { key: ' ', code: 'Space' })
+    expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+  })
+
+  it('leaves P alone now that Space pauses', () => {
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'p', code: 'KeyP' })
+    expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
+  it('goes under the city on U and back up on S', () => {
+    // The third reading, the diagram, is a morph with a camera flight in
+    // front of it and belongs to the E2E suite (e2e/linear-view.spec.ts).
+    render(<App />)
+    const tab = (name: string) => screen.getByRole('tab', { name })
+    expect(tab('Surface')).toHaveAttribute('data-state', 'active')
+    fireEvent.keyDown(window, { key: 'u', code: 'KeyU' })
+    expect(tab('Underground')).toHaveAttribute('data-state', 'active')
+    fireEvent.keyDown(window, { key: 's', code: 'KeyS' })
+    expect(tab('Surface')).toHaveAttribute('data-state', 'active')
+    // Upper case counts too, for whoever has caps lock on
+    fireEvent.keyDown(window, { key: 'U', code: 'KeyU' })
+    expect(tab('Underground')).toHaveAttribute('data-state', 'active')
+  })
+
+  it('tells what the map is, and is not, on the button below the controls', () => {
+    render(<App />)
+    const button = screen.getByRole('button', { name: 'About this project' })
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(button)
+    const about = screen.getByRole('dialog', { name: 'Mini Germany 3D' })
+    // Where it comes from, what it is not, and the keyboard at the end
+    expect(about).toHaveTextContent('mini-tokyo-3d')
+    expect(about).toHaveTextContent('legible-cities')
+    expect(about).toHaveTextContent('Not live vehicle tracking')
+    expect(about).toHaveTextContent('Pause and play')
+    // The two ancestors are linked, and the links leave the page safely
+    const link = within(about).getByRole('link', { name: 'legible-cities' })
+    expect(link).toHaveAttribute('href', 'https://github.com/richc117/legible-cities')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+    // A dialog, not a card wearing the word: while it is up the map and
+    // its controls are hidden from a screen reader entirely.
+    expect(screen.queryByRole('button', { name: 'About this project' })).not.toBeInTheDocument()
+    fireEvent.click(within(about).getByRole('button', { name: 'Close the shortcut list' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'About this project' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('opens the same dialog on ? and takes it away again', () => {
+    render(<App />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Mini Germany 3D' })).toHaveTextContent('Space')
+    // ? again puts it away …
+    fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // … and so does Escape, which the dialog handles itself (the key
+    // travels from whatever inside it has the focus)
+    fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('steps the time-lapse on + and −', () => {
+    render(<App />)
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
+    fireEvent.keyDown(window, { key: '+', code: 'Equal', shiftKey: true })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×2')
+    fireEvent.keyDown(window, { key: '+', code: 'Equal', shiftKey: true })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×5')
+    fireEvent.keyDown(window, { key: '-', code: 'Minus' })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×2')
+    // The bottom and the top are where it stops
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: '-', code: 'Minus' })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
+    for (let i = 0; i < 12; i++) fireEvent.keyDown(window, { key: '=', code: 'Equal' })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×120')
+  })
+
+  it('flattens the view on 2 and tips it back on 3', async () => {
+    render(<App />)
+    await waitFor(() => expect(window.__mrt?.ready).toBe(true))
+    expect(screen.getByRole('button', { name: 'Switch to 2D view' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2' })
+    expect(screen.getByRole('button', { name: 'Switch to 3D view' })).toBeInTheDocument()
+    // The digit says which view to be in: a second 2 leaves it flat
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2' })
+    expect(screen.getByRole('button', { name: 'Switch to 3D view' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: '3', code: 'Digit3' })
+    expect(screen.getByRole('button', { name: 'Switch to 2D view' })).toBeInTheDocument()
+  })
+
+  it('turns the view on C and switches the lens on M', () => {
+    render(<App />)
+    const turns = mockCamera.orientations
+    fireEvent.keyDown(window, { key: 'c', code: 'KeyC' })
+    expect(mockCamera.orientations).toBe(turns + 1)
+    expect(mockCamera.tiltShift).toBe(false)
+    fireEvent.keyDown(window, { key: 'm', code: 'KeyM' })
+    expect(mockCamera.tiltShift).toBe(true)
+    fireEvent.keyDown(window, { key: 'm', code: 'KeyM' })
+    expect(mockCamera.tiltShift).toBe(false)
+  })
+
+  it('puts the camera back on the city on R', () => {
+    render(<App />)
+    const before = mockCameraHomeCalls.count
+    fireEvent.keyDown(window, { key: 'r', code: 'KeyR' })
+    expect(mockCameraHomeCalls.count).toBe(before + 1)
   })
 
   it('takes an upper-case H too, for whoever has caps lock on', () => {

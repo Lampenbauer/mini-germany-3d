@@ -403,3 +403,25 @@ test('a shared link opens straight into the diagram', async ({ page }) => {
   expect(plan.lat).toBeCloseTo(CENTER.lat, 2)
   expect(await diagram.locator('svg > g:first-child > path').count()).toBeGreaterThan(3)
 })
+
+test('the keyboard reaches all three readings', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto(`/?offline=1&time=08:30&paused=1#stops=0&labels=0`)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+
+  // L pulls the lines straight, S puts the city back, U goes under it –
+  // the same three the tabs at the foot of the map carry.
+  await page.keyboard.press('l')
+  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 60_000 }).toBe(true)
+  await expect(page.getByTestId('linear-view')).toBeVisible()
+
+  await page.keyboard.press('s')
+  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 60_000 }).toBe(false)
+  await expect(page.getByRole('tab', { name: 'Surface' })).toHaveAttribute('data-state', 'active')
+
+  await page.keyboard.press('u')
+  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute('data-state', 'active', {
+    timeout: 30_000,
+  })
+})
