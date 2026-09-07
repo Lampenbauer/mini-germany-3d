@@ -1,0 +1,64 @@
+{
+  "slug": "lubeck",
+  "name": "Lübeck",
+  "osmRelation": 27027,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 10.5540402,
+    "south": 53.7680103,
+    "east": 10.9686302,
+    "north": 53.9940188
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 10.3236,
+    "south": 53.633,
+    "east": 11.199,
+    "north": 54.129
+  },
+  "home": {
+    "longitude": 10.6845,
+    "latitude": 53.8665,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 10.6866,
+    "latitude": 53.8655
+  },
+  "network": {
+    "modes": [
+      "bus"
+    ],
+    "overpass": {
+      "bus": {
+        "operator": "Stadtwerke Lübeck Mobil|Stadtverkehr Lübeck"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "lübeck",
+    "trainBranches": []
+  },
+  "fleet": {
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 39,
+    "waterLevelNhn": 0,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {}
+  }
+}

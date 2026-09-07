@@ -14,9 +14,10 @@ view and vehicle links, day/night lighting that follows the simulated time
 [shadcn/ui](https://ui.shadcn.com/).
 
 It started as **Mini Rostock 3D** and Rostock is still the city it opens on.
-Kiel, Hamburg, Bremen, Berlin, Cologne and Munich are the others; adding a
-city is a folder, a `city.json` and a run of the data pipeline (see
-[Cities](#cities)).
+Twelve more cities are a caret away – Kiel, Lübeck, Wilhelmshaven, Bremen,
+Schwerin, Berlin, Hanover, Hamburg, Cologne, Frankfurt, Stuttgart and
+Munich; adding one is a folder, a `city.json` and a run of the data
+pipeline (see [Cities](#cities)).
 
 ![Morning rush hour over the city center](docs/screenshots/city-day.jpg)
 
@@ -260,7 +261,10 @@ place (typed and validated by `src/lib/city.ts`):
   `heading` and `pitch`. **`weather`** – where the live weather is queried.
 - **`network`** – which modes the pipeline fetches (`modes`), how each mode's
   route relations are narrowed in OSM (`overpass`: operator, ref, service,
-  network as regexes; a mode without an entry is served by fixed lines alone),
+  network as regexes; a mode without an entry is served by fixed lines alone;
+  `osmRoutes` names the OSM `route=*` values a mode takes where the default
+  map is wrong for the city – Stuttgart's Stadtbahn is tagged `light_rail`
+  and is that city's U-Bahn),
   lines addressed by relation id (`fixedLines` – ferries mostly), and where a
   route leaving the city is cut (`clip`: `city` at the last stop inside the
   limits, `box` inside the padded box, `none`). "Inside the limits" is the
@@ -268,9 +272,12 @@ place (typed and validated by `src/lib/city.ts`):
   reaches the neighbouring towns, and a route is meant to end where the
   city does), and `cityBounds` otherwise; the GTFS import anchors departures at the same
   test, so a trip leaves the map where its route really ends.
-- **`gtfs`** – the prefix the feed puts in front of stop names (`nameStrip`)
-  and, for feeds that lump an S-Bahn's legs into one route, the branch stations
-  that tell them apart (`trainBranches`).
+- **`gtfs`** – the prefix the feed puts in front of stop names (`nameStrip`),
+  for feeds that lump an S-Bahn's legs into one route the branch stations
+  that tell them apart (`trainBranches`), and the GTFS `route_type` values a
+  mode is looked up under where the feed disagrees with the city
+  (`routeTypes`: Hanover's Stadtbahn is a tram on the map and an underground
+  to the feed).
 - **`fleet`** – per mode the vehicle dimensions and the glTF consist the map
   draws (`model`, see `VEHICLE_CONSISTS` in `src/map/VehicleLayer.ts`; without
   one the mode is a colored box).
@@ -375,6 +382,72 @@ OSM has no relations for the Vegesack, Blumenthal and Farge crossings
 and the feed has no timetable for them – the AIS backdrop shows the real
 boats instead. Some 220 vehicles at 08:30.
 
+**Lübeck**: the 28 city bus lines of Stadtwerke Lübeck Mobil, from the
+old town on its island out to Travemünde on the Baltic – eighteen
+kilometers down the Trave and still inside the city limits, which is what
+makes the longest bus runs on this map. No trams (the last one went in
+1959) and no S-Bahn; the Priwall ferry runs every fifteen minutes in
+reality but no feed carries a timetable for it, so it is left off rather
+than drawn standing still. AIS is on instead: Travemünde is a ferry port,
+and the Baltic traffic is what there is to see. Terrain heights from the
+state's open DGM1 via Mapterhorn and ~4200 OSM street lamps along the
+routes. Some 90 vehicles at 08:30.
+
+**Wilhelmshaven**: the fourteen bus lines of the Stadtwerke – the
+smallest network here, on the flattest ground: the whole city lies
+between 0 and 7 m NHN. Its point is the water. The Jade carries
+Germany's only deep-water container port, so the AIS backdrop is what
+this city is really about, and the map shows the real ships beside a bus
+every twenty minutes. Terrain heights from Lower Saxony's open DGM1 via
+Mapterhorn; the OSM lamps are sparse here (127 along the routes), so the
+night is dark outside the centre. Some 17 vehicles at 08:30.
+
+**Schwerin**: the four NVS tram lines and fifteen bus lines between the
+lakes – the smallest fleet on the map, and right for a city of 100 000.
+Terrain heights from Mecklenburg's open DGM1 via Mapterhorn (the model
+carries the lake surfaces: the Schweriner See at 37.5 m) and ~930 OSM
+street lamps. The Pfaffenteich ferry is a real NVS line with a line
+number of its own, but no feed carries its timetable, so it is left off.
+Some 38 vehicles at 08:30.
+
+**Hanover**: the fifteen ÜSTRA Stadtbahn lines, the S-Bahn (cut at the
+city limits, which most lines leave within a stop or two) and the 24
+ÜSTRA bus lines, with terrain heights from Lower Saxony's open DGM1 via
+Mapterhorn and ~1600 OSM street lamps. Hanover taught the pipeline one
+thing: its Stadtbahn is a tram to OSM and to this map, and an underground
+(`route_type` 1) to the GTFS feed – so a city can now name the route
+types its modes are looked up under (`gtfs.routeTypes`). Without that its
+fifteen lines would have stood still. Some 185 vehicles at 08:30, half of
+them Stadtbahn.
+
+**Frankfurt**: the nine U-Bahn lines, the ten trams, the S-Bahn on its
+trunk line under the centre and the MetroBus lines – the 60 ordinary city
+bus lines are left out for load, as Berlin's and Munich's are, and the
+Express buses because they are regional lines that only touch the city
+(the X95 has 450 m of route inside it). The trams are taken by network
+and line number rather than by operator, because line 11 carries no
+operator tag at all.
+Terrain heights from Hesse's open DGM1 via Mapterhorn and ~1700 OSM
+street lamps. Some 220 vehicles at 08:30. Frankfurt taught the importer
+one thing: a line number is only unique inside its own network. The RMV
+tags the Rhein-Neckar S5 (Wiesbaden–Bensheim) with the same `ref` as
+Frankfurt's own, and both reach into the box – so relations that never
+run inside the city are now dropped before the two directions are picked
+by length, instead of the 100 km stranger winning and the line ending up
+skipped for having no stop in the city.
+
+**Stuttgart**: the sixteen Stadtbahn lines, the S-Bahn and the 48 SSB
+bus lines including the night buses, with terrain heights from
+Baden-Württemberg's open DGM1 via Mapterhorn and ~1850 OSM street lamps.
+Two things make it the odd one out. Its Stadtbahn is tagged `light_rail`
+in OSM, which every other city's definition reads as an S-Bahn – so
+Stuttgart names the OSM route values of both modes itself
+(`network.overpass.<mode>.osmRoutes`), the U-lines as its subway and the
+S-lines as its S-Bahn. And its terrain is the steepest here: the
+Talkessel lies at 210 m, Degerloch on the ridge at 470, so the routes
+climb 300 m inside the city. Some 260 vehicles at 08:30, 100 of them
+Stadtbahn.
+
 **Berlin**: the nine U-Bahn lines, the S-Bahn (all lines, cut at the city
 limits), all 22 BVG tram lines, the Metrobus lines plus the 100, 200 and
 300, and the six BVG ferries, with terrain heights from the Senate's open
@@ -447,8 +520,10 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   from open terrain models – in Germany the 1 m DGM1 of every state
   (Mecklenburg-Vorpommern: GeoBasis-DE/M-V, CC BY 4.0; Schleswig-Holstein:
   GeoBasis-DE/LVermGeo SH, CC BY 4.0; Bremen: Landesamt GeoInformation
-  Bremen, CC BY 4.0; Nordrhein-Westfalen: Geobasis NRW, dl-de/zero-2.0;
-  Bayern: Bayerische Vermessungsverwaltung, CC BY 4.0). The
+  Bremen, CC BY 4.0; Niedersachsen: LGLN, CC BY 4.0; Nordrhein-Westfalen:
+  Geobasis NRW, dl-de/zero-2.0; Hessen: HMUKLV, dl-de/zero-2.0;
+  Baden-Württemberg: LGL, dl-de/by-2-0; Bayern: Bayerische
+  Vermessungsverwaltung, CC BY 4.0). The
   tiles are fetched one by one at the city's `terrain.zoom` (15 ≈ 1.4 m per
   pixel; a city's routes touch a few hundred tiles, some 20–35 MB per
   city), nothing is downloaded up front or kept on disk, and no key or fee
@@ -739,8 +814,14 @@ they are in view.
   GeoInformation Bremen (ATKIS DGM1, CC BY 4.0) for Bremen, from Geoportal
   Berlin / ATKIS DGM (Senatsverwaltung für Stadtentwicklung, Bauen und
   Wohnen, dl-de/zero-2.0) for Berlin, from Geobasis NRW – DGM1 (Land
-  Nordrhein-Westfalen, dl-de/zero-2.0) for Cologne and from © Bayerische
-  Vermessungsverwaltung (DGM1, CC BY 4.0) for Munich – shown in the app
-  inside Cesium's "Data attribution" credits
+  Nordrhein-Westfalen, dl-de/zero-2.0) for Cologne, from © Bayerische
+  Vermessungsverwaltung (DGM1, CC BY 4.0) for Munich, from © GeoBasis-DE/
+  LVermGeo SH (DGM1, CC BY 4.0) for Lübeck, from © Landesamt für
+  Geoinformation und Landesvermessung Niedersachsen (DGM1, CC BY 4.0) for
+  Hanover and Wilhelmshaven, from © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for
+  Schwerin, from © Hessisches Ministerium für Umwelt, Klimaschutz,
+  Landwirtschaft und Verbraucherschutz (ATKIS-DGM1, dl-de/zero-2.0) for
+  Frankfurt and from © LGL, www.lgl-bw.de (DGM1, dl-de/by-2-0) for
+  Stuttgart – shown in the app inside Cesium's "Data attribution" credits
 - Timetable data (after `npm run data:gtfs`): gtfs.de / DELFI or the transport
   association's feed – observe the source's license terms

@@ -1,0 +1,74 @@
+{
+  "slug": "schwerin",
+  "name": "Schwerin",
+  "osmRelation": 62685,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 11.2960272,
+    "south": 53.5443597,
+    "east": 11.505544,
+    "north": 53.6873387
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 11.0673,
+    "south": 53.4093,
+    "east": 11.7343,
+    "north": 53.8224
+  },
+  "home": {
+    "longitude": 11.417,
+    "latitude": 53.627,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 11.415,
+    "latitude": 53.629
+  },
+  "network": {
+    "modes": [
+      "tram",
+      "bus"
+    ],
+    "overpass": {
+      "tram": {
+        "operator": "NVS|Nahverkehr Schwerin"
+      },
+      "bus": {
+        "operator": "NVS|Nahverkehr Schwerin"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "schwerin",
+    "trainBranches": []
+  },
+  "fleet": {
+    "tram": {
+      "model": "tram-6n2",
+      "length": 30.6,
+      "width": 2.3,
+      "height": 3.5
+    },
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 38,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/M-V (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": false,
+    "simulatedByMmsi": {}
+  }
+}

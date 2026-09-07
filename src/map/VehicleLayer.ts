@@ -288,6 +288,7 @@ interface VehicleModelSpec {
  *   sbahn-423        Munich/Cologne S-Bahn ET 423 full train – two five-section units, 133 m
  *   tram-avenio      Munich Avenio – the 6N2's sections with one more middle, 38 m
  *   stadtbahn-k4000  Cologne Stadtbahn K4000/K5000 double unit – two four-section trams, 51 m
+ *   stadtbahn-dt8    Stuttgart Stadtbahn DT8 pair – six third-rail sections, 79.5 m
  *   bus-12m          12 m rigid city bus
  *   ferry-warnow-fg  Gehlsdorf passenger ferry (19.9 m double-ender)
  *   ferry-warnow-fw  Breitling car ferry (39 m double-ender)
@@ -449,6 +450,26 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
       { uri: 'models/tram-mid-panto.glb', length: 6.1 },
       { uri: 'models/tram-mid.glb', length: 6.1 },
       { uri: 'models/tram-end-rear.glb', length: 6.55, flipped: true },
+    ],
+  },
+  // Stuttgart's Stadtbahn runs its DT8 units in pairs at peak (2 × 39 m):
+  // the same six 13 m sections as Hamburg's DT5 double unit, four cabs and
+  // two middles, 79.5 m. They take the current from an overhead wire
+  // rather than a third rail, which is a detail of the roof – and a roof
+  // is a few pixels from the height this map is looked at. Cologne's and
+  // Hannover's shorter Stadtbahn trains use the tram sections instead
+  // (stadtbahn-k4000), where the pantograph does show at street level.
+  'stadtbahn-dt8': {
+    scale: 1,
+    baseLift: 1.7,
+    gap: 0.3,
+    wagons: [
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
+      { uri: 'models/ubahn-end.glb', length: 13 },
+      { uri: 'models/ubahn-mid.glb', length: 13 },
+      { uri: 'models/ubahn-end.glb', length: 13, flipped: true },
     ],
   },
   'bus-12m': {

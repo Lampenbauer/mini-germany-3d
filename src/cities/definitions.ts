@@ -16,18 +16,30 @@ import rostock from './rostock/city.json' with { type: 'json' }
 import kiel from './kiel/city.json' with { type: 'json' }
 import hamburg from './hamburg/city.json' with { type: 'json' }
 import bremen from './bremen/city.json' with { type: 'json' }
+import hanover from './hanover/city.json' with { type: 'json' }
+import lubeck from './lubeck/city.json' with { type: 'json' }
+import schwerin from './schwerin/city.json' with { type: 'json' }
+import wilhelmshaven from './wilhelmshaven/city.json' with { type: 'json' }
 import berlin from './berlin/city.json' with { type: 'json' }
 import cologne from './cologne/city.json' with { type: 'json' }
 import munich from './munich/city.json' with { type: 'json' }
+import frankfurt from './frankfurt/city.json' with { type: 'json' }
+import stuttgart from './stuttgart/city.json' with { type: 'json' }
 
 /** Every city, in the order the city picker lists them. */
 export const CITIES: readonly City[] = [
   cityFromJson(rostock),
   cityFromJson(kiel),
   cityFromJson(hamburg),
+  cityFromJson(lubeck),
+  cityFromJson(wilhelmshaven),
   cityFromJson(bremen),
+  cityFromJson(schwerin),
   cityFromJson(berlin),
+  cityFromJson(hanover),
   cityFromJson(cologne),
+  cityFromJson(frankfurt),
+  cityFromJson(stuttgart),
   cityFromJson(munich),
 ]
 

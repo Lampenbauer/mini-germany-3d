@@ -61,6 +61,22 @@ const ROUTE_TYPES = {
   ferry: new Set(['4', '1000', '1200']),
 }
 
+/**
+ * The route_type values a city's mode is looked up under: what its
+ * definition names (gtfs.routeTypes), else the defaults above. Feeds
+ * classify a Stadtbahn as they please – Cologne's KVB is a tram to the
+ * feed, Hannover's ÜSTRA an underground – and the map keeps the mode the
+ * city itself uses for it.
+ */
+export function routeTypesForCity(city) {
+  const types = {}
+  for (const [mode, set] of Object.entries(ROUTE_TYPES)) {
+    const own = city.gtfs.routeTypes?.[mode]
+    types[mode] = own ? new Set(own) : set
+  }
+  return types
+}
+
 // Ferry routes that match no pier name are held onto and assigned to a
 // network ferry line later via their terminal coordinates (the gtfs.de
 // feed carries the Rostock Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
@@ -330,11 +346,12 @@ async function main(city, paths) {
   // the stop coordinates (BBOX filter of the stop_times).
   const routeLine = new Map() // route_id → lineId
   const routeAgency = new Map() // route_id → agency_id (diagnostics)
+  const routeTypes = routeTypesForCity(city)
   scanCsv(files['routes.txt'], (get) => {
     const type = get('route_type')
     const short = get('route_short_name')
     for (const [lineId, mode] of networkLines) {
-      if (!ROUTE_TYPES[mode].has(type)) continue
+      if (!routeTypes[mode].has(type)) continue
       if (mode === 'ferry') {
         const names = normalizeName(`${short} ${get('route_long_name')}`)
         const targets = ferryTargets.get(lineId) ?? []
@@ -357,7 +374,7 @@ async function main(city, paths) {
     }
     if (
       !routeLine.has(get('route_id')) &&
-      ROUTE_TYPES.ferry.has(type) &&
+      routeTypes.ferry.has(type) &&
       ferryTargets.size > 0
     ) {
       routeLine.set(get('route_id'), FERRY_PENDING)
@@ -367,7 +384,7 @@ async function main(city, paths) {
     // pending, classified per trip via the branch stations they serve.
     if (
       !routeLine.has(get('route_id')) &&
-      ROUTE_TYPES.train.has(type) &&
+      routeTypes.train.has(type) &&
       /^S[0-9]{0,2}$/.test(short) &&
       trainBranchProbes.length > 0 &&
       [...networkLines.values()].includes('train')
@@ -976,7 +993,12 @@ async function main(city, paths) {
   console.log(`\n✅ Wrote ${OUT} – ${summary}`)
 }
 
-forEachRequestedCity(main).catch((err) => {
-  console.error('❌ Error:', err.message)
-  process.exit(1)
-})
+// Only run as a CLI – the tests import routeTypesForCity without pulling
+// a 280 MB feed over the wire.
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  forEachRequestedCity(main).catch((err) => {
+    console.error('❌ Error:', err.message)
+    process.exit(1)
+  })
+}

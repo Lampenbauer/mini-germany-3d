@@ -1,0 +1,64 @@
+{
+  "slug": "wilhelmshaven",
+  "name": "Wilhelmshaven",
+  "osmRelation": 62444,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 7.9935931,
+    "south": 53.5021006,
+    "east": 8.1710622,
+    "north": 53.6378365
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 7.7652,
+    "south": 53.3671,
+    "east": 8.3995,
+    "north": 53.7729
+  },
+  "home": {
+    "longitude": 8.113,
+    "latitude": 53.523,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 8.113,
+    "latitude": 53.523
+  },
+  "network": {
+    "modes": [
+      "bus"
+    ],
+    "overpass": {
+      "bus": {
+        "operator": "Stadtwerke-Verkehrsgesellschaft Wilhelmshaven|SVG Wilhelmshaven"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "wilhelmshaven",
+    "trainBranches": []
+  },
+  "fleet": {
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 43,
+    "waterLevelNhn": 0,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © Landesamt für Geoinformation und Landesvermessung Niedersachsen (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {}
+  }
+}

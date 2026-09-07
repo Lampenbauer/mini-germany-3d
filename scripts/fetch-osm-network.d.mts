@@ -1,3 +1,6 @@
+import type { City } from '../src/lib/city.ts'
+import type { TransitMode } from '../src/lib/transit-mode.ts'
+
 /** Type declarations so stitchWays can be unit-tested from Vitest. */
 
 export interface StitchedWayPath {
@@ -49,3 +52,10 @@ export function inheritUnnamedStopNames(
 ): void
 
 export function fetchStopAreaNames(osmNodeIds: number[]): Promise<Map<number, string>>
+
+export function osmRoutesForMode(city: City, mode: TransitMode): readonly string[]
+
+/** route=* → mode for one city; throws when two modes claim one value. */
+export function modeByOsmRoute(city: City): Record<string, TransitMode>
+
+export function buildQuery(city: City): string

@@ -55,9 +55,37 @@ const OSM_ROUTES_BY_MODE = {
   bus: ['bus'],
   ferry: ['ferry'],
 }
-const MODE_BY_OSM_ROUTE = Object.fromEntries(
-  Object.entries(OSM_ROUTES_BY_MODE).flatMap(([mode, routes]) => routes.map((r) => [r, mode])),
-)
+/**
+ * The OSM route=* values a city's mode is served by: what its definition
+ * names (network.overpass.<mode>.osmRoutes), else the default above. A
+ * Stadtbahn is `light_rail` in Stuttgart and `tram` in Cologne, so the
+ * city decides – see OverpassModeQuery.osmRoutes.
+ */
+export function osmRoutesForMode(city, mode) {
+  return city.network.overpass[mode]?.osmRoutes ?? OSM_ROUTES_BY_MODE[mode] ?? []
+}
+
+/**
+ * route=* → mode for THIS city, the reverse of the above. Two modes
+ * claiming the same value would silently give one of them the other's
+ * relations (a city that moves light_rail to its subway has to say
+ * `train: osmRoutes ["train"]` as well), so that is an error.
+ */
+export function modeByOsmRoute(city) {
+  const map = {}
+  for (const mode of city.network.modes) {
+    for (const route of osmRoutesForMode(city, mode)) {
+      if (map[route] && map[route] !== mode) {
+        throw new Error(
+          `${city.name}: OSM route=${route} is claimed by both the ${map[route]} and the ${mode} ` +
+            'mode – name network.overpass.<mode>.osmRoutes on one of them',
+        )
+      }
+      map[route] = mode
+    }
+  }
+  return map
+}
 
 /** Display order of the modes in network.json. */
 const MODE_ORDER = Object.fromEntries(TRANSIT_MODES.map((mode, index) => [mode, index]))
@@ -106,7 +134,7 @@ export function buildQuery(city) {
   for (const mode of city.network.modes) {
     const query = city.network.overpass[mode]
     if (!query) continue
-    for (const route of OSM_ROUTES_BY_MODE[mode]) {
+    for (const route of osmRoutesForMode(city, mode)) {
       clauses.push(
         `  relation["type"="route"]["route"="${route}"]` +
           tagFilter('operator', query.operator) +
@@ -536,6 +564,7 @@ export async function buildNetwork(city, outPath) {
   // Group relations by line: queried modes via their ref tag, the fixed
   // lines via their relation id (some of them carry no ref).
   const byLine = new Map() // key → { mode, ref, fixed?, rels }
+  const modeOfRoute = modeByOsmRoute(city)
   for (const rel of relations) {
     const fixed = fixedByRelation.get(rel.id)
     if (fixed) {
@@ -544,7 +573,7 @@ export async function buildNetwork(city, outPath) {
       byLine.get(key).rels.push(rel)
       continue
     }
-    const mode = MODE_BY_OSM_ROUTE[rel.tags?.route]
+    const mode = modeOfRoute[rel.tags?.route]
     const ref = rel.tags?.ref
     if (!mode || !wantedModes.has(mode) || !ref) continue
     const key = `${mode}:${ref}`
@@ -572,7 +601,7 @@ export async function buildNetwork(city, outPath) {
     }
 
     // Per line, take the (up to) two longest direction variants
-    const candidates = rels
+    let candidates = rels
       .map((rel) => {
         const wayMembers = rel.members.filter((m) => m.type === 'way' && !/platform/.test(m.role || ''))
         const { path, segUnderground, segBridge } = stitchWays(
@@ -645,6 +674,27 @@ export async function buildNetwork(city, outPath) {
       console.warn(`⚠ ${LINE_NAME[mode](ref)}: no usable relation – skipped`)
       continue
     }
+
+    // A line number is only unique inside its network: the RMV tags the
+    // Rhein-Neckar S5 (Wiesbaden–Bensheim) and Frankfurt's own S5
+    // (Friedrichsdorf–Frankfurt Süd) with the same ref, and both reach
+    // into Frankfurt's box. The two directions are picked by length
+    // below, so without this the 100 km stranger would win over the
+    // city's own line and the line would end up skipped for having no
+    // stop inside the city. Keep only what actually runs on the map.
+    const onMap = isInside ? candidates.filter((c) => c.path.some(([lon, lat]) => isInside(lon, lat))) : candidates
+    if (onMap.length === 0) {
+      console.warn(
+        `⚠ ${LINE_NAME[mode](ref)}: none of the ${candidates.length} relation(s) runs inside the city – skipped`,
+      )
+      continue
+    }
+    if (onMap.length < candidates.length) {
+      console.log(
+        `  ℹ Line ${ref}: ${candidates.length - onMap.length} relation(s) of the same number run elsewhere – ignored`,
+      )
+    }
+    candidates = onMap
 
     // Pick two directions: the longest relation, and the one that runs
     // back – its from/to are the first one's swapped. A line with two

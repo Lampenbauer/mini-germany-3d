@@ -114,6 +114,7 @@ const en = {
   // Rostock, Kiel, Hamburg and Berlin read the same in both languages
   // and need no entry; see localizeCityName.
   'city.name.cologne': 'Cologne',
+  'city.name.hanover': 'Hanover',
   'city.name.munich': 'Munich',
   // Vehicle card
   'vehicle.status': 'Status',
@@ -326,6 +327,7 @@ const de: Record<MessageKey, string> = {
   'city.current': 'Gerade zu sehen',
   'city.loading': '{name} wird geladen …',
   'city.name.cologne': 'Köln',
+  'city.name.hanover': 'Hannover',
   'city.name.munich': 'München',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',

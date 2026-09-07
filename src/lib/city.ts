@@ -76,6 +76,19 @@ export interface CityFleetEntry extends VehicleDims {
 }
 
 /**
+ * OSM `route=*` values a transit mode can be served by. A Stadtbahn is
+ * tagged `light_rail` in one city and `tram` in the next, so which value
+ * belongs to which mode is a property of the city, not of the world –
+ * see OverpassModeQuery.osmRoutes.
+ */
+export const OSM_ROUTE_VALUES = ['tram', 'subway', 'light_rail', 'train', 'bus', 'ferry'] as const
+export type OsmRouteValue = (typeof OSM_ROUTE_VALUES)[number]
+
+export function isOsmRouteValue(value: unknown): value is OsmRouteValue {
+  return typeof value === 'string' && (OSM_ROUTE_VALUES as readonly string[]).includes(value)
+}
+
+/**
  * How the pipeline picks a mode's route relations out of OSM: regular
  * expressions matched (case-insensitively) against the relation tags.
  * All optional – an empty query takes every route relation of that mode
@@ -86,6 +99,15 @@ export interface OverpassModeQuery {
   ref?: string
   service?: string
   network?: string
+  /**
+   * The OSM `route=*` values this mode takes, instead of the default map
+   * (tram→tram, subway→subway, train→train+light_rail, bus→bus,
+   * ferry→ferry). Stuttgart's Stadtbahn is tagged `light_rail` and is the
+   * city's U-Bahn, so its subway takes `light_rail` – and its S-Bahn then
+   * has to say `train` alone, or both modes would claim the same
+   * relations. Two modes claiming one value is an error, not a guess.
+   */
+  osmRoutes?: OsmRouteValue[]
 }
 
 /**
@@ -133,6 +155,14 @@ export interface CityGtfsConfig {
    * `pattern` names the line. Empty for feeds that keep the lines apart.
    */
   trainBranches: { lineId: string; pattern: string }[]
+  /**
+   * The GTFS `route_type` values a mode's lines are looked up under,
+   * instead of the defaults (tram 0/900, subway 1/400–402, train
+   * 2/106/109, bus 3/700/704, ferry 4/1000/1200). Feeds classify a
+   * Stadtbahn as they please – Cologne's is a tram to the feed, Hannover's
+   * an underground – and the map keeps the mode the city itself uses.
+   */
+  routeTypes?: Partial<Record<TransitMode, string[]>>
 }
 
 /**
@@ -381,11 +411,23 @@ export function cityFromJson(raw: unknown): City {
     for (const [key, query] of Object.entries(networkRaw.overpass)) {
       const m = mode(key, `network.overpass.${key}`)
       if (!isObject(query)) fail(`network.overpass.${key}`, 'an object')
+      let osmRoutes: OsmRouteValue[] | undefined
+      if (query.osmRoutes !== undefined) {
+        const path = `network.overpass.${key}.osmRoutes`
+        if (!Array.isArray(query.osmRoutes) || query.osmRoutes.length === 0) {
+          fail(path, `a non-empty array of ${OSM_ROUTE_VALUES.join(', ')}`)
+        }
+        for (const value of query.osmRoutes) {
+          if (!isOsmRouteValue(value)) fail(path, `only ${OSM_ROUTE_VALUES.join(', ')}`)
+        }
+        osmRoutes = query.osmRoutes as OsmRouteValue[]
+      }
       overpass[m] = {
         operator: optionalStr(query.operator, `network.overpass.${key}.operator`),
         ref: optionalStr(query.ref, `network.overpass.${key}.ref`),
         service: optionalStr(query.service, `network.overpass.${key}.service`),
         network: optionalStr(query.network, `network.overpass.${key}.network`),
+        ...(osmRoutes ? { osmRoutes } : {}),
       }
     }
   }
@@ -424,6 +466,17 @@ export function cityFromJson(raw: unknown): City {
         pattern: str(branch.pattern, `gtfs.trainBranches[${i}].pattern`),
       })
     })
+  }
+  let routeTypes: CityGtfsConfig['routeTypes']
+  if (gtfsRaw.routeTypes !== undefined) {
+    if (!isObject(gtfsRaw.routeTypes)) fail('gtfs.routeTypes', 'an object keyed by mode')
+    routeTypes = {}
+    for (const [key, types] of Object.entries(gtfsRaw.routeTypes)) {
+      const m = mode(key, `gtfs.routeTypes.${key}`)
+      const path = `gtfs.routeTypes.${key}`
+      if (!Array.isArray(types) || types.length === 0) fail(path, 'a non-empty array of GTFS route_type values')
+      routeTypes[m] = types.map((type, i) => str(type, `${path}[${i}]`))
+    }
   }
 
   const fleet: Partial<Record<TransitMode, CityFleetEntry>> = {}
@@ -472,7 +525,11 @@ export function cityFromJson(raw: unknown): City {
     },
     weather: raw.weather === undefined ? boundingBoxCenter(boundingBox) : point(raw.weather, 'weather'),
     network: { modes, overpass, fixedLines, clip: clipRaw },
-    gtfs: { nameStrip: optionalStr(gtfsRaw.nameStrip, 'gtfs.nameStrip'), trainBranches },
+    gtfs: {
+      nameStrip: optionalStr(gtfsRaw.nameStrip, 'gtfs.nameStrip'),
+      trainBranches,
+      ...(routeTypes ? { routeTypes } : {}),
+    },
     fleet,
     terrain: {
       zoom: terrainRaw.zoom === undefined ? 15 : num(terrainRaw.zoom, 'terrain.zoom'),

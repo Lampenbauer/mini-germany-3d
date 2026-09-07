@@ -1,0 +1,92 @@
+{
+  "slug": "stuttgart",
+  "name": "Stuttgart",
+  "osmRelation": 62375,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 9.0386007,
+    "south": 48.6920188,
+    "east": 9.3160228,
+    "north": 48.8663994
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 8.8328,
+    "south": 48.557,
+    "east": 9.5218,
+    "north": 49.0014
+  },
+  "home": {
+    "longitude": 9.1795,
+    "latitude": 48.7784,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 9.177,
+    "latitude": 48.7758
+  },
+  "network": {
+    "modes": [
+      "subway",
+      "train",
+      "bus"
+    ],
+    "overpass": {
+      "subway": {
+        "operator": "SSB|Stuttgarter Straßenbahnen",
+        "ref": "^U[0-9]+$",
+        "osmRoutes": [
+          "light_rail"
+        ]
+      },
+      "train": {
+        "service": "commuter",
+        "ref": "^S[0-9]+$",
+        "osmRoutes": [
+          "train"
+        ]
+      },
+      "bus": {
+        "operator": "SSB|Stuttgarter Straßenbahnen"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "stuttgart",
+    "trainBranches": []
+  },
+  "fleet": {
+    "subway": {
+      "model": "stadtbahn-dt8",
+      "length": 79.5,
+      "width": 2.65,
+      "height": 3.5
+    },
+    "train": {
+      "model": "sbahn-423",
+      "length": 136.0,
+      "width": 3.02,
+      "height": 4.3
+    },
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 48,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © LGL, www.lgl-bw.de (DGM1, dl-de/by-2-0)."
+  },
+  "ais": {
+    "enabled": false,
+    "simulatedByMmsi": {}
+  }
+}

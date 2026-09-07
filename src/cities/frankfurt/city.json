@@ -1,0 +1,97 @@
+{
+  "slug": "frankfurt",
+  "name": "Frankfurt",
+  "osmRelation": 62400,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 8.4727605,
+    "south": 50.0153529,
+    "east": 8.8004049,
+    "north": 50.2271424
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 8.2611,
+    "south": 49.8803,
+    "east": 9.012,
+    "north": 50.3622
+  },
+  "home": {
+    "longitude": 8.68,
+    "latitude": 50.112,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 8.6785,
+    "latitude": 50.1136
+  },
+  "network": {
+    "modes": [
+      "tram",
+      "subway",
+      "train",
+      "bus"
+    ],
+    "overpass": {
+      "tram": {
+        "network": "Rhein-Main-Verkehrsverbund",
+        "ref": "^(1[1-9]|2[01])$"
+      },
+      "subway": {
+        "operator": "VGF|Verkehrsgesellschaft Frankfurt"
+      },
+      "train": {
+        "service": "commuter",
+        "ref": "^S[0-9]+$"
+      },
+      "bus": {
+        "network": "Rhein-Main-Verkehrsverbund",
+        "ref": "^M[0-9]+$"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "frankfurt",
+    "trainBranches": []
+  },
+  "fleet": {
+    "tram": {
+      "model": "tram-6n2",
+      "length": 30.0,
+      "width": 2.4,
+      "height": 3.5
+    },
+    "subway": {
+      "model": "stadtbahn-k4000",
+      "length": 51.4,
+      "width": 2.65,
+      "height": 3.5
+    },
+    "train": {
+      "model": "sbahn-423",
+      "length": 136.0,
+      "width": 3.02,
+      "height": 4.3
+    },
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 47,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © Hessisches Ministerium für Umwelt, Klimaschutz, Landwirtschaft und Verbraucherschutz (ATKIS-DGM1, dl-de/zero-2.0)."
+  },
+  "ais": {
+    "enabled": true,
+    "simulatedByMmsi": {}
+  }
+}

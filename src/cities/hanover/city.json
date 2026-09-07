@@ -1,0 +1,92 @@
+{
+  "slug": "hanover",
+  "name": "Hanover",
+  "osmRelation": 59418,
+  "cityBoundsQueriedOn": "2026-09-07",
+  "cityBounds": {
+    "west": 9.6044487,
+    "south": 52.3048933,
+    "east": 9.9185652,
+    "north": 52.4543349
+  },
+  "paddingMeters": 15000,
+  "boundingBox": {
+    "west": 9.3822,
+    "south": 52.1699,
+    "east": 10.1408,
+    "north": 52.5894
+  },
+  "home": {
+    "longitude": 9.738,
+    "latitude": 52.3757,
+    "height": 5800,
+    "heading": 0,
+    "pitch": -40
+  },
+  "weather": {
+    "longitude": 9.738,
+    "latitude": 52.3757
+  },
+  "network": {
+    "modes": [
+      "tram",
+      "train",
+      "bus"
+    ],
+    "overpass": {
+      "tram": {
+        "operator": "ÜSTRA"
+      },
+      "train": {
+        "service": "commuter",
+        "ref": "^S[0-9]+$"
+      },
+      "bus": {
+        "operator": "ÜSTRA"
+      }
+    },
+    "fixedLines": [],
+    "clip": "city"
+  },
+  "gtfs": {
+    "nameStrip": "hannover",
+    "trainBranches": [],
+    "routeTypes": {
+      "tram": [
+        "0",
+        "900",
+        "1"
+      ]
+    }
+  },
+  "fleet": {
+    "tram": {
+      "model": "stadtbahn-k4000",
+      "length": 51.4,
+      "width": 2.65,
+      "height": 3.6
+    },
+    "train": {
+      "model": "sbahn-490",
+      "length": 67.4,
+      "width": 2.92,
+      "height": 4.3
+    },
+    "bus": {
+      "model": "bus-12m",
+      "length": 12,
+      "width": 2.55,
+      "height": 3.1
+    }
+  },
+  "terrain": {
+    "zoom": 15,
+    "geoidOffsetFallback": 42.5,
+    "waterLevelNhn": null,
+    "attribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © Landesamt für Geoinformation und Landesvermessung Niedersachsen (DGM1, CC BY 4.0)."
+  },
+  "ais": {
+    "enabled": false,
+    "simulatedByMmsi": {}
+  }
+}
