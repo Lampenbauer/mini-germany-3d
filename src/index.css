@@ -74,14 +74,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  /*
-   * The serif the About dialog is set in (font-display): Fraunces, a
-   * variable face with real character in its headings, against Inter's
-   * neutral grotesque everywhere else. Only the weight axis is loaded,
-   * and only the subsets the text needs – some 37 kB for German and
-   * English (see main.tsx).
-   */
-  --font-display: 'Fraunces Variable', ui-serif, Georgia, serif;
 }
 
 /*

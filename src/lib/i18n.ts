@@ -230,36 +230,32 @@ const en = {
   /** What a transit operator calls the strip over the door: one line drawn
       straight with its stops along it, geography left out entirely. */
   'view.diagram': 'Line diagram',
-  // The About dialog (press ? or the question mark below the map
-  // controls): where this comes from, what it is not, and the keyboard at
-  // the end of it.
+  // About: the personal project story, map details, and keyboard shortcuts.
   'about.open': 'About this project',
+  'about.close': 'Close about dialog',
   'about.title': 'Mini Germany 3D',
-  'about.lead':
-    'Thirteen German cities and their public transport, running to the timetable of the day on a photorealistic 3D map.',
-  'about.rootsTitle': 'Where it comes from',
-  'about.miniTokyo':
-    'put Tokyo\u2019s trains on a 3D map and let them run to the timetable. This map is that idea, brought to German cities.',
-  'about.legibleCities':
-    'draws schematic maps and timetable animations out of open GTFS data. The line diagram here \u2013 every line pulled straight, the geography left out \u2013 is at home in that corner of the world.',
-  'about.notTitle': 'What it is not',
-  'about.notLive':
-    'Not live vehicle tracking. The open feeds carry the timetable and, for many trips, how late they are running \u2013 not where the vehicle is. So every tram here drives its scheduled trip, and a GTFS-Realtime delay shifts it: one running three minutes late is drawn where it should have been three minutes ago.',
-  'about.notShips':
-    'The ships are the exception. They carry AIS transponders, so the harbour traffic is where it really is, in real time.',
-  'about.notRouting':
-    'Not a journey planner. Nothing here will tell you how to get from A to B \u2013 the operators\u2019 apps do that far better.',
-  'about.notComplete':
-    'Not every line. The larger cities show a selection \u2013 Berlin\u2019s and Munich\u2019s Metro buses rather than all of their bus networks \u2013 so the map keeps its frame rate.',
-  'about.whoTitle': 'Who made it',
-  // The name links to his own page, which is where he introduces himself
-  // – "Mario", product designer and photographer – so this says no more
-  // about him than he does.
-  'about.who': 'is a product designer and photographer, and made this map.',
-  'about.builtTitle': 'What it is built from',
-  'about.built':
-    'Routes and stops from OpenStreetMap, departures from the Germany-wide GTFS feed (gtfs.de / DELFI), terrain from the states\u2019 open 1 m elevation models via Mapterhorn, the city itself from Google Photorealistic 3D Tiles through CesiumJS, weather from Open-Meteo, ships from aisstream.io, webcams from Windy. The licences are named in the credit line at the bottom of the map.',
-  // The keyboard, listed at the end of the dialog. Every entry names what
+  'about.eyebrow': 'A little change of perspective',
+  'about.lead': 'Thirteen cities. Countless little journeys. Watch Germany’s public transport make its way through a world in miniature.',
+  'about.storyTab': 'The project',
+  'about.detailsTab': 'Good to know',
+  'about.whoTitle': 'Hi, I’m Mario.',
+  'about.who': 'I’m a product designer, photographer, and the person behind this little world. With Mini Germany 3D, I bring a different view of the city to your browser: trains weaving between buildings, ferries crossing the harbour, and everyday journeys seen from above.',
+  'about.invitation': 'Pick a city, follow a train, and take a look around. I’m glad you’re here.',
+  'about.authorLink': 'More about me',
+  'about.rootsTitle': 'Two projects that inspired this one',
+  'about.miniTokyo': 'Tokyo’s trains in 3D were the spark for bringing this idea to German cities.',
+  'about.legibleCities': 'A fresh way to see a transport network. The inspiration for the straightened lines in the line diagram.',
+  'about.notTitle': 'Moving to the timetable',
+  'about.notLive': 'The trains and buses follow their timetables, with reported delays taken into account. Their positions are calculated, rather than tracked by GPS. A train running three minutes late appears where it would have been three minutes earlier.',
+  'about.shipsTitle': 'The harbour is live',
+  'about.notShips': 'Ships are the exception: their positions come from AIS transponders. When a ship sends an update, it moves on the map too.',
+  'about.exploreTitle': 'A place to explore',
+  'about.notRouting': 'For your next connection, use your transport operator’s app. This map is here to let you look around and discover.',
+  'about.notComplete': 'Larger cities show a selection of lines to keep things running smoothly, such as the Metro buses in Berlin and Munich.',
+  'about.builtTitle': 'Made possible by open data & 3D',
+  'about.built': 'Routes and stops: OpenStreetMap. Timetables: gtfs.de / DELFI. Terrain: the states’ open 1 m elevation models via Mapterhorn. City models: Google Photorealistic 3D Tiles and CesiumJS. Weather: Open-Meteo. Ships: aisstream.io. Webcams: Windy. You’ll find the licences in the credits at the bottom of the map.',
+  'about.keyboardLead': 'A few keys to move around your little world. Use them when this dialog is closed.',
+  // The keyboard, listed in its own tab. Every entry names what
   // the key does, not the control it stands in for – the reader is
   // looking for a verb here.
   'keys.title': 'Keyboard',
@@ -483,28 +479,29 @@ const de: Record<MessageKey, string> = {
   'view.underground': 'Untergrund',
   'view.diagram': 'Linienband',
   'about.open': 'Über dieses Projekt',
+  'about.close': 'Über dieses Projekt schließen',
   'about.title': 'Mini Germany 3D',
-  'about.lead':
-    'Dreizehn deutsche Städte und ihr Nahverkehr, nach dem Fahrplan des Tages unterwegs auf einer fotorealistischen 3D-Karte.',
-  'about.rootsTitle': 'Woher es kommt',
-  'about.miniTokyo':
-    'hat Tokios Züge auf eine 3D-Karte gesetzt und nach Fahrplan fahren lassen. Diese Karte ist dieselbe Idee, übertragen auf deutsche Städte.',
-  'about.legibleCities':
-    'zeichnet schematische Netzpläne und Fahrplan-Animationen aus offenen GTFS-Daten. Das Linienband hier – jede Linie geradegezogen, die Geografie weggelassen – ist in dieser Ecke zu Hause.',
-  'about.notTitle': 'Was es nicht ist',
-  'about.notLive':
-    'Kein Echtzeit-Tracking. Die offenen Daten liefern den Fahrplan und für viele Fahrten die Verspätung – nicht die Position des Fahrzeugs. Jede Straßenbahn hier fährt deshalb ihre Fahrplanfahrt, und eine GTFS-Realtime-Verspätung verschiebt sie: drei Minuten zu spät heißt, sie wird dort gezeichnet, wo sie vor drei Minuten hätte sein sollen.',
-  'about.notShips':
-    'Die Schiffe sind die Ausnahme. Sie tragen AIS-Transponder, der Hafenverkehr steht also wirklich dort, wo er gerade ist.',
-  'about.notRouting':
-    'Keine Fahrplanauskunft. Von A nach B hilft hier nichts – das können die Apps der Verkehrsbetriebe weit besser.',
-  'about.notComplete':
-    'Nicht jede Linie. Die großen Städte zeigen eine Auswahl – Berlins und Münchens Metrobusse statt ihrer kompletten Busnetze –, damit die Karte flüssig bleibt.',
-  'about.whoTitle': 'Wer es gemacht hat',
-  'about.who': 'ist Produktdesigner und Fotograf und hat diese Karte gebaut.',
-  'about.builtTitle': 'Woraus es gebaut ist',
-  'about.built':
-    'Linienwege und Haltestellen aus OpenStreetMap, Abfahrten aus dem deutschlandweiten GTFS-Feed (gtfs.de / DELFI), Gelände aus den offenen 1-m-Höhenmodellen der Länder über Mapterhorn, die Stadt selbst aus Googles fotorealistischen 3D-Kacheln über CesiumJS, Wetter von Open-Meteo, Schiffe von aisstream.io, Webcams von Windy. Die Lizenzen stehen in der Nachweiszeile am unteren Kartenrand.',
+  'about.eyebrow': 'Ein kleiner Perspektivwechsel',
+  'about.lead': 'Dreizehn Städte. Unzählige kleine Wege. Schau dem Nahverkehr dabei zu, wie er Deutschland im Miniaturformat bewegt.',
+  'about.storyTab': 'Das Projekt',
+  'about.detailsTab': 'Gut zu wissen',
+  'about.whoTitle': 'Hi, ich bin Mario.',
+  'about.who': 'Ich bin Produktdesigner, Fotograf und der Mensch hinter dieser kleinen Welt. Mit Mini Germany 3D hole ich einen anderen Blick auf die Stadt in deinen Browser: Bahnen zwischen Häusern, Fähren im Hafen und alltägliche Wege aus der Vogelperspektive.',
+  'about.invitation': 'Such dir eine Stadt aus, folge einer Bahn und schau dich um. Schön, dass du da bist.',
+  'about.authorLink': 'Mehr über mich',
+  'about.rootsTitle': 'Zwei Projekte, die mich inspiriert haben',
+  'about.miniTokyo': 'Tokios Züge in 3D waren der Anstoß, diese Idee auch in deutsche Städte zu bringen.',
+  'about.legibleCities': 'Ein neuer Blick auf Liniennetze. Die Inspiration für die geradegezogenen Strecken im Linienband.',
+  'about.notTitle': 'Unterwegs nach Fahrplan',
+  'about.notLive': 'Bahnen und Busse folgen ihrem Fahrplan, gemeldete Verspätungen werden eingerechnet. Ihre Positionen sind berechnet, nicht per GPS gemessen. Eine Bahn mit drei Minuten Verspätung erscheint dort, wo sie drei Minuten früher gewesen wäre.',
+  'about.shipsTitle': 'Im Hafen wird’s live',
+  'about.notShips': 'Schiffe sind die Ausnahme: Ihre Positionen stammen von AIS-Transpondern. Wenn ein Schiff ein Update sendet, bewegt es sich auch auf der Karte weiter.',
+  'about.exploreTitle': 'Platz zum Entdecken',
+  'about.notRouting': 'Für deine nächste Verbindung nimm am besten die App deines Verkehrsbetriebs. Hier kannst du dich umschauen und auf Entdeckungstour gehen.',
+  'about.notComplete': 'Damit alles flüssig läuft, zeigen größere Städte eine Auswahl an Linien, etwa die Metrobusse in Berlin und München.',
+  'about.builtTitle': 'Möglich dank offener Daten & 3D',
+  'about.built': 'Wege und Haltestellen: OpenStreetMap. Fahrpläne: gtfs.de / DELFI. Gelände: offene 1-m-Höhenmodelle der Länder über Mapterhorn. Stadtmodelle: Google Photorealistic 3D Tiles und CesiumJS. Wetter: Open-Meteo. Schiffe: aisstream.io. Webcams: Windy. Die Lizenzen findest du am unteren Kartenrand.',
+  'about.keyboardLead': 'Mit ein paar Tasten durch deine kleine Welt. Die Kürzel funktionieren, sobald du diesen Dialog schließt.',
   'keys.title': 'Tastatur',
   'keys.open': 'Tastaturkürzel',
   'keys.close': 'Kürzelliste schließen',

@@ -414,26 +414,32 @@ describe('App (UI shell)', () => {
     expect(tab('Underground')).toHaveAttribute('data-state', 'active')
   })
 
-  it('tells what the map is, and is not, on the button below the controls', () => {
+  it('tells what the map is, and is not, on the button below the controls', async () => {
     render(<App />)
     const button = screen.getByRole('button', { name: 'About this project' })
     expect(button).toHaveAttribute('aria-pressed', 'false')
+    button.focus()
     fireEvent.click(button)
     const about = screen.getByRole('dialog', { name: 'Mini Germany 3D' })
-    // Where it comes from, what it is not, and the keyboard at the end
+    // The project story opens first; details and shortcuts have their own tabs.
     expect(about).toHaveTextContent('mini-tokyo-3d')
     expect(about).toHaveTextContent('legible-cities')
-    expect(about).toHaveTextContent('Not live vehicle tracking')
-    expect(about).toHaveTextContent('Pause and play')
+    expect(about).toHaveTextContent('Hi, I’m Mario.')
     // The two ancestors are linked, and the links leave the page safely
     const link = within(about).getByRole('link', { name: 'legible-cities' })
     expect(link).toHaveAttribute('href', 'https://github.com/richc117/legible-cities')
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+    fireEvent.mouseDown(within(about).getByRole('tab', { name: 'Good to know' }), { button: 0, ctrlKey: false })
+    expect(about).toHaveTextContent('Their positions are calculated')
+    fireEvent.mouseDown(within(about).getByRole('tab', { name: 'Keyboard' }), { button: 0, ctrlKey: false })
+    expect(about).toHaveTextContent('Pause and play')
+    expect(about).toHaveTextContent('Space')
     // A dialog, not a card wearing the word: while it is up the map and
     // its controls are hidden from a screen reader entirely.
     expect(screen.queryByRole('button', { name: 'About this project' })).not.toBeInTheDocument()
-    fireEvent.click(within(about).getByRole('button', { name: 'Close the shortcut list' }))
+    fireEvent.click(within(about).getByRole('button', { name: 'Close about dialog' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(button).toHaveFocus())
     expect(screen.getByRole('button', { name: 'About this project' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -444,7 +450,7 @@ describe('App (UI shell)', () => {
     render(<App />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
-    expect(screen.getByRole('dialog', { name: 'Mini Germany 3D' })).toHaveTextContent('Space')
+    expect(screen.getByRole('dialog', { name: 'Mini Germany 3D' })).toHaveTextContent('Hi, I’m Mario.')
     // ? again puts it away …
     fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
