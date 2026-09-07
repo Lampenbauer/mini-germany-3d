@@ -4,8 +4,8 @@ import {
   CircleHelp,
   Home,
   Maximize,
+  Menu,
   Minimize,
-  Rows3,
   TrainFrontTunnel,
 } from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
@@ -251,7 +251,9 @@ const LINEAR_MORPH_MS = 900
 const VIEW_TABS = [
   { value: 'surface', labelKey: 'view.surface', Icon: Building2 },
   { value: 'underground', labelKey: 'view.underground', Icon: TrainFrontTunnel },
-  { value: 'linear', labelKey: 'view.diagram', Icon: Rows3 },
+  // Three plain bars: the diagram is every line pulled straight and
+  // stacked, which is exactly that shape (Rows3 drew boxed rows instead).
+  { value: 'linear', labelKey: 'view.diagram', Icon: Menu },
 ] as const satisfies readonly { value: MapView; labelKey: MessageKey; Icon: typeof Building2 }[]
 
 /**
