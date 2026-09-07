@@ -464,7 +464,11 @@ export function ControlPanel(props: ControlPanelProps) {
                 ahead, the time typed into a plain time field. The sun follows
                 the day; the timetable is built for one service day and does
                 not (see SimClock.setDate). */}
-            <div className="flex items-center gap-2">
+            {/* Closer to the clock than the gap the card sets between its
+                sections: these three set the clock above them, so they
+                read as one block with it rather than as the next section
+                down. */}
+            <div className="-mt-2 flex items-center gap-2">
               <Popover open={dateOpen} onOpenChange={setDateOpen}>
                 <PopoverTrigger asChild>
                   <Button
