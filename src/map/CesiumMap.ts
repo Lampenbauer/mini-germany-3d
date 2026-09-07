@@ -328,6 +328,20 @@ const TILE_TREE_LIMIT = 300_000
 const TILESET_SWAP_GRACE_MS = 30_000
 
 /**
+ * How far into a flight to another city the map changes hands: the city
+ * left behind comes off, the next one goes up (see setCity's onHandover).
+ *
+ * Halfway is where neither city is anything to look at. The flight arcs
+ * to some 85 km up by then and both are tens of kilometers off, far
+ * outside the ranges at which stops, vehicles and their names are drawn
+ * at all – so the one being taken down is not seen going, and the one
+ * going up has the whole second half of the flight to load its models
+ * and settle, rather than being assembled under a camera that has
+ * already landed.
+ */
+const CITY_HANDOVER_FRACTION = 0.4
+
+/**
  * A tree rebuild inside a city starts only after the camera has been at
  * rest this long (ms) – no input, no flight, no chase – and is dropped
  * the moment it is touched again: the copy would otherwise chase a
@@ -578,6 +592,8 @@ export class CesiumMap {
    */
   private bootstrapGeneration = 0
   private bootstrapTimer: number | null = null
+  /** Pending handover of a flight to another city (see setCity). */
+  private handoverTimer: number | null = null
   /** The bootstrap has measured this city's ground on the tiles. */
   private groundMeasured = false
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
@@ -1269,11 +1285,25 @@ export class CesiumMap {
    * the new home view at once (a link opened, a hash edited); 'fly' lifts
    * the leash and flies there, and only on arrival does the new leash
    * take over – the camera has to cross both fences to get from one
-   * city to the other. The layers of the city left behind are the
-   * caller's to clear (clearCity), before or after – the flight does not
-   * care.
+   * city to the other.
+   *
+   * The layers of the city left behind are the caller's to clear
+   * (clearCity), and `onHandover` says when to do it and put the next
+   * city's up: at once after a jump, and halfway through a flight
+   * otherwise (see CITY_HANDOVER_FRACTION). Both ends of that moment
+   * matter. Before it, the city being left keeps its routes, vehicles
+   * and ships rather than emptying under a camera still standing over
+   * it; after it, the next city has the rest of the flight to put itself
+   * together, so it is there to be seen the moment the camera lands. A
+   * flight cut short hands over as it ends, and one overtaken by another
+   * city switch never hands over at all – that switch does it instead.
    */
-  setCity(city: City, transition: 'jump' | 'fly'): void {
+  setCity(city: City, transition: 'jump' | 'fly', onHandover?: () => void): void {
+    // A handover still pending belongs to a flight this one supersedes
+    if (this.handoverTimer !== null) {
+      window.clearTimeout(this.handoverTimer)
+      this.handoverTimer = null
+    }
     this.city = city
     // Sun elevation reference and height bootstrap belong to the place
     this.cityUp = null
@@ -1301,6 +1331,8 @@ export class CesiumMap {
       // carries from the place left behind (see replaceTileset).
       this.replaceTileset(0, 'city')
       this.scheduleGroundBootstrap(500)
+      // Nowhere to fly, so there is nothing to wait for either
+      onHandover?.()
       return
     }
     // Off the leash for the flight: the fence runs per frame and would
@@ -1324,7 +1356,26 @@ export class CesiumMap {
     // approach.
     this.cloudsHeldForFlight = true
     this.clouds.clearForDeparture()
+    /**
+     * The map changes hands halfway: from here the city left behind is
+     * the caller's to take down and the next one's is going up, with the
+     * rest of the flight to do it in. Once only, and never for a flight
+     * another city switch has taken over.
+     */
+    let handedOver = false
+    const handOver = () => {
+      if (handedOver || this.destroyed || this.city !== city) return
+      handedOver = true
+      if (this.handoverTimer !== null) {
+        window.clearTimeout(this.handoverTimer)
+        this.handoverTimer = null
+      }
+      onHandover?.()
+    }
+    this.handoverTimer = window.setTimeout(handOver, duration * 1000 * CITY_HANDOVER_FRACTION)
     const arrive = () => {
+      // A flight cut short never reached the halfway mark
+      handOver()
       // A later setCity has taken over; its own flight ends its own way.
       if (this.destroyed || this.city !== city) return
       this.cameraLimits = limits
@@ -2457,6 +2508,7 @@ export class CesiumMap {
     window.removeEventListener('pointercancel', this.onPointerUp)
     if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
     if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
+    if (this.handoverTimer !== null) window.clearTimeout(this.handoverTimer)
     this.resizeObserver?.disconnect()
     this.handler.destroy()
     this.weather.destroy()

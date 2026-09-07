@@ -1435,9 +1435,35 @@ export default function App() {
     const sharedVehicle = transition === 'jump' ? parseVehicleHash(bootHash) : null
     const sharedStopId = transition === 'jump' && !sharedVehicle ? parseStopHash(bootHash) : null
 
+    /**
+     * The map changes hands mid-flight, not at either end of it (see
+     * CesiumMap.setCity). Until then the city being left keeps its
+     * routes, stops, vehicles and ships, so nothing empties under a
+     * camera still standing over it; from then on this city has the rest
+     * of the flight to put itself up, so it is there to be seen when the
+     * camera lands. The cleanup below hands the old one over rather than
+     * dropping it, and here is where it goes. A jump changes hands at
+     * once – there is no flight to spend.
+     */
+    const handoverWaiters: (() => void)[] = []
+    let handedOver = transition !== 'fly'
+    const handOver = () => {
+      if (handedOver) return
+      handedOver = true
+      simRef.current = null
+      snapshotsRef.current = []
+      aisVesselsRef.current = []
+      mapRef.current?.clearCity()
+      for (const waiter of handoverWaiters.splice(0)) waiter()
+    }
+    /** Resolves once the map is this city's to fill – at once after a jump. */
+    const whenHandedOver = () =>
+      handedOver ? Promise.resolve() : new Promise<void>((resolve) => handoverWaiters.push(resolve))
+
     // The map was built wearing the first city; every later one is a
     // move – a flight from the picker, a jump from a link or hash edit.
-    if (map.currentCity.slug !== sessionCity.slug) map.setCity(sessionCity, transition)
+    if (map.currentCity.slug !== sessionCity.slug) map.setCity(sessionCity, transition, handOver)
+    else handOver()
     // A link's or an edited hash's pose belongs to this city: put the
     // camera there before the first frame rather than after the data.
     // A vehicle or stop link carries no pose – those wait for the data.
@@ -1461,6 +1487,10 @@ export default function App() {
 
     const start = async () => {
       const data = await loadCityData(sessionCity.slug)
+      if (cancelled) return
+      // The data is usually here before the map is free: the city being
+      // left holds it until the flight is half over (see handOver above).
+      await whenHandedOver()
       if (cancelled) return
       cityDataRef.current = data
       setCityData(data)
@@ -1641,13 +1671,28 @@ export default function App() {
         api.dataSource = ''
       }
       realtimeStatusRef.current = null
-      simRef.current = null
       cityDataRef.current = null
       setCityData(null)
       setWebcams([])
-      snapshotsRef.current = []
-      aisVesselsRef.current = []
       pendingSharedVehicleRef.current = null
+      // What the map draws of this city – the simulation behind its
+      // vehicles, the ships, the routes and stops – is handed to the
+      // flight rather than dropped: it stays up until the flight to the
+      // next city is half over, which is where the next session's
+      // `handOver` takes it down. The transition ref still holds what
+      // that session is about to read (see the body above), so it says
+      // here whether a flight is coming at all; a jump has nowhere to
+      // hold anything, and on unmount the viewer is gone already – its
+      // cleanup ran first, leaving mapRef empty.
+      const handedToFlight = cityTransitionRef.current === 'fly' && mapRef.current !== null
+      if (!handedToFlight) {
+        simRef.current = null
+        snapshotsRef.current = []
+        aisVesselsRef.current = []
+        mapRef.current?.clearCity()
+      }
+      // A start() still waiting on a handover that will never come now
+      for (const waiter of handoverWaiters.splice(0)) waiter()
       // The sky was a reading over the city that is leaving: 150 km away
       // it says nothing, and holding it would rain on the next city until
       // its own first poll lands. A picked sky is a choice about the
@@ -1675,12 +1720,9 @@ export default function App() {
         followingRef.current = false
         setFollowing(false)
       }
-      // On unmount the viewer is gone already; its cleanup ran first.
-      const liveMap = mapRef.current
-      if (liveMap) {
-        liveMap.setFollow(null)
-        liveMap.clearCity()
-      }
+      // The chase goes at once whatever happens next: a camera hanging on
+      // a tram cannot also fly to another city.
+      mapRef.current?.setFollow(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citySlug])

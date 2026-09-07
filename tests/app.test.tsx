@@ -15,8 +15,11 @@ vi.mock('@/map/CesiumMap', () => {
     get currentCity() {
       return this.city
     }
-    setCity(city: unknown) {
+    setCity(city: unknown, _transition?: unknown, onArrive?: () => void) {
       this.city = city
+      // No flight here, so the camera is over the new city at once – the
+      // app waits for this before it puts the new city's data up.
+      onArrive?.()
     }
     clearCity() {}
     setGroundReference() {}

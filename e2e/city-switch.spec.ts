@@ -49,8 +49,8 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
   await page.getByRole('button', { name: 'Choose a city' }).click()
   await page.getByRole('option', { name: 'Switch to Kiel' }).click()
 
-  // The old city is torn down at once, the new one is up once its data
-  // is in and its simulation runs.
+  // The old city stays on the map for the length of the flight and hands
+  // over on arrival, so this waits out the flight as well as the data.
   await page.waitForFunction(
     () =>
       window.__mrt?.ready === true &&
