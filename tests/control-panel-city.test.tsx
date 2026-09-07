@@ -19,6 +19,8 @@ afterEach(() => {
 const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'] }
 const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'] }
 const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'] }
+const COLOGNE: CityChoice = { slug: 'cologne', name: 'Cologne', modes: ['tram', 'train', 'bus'] }
+const LUEBECK: CityChoice = { slug: 'lubeck', name: 'Lübeck', modes: ['bus'] }
 
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onSelectCity = vi.fn()
@@ -107,6 +109,22 @@ describe('the city picker in the control panel', () => {
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
     fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     expect(screen.getByRole('option', { name: 'Nach Kiel wechseln' })).toBeInTheDocument()
+  })
+
+  it('lists the cities by name, in the language of the interface', () => {
+    // The registry's own order is roughly north to south; the list is
+    // alphabetical, and by the name shown – Köln belongs under K, Cologne
+    // under C – with umlauts where a dictionary puts them.
+    const cities = [ROSTOCK, MUNICH, KIEL, COLOGNE, LUEBECK]
+    const names = () => screen.getAllByRole('option').map((o) => o.textContent)
+    panel({ city: ROSTOCK, cities })
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
+    expect(names()).toEqual(['Cologne', 'Kiel', 'Lübeck', 'Munich', 'Rostock'])
+    cleanup()
+    setLanguage('de')
+    panel({ city: ROSTOCK, cities })
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
+    expect(names()).toEqual(['Kiel', 'Köln', 'Lübeck', 'München', 'Rostock'])
   })
 
   it('names a city in the language of the interface', () => {

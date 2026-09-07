@@ -311,6 +311,18 @@ export function ControlPanel(props: ControlPanelProps) {
     year: '2-digit',
   }).format(shownDay)
 
+  // The cities the picker lists, by name and in the language the interface
+  // speaks: Köln sorts under K and Cologne under C, München under M and
+  // Munich under M as well, so the order is computed here rather than
+  // written into src/cities/definitions.ts. A collator, not <, because
+  // sorting umlauts by code point puts Lübeck behind Wilhelmshaven.
+  const cityChoices = useMemo(() => {
+    const collator = new Intl.Collator(getLanguage() === 'de' ? 'de-DE' : 'en-GB')
+    return props.cities
+      .map((city) => ({ city, name: localizeCityName(city.slug, city.name) }))
+      .sort((a, b) => collator.compare(a.name, b.name))
+  }, [props.cities])
+
   // Stable group arrays so the memoized LineGroups skip the clock re-renders
   const lineGroups = useMemo(() => {
     return MODE_ORDER.map((mode) => ({
@@ -369,9 +381,8 @@ export function ControlPanel(props: ControlPanelProps) {
               </PopoverTrigger>
               <PopoverContent align="start" className="w-56 p-1.5">
                 <ul role="listbox" aria-label={t('city.pick')} className="flex flex-col gap-0.5">
-                  {props.cities.map((city) => {
+                  {cityChoices.map(({ city, name }) => {
                     const current = city.slug === props.city.slug
-                    const name = localizeCityName(city.slug, city.name)
                     return (
                       <li key={city.slug}>
                         <button

@@ -26,7 +26,12 @@ import munich from './munich/city.json' with { type: 'json' }
 import frankfurt from './frankfurt/city.json' with { type: 'json' }
 import stuttgart from './stuttgart/city.json' with { type: 'json' }
 
-/** Every city, in the order the city picker lists them. */
+/**
+ * Every city this build knows. The order here is the file's own – roughly
+ * north to south, the default city first; the picker sorts them by name
+ * in the language it speaks (see ControlPanel), because Köln belongs
+ * under K and Cologne under C.
+ */
 export const CITIES: readonly City[] = [
   cityFromJson(rostock),
   cityFromJson(kiel),
