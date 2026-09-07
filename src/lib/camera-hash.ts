@@ -79,16 +79,20 @@ export function parseStopHash(hash: string): string | null {
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
  * the city, the Routes/Stops/Labels layer toggles, the webcams and the
- * clouds, the miniature look and the pause state. Only deviations from
- * the defaults (the default city, all layers on, the miniature look at
- * config.camera.miniatureDefault, clock running) appear in the URL, so
- * default sessions keep clean hashes.
+ * clouds, the miniature look and the pause state. Apart from the city –
+ * which every link names, so that it opens on the one it was copied
+ * from – only deviations from the defaults (all layers on, the miniature
+ * look at config.camera.miniatureDefault, clock running) appear in the
+ * URL, so default sessions keep short hashes.
  */
 export interface HashUiState {
   /**
-   * City slug, null for the default city. Written first so a shared link
-   * reads "#city=kiel&lat=…" – the city is what the rest refers to:
-   * vehicle and stop ids are only meaningful inside it.
+   * City slug – every city, the default one included, so the address bar
+   * always names the city on screen and a link copied from it carries
+   * that name onward. Written first so a shared link reads
+   * "#city=kiel&lat=…": the city is what the rest refers to, since
+   * vehicle and stop ids are only meaningful inside it. Null only where a
+   * hash names no city, which the app reads as the default.
    */
   city: string | null
   /** The lines pulled straight instead of drawn on the map (see LinearView). */

@@ -16,7 +16,10 @@ test('camera pose is saved to and restored from the URL hash', async ({
   // along in the hash.
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
-    .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&paused=1$/)
+    // The city rides in every hash, the default one included
+    .toMatch(
+      /^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&city=rostock&paused=1$/,
+    )
 
   // Changing only the hash of the same URL would be a same-document
   // navigation. The stop-over destroys the first Cesium instance and forces
@@ -97,7 +100,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&paused=1`)
+    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&city=rostock&paused=1`)
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   // Fresh app boot from the shared link (about:blank tears down the first

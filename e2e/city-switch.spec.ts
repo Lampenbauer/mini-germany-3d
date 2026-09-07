@@ -91,7 +91,7 @@ test('a link naming the city opens it', async ({ page }) => {
   )
   await expect(page).toHaveTitle('Mini Kiel 3D')
   expect(inside(await cameraView(page), KIEL)).toBe(true)
-  // The default city needs no name in the URL, every other city keeps its
+  // Every city keeps its name in the URL, the default one included
   await page.getByRole('button', { name: 'Mini Kiel 3D' }).click()
   await page.getByRole('option', { name: 'Switch to Rostock' }).click()
   await page.waitForFunction(
@@ -100,5 +100,5 @@ test('a link naming the city opens it', async ({ page }) => {
     { timeout: 120_000 },
   )
   await expect(page).toHaveTitle('Mini Rostock 3D')
-  expect(page.url()).not.toContain('city=')
+  await expect.poll(() => page.url(), { timeout: 30_000 }).toContain('city=rostock')
 })

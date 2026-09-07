@@ -799,7 +799,7 @@ export default function App() {
             ? formatStopHash(selectedStopIdRef.current)
             : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
-          city: citySlugRef.current === DEFAULT_CITY_SLUG ? null : citySlugRef.current,
+          city: citySlugRef.current,
           view: currentViewRef.current(),
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,

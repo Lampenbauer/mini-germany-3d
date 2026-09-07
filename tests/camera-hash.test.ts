@@ -122,7 +122,7 @@ describe('layer and pause state in the hash', () => {
     ).toBe(`&routes=0&stops=0&labels=0${tiltDeviation}&paused=1`)
   })
 
-  it('names the city first, and only when it is not the default', () => {
+  it('names the city first, whichever city it is', () => {
     const state: HashUiState = {
       city: null,
       view: 'surface',
@@ -138,6 +138,9 @@ describe('layer and pause state in the hash', () => {
     expect(formatUiStateHash({ ...state, city: 'kiel', routesHidden: true })).toBe(
       '&city=kiel&routes=0',
     )
+    // The default city is written out too – the app hands it in like any
+    // other, so a link always says which city it is of
+    expect(formatUiStateHash({ ...state, city: 'rostock' })).toBe('&city=rostock')
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=kiel').city).toBe('kiel')
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
   })
