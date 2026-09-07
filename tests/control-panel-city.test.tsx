@@ -4,10 +4,11 @@ import { ControlPanel, type CityChoice, type ControlPanelProps } from '@/compone
 import { setLanguage } from '@/lib/i18n'
 
 /**
- * The city picker behind the caret beside the panel title. The app's own
- * render never shows it under Vitest, where the registry holds one city
- * and the caret stays out (see app.test.tsx) – so the panel is rendered
- * here with two.
+ * The city picker: the panel's title, which opens the list of cities and
+ * is named by the city it shows, the way a select is named by its value.
+ * The app's own render never shows it under Vitest, where the registry
+ * holds one city and the title stays plain text (see app.test.tsx) – so
+ * the panel is rendered here with two.
  */
 
 afterEach(() => {
@@ -59,15 +60,18 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
 }
 
 describe('the city picker in the control panel', () => {
-  it('names the city in the title and offers the caret', () => {
+  it('makes the title itself the trigger, and says it opens a list', () => {
     panel()
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
-    expect(screen.getByRole('button', { name: 'Choose a city' })).toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: 'Mini Rostock 3D' })
+    expect(trigger).toHaveAttribute('aria-haspopup', 'listbox')
+    // The whole title is the button, not an icon beside it
+    expect(screen.getByTestId('app-title').closest('button')).toBe(trigger)
   })
 
   it('lists every city, marks the current one, and switches on a click', () => {
     const { onSelectCity } = panel()
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     const options = screen.getAllByRole('option')
     expect(options).toHaveLength(2)
     expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
@@ -81,21 +85,27 @@ describe('the city picker in the control panel', () => {
 
   it('does not switch to the city already shown', () => {
     const { onSelectCity } = panel()
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     fireEvent.click(screen.getByRole('option', { name: 'Rostock' }))
     expect(onSelectCity).not.toHaveBeenCalled()
   })
 
   it('waits while a city is loading', () => {
     panel({ cityLoading: true })
-    expect(screen.getByRole('button', { name: 'Choose a city' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Mini Rostock 3D' })).toBeDisabled()
+  })
+
+  it('leaves the title plain where there is nowhere else to go', () => {
+    panel({ cities: [ROSTOCK] })
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
+    expect(screen.queryByRole('button', { name: 'Mini Rostock 3D' })).not.toBeInTheDocument()
   })
 
   it('speaks German too', () => {
     setLanguage('de')
     panel()
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
-    fireEvent.click(screen.getByRole('button', { name: 'Stadt wählen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     expect(screen.getByRole('option', { name: 'Nach Kiel wechseln' })).toBeInTheDocument()
   })
 
@@ -104,12 +114,12 @@ describe('the city picker in the control panel', () => {
     // English too); the German interface shows the German name.
     panel({ city: MUNICH, cities: [ROSTOCK, MUNICH] })
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Munich 3D')
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Munich 3D' }))
     expect(screen.getByRole('option', { name: 'Munich' })).toHaveAttribute('aria-selected', 'true')
     cleanup()
     setLanguage('de')
     panel({ city: ROSTOCK, cities: [ROSTOCK, MUNICH] })
-    fireEvent.click(screen.getByRole('button', { name: 'Stadt wählen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     const munich = screen.getByRole('option', { name: 'Nach München wechseln' })
     expect(munich).toHaveTextContent('München')
     fireEvent.click(munich)

@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { cityBySlug } from '../src/cities/definitions'
 
 /**
- * Moving from one city to the next: the picker behind the caret beside
- * the panel title, and a link that names the city. Both must leave the
+ * Moving from one city to the next: the picker the panel title opens,
+ * and a link that names the city. Both must leave the
  * old city's lines behind, put the new city's up, name it in the title
  * and the URL, and land the camera inside the new city's leash.
  *
@@ -46,7 +46,7 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
   const rostockLines = await page.evaluate(() => window.__mrt!.lineIds())
   expect(rostockLines).toContain('FG')
 
-  await page.getByRole('button', { name: 'Choose a city' }).click()
+  await page.getByRole('button', { name: 'Mini Rostock 3D' }).click()
   await page.getByRole('option', { name: 'Switch to Kiel' }).click()
 
   // The old city stays on the map for the length of the flight and hands
@@ -92,7 +92,7 @@ test('a link naming the city opens it', async ({ page }) => {
   await expect(page).toHaveTitle('Mini Kiel 3D')
   expect(inside(await cameraView(page), KIEL)).toBe(true)
   // The default city needs no name in the URL, every other city keeps its
-  await page.getByRole('button', { name: 'Choose a city' }).click()
+  await page.getByRole('button', { name: 'Mini Kiel 3D' }).click()
   await page.getByRole('option', { name: 'Switch to Rostock' }).click()
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.city() === 'rostock',

@@ -15,6 +15,7 @@ import {
   TimerReset,
   TramFront,
 } from 'lucide-react'
+import { CaretDownIcon } from '@/components/CaretDownIcon'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -313,6 +314,14 @@ export function ControlPanel(props: ControlPanelProps) {
     })).filter((g) => g.lines.length > 0)
   }, [props.lines])
 
+  // The city on screen, named as the app is – the panel's title, and the
+  // face of the picker where there is one to open.
+  const cityTitle = (
+    <span className="truncate" data-testid="app-title">
+      {t('city.title', { name: localizeCityName(props.city.slug, props.city.name) })}
+    </span>
+  )
+
   return (
     // max-h leaves ~2.5rem below the panel so it cannot cover the Cesium
     // attribution line at the bottom edge of the map. The panel itself does
@@ -322,24 +331,35 @@ export function ControlPanel(props: ControlPanelProps) {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex min-w-0 items-center gap-1.5 text-base">
           <TramFront className="size-5 shrink-0 text-primary" aria-hidden />
-          <span className="truncate" data-testid="app-title">
-            {t('city.title', { name: localizeCityName(props.city.slug, props.city.name) })}
-          </span>
-          {/* The caret beside the title opens the list of cities. Only
-              offered when there is somewhere else to go – a single city
+          {/* The title itself opens the list of cities – it names the one
+              on screen, which is exactly what a select's face does. Only
+              where there is somewhere else to go, though: a single city
               needs no picker, and a caret that opens a list of one would
-              promise a choice it cannot give. */}
-          {props.cities.length > 1 && (
+              promise a choice it cannot give. Then the title is plain
+              text, as it was before there was more than one city. */}
+          {props.cities.length > 1 ? (
             <Popover open={cityOpen} onOpenChange={setCityOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0"
-                  aria-label={t('city.pick')}
+                  size="sm"
+                  // Borderless until it is pointed at, then a select's own
+                  // outline – the title has to read as a title first and
+                  // as a control second, or the panel gains a box at its
+                  // top edge that competes with the card's. The open list
+                  // keeps the outline, so the trigger stays lit under it.
+                  // The negative margin hangs the button's own padding
+                  // outside the row, which leaves the title exactly where
+                  // it sat when it was a plain span.
+                  className="-ml-2.5 min-w-0 shrink gap-1 border border-transparent text-base font-semibold hover:border-input data-[state=open]:border-input data-[state=open]:bg-accent"
+                  // The name of the button is the city on it, the way a
+                  // select is named by its value; what it opens is said
+                  // by the popup type and by the list's own label.
+                  aria-haspopup="listbox"
                   disabled={props.cityLoading}
                 >
-                  <ChevronDown aria-hidden />
+                  {cityTitle}
+                  <CaretDownIcon className="size-4 shrink-0 opacity-60" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="start" className="w-56 p-1.5">
@@ -382,6 +402,8 @@ export function ControlPanel(props: ControlPanelProps) {
                 </ul>
               </PopoverContent>
             </Popover>
+          ) : (
+            cityTitle
           )}
         </CardTitle>
         <Button
@@ -432,7 +454,7 @@ export function ControlPanel(props: ControlPanelProps) {
                     className="min-w-0 flex-1 justify-between font-normal data-[empty=true]:text-muted-foreground"
                   >
                     <span className="truncate">{pickedLabel}</span>
-                    <ChevronDown className="shrink-0 opacity-60" aria-hidden />
+                    <CaretDownIcon className="size-4 shrink-0 opacity-60" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto overflow-hidden p-0" align="start">

@@ -209,12 +209,12 @@ describe('App (UI shell)', () => {
     expect(typeof window.__mrt!.vehicleCount()).toBe('number')
   })
 
-  it('names the city in the title and lists the others behind the caret', async () => {
+  it('names the city in the title and lists the others behind it', async () => {
     render(<App />)
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
-    // The caret waits for the city's data before it offers a move
+    // The title waits for the city's data before it offers a move
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('option', { name: 'Switch to Kiel' })).toBeInTheDocument()
   })
@@ -222,7 +222,7 @@ describe('App (UI shell)', () => {
   it('switches the city from the picker and remembers it', async () => {
     render(<App />)
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a city' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
     // The old city's session ends at once …
     expect(window.__mrt!.city()).toBe('kiel')
