@@ -4,8 +4,6 @@ import { de, enGB } from 'react-day-picker/locale'
 import {
   Camera,
   Check,
-  ChevronDown,
-  ChevronUp,
   Gauge,
   Info,
   Layers,
@@ -15,6 +13,7 @@ import {
   TimerReset,
   TramFront,
 } from 'lucide-react'
+import { ArrowsFromLineIcon, ArrowsToLineIcon } from '@/components/ArrowsToLineIcon'
 import { CaretDownIcon } from '@/components/CaretDownIcon'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
@@ -406,14 +405,30 @@ export function ControlPanel(props: ControlPanelProps) {
             cityTitle
           )}
         </CardTitle>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          {collapsed ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
-        </Button>
+        {/* The tooltip teaches the bigger version of this button: H takes
+            the whole interface away, panel included, and nothing else in
+            the app says so. It is the description, not the name – the
+            button is still announced by what it does (see aria-label). */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              // Dimmed to the weight of the panel's secondary text: folding
+              // the panel away is housekeeping, not one of the controls the
+              // card is for, and at full strength it pulled against the
+              // title beside it. It comes up to full weight under the
+              // pointer, so it still answers like a button.
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
+              onClick={() => setCollapsed((c) => !c)}
+            >
+              {collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
+            </Button>
+          </TooltipTrigger>
+          {/* Out over the map: below is the clock, left is the title */}
+          <TooltipContent side="right">{t('panel.hideAll')}</TooltipContent>
+        </Tooltip>
       </CardHeader>
 
       <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">

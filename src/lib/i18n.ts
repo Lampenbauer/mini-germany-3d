@@ -13,6 +13,7 @@ const en = {
   // Control panel
   'panel.expand': 'Expand panel',
   'panel.collapse': 'Collapse panel',
+  'panel.hideAll': 'Hide entire interface with H key',
   'sim.pause': 'Pause simulation',
   'sim.resume': 'Resume simulation',
   'sim.setTime': 'Set simulation time',
@@ -235,6 +236,7 @@ export type MessageKey = keyof typeof en
 const de: Record<MessageKey, string> = {
   'panel.expand': 'Panel ausklappen',
   'panel.collapse': 'Panel einklappen',
+  'panel.hideAll': 'Gesamte Oberfläche mit Taste H ausblenden',
   'sim.pause': 'Simulation pausieren',
   'sim.resume': 'Simulation fortsetzen',
   'sim.setTime': 'Simulationszeit einstellen',
