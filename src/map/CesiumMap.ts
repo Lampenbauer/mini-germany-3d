@@ -1860,6 +1860,49 @@ export class CesiumMap {
     this.requestRender()
   }
 
+  /**
+   * Rewires Cesium's "Data attribution" link to the app: pressing it calls
+   * `open` instead of raising Cesium's own lightbox, so the credits appear
+   * in the same dialog everything else in this interface uses.
+   *
+   * The list stays Cesium's. It rewrites the <ul> on every frame – the
+   * credits change as tiles load and layers come and go – and it does so
+   * through the element itself, wherever the DOM has it, so the dialog
+   * borrows that element rather than copying what is in it
+   * (borrowCreditList). Both are reached through the credit display's
+   * public container and viewport plus Cesium's own class names, which
+   * are its documented CSS surface.
+   */
+  onCreditsRequested(open: () => void): void {
+    const link = this.viewer.creditDisplay.container.querySelector<HTMLAnchorElement>(
+      '.cesium-credit-expand-link',
+    )
+    if (!link) return
+    link.onclick = (event) => {
+      event.preventDefault()
+      open()
+    }
+  }
+
+  /**
+   * Hands Cesium's credit list to `host`, or puts it back where Cesium
+   * built it. Nothing is copied and nothing is parsed: the same element
+   * goes on being updated, in the dialog while it is open and in Cesium's
+   * hidden lightbox for the rest of the time.
+   */
+  borrowCreditList(host: HTMLElement | null): void {
+    // The lightbox hangs in the viewer's own viewport, which the credit
+    // display keeps as `viewport` – a public field its typings leave out.
+    const lightbox = this.viewer.container.querySelector<HTMLElement>('.cesium-credit-lightbox')
+    const list = lightbox?.querySelector('ul') ?? this.creditList
+    if (!list) return
+    this.creditList = list
+    ;(host ?? lightbox)?.appendChild(list)
+  }
+
+  /** The borrowed list, so it can be handed back after the dialog took it. */
+  private creditList: HTMLUListElement | null = null
+
   /** Open-Meteo attribution (CC-BY 4.0) – call once when weather is enabled. */
   addWeatherCredit(): void {
     this.weather.addCredit()

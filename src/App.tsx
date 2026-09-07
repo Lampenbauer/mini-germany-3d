@@ -54,6 +54,7 @@ import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
 import { getLanguage, localizeCityName, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import type { MapView } from '@/lib/map-view'
 import { AboutDialog } from '@/components/AboutDialog'
+import { CreditsDialog } from '@/components/CreditsDialog'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
@@ -594,6 +595,12 @@ export default function App() {
   const [uiHidden, setUiHidden] = useState(false)
   /** The About dialog (press ?, or the button under the map controls). */
   const [aboutOpen, setAboutOpen] = useState(false)
+  /** Cesium's credits, opened from the "Data attribution" link it draws. */
+  const [creditsOpen, setCreditsOpen] = useState(false)
+  /** Lends Cesium's own credit list to the dialog while it is open. */
+  const borrowCreditList = useCallback((host: HTMLElement | null) => {
+    mapRef.current?.borrowCreditList(host)
+  }, [])
   /** Whether the page is full screen right now – the button's face. */
   const [fullscreen, setFullscreen] = useState(false)
   /**
@@ -927,6 +934,11 @@ export default function App() {
       onCameraChanged: scheduleHashWrite,
     })
     mapRef.current = map
+
+    // Cesium draws the "Data attribution" link itself and would raise its
+    // own lightbox on it; the credits belong in the same dialog as the
+    // rest of this interface (see CreditsDialog).
+    map.onCreditsRequested(() => setCreditsOpen(true))
 
     // The diagram lives over the map inside the same stage, so the morph
     // can start from where the map has each line on screen right now.
@@ -2685,6 +2697,14 @@ export default function App() {
             dismissed with ?, Escape, the close button or a click outside.
             Inside the overlay, so H takes it away with everything else. */}
         <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+
+        {/* The credits behind Cesium's "Data attribution" link, in this
+            interface's dialog rather than in Cesium's own lightbox. */}
+        <CreditsDialog
+          open={creditsOpen}
+          onOpenChange={setCreditsOpen}
+          borrow={borrowCreditList}
+        />
         <div ref={panelRef} className="pointer-events-none absolute left-4 top-4 z-10">
           <ControlPanel
             city={{ slug: city.slug, name: city.name, modes: city.network.modes }}

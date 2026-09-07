@@ -231,6 +231,13 @@ const en = {
       straight with its stops along it, geography left out entirely. */
   'view.diagram': 'Line diagram',
   // About: the personal project story, map details, and keyboard shortcuts.
+  // Cesium's "Data attribution", in this interface's own dialog. The
+  // names inside it are Cesium's – the sources say how they want to be
+  // called – so only the frame around them is translated.
+  'credits.eyebrow': 'Sources',
+  'credits.title': 'Data attribution',
+  'credits.lead': 'What is drawn here, and who it comes from.',
+  'credits.close': 'Close the attribution',
   'about.open': 'About this project',
   'about.close': 'Close about dialog',
   'about.title': 'Mini Germany 3D',
@@ -478,6 +485,10 @@ const de: Record<MessageKey, string> = {
   'view.surface': 'Oberfläche',
   'view.underground': 'Untergrund',
   'view.diagram': 'Linienband',
+  'credits.eyebrow': 'Quellen',
+  'credits.title': 'Datenquellen',
+  'credits.lead': 'Was hier gezeichnet wird, und von wem es stammt.',
+  'credits.close': 'Datenquellen schließen',
   'about.open': 'Über dieses Projekt',
   'about.close': 'Über dieses Projekt schließen',
   'about.title': 'Mini Germany 3D',

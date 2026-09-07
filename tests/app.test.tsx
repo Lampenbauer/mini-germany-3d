@@ -105,6 +105,10 @@ vi.mock('@/map/CesiumMap', () => {
       mockCameraHomeCalls.count++
     }
     setUnderground() {}
+    // The credit link and the list behind it are Cesium's own DOM; the
+    // dialog that borrows them is covered in credits-dialog.test.tsx.
+    onCreditsRequested() {}
+    borrowCreditList() {}
     hasVehicle() {
       return false
     }

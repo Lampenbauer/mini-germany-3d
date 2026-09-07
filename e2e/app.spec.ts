@@ -78,6 +78,21 @@ test('loads the app with map and control panel', async () => {
   expect(await page.evaluate(() => window.__mrt!.dataSource)).toMatch(/^(osm|approximated)$/)
 })
 
+test('the data attribution opens in the app\u2019s own dialog', async () => {
+  // Cesium draws the link and would raise its own lightbox on it; the
+  // credits belong in the dialog the rest of the interface uses. The list
+  // inside is Cesium's own element, borrowed while the dialog is open.
+  await page.locator('.cesium-credit-expand-link').click()
+  const dialog = page.getByRole('dialog', { name: 'Data attribution' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('li').first()).toContainText('OpenStreetMap')
+  await expect(page.locator('.cesium-credit-lightbox-overlay')).toBeHidden()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  // …and handed back, so Cesium goes on writing to it
+  await expect(page.locator('.cesium-credit-lightbox > ul')).toHaveCount(1)
+})
+
 test('shows the frozen simulation time 08:30', async () => {
   await expect(page.getByTestId('sim-clock')).toHaveText('08:30:00')
 })
