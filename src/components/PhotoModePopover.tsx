@@ -28,8 +28,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { t, type MessageKey } from '@/lib/i18n'
 import {
   DEFAULT_PHOTO_SETTINGS,
+  DEFAULT_TILT_SHIFT_SETTINGS,
   focalLengthMm,
   isDefaultPhotoSettings,
+  lensFovDeg,
   withTiltShift,
   type PhotoSettings,
   type TiltShiftSettings,
@@ -54,6 +56,8 @@ const percent = (value: number) => `${Math.round(value * 100)} %`
 interface KnobProps {
   label: MessageKey
   value: number
+  /** Where this knob stands untouched – a double click on its caption puts it back. */
+  defaultValue: number
   /** The reading beside the name. */
   format: (value: number) => string
   min: number
@@ -69,7 +73,19 @@ function Knob(props: KnobProps) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="text-muted-foreground flex items-center justify-between text-xs">
+      {/* A double click on the caption – the name or the reading – puts
+          this one knob back where it started. The quickest way home from
+          a slider pushed too far, and the only one that does not take the
+          twelve others with it the way the reset button in the head does.
+          select-none because a double click on a word otherwise selects
+          it, and a highlighted label reads as an accident. */}
+      <div
+        className="text-muted-foreground flex cursor-default items-center justify-between text-xs select-none"
+        title={t('photo.resetKnob')}
+        onDoubleClick={() => {
+          if (props.value !== props.defaultValue) props.onChange(props.defaultValue)
+        }}
+      >
         <span id={id}>{t(props.label)}</span>
         <span className="font-mono tabular-nums">{props.format(props.value)}</span>
       </div>
@@ -154,6 +170,12 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
               <Knob
                 label="photo.focalLength"
                 value={settings.fovDeg}
+                // Back to the lens of the look on screen rather than to
+                // the one the app opened with: the miniature effect is
+                // built on the long lens and the switch below brings it
+                // along (see withTiltShift), so with the effect turned
+                // the other way its own lens is what "default" means.
+                defaultValue={lensFovDeg(settings.tiltShift.enabled)}
                 format={(fov) => `${Math.round(focalLengthMm(fov))} mm · ${Math.round(fov)}°`}
                 min={25}
                 max={60}
@@ -163,6 +185,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
               />
               <Knob
                 label="photo.exposure"
+                defaultValue={DEFAULT_PHOTO_SETTINGS.exposureEv}
                 value={settings.exposureEv}
                 format={(ev) => `${signed(ev, 1)} EV`}
                 min={-2}
@@ -172,6 +195,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
               />
               <Knob
                 label="photo.whiteBalance"
+                defaultValue={DEFAULT_PHOTO_SETTINGS.whiteBalanceK}
                 value={settings.whiteBalanceK}
                 format={(kelvin) => `${kelvin} K`}
                 min={3000}
@@ -184,6 +208,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
             <Section title="photo.look">
               <Knob
                 label="photo.contrast"
+                defaultValue={DEFAULT_PHOTO_SETTINGS.contrast}
                 value={settings.contrast}
                 format={(contrast) => signed(Math.round((contrast - 1) * 100), 0)}
                 min={0.5}
@@ -193,6 +218,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
               />
               <Knob
                 label="photo.saturation"
+                defaultValue={DEFAULT_PHOTO_SETTINGS.saturation}
                 value={settings.saturation}
                 format={(saturation) => signed(Math.round((saturation - 1) * 100), 0)}
                 min={0}
@@ -202,6 +228,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
               />
               <Knob
                 label="photo.vignette"
+                defaultValue={DEFAULT_PHOTO_SETTINGS.vignette}
                 value={settings.vignette}
                 format={percent}
                 min={0}
@@ -228,6 +255,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 <>
                   <Knob
                     label="photo.blur"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.maxBlurRadius}
                     value={settings.tiltShift.maxBlurRadius}
                     format={(radius) => `${(radius * 100).toFixed(1)} %`}
                     min={0}
@@ -237,6 +265,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                   />
                   <Knob
                     label="photo.band"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.bandHalfHeight}
                     value={settings.tiltShift.bandHalfHeight}
                     format={percent}
                     min={0}
@@ -246,6 +275,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                   />
                   <Knob
                     label="photo.feather"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.bandFeather}
                     value={settings.tiltShift.bandFeather}
                     format={percent}
                     min={0.02}
@@ -255,6 +285,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                   />
                   <Knob
                     label="photo.focusLine"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.focusY}
                     value={settings.tiltShift.focusY}
                     format={percent}
                     min={0}
@@ -264,6 +295,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                   />
                   <Knob
                     label="photo.bokeh"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.highlightGain}
                     value={settings.tiltShift.highlightGain}
                     format={(gain) => `${gain.toFixed(1)}×`}
                     min={1}
@@ -273,6 +305,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                   />
                   <Knob
                     label="photo.sharpen"
+                defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.sharpen}
                     value={settings.tiltShift.sharpen}
                     format={percent}
                     min={0}

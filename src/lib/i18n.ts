@@ -38,6 +38,7 @@ const en = {
   // The photo popover: the camera the city is shot with
   'photo.title': 'Photo mode',
   'photo.reset': 'Reset to defaults',
+  'photo.resetKnob': 'Double-click to reset this one',
   'photo.camera': 'Camera',
   'photo.look': 'Look',
   'photo.focalLength': 'Focal length',
@@ -258,6 +259,7 @@ const de: Record<MessageKey, string> = {
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
   'photo.title': 'Fotomodus',
   'photo.reset': 'Auf Standardwerte zurücksetzen',
+  'photo.resetKnob': 'Doppelklick setzt diesen Regler zurück',
   'photo.camera': 'Kamera',
   'photo.look': 'Look',
   'photo.focalLength': 'Brennweite',

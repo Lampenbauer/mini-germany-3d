@@ -134,6 +134,43 @@ describe('the photo mode popover', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('puts one knob back on a double click on its caption', () => {
+    const { onChange } = photo({ ...DEFAULT_PHOTO_SETTINGS, whiteBalanceK: 8000, vignette: 0.3 })
+    open()
+    fireEvent.doubleClick(screen.getByText('White balance'))
+    // Only that one: the vignette beside it keeps the value it was given
+    expect(onChange).toHaveBeenCalledWith({
+      ...DEFAULT_PHOTO_SETTINGS,
+      whiteBalanceK: DEFAULT_PHOTO_SETTINGS.whiteBalanceK,
+      vignette: 0.3,
+    })
+    // The reading beside the name is part of the caption too, and a knob
+    // already home reports nothing at all
+    onChange.mockClear()
+    fireEvent.doubleClick(screen.getByText('0.0 EV'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('puts a miniature knob back inside the effect settings', () => {
+    const on = withTiltShift(DEFAULT_PHOTO_SETTINGS, true)
+    const { onChange } = photo({ ...on, tiltShift: { ...on.tiltShift, sharpen: 1 } })
+    open()
+    fireEvent.doubleClick(screen.getByText('Sharpening'))
+    expect(onChange).toHaveBeenCalledWith(on)
+  })
+
+  it('puts the focal length back to the lens of the look on screen', () => {
+    // The miniature effect is shot on the long lens, so with the effect
+    // on that lens is what the knob goes home to – not the wide one the
+    // app opens with (see withTiltShift)
+    const on = withTiltShift(DEFAULT_PHOTO_SETTINGS, true)
+    const { onChange } = photo({ ...on, fovDeg: 55 })
+    open()
+    fireEvent.doubleClick(screen.getByText('Focal length'))
+    expect(onChange).toHaveBeenCalledWith(on)
+    expect((onChange.mock.calls[0][0] as PhotoSettings).fovDeg).toBe(config.camera.fovDeg)
+  })
+
   it('lights the button up while any knob stands off its default', () => {
     photo()
     expect(screen.getByRole('button', { name: 'Photo mode' })).not.toHaveClass('bg-primary/90')
