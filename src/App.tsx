@@ -2060,20 +2060,24 @@ export default function App() {
   )
 
   /**
-   * H takes the whole interface away and brings it back: the panel,
-   * whichever card is open, and the map controls. For a screenshot of the
-   * city with nothing on top of it.
+   * The two bare keys: H takes the whole interface away and brings it
+   * back – the panel, whichever card is open, and the map controls, for a
+   * screenshot of the city with nothing on top of it – and P holds the
+   * simulation where it stands and lets it run on again, the same toggle
+   * as the button beside the clock.
    *
-   * A bare letter rather than a modifier combination, because there is no
+   * Bare letters rather than modifier combinations, because there is no
    * modifier combination that is free everywhere. Ctrl+Shift+letter is
    * crowded in both Chrome and Firefox, differently per browser, per
    * platform and per installed extension – Ctrl+Shift+H itself opens
    * Firefox's history library. Browsers reserve almost no unmodified
    * letters, so a bare key sidesteps that whole class, and it costs the
-   * same keystroke on every keyboard layout. Not Tab, which every creative
-   * tool uses for this: in a browser Tab is how the keyboard reaches the
-   * switches and buttons in the panel, and taking it would shut those
-   * users out.
+   * same keystroke on every keyboard layout. Not Space for the pause,
+   * which every video player uses: in a browser Space scrolls, and on a
+   * focused switch or button it is the click. Not Tab either, which every
+   * creative tool uses to hide its interface: in a browser Tab is how the
+   * keyboard reaches the switches and buttons in the panel, and taking it
+   * would shut those users out.
    *
    * What the MAP draws is deliberately untouched – stop plates, vehicle
    * numbers, ship names and routes all live in the WebGL scene rather than
@@ -2082,20 +2086,23 @@ export default function App() {
    * the map widget, and the Google and Cesium terms want it visible
    * wherever their data is (see README, "Attribution").
    *
-   * Not persisted in the URL. A shared link that opened with no interface
-   * would leave the recipient hunting for a shortcut nobody told them
-   * about; a reload is the way back for anyone who forgets it here.
+   * The hidden interface is not persisted in the URL. A shared link that
+   * opened with no interface would leave the recipient hunting for a
+   * shortcut nobody told them about; a reload is the way back for anyone
+   * who forgets it here. A pause is persisted, because a link to a held
+   * moment is a picture worth sharing (see writeHash).
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // Bare H only: with a modifier this is somebody else's shortcut, and
-      // a held key would flicker the interface rather than toggle it.
+      // Bare keys only: with a modifier this is somebody else's shortcut,
+      // and a held key would flicker the interface rather than toggle it.
       if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
       if (event.repeat) return
-      // key, not code: the shortcut is the letter H as the reader sees it
-      // on the keycap. On Dvorak the physical KeyH carries a D, and hiding
-      // the interface on D would be a surprise nobody asked for.
-      if (event.key.toLowerCase() !== 'h') return
+      // key, not code: the shortcut is the letter as the reader sees it on
+      // the keycap. On Dvorak the physical KeyH carries a D, and hiding the
+      // interface on D would be a surprise nobody asked for.
+      const key = event.key.toLowerCase()
+      if (key !== 'h' && key !== 'p') return
       // Where a letter means a letter, it is not a shortcut. Only the time
       // field qualifies today, and it refuses typing anyway, but a bare key
       // has to check rather than assume that stays true.
@@ -2106,11 +2113,12 @@ export default function App() {
       // Nothing of the browser's own hangs on a bare letter, except
       // Firefox's opt-in type-ahead find.
       event.preventDefault()
-      setUiHidden((hidden) => !hidden)
+      if (key === 'h') setUiHidden((hidden) => !hidden)
+      else handleTogglePause()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [handleTogglePause])
 
   /**
    * Full screen is state the browser owns: Escape and F11 change it behind

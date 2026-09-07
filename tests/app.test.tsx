@@ -328,6 +328,31 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
   })
 
+  it('pauses and plays again on P', () => {
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'p', code: 'KeyP' })
+    expect(screen.getByRole('button', { name: 'Resume simulation' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'p', code: 'KeyP' })
+    expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+    // A held or modified P is somebody else's, as it is for H
+    for (const event of [
+      { key: 'p', code: 'KeyP', ctrlKey: true },
+      { key: 'p', code: 'KeyP', metaKey: true },
+      { key: 'p', code: 'KeyP', repeat: true },
+    ]) {
+      fireEvent.keyDown(window, event)
+      expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+    }
+  })
+
+  it('takes an upper-case P too, and leaves the interface where it is', () => {
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'P', code: 'KeyP' })
+    expect(screen.getByRole('button', { name: 'Resume simulation' })).toBeInTheDocument()
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
   it('takes an upper-case H too, for whoever has caps lock on', () => {
     render(<App />)
     fireEvent.keyDown(window, { key: 'H', code: 'KeyH' })
