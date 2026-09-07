@@ -1,5 +1,6 @@
 import { config } from '@/config'
 import { isMapView, type MapView } from '@/lib/map-view'
+import { isWeatherMode, type WeatherMode } from '@/lib/weather'
 
 /**
  * Persists the view in the URL hash in one of three forms:
@@ -78,12 +79,12 @@ export function parseStopHash(hash: string): string | null {
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the city, the Routes/Stops/Labels layer toggles, the webcams and the
- * clouds, the miniature look and the pause state. Apart from the city –
- * which every link names, so that it opens on the one it was copied
- * from – only deviations from the defaults (all layers on, the miniature
- * look at config.camera.miniatureDefault, clock running) appear in the
- * URL, so default sessions keep short hashes.
+ * the city, the Routes/Stops/Labels layer toggles, the sky, the webcams
+ * and the clouds, the miniature look and the pause state. Apart from the
+ * city and the sky – which every link names, so that it opens on the one
+ * it was copied from – only deviations from the defaults (all layers on,
+ * the miniature look at config.camera.miniatureDefault, clock running)
+ * appear in the URL, so default sessions keep short hashes.
  */
 export interface HashUiState {
   /**
@@ -106,6 +107,16 @@ export interface HashUiState {
   labelsHidden: boolean
   /** The webcam pictures switched off in the panel (the layer's own boot flag is ?webcams=0). */
   webcamsHidden: boolean
+  /**
+   * The sky in force – the live weather or one of the three picked ones
+   * (see WeatherMode). Written out like the city, every session's sky
+   * included, because "live" is a choice as much as "rain" is and a URL
+   * that leaves it out says which sky it means only to a reader who
+   * knows whether the session it came from could poll one. Null only
+   * where a hash names no sky, which the app reads as the sky such a
+   * session opens on.
+   */
+  weather: WeatherMode | null
   /**
    * The volumetric clouds, as they are – switched from the weather
    * popover; the hash carries them only when they deviate from
@@ -130,6 +141,7 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
     (state.webcamsHidden ? '&webcams=0' : '') +
+    (state.weather ? `&weather=${state.weather}` : '') +
     clouds +
     tilt +
     (state.paused ? '&paused=1' : '')
@@ -152,6 +164,9 @@ export function parseUiStateHash(hash: string): HashUiState {
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
     webcamsHidden: params.get('webcams') === '0',
+    // An unnamed or misspelled sky is no sky – whether this session can
+    // show the one named is the caller's business (see hashWeatherMode).
+    weather: isWeatherMode(params.get('weather')) ? (params.get('weather') as WeatherMode) : null,
     clouds: clouds === '1' ? true : clouds === '0' ? false : config.weather.clouds3dDefault,
     tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
     paused: params.get('paused') === '1',

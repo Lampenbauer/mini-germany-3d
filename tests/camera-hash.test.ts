@@ -98,6 +98,7 @@ describe('layer and pause state in the hash', () => {
       formatUiStateHash({
         city: null,
       view: 'surface',
+      weather: null,
         routesHidden: false,
         stopsHidden: false,
         labelsHidden: false,
@@ -111,6 +112,7 @@ describe('layer and pause state in the hash', () => {
       formatUiStateHash({
         city: null,
       view: 'surface',
+      weather: null,
         routesHidden: true,
         stopsHidden: true,
         labelsHidden: true,
@@ -126,6 +128,7 @@ describe('layer and pause state in the hash', () => {
     const state: HashUiState = {
       city: null,
       view: 'surface',
+      weather: null,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
@@ -145,10 +148,36 @@ describe('layer and pause state in the hash', () => {
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
   })
 
+  it('names the sky, and reads back only a sky it knows', () => {
+    const state: HashUiState = {
+      city: null,
+      view: 'surface',
+      weather: null,
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      webcamsHidden: false,
+      clouds: cloudsDefault,
+      tiltShift: miniatureDefault,
+      paused: false,
+    }
+    // Live is a pick like any other: written out, not left implied
+    expect(formatUiStateHash({ ...state, weather: 'live' })).toBe('&weather=live')
+    expect(formatUiStateHash({ ...state, weather: 'rain', paused: true })).toBe(
+      '&weather=rain&paused=1',
+    )
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&weather=cloudy').weather).toBe('cloudy')
+    // No sky named, or one this build does not have: the app decides what
+    // such a hash opens on (see hashWeatherMode)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').weather).toBeNull()
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&weather=snow').weather).toBeNull()
+  })
+
   it('carries whichever reading is on screen, and names the map by omission', () => {
     const state: HashUiState = {
       city: null,
       view: 'surface',
+      weather: null,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
@@ -172,6 +201,7 @@ describe('layer and pause state in the hash', () => {
     const suffix = formatUiStateHash({
       city: null,
       view: 'surface',
+      weather: null,
       routesHidden: true,
       stopsHidden: false,
       labelsHidden: true,
@@ -186,6 +216,7 @@ describe('layer and pause state in the hash', () => {
       expect(parseUiStateHash(hash)).toEqual({
         city: null,
       view: 'surface',
+      weather: null,
         routesHidden: true,
         stopsHidden: false,
         labelsHidden: true,
@@ -204,6 +235,7 @@ describe('layer and pause state in the hash', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
       city: null,
       view: 'surface',
+      weather: null,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,
@@ -221,6 +253,7 @@ describe('layer and pause state in the hash', () => {
     const flipped: HashUiState = {
       city: null,
       view: 'surface',
+      weather: null,
       routesHidden: false,
       stopsHidden: false,
       labelsHidden: false,

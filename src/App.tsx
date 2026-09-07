@@ -327,6 +327,17 @@ function initialCitySlug(): string {
   return rememberedCity() ?? DEFAULT_CITY_SLUG
 }
 
+/**
+ * The sky a hash asks for, as this session can actually show it. A hash
+ * that names none – and one that asks for the live sky where there is
+ * nothing to poll (offline, in the tests, with ?rain=0) – gets the sky
+ * such a session opens on rather than a promise it cannot keep.
+ */
+function hashWeatherMode(named: WeatherMode | null, liveAvailable: boolean): WeatherMode {
+  const showable = named !== null && (named !== 'live' || liveAvailable)
+  return showable ? named : defaultWeatherMode(liveAvailable)
+}
+
 /** Median terrain height of a network's stops in meters NHN (0 without heights). */
 function medianStopNhn(network: PreparedNetwork): number {
   const heights: number[] = []
@@ -760,6 +771,11 @@ export default function App() {
       showCloudsRef.current = uiState.clouds
       setShowClouds(uiState.clouds)
     }
+    // The sky the link opens on. Through the same handler the popover
+    // uses, so a picked one arrives with its rain and its cover already
+    // forced – the tick reads those, not the mode.
+    const bootWeather = hashWeatherMode(uiState.weather, liveWeatherAvailable)
+    if (bootWeather !== weatherModeRef.current) handleWeatherMode(bootWeather)
     if (uiState.labelsHidden) {
       showLabelsRef.current = false
       setShowLabels(false)
@@ -805,6 +821,7 @@ export default function App() {
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
           webcamsHidden: !showWebcamsRef.current,
+          weather: weatherModeRef.current,
           clouds: showCloudsRef.current,
           tiltShift: photoRef.current.tiltShift.enabled,
           paused: pausedRef.current,
@@ -911,6 +928,8 @@ export default function App() {
         setShowWebcams(webcamsVisible)
         map.setWebcamsVisible(webcamsVisible)
       }
+      const wantedWeather = hashWeatherMode(ui.weather, liveWeatherAvailable)
+      if (wantedWeather !== weatherModeRef.current) handleWeatherMode(wantedWeather)
       const cloudsVisible = ui.clouds
       if (cloudsVisible !== showCloudsRef.current) {
         showCloudsRef.current = cloudsVisible
@@ -2000,16 +2019,19 @@ export default function App() {
         windSpeedMps: live.windSpeedMps,
         windFromDeg: live.windFromDeg,
       }
-      return
+    } else {
+      const preset = WEATHER_PRESETS[mode]
+      rainRef.current = { mm: preset.precipitationMm, forced: true }
+      cloudRef.current = {
+        percent: preset.cloudCoverPercent,
+        forced: true,
+        windSpeedMps: preset.windSpeedMps,
+        windFromDeg: preset.windFromDeg,
+      }
     }
-    const preset = WEATHER_PRESETS[mode]
-    rainRef.current = { mm: preset.precipitationMm, forced: true }
-    cloudRef.current = {
-      percent: preset.cloudCoverPercent,
-      forced: true,
-      windSpeedMps: preset.windSpeedMps,
-      windFromDeg: preset.windFromDeg,
-    }
+    // The sky is in the URL, so a link shows the city under the one it
+    // was copied from – the writer skips a hash that has not changed.
+    writeHashRef.current()
   }, [])
 
   /** What the compass button will do from here (see CARDINAL_KEY). */

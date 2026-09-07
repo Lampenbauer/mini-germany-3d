@@ -232,6 +232,10 @@ describe('App (UI shell)', () => {
     expect(window.__mrt!.lineIds()).toContain('F1')
     expect(window.__mrt!.lineIds()).not.toContain('FG')
     expect(window.location.hash).toContain('city=kiel')
+    // Every hash names its city, the default one included, and the sky
+    // the session shows – under Vitest there is none to poll, so it is
+    // the clear one such a session opens on
+    expect(window.location.hash).toContain('weather=clear')
     expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
   })
 

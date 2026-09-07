@@ -45,6 +45,14 @@ export type WeatherUpdateHandler = (status: WeatherStatus) => void
  */
 export type WeatherMode = 'live' | 'clear' | 'cloudy' | 'rain'
 
+/** Every sky, in the order the popover offers them. */
+export const WEATHER_MODES = ['live', 'clear', 'cloudy', 'rain'] as const
+
+/** Whether a string names a sky – the `weather=` the URL hash carries. */
+export function isWeatherMode(value: string | null): value is WeatherMode {
+  return value !== null && (WEATHER_MODES as readonly string[]).includes(value)
+}
+
 /**
  * What each picked sky is made of. 'live' has no entry – it is whatever
  * the client last reported.

@@ -16,9 +16,10 @@ test('camera pose is saved to and restored from the URL hash', async ({
   // along in the hash.
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 })
-    // The city rides in every hash, the default one included
+    // The city and the sky ride in every hash; offline there is no live
+    // weather to poll, so the sky is the clear one such a session opens on
     .toMatch(
-      /^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&city=rostock&paused=1$/,
+      /^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&city=rostock&weather=clear&paused=1$/,
     )
 
   // Changing only the hash of the same URL would be a same-document
@@ -100,7 +101,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&city=rostock&paused=1`)
+    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&city=rostock&weather=clear&paused=1`)
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   // Fresh app boot from the shared link (about:blank tears down the first
@@ -135,7 +136,7 @@ test('layer toggles travel in the URL and are restored', async ({ page }) => {
   await page.getByRole('switch', { name: 'Show stops' }).click()
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toContain('routes=0&stops=0&paused=1')
+    .toContain('routes=0&stops=0&weather=clear&paused=1')
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   await page.goto('about:blank')
