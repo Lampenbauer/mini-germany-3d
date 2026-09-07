@@ -167,6 +167,17 @@ const HAZE_DISTANCE_M = 22_000
 const COVER_FADE_SECONDS = 6
 
 /**
+ * How long the sky over the city the camera is leaving takes to clear
+ * (see clearForDeparture). The weather's own pace is far too slow for
+ * this one: the flight lasts between 2.5 and 8 seconds, and a sky fading
+ * at the pace of a passing front would still be standing over the place
+ * when the camera has left it. Gone in a second, it reads as the picture
+ * letting go of that city rather than as weather at all – which is what
+ * it is.
+ */
+export const CLOUD_DEPARTURE_FADE_SECONDS = 1
+
+/**
  * How much of the sunlight the ground loses under a cloud at most. What
  * is left is the sky's light, which a cloud does not take away – a
  * shadow on a sunny day is not black.
@@ -475,9 +486,10 @@ export class CloudLayer {
   /** Cloud cover in percent, as applied and as asked for. */
   private coverApplied = 0
   private coverTarget = 0
-  /** Where the running fade started, and when (see COVER_FADE_SECONDS). */
+  /** Where the running fade started, when, and how long it takes. */
   private coverFadeFrom = 0
   private coverFadeStartedMs = 0
+  private coverFadeSeconds = COVER_FADE_SECONDS
   private fields: CloudFields | null = null
   private resources: CloudResources | null = null
   private unsupported = false
@@ -590,6 +602,26 @@ export class CloudLayer {
     this.host.requestRender()
   }
 
+  /**
+   * The camera is off to another city: clear this sky quickly (see
+   * CLOUD_DEPARTURE_FADE_SECONDS). The next city's cover is set on
+   * arrival, so nothing here is remembered.
+   *
+   * Whatever fade is running is taken over rather than left alone, and
+   * that is the point of the method: the app drops the live weather of
+   * the city being left in the same breath as it starts the flight, and
+   * that push lands here first (measured: six milliseconds earlier). It
+   * sets the same target this does, so a departure that only set the
+   * target would find nothing to do and leave the sky fading at the
+   * weather's leisurely pace. Cover still standing is the work.
+   */
+  clearForDeparture(): void {
+    this.coverTarget = 0
+    if (this.coverApplied === 0 || !this.enabled) return
+    this.startCoverFade(CLOUD_DEPARTURE_FADE_SECONDS)
+    this.host.requestRender()
+  }
+
   /** The wind the clouds ride: speed in m/s, direction it blows from in degrees. */
   setWind(windSpeedMps: number, windFromDeg: number): void {
     const drift = cloudDrift(windSpeedMps, windFromDeg)
@@ -698,9 +730,10 @@ export class CloudLayer {
   }
 
   /** Starts a fade from wherever the cover stands to its new target. */
-  private startCoverFade(): void {
+  private startCoverFade(seconds = COVER_FADE_SECONDS): void {
     this.coverFadeFrom = this.coverApplied
     this.coverFadeStartedMs = performance.now()
+    this.coverFadeSeconds = seconds
   }
 
   /**
@@ -710,7 +743,7 @@ export class CloudLayer {
   private updateCover(): void {
     if (this.coverApplied === this.coverTarget) return
     const elapsed = performance.now() - this.coverFadeStartedMs
-    const t = elapsed / (COVER_FADE_SECONDS * 1000)
+    const t = elapsed / (this.coverFadeSeconds * 1000)
     if (t >= 1) {
       this.coverApplied = this.coverTarget
       return

@@ -1319,10 +1319,11 @@ export class CesiumMap {
     this.flyingUntil = performance.now() + duration * 1000 + 500
     this.requestRender()
     // The clouds sit the flight out: the sky over the city left behind
-    // fades away as the camera leaves it, and the next city's is brought
-    // in on arrival (see arrive) rather than standing there on approach.
+    // clears in the first second and a half of it, and the next city's is
+    // brought in on arrival (see arrive) rather than standing there on
+    // approach.
     this.cloudsHeldForFlight = true
-    this.clouds.setCloudCover(0)
+    this.clouds.clearForDeparture()
     const arrive = () => {
       // A later setCity has taken over; its own flight ends its own way.
       if (this.destroyed || this.city !== city) return

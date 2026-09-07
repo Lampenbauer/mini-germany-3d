@@ -119,6 +119,29 @@ describe('CloudLayer', () => {
     expect(layer.state.coverApplied).toBe(50)
   })
 
+  it('clears the sky of the city being left within a second', () => {
+    const { layer, frame } = layerHarness()
+    layer.setCloudCover(80)
+    frame(6100)
+    expect(layer.state.coverApplied).toBe(80)
+
+    // The picker sends the camera elsewhere. The app lets the live
+    // weather of the city being left go in the same breath, and that push
+    // lands first – the departure has to take the fade over anyway.
+    layer.setCloudCover(0)
+    layer.clearForDeparture()
+    frame(500)
+    expect(layer.state.coverApplied).toBeCloseTo(40, 5)
+    frame(500)
+    expect(layer.state.coverApplied).toBe(0)
+
+    // The next city fades in at the weather's own pace again
+    layer.setCity(cityBySlug('hamburg')!)
+    layer.setCloudCover(60)
+    frame(3000)
+    expect(layer.state.coverApplied).toBeCloseTo(30, 5)
+  })
+
   it('eases the cover in over six seconds of wall clock, however many frames that takes', () => {
     const { layer, frame, requestRender } = layerHarness()
     layer.setCloudCover(50)
