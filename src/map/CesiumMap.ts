@@ -29,6 +29,7 @@ import {
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   ShadowMode,
+  type Scene,
   PixelDatatype,
   PixelFormat,
   Simon1994PlanetaryPositions,
@@ -545,6 +546,63 @@ function tileStatistics(tileset: Cesium3DTileset): {
   ).statistics
 }
 
+/** Cesium's private shadow-map pass state (ShadowMap.js). */
+interface ShadowMapInternals {
+  _passes?: { commandList: unknown[] }[]
+}
+
+/** Cesium's per-view command bins (View.js, FrustumCommands.js). */
+interface ViewInternals {
+  frustumCommandsList: { commands: unknown[][]; indices: number[] }[]
+  _commandExtents: { command: unknown }[]
+}
+
+/**
+ * Drops the draw commands Cesium keeps around from earlier frames. Every
+ * command points at its model, the model at its tile, the tile at its
+ * tileset – so one stale entry holds a tileset we have already destroyed,
+ * tree and all (a 2026-09-07 heap snapshot found the previous city's
+ * 138k tiles, ~750 MB, retained this way after a swap; see
+ * replaceTileset). Three places keep such entries:
+ *
+ * - The main view's frustum bins: refilled from index 0 each frame, but
+ *   never trimmed, so a frame with fewer commands than the one before
+ *   leaves the old tail in place. Cut to what this frame used.
+ * - The offscreen pick view: filled by the last sampleHeightMostDetailed
+ *   (the city bootstrap, which runs on the OLD tileset at the handover)
+ *   and untouched until the next pick. Emptied entirely – a pick rebuilds
+ *   both structures before it reads them.
+ * - The shadow map's cast lists: Cesium resets them only while shadows
+ *   are on, so switching them off freezes the last shadowed frame.
+ *
+ * Called from postRender (see commandPurgePending), after a frame drawn
+ * without the tileset being let go, so what is left in the bins is this
+ * frame's own commands.
+ */
+function purgeStaleCommands(scene: Scene): void {
+  const internals = scene as unknown as {
+    _defaultView: ViewInternals
+    _picking?: { _pickOffscreenView?: ViewInternals }
+  }
+  for (const frustum of internals._defaultView.frustumCommandsList) {
+    for (let pass = 0; pass < frustum.commands.length; pass++) {
+      frustum.commands[pass].length = frustum.indices[pass]
+    }
+  }
+  const pickView = internals._picking?._pickOffscreenView
+  if (pickView) {
+    for (const frustum of pickView.frustumCommandsList) {
+      for (let pass = 0; pass < frustum.commands.length; pass++) {
+        frustum.commands[pass].length = 0
+        frustum.indices[pass] = 0
+      }
+    }
+    for (const extent of pickView._commandExtents) extent.command = undefined
+  }
+  const shadowMap = scene.shadowMap as unknown as ShadowMapInternals
+  for (const pass of shadowMap._passes ?? []) pass.commandList.length = 0
+}
+
 
 
 
@@ -599,6 +657,8 @@ export class CesiumMap {
   /** Rate limiting and last state of the hover cursor (see the MOUSE_MOVE hook). */
   private lastHoverPickAt = 0
   private hoverPickTimer: number | null = null
+  /** A tileset was let go or the shadows switched off: purge Cesium's stale commands after the next frame. */
+  private commandPurgePending = false
   private hoverPosition: Cartesian2 | null = null
   private hoveringVehicle = false
   private handler: ScreenSpaceEventHandler
@@ -911,6 +971,11 @@ export class CesiumMap {
       config.cameraLimits.maxHeightMeters,
     )
     scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
+    scene.postRender.addEventListener(() => {
+      if (!this.commandPurgePending || this.destroyed) return
+      this.commandPurgePending = false
+      purgeStaleCommands(scene)
+    })
 
     if (opts.offline) {
       // Subtle grid instead of satellite imagery – computable fully offline
@@ -1245,7 +1310,9 @@ export class CesiumMap {
       if (replacement.reason === 'tree' && this.cameraBusy(now)) {
         this.replacement = null
         this.viewer.scene.primitives.remove(tileset)
+        this.commandPurgePending = true
         this.treeRebuildAllowedAt = now + TILE_TREE_REBUILD_COOLDOWN_MS
+        this.requestRender()
         return
       }
       replacement.frames++
@@ -1258,8 +1325,10 @@ export class CesiumMap {
       tileset.preloadWhenHidden = false
       tileset.show = true
       this.googleTileset = tileset
-      // remove() destroys the old tileset, tree and all
+      // remove() destroys the old tileset, tree and all – all but what
+      // Cesium's command bins still point at, purged after the next frame
       this.viewer.scene.primitives.remove(current)
+      this.commandPurgePending = true
       this.treeRebuildAllowedAt = now + TILE_TREE_REBUILD_COOLDOWN_MS
       this.requestRender()
       return
@@ -1851,6 +1920,8 @@ export class CesiumMap {
     }
     if (this.viewer.shadows === wanted) return
     this.viewer.shadows = wanted
+    // Off, the last shadowed frame's cast lists would otherwise stay put
+    if (!wanted) this.commandPurgePending = true
     this.requestRender()
   }
 
