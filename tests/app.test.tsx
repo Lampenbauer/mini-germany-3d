@@ -257,7 +257,10 @@ describe('App (UI shell)', () => {
   it('sets the simulated day from the calendar, within the week ahead, and Now brings it back', async () => {
     render(<App />)
     const trigger = screen.getByRole('button', { name: 'Set simulation date (today to a week ahead)' })
-    expect(trigger).toHaveTextContent('Date')
+    // The button opens on the day the simulation stands on – today, until
+    // one is picked – short and in the interface's own order (en-GB here)
+    const shortDay = (key: string) => `${key.slice(8)}/${key.slice(5, 7)}/${key.slice(2, 4)}`
+    expect(trigger).toHaveTextContent(shortDay(berlinDateKey(Date.now())))
     fireEvent.click(trigger)
     // react-day-picker's month is a grid; its day buttons carry data-day
     const calendar = await screen.findByRole('grid')
@@ -274,12 +277,13 @@ describe('App (UI shell)', () => {
     expect(window.__mrt!.dateKey()).toBe(tomorrow)
     // The time of day stays: only the day moved
     expect(Math.abs(window.__mrt!.secondsOfDay() - secondsBefore)).toBeLessThan(2)
-    // The trigger now names the day, and the calendar closed itself
-    expect(trigger).not.toHaveTextContent('Date')
+    // The trigger now names the day picked, and the calendar closed itself
+    expect(trigger).toHaveTextContent(shortDay(tomorrow))
     expect(screen.queryByRole('grid')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     expect(window.__mrt!.dateKey()).toBe(today)
-    expect(trigger).toHaveTextContent('Date')
+    // … and gives the day up again with the clock, back to today
+    expect(trigger).toHaveTextContent(shortDay(today))
   })
 
   it('brings a running time-lapse back to real pace along with the real time', () => {

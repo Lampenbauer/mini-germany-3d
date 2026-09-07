@@ -280,8 +280,11 @@ export function ControlPanel(props: ControlPanelProps) {
    * time the simulation left behind.
    */
   const timeInputRef = useRef<HTMLInputElement>(null)
-  // The day picked in the calendar (none until one is), and whether the
-  // calendar is open – it closes itself on a pick, as shadcn's does.
+  // The day picked in the calendar – undefined while none has been, which
+  // is to say the simulation is on today. Kept that way rather than seeded
+  // with today's date so that midnight moves it on its own, the way the
+  // range below moves. Whether the calendar is open: it closes itself on a
+  // pick, as shadcn's does.
   const [pickedDate, setPickedDate] = useState<Date | undefined>(undefined)
   const [dateOpen, setDateOpen] = useState(false)
   // The picker's range: today to a week ahead, as calendar days in the
@@ -294,16 +297,19 @@ export function ControlPanel(props: ControlPanelProps) {
   const minDay = localDay(berlinDateKey(Date.now()))
   const maxDay = localDay(berlinDateKey(Date.now() + DATE_PICKER_DAYS_AHEAD * 86_400_000))
   const calendarLocale = getLanguage() === 'de' ? de : enGB
-  // The picked day on the button, short: the button shares its row with
-  // the time field and Now, and a four-digit year did not fit beside the
-  // chevron ("07.09.2…"). Two digits do, in either language's own order.
-  const pickedLabel = pickedDate
-    ? new Intl.DateTimeFormat(getLanguage() === 'de' ? 'de-DE' : 'en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: '2-digit',
-      }).format(pickedDate)
-    : t('sim.date')
+  // The day the simulation stands on: the one picked, or today until one
+  // is. The button carries it from the start rather than the word "Date" –
+  // a select shows what is selected, and something is, whether or not the
+  // viewer put it there.
+  const shownDay = pickedDate ?? minDay
+  // That day on the button, short: the button shares its row with the time
+  // field and Now, and a four-digit year did not fit beside the caret
+  // ("07.09.2…"). Two digits do, in either language's own order.
+  const shownDayLabel = new Intl.DateTimeFormat(getLanguage() === 'de' ? 'de-DE' : 'en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  }).format(shownDay)
 
   // Stable group arrays so the memoized LineGroups skip the clock re-renders
   const lineGroups = useMemo(() => {
@@ -465,10 +471,9 @@ export function ControlPanel(props: ControlPanelProps) {
                     variant="outline"
                     size="sm"
                     aria-label={t('sim.setDate')}
-                    data-empty={!pickedDate}
-                    className="min-w-0 flex-1 justify-between font-normal data-[empty=true]:text-muted-foreground"
+                    className="min-w-0 flex-1 justify-between font-normal"
                   >
-                    <span className="truncate">{pickedLabel}</span>
+                    <span className="truncate">{shownDayLabel}</span>
                     <CaretDownIcon className="size-4 shrink-0 opacity-60" />
                   </Button>
                 </PopoverTrigger>
@@ -476,8 +481,8 @@ export function ControlPanel(props: ControlPanelProps) {
                   <Calendar
                     mode="single"
                     locale={calendarLocale}
-                    selected={pickedDate}
-                    defaultMonth={pickedDate ?? minDay}
+                    selected={shownDay}
+                    defaultMonth={shownDay}
                     startMonth={minDay}
                     endMonth={maxDay}
                     disabled={{ before: minDay, after: maxDay }}
@@ -503,8 +508,9 @@ export function ControlPanel(props: ControlPanelProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // Back to the real clock – and back to empty fields, so they
-                  // do not keep advertising a day or time no longer set.
+                  // Back to the real clock – the time field emptied, so it
+                  // does not keep advertising a time no longer set, and the
+                  // day given up, which puts today back on the date button.
                   if (timeInputRef.current) timeInputRef.current.value = ''
                   setPickedDate(undefined)
                   props.onResetTime()
