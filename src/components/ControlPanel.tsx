@@ -379,7 +379,7 @@ export function ControlPanel(props: ControlPanelProps) {
                   <CaretDownIcon className="size-4 shrink-0 opacity-60" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 p-1.5">
+              <PopoverContent align="start" className="w-56 p-1.5 ring-1 ring-border/80 shadow-xl/60">
                 <ul role="listbox" aria-label={t('city.pick')} className="flex flex-col gap-0.5">
                   {cityChoices.map(({ city, name }) => {
                     const current = city.slug === props.city.slug
