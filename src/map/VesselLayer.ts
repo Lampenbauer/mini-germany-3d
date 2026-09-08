@@ -74,11 +74,11 @@ export interface VesselLayerHost {
 const VESSEL_BODY_VISIBLE_RANGE = 20_000
 /** The name floats this many CSS pixels above the ship (negative = up). */
 const NAME_PIXEL_OFFSET_Y = -16
-/** Rough glyph width of the 11 px bold name font, for the picture test. */
-const NAME_PX_PER_CHAR = 7
+/** Rough glyph width of the 10 px bold name font, for the picture test. */
+const NAME_PX_PER_CHAR = 6
 /** Plate height and side padding in CSS px – see NAME_PLATE below. */
-const NAME_HEIGHT_PX = 21
-const NAME_PAD_X_PX = 7
+const NAME_HEIGHT_PX = 19
+const NAME_PAD_X_PX = 4
 /** Clearance the plates keep from each other and from a webcam picture. */
 const NAME_GAP_PX = 4
 /**
@@ -822,7 +822,7 @@ export class VesselLayer {
       show: this.visible && this.labelsVisible,
       label: {
         text: labelText,
-        font: 'bold 11px "Inter Variable", system-ui, sans-serif',
+        font: 'bold 10px "Inter Variable", system-ui, sans-serif',
         fillColor: NAME_INK,
         style: LabelStyle.FILL,
         showBackground: true,

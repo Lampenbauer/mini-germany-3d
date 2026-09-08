@@ -139,7 +139,7 @@ const STOP_RETRY_MS = 1500
  */
 const STOP_DISC_RANGE = 20000 * FRAMING_SCALE
 /** Exported so the declutter test can stand its camera outside it. */
-export const STOP_LABEL_RANGE = 2600 * FRAMING_SCALE
+export const STOP_LABEL_RANGE = 1000 * FRAMING_SCALE
 
 /** Rendered size of a stop disc in CSS px (fill + outline). */
 const STOP_DISC_SIZE = 10
@@ -149,42 +149,51 @@ const STOP_DISC_FILL = 'oklch(0.9842 0.0034 247.86)'
 const STOP_DISC_STROKE = 'oklch(0.3717 0.0392 257.29)'
 
 /** Font size of the stop name plates in CSS px. */
-const STOP_LABEL_FONT_SIZE = 13
+const STOP_LABEL_FONT_SIZE = 10
 /** Font size of the serving-lines suffix, e.g. "(1, 5, 25)". */
-const STOP_LABEL_LINES_FONT_SIZE = 11
+const STOP_LABEL_LINES_FONT_SIZE = 9
 const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
 
 /** Corner radius of the plate, in CSS px. */
-const STOP_LABEL_RADIUS = 5
+const STOP_LABEL_RADIUS = 3
 /*
  * The plate and its ink. Slate, as everywhere else in this interface, and
  * kept just short of opaque so a stop never quite hides what it stands on.
  */
-const STOP_LABEL_PLATE = 'oklch(0.9842 0.0034 247.86 / 0.95)'
+const STOP_LABEL_PLATE = 'oklch(0.9842 0.0034 247.86 / 0.85)'
 const STOP_LABEL_NAME = 'oklch(0.2077 0.0398 265.75)'
 const STOP_LABEL_LINES = 'oklch(0.5544 0.0407 257.42)'
-const STOP_LABEL_SHADOW = 'oklch(0.2077 0.0398 265.75 / 0.45)'
 
-/** Height of the plate a stop name is written on, in CSS px. */
-const STOP_LABEL_PLATE_HEIGHT = 20
-/** Transparent margin around the plate that its drop shadow needs. */
-const STOP_LABEL_SHADOW_PAD = 3
-/** Canvas height of a stop name plate in CSS px (plate + shadow margin). */
-const STOP_LABEL_HEIGHT = STOP_LABEL_PLATE_HEIGHT + 2 * STOP_LABEL_SHADOW_PAD
+/** Space left of the name and right of the line list, in CSS px. */
+const STOP_LABEL_PAD_X = 4
+/** …and above and below the line inside the plate. */
+const STOP_LABEL_PAD_Y = 2
+/**
+ * Canvas height of a stop name plate: the line plus that padding, derived
+ * rather than tuned, so the plate follows the font instead of having to be
+ * re-tuned beside it.
+ *
+ * Checked against the real ink rather than against the nominal size: at
+ * 10 px the tallest German stop names ("Gehlsdorf Fähre") span 10.34 px
+ * from the umlaut dots down to the descender – a hair more than the font
+ * size, and the ratio holds as the size moves – so two pixels of padding
+ * leave a little under two clear on each side.
+ */
+const STOP_LABEL_HEIGHT = STOP_LABEL_FONT_SIZE + 2 * STOP_LABEL_PAD_Y
 
 /**
- * Vertical anchor offset of a stop label above its disc in CSS px. The
- * canvas is anchored by its bottom edge, so the shadow margin below the
- * plate is added back here – the plate itself sits 16 px above the disc,
- * as it did when the canvas ended where the plate does.
+ * Vertical anchor offset of a stop label above its disc in CSS px: the
+ * canvas is anchored by its bottom edge, so this is the gap itself – close
+ * enough that plate and disc read as one mark rather than as a plate
+ * floating over a dot.
  */
-const STOP_LABEL_OFFSET_Y = -16 + STOP_LABEL_SHADOW_PAD
+const STOP_LABEL_OFFSET_Y = -12
 
 /**
  * Minimum screen-space gap between two stop labels in CSS px – labels whose
  * padded rectangles intersect an already accepted one are hidden.
  */
-const STOP_LABEL_GAP = 4
+const STOP_LABEL_GAP = 24
 
 /**
  * The stop plate as the declutter sees it: bottom edge STOP_LABEL_OFFSET_Y
@@ -497,42 +506,33 @@ export class StopsLayer {
     const nameWidth = ctx.measureText(name).width
     ctx.font = linesFont
     const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
-    const gap = suffix ? 5 * ratio : 0
-    const padX = 8 * ratio
-    const pad = Math.round(STOP_LABEL_SHADOW_PAD * ratio)
-    const plateHeight = Math.round(STOP_LABEL_PLATE_HEIGHT * ratio)
+    const gap = suffix ? 4 * ratio : 0
+    const padX = STOP_LABEL_PAD_X * ratio
+    const plateHeight = Math.round(STOP_LABEL_HEIGHT * ratio)
     const plateWidth = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
-    canvas.width = plateWidth + 2 * pad
-    canvas.height = plateHeight + 2 * pad
+    canvas.width = plateWidth
+    canvas.height = plateHeight
 
     ctx.beginPath()
     if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(pad, pad, plateWidth, plateHeight, STOP_LABEL_RADIUS * ratio)
+      ctx.roundRect(0, 0, plateWidth, plateHeight, STOP_LABEL_RADIUS * ratio)
     } else {
-      ctx.rect(pad, pad, plateWidth, plateHeight)
+      ctx.rect(0, 0, plateWidth, plateHeight)
     }
-    // The shadow is what lifts the plate off a bright roof; it lives in the
-    // margin the canvas carries for it, so it is never clipped.
-    ctx.shadowColor = STOP_LABEL_SHADOW
-    ctx.shadowBlur = 3 * ratio
-    ctx.shadowOffsetY = ratio
     ctx.fillStyle = STOP_LABEL_PLATE
     ctx.fill()
-    ctx.shadowColor = 'transparent'
-    ctx.shadowBlur = 0
-    ctx.shadowOffsetY = 0
 
-    const textY = pad + plateHeight / 2
+    const textY = plateHeight / 2
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     ctx.font = nameFont
     ctx.fillStyle = STOP_LABEL_NAME
-    ctx.fillText(name, pad + padX, textY)
+    ctx.fillText(name, padX, textY)
     if (suffix) {
       ctx.font = linesFont
       // Dimmer than the name, so long line lists stay secondary
       ctx.fillStyle = STOP_LABEL_LINES
-      ctx.fillText(suffix, pad + padX + nameWidth + gap, textY)
+      ctx.fillText(suffix, padX + nameWidth + gap, textY)
     }
     return { canvas, width: canvas.width / ratio, height: canvas.height / ratio }
   }

@@ -1,6 +1,6 @@
 import { Cartesian2, Cartesian3, Matrix4, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { STOP_LABEL_METRICS, STOP_LABEL_RANGE } from '@/map/StopsLayer'
+import { STOP_LABEL_RANGE } from '@/map/StopsLayer'
 import { keepNonOverlappingLabels } from '@/map/screen-rects'
 import { stopsHarness } from './stops-test-harness'
 
@@ -15,6 +15,14 @@ afterEach(() => {
 })
 
 describe('keepNonOverlappingLabels', () => {
+  /*
+   * Geometry of its own rather than the layer's: these pin the algorithm,
+   * and the numbers below are chosen against this box. Read against
+   * STOP_LABEL_METRICS they would break every time somebody tunes the
+   * plate – the clearance alone has been 4, 16 and 24.
+   */
+  const METRICS = { offsetY: -12, height: 14, gap: 4 }
+
   // Boxes arrive nearest-first, so index 0 is the closest stop.
   it('drops the later label of an overlapping pair, keeps disjoint ones', () => {
     expect(
@@ -22,7 +30,7 @@ describe('keepNonOverlappingLabels', () => {
         { x: 200, y: 300, halfWidth: 40 },
         { x: 230, y: 305, halfWidth: 40 }, // overlaps the first horizontally
         { x: 600, y: 300, halfWidth: 40 }, // far enough to the side
-      ], STOP_LABEL_METRICS),
+      ], METRICS),
     ).toEqual([true, false, true])
   })
 
@@ -31,7 +39,7 @@ describe('keepNonOverlappingLabels', () => {
       keepNonOverlappingLabels([
         { x: 200, y: 300, halfWidth: 40 },
         { x: 200, y: 400, halfWidth: 40 },
-      ], STOP_LABEL_METRICS),
+      ], METRICS),
     ).toEqual([true, true])
   })
 
@@ -41,21 +49,21 @@ describe('keepNonOverlappingLabels', () => {
         { x: 200, y: 300, halfWidth: 10 },
         { x: 260, y: 300, halfWidth: 10 },
       ],
-      STOP_LABEL_METRICS,
+      METRICS,
     )
     const wide = keepNonOverlappingLabels(
       [
         { x: 200, y: 300, halfWidth: 40 },
         { x: 260, y: 300, halfWidth: 40 },
       ],
-      STOP_LABEL_METRICS,
+      METRICS,
     )
     expect(narrow).toEqual([true, true])
     expect(wide).toEqual([true, false])
   })
 
   it('is empty-safe', () => {
-    expect(keepNonOverlappingLabels([], STOP_LABEL_METRICS)).toEqual([])
+    expect(keepNonOverlappingLabels([], METRICS)).toEqual([])
   })
 })
 
