@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { berlinDateKey } from '@/lib/clock'
 import type { TransitMode } from '@/data/network-types'
+import type { CityActivity } from '@/lib/city-profile'
 import { MODE_KEY, getLanguage, localizeCityName, t } from '@/lib/i18n'
 import { TRANSIT_MODES } from '@/lib/transit-mode'
 
@@ -80,7 +81,23 @@ export interface ControlPanelProps {
   aisAvailable: boolean
   showAisVessels: boolean
   onToggleAisVessels: (visible: boolean) => void
+  /**
+   * How much of the fleet is out at this instant – the counts beside the
+   * group headers and the traffic heading. Null before the first snapshot,
+   * when the panel shows no counts rather than zeros.
+   */
+  activity: CityActivity | null
+  /** Ships the AIS backdrop currently holds for this city. */
+  aisVesselCount: number
+  /** The info button in the head: opens the city card (the network in numbers). */
+  onShowCityFacts: () => void
 }
+
+/**
+ * A live count as the panel writes it beside a heading: quiet and
+ * tabular, so a change of digit does not shift the switch next to it.
+ */
+const HEADER_COUNT = 'shrink-0 text-xs tabular-nums text-muted-foreground'
 
 /** Display order of the transit-mode groups. */
 const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
@@ -107,6 +124,8 @@ const LineGroup = memo(function LineGroup(props: {
   mode: TransitMode
   lines: LineToggleInfo[]
   showHeader: boolean
+  /** Vehicles of this mode out now; null before the first snapshot. */
+  running: number | null
   onToggleLine: (lineId: string) => void
   onFocusLine: (lineId: string) => void
   onSetLinesVisible: (lineIds: string[], visible: boolean) => void
@@ -121,6 +140,19 @@ const LineGroup = memo(function LineGroup(props: {
             <Icon className="size-3.5" aria-hidden />
             {t(MODE_KEY[props.mode])}
           </span>
+          {/* How many of the mode are out: the number that swells with the
+              rush hour and empties at night under the time-lapse. The bare
+              number – the Traffic heading above says "out now" once for
+              all of them, and four groups repeating it read as noise. */}
+          {props.running !== null && (
+            <span
+              className={cn(HEADER_COUNT, 'ml-auto')}
+              title={t('traffic.running', { count: props.running })}
+              data-testid={`running-${props.mode}`}
+            >
+              {props.running}
+            </span>
+          )}
           <Switch
             aria-label={t('lines.showAll', { mode: t(MODE_KEY[props.mode]) })}
             checked={allVisible}
@@ -350,30 +382,59 @@ export function ControlPanel(props: ControlPanelProps) {
             cityTitle
           )}
         </CardTitle>
-        {/* The tooltip teaches the bigger version of this button: H takes
+        <div className="flex shrink-0 items-center">
+          {/* The city in numbers – a card, because the panel's head has
+              no room for eight facts and the panel body is the simulation,
+              not the network's statistics. Dimmed like the fold button
+              beside it, for the same reason: it is a door, not a control
+              the card is for. Disabled while the city's data is still on
+              its way, when there is nothing to count yet. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={t('city.facts', {
+                  name: localizeCityName(props.city.slug, props.city.name),
+                })}
+                disabled={props.cityLoading}
+                onClick={props.onShowCityFacts}
+              >
+                <Info />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('city.facts', {
+                name: localizeCityName(props.city.slug, props.city.name),
+              })}
+            </TooltipContent>
+          </Tooltip>
+          {/* The tooltip teaches the bigger version of this button: H takes
             the whole interface away, panel included, and nothing else in
             the app says so. It is the description, not the name – the
             button is still announced by what it does (see aria-label). */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              // Dimmed to the weight of the panel's secondary text: folding
-              // the panel away is housekeeping, not one of the controls the
-              // card is for, and at full strength it pulled against the
-              // title beside it. It comes up to full weight under the
-              // pointer, so it still answers like a button.
-              className="text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
-              onClick={() => setCollapsed((c) => !c)}
-            >
-              {collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
-            </Button>
-          </TooltipTrigger>
-          {/* Out over the map: below is the clock, left is the title */}
-          <TooltipContent side="right">{t('panel.hideAll')}</TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                // Dimmed to the weight of the panel's secondary text: folding
+                // the panel away is housekeeping, not one of the controls the
+                // card is for, and at full strength it pulled against the
+                // title beside it. It comes up to full weight under the
+                // pointer, so it still answers like a button.
+                className="text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
+                onClick={() => setCollapsed((c) => !c)}
+              >
+                {collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
+              </Button>
+            </TooltipTrigger>
+            {/* Out over the map: below is the clock, left is the title */}
+            <TooltipContent side="right">{t('panel.hideAll')}</TooltipContent>
+          </Tooltip>
+        </div>
       </CardHeader>
 
       <CardContent
@@ -528,7 +589,16 @@ export function ControlPanel(props: ControlPanelProps) {
                 groups scroll under it, and scroll-fade-y (the same utility
                 the vehicle card's stop list uses) signals what is cut off. */}
             <div className="flex min-h-0 flex-1 flex-col gap-2">
-              <div className="text-sm font-medium">{t('traffic.title')}</div>
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-sm font-medium">{t('traffic.title')}</div>
+                {/* The whole fleet – the one count a city with a single
+                    mode gets, since its group draws no header. */}
+                {props.activity && (
+                  <span className={HEADER_COUNT} data-testid="running-total">
+                    {t('traffic.running', { count: props.activity.total })}
+                  </span>
+                )}
+              </div>
               <ScrollArea
                 className="min-h-0 flex-1"
                 viewportClassName="scroll-fade-y"
@@ -541,6 +611,7 @@ export function ControlPanel(props: ControlPanelProps) {
                       mode={g.mode}
                       lines={g.lines}
                       showHeader={lineGroups.length > 1}
+                      running={props.activity ? (props.activity.byMode[g.mode] ?? 0) : null}
                       onToggleLine={props.onToggleLine}
                       onFocusLine={props.onFocusLine}
                       onSetLinesVisible={props.onSetLinesVisible}
@@ -559,6 +630,15 @@ export function ControlPanel(props: ControlPanelProps) {
                           <Ship className="size-3.5" aria-hidden />
                           {t('traffic.ais')}
                         </span>
+                        {/* Only while the switch is on: off, the count would
+                            promise ships the map is not drawing. */}
+                        {props.showAisVessels && props.aisVesselCount > 0 && (
+                          <span className={cn(HEADER_COUNT, 'ml-auto')} data-testid="ais-count">
+                            {t('traffic.aisCount', {
+                              count: props.aisVesselCount,
+                            })}
+                          </span>
+                        )}
                         <Switch
                           aria-label={t('traffic.showAis')}
                           checked={props.showAisVessels}
@@ -594,7 +674,6 @@ export function ControlPanel(props: ControlPanelProps) {
                 </div>
               </ScrollArea>
             </div>
-
           </>
         )}
       </CardContent>

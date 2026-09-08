@@ -170,6 +170,24 @@ was the brightest thing over Google's tiles and outshouted the line badges. A
 vehicle is the news, a stop is the furniture; if the stop names ever draw the
 eye before the badges do, that is the bug. Do not give them a plate back.
 
+**The cards state facts the sources state, not simulation results.**
+[line-profile.ts](src/lib/line-profile.ts) and
+[city-profile.ts](src/lib/city-profile.ts) carry no travel time, no speed
+and no vehicle-kilometres, because the app invents those from a cruise
+speed and a fixed dwell; a card claiming them would present an assumption
+as timetable. The live rows ("Out now", the counts beside the panel's group
+headers) are the simulation's and say so by changing. Two measures on the
+city card are named carefully on purpose: *stop positions*, not stops
+(one per OSM platform node – Doberaner Platz is eight), and *line
+kilometres*, not network length (a shared corridor counts once per line).
+The service day is the two ends of the longest pause between departures,
+not the smallest and largest departure – a feed codes a night bus's 00:30
+as 24:30 of the day before and another line's 00:03 as the day's own, so
+min/max spans 28 hours in Rostock and reads as a quarter of an hour in
+Berlin. A pause under an hour is "round the clock", which the hourly night
+buses make true for eleven of the thirteen cities; Lübeck and
+Wilhelmshaven keep a night.
+
 **Cesium cannot stack labels — a crowd has to be decluttered, not layered.**
 A `LabelCollection` keeps two BillboardCollections of its own, one for every
 background and one for every glyph, and updates them in that order: every

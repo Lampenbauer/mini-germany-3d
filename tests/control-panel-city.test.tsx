@@ -44,6 +44,9 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     aisAvailable: false,
     showAisVessels: false,
     onToggleAisVessels: vi.fn(),
+    activity: null,
+    aisVesselCount: 0,
+    onShowCityFacts: vi.fn(),
     ...overrides,
   }
   render(<ControlPanel {...props} />)

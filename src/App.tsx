@@ -13,6 +13,7 @@ import { LayersPopover, type WebcamChoice } from '@/components/LayersPopover'
 import { CompassIcon } from '@/components/CompassIcon'
 import { PhotoModePopover } from '@/components/PhotoModePopover'
 import { WeatherPopover } from '@/components/WeatherPopover'
+import { CityCard } from '@/components/CityCard'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
@@ -58,6 +59,12 @@ import { AboutDialog } from '@/components/AboutDialog'
 import { CreditsDialog } from '@/components/CreditsDialog'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
 import { buildInterchangeIndex } from '@/lib/interchange'
+import {
+  buildCityActivity,
+  buildCityProfile,
+  sameActivity,
+  type CityActivity,
+} from '@/lib/city-profile'
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
@@ -668,6 +675,16 @@ export default function App() {
   const [selectedVessel, setSelectedVessel] = useState<AisVessel | null>(null)
   /** Line whose profile card is open (id), null = none. */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
+  /** The city card – the network in numbers – is up. */
+  const [cityCardOpen, setCityCardOpen] = useState(false)
+  /**
+   * How much of the fleet is out, for the panel's counts and the city
+   * card's last row. Set from the render loop's UI tick rather than
+   * derived from simSeconds, because the counts have to be right with the
+   * clock paused too – the first snapshot lands after the clock's last
+   * change then. Null until a city's snapshots exist.
+   */
+  const [cityActivity, setCityActivity] = useState<CityActivity | null>(null)
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null)
   const [following, setFollowing] = useState(false)
   const realtimeStatusRef = useRef<RealtimeStatus | null>(null)
@@ -837,6 +854,9 @@ export default function App() {
   const selectCity = useCallback((slug: string) => {
     if (!isCitySlug(slug) || slug === citySlugRef.current) return
     cityTransitionRef.current = 'fly'
+    // The numbers on the card are the old city's; the new one's are a
+    // click away again once it has arrived.
+    setCityCardOpen(false)
     setCitySlug(slug)
   }, [])
 
@@ -1304,6 +1324,10 @@ export default function App() {
               // per second at real-time speed, where one is what the clock
               // shows. Same-value updates bail out inside React.
               setSimSeconds(Math.floor(clock.secondsOfDay()))
+              // The fleet's counts: one pass over the snapshot list, and the
+              // old state kept whenever nothing came or went (see sameActivity).
+              const activity = cityDataRef.current ? buildCityActivity(snapshotsRef.current) : null
+              setCityActivity((previous) => (sameActivity(previous, activity) ? previous : activity))
               const cameraView = map.getCameraView()
               setCameraIs2D(cameraView.pitch < -85)
               // Whole degrees: finer than the needle can show, and the
@@ -2514,6 +2538,21 @@ export default function App() {
     [selectedLine, schedule, simSeconds],
   )
 
+  /**
+   * The city in numbers: the line profile's arithmetic over every line at
+   * once, computed once per city. (What the fleet is doing is
+   * `cityActivity`, set from the render loop.)
+   */
+  const cityProfile = useMemo(
+    () => (network ? buildCityProfile(network, schedule) : null),
+    [network, schedule],
+  )
+  /** The longest line as the panel lists it, for the city card's link to it. */
+  const longestLine = useMemo(() => {
+    const line = cityProfile?.longest ? network?.lineById.get(cityProfile.longest.lineId) : undefined
+    return line ? { id: line.id, name: localizeLineName(line.name), color: line.color } : null
+  }, [cityProfile, network])
+
   // Stable across the 4×/s clock re-renders so the memoized line list in the
   // ControlPanel can bail out; only rebuilt when a line is toggled.
   const lineInfos: LineToggleInfo[] = useMemo(
@@ -2565,6 +2604,7 @@ export default function App() {
    * up.
    */
   const handleDismiss = useCallback(() => {
+    setCityCardOpen(false)
     setSelectedLineId(null)
     if (selectedIdRef.current !== null) selectVehicle(null)
     if (selectedMmsiRef.current !== null) selectVessel(null)
@@ -2597,7 +2637,31 @@ export default function App() {
   const vesselCard = !lineCard && selectedLine === null && selectedVessel !== null
   const vehicleCard = selected !== null && selectedLine === null
   const stopCard = !vehicleCard && !vesselCard && selectedLine === null && selectedStop !== null
-  const cardOpen = lineCard || vesselCard || vehicleCard || stopCard
+  const selectionCard = lineCard || vesselCard || vehicleCard || stopCard
+  // The city card ranks below every selection: picking anything on the map
+  // or in the panel takes its corner, and takes the card down for good
+  // rather than leaving it to reappear when the selection goes (see the
+  // effect below).
+  const cityCard = cityCardOpen && !selectionCard && cityProfile !== null
+  const cardOpen = selectionCard || cityCard
+  useEffect(() => {
+    if (selectionCard) setCityCardOpen(false)
+  }, [selectionCard])
+
+  /**
+   * The info button in the panel's head: the city card up, or down again
+   * on a second press. Up, it takes the corner from whatever selection
+   * holds it – the button was pressed for the numbers, not for the
+   * vehicle that happened to be selected.
+   */
+  const handleShowCityFacts = useCallback(() => {
+    if (cityCardOpen) {
+      setCityCardOpen(false)
+      return
+    }
+    handleDismiss()
+    setCityCardOpen(true)
+  }, [cityCardOpen, handleDismiss])
 
   /** Which tab stands lit – the same three-way state selectView acts on. */
   const mapView: MapView = linear ? 'linear' : underground ? 'underground' : 'surface'
@@ -2804,6 +2868,9 @@ export default function App() {
             aisAvailable={aisAvailable}
             showAisVessels={showAisVessels}
             onToggleAisVessels={handleToggleAisVessels}
+            activity={cityActivity}
+            aisVesselCount={aisVesselsRef.current.length}
+            onShowCityFacts={handleShowCityFacts}
           />
         </div>
 
@@ -2822,6 +2889,19 @@ export default function App() {
               temperatureC={temperatureC}
               showClouds={showClouds}
               onToggleClouds={handleToggleClouds}
+            />
+          </div>
+        )}
+
+        {cityCard && cityProfile && (
+          <div className="pointer-events-none absolute right-4 top-4 z-10">
+            <CityCard
+              profile={cityProfile}
+              activity={cityActivity}
+              name={localizeCityName(city.slug, city.name)}
+              longestLine={longestLine}
+              onFocusLine={handleFocusLine}
+              onClose={() => setCityCardOpen(false)}
             />
           </div>
         )}
