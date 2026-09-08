@@ -49,7 +49,14 @@ function harness({
   cameraLon = 12.106,
   cameraHeight = 1500,
   frustum = Intersect.INTERSECTING,
-}: { cameraLon?: number; cameraHeight?: number; frustum?: Intersect } = {}) {
+  clamp,
+}: {
+  cameraLon?: number
+  cameraHeight?: number
+  frustum?: Intersect
+  /** The tiles under the ships: a height per pick and the load generation. */
+  clamp?: { surface: (lon: number, lat: number) => number | undefined; generation: () => number }
+} = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
   const cameraCalls: unknown[][] = []
@@ -90,6 +97,12 @@ function harness({
     requestRender,
     waterSurfaceHeight: 37.75,
     noteCameraFlight: () => {},
+    ...(clamp
+      ? {
+          clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
+          surfaceGeneration: () => clamp.generation(),
+        }
+      : {}),
   })
   const record = (mmsi: number) =>
     (
@@ -298,5 +311,57 @@ describe('VesselLayer', () => {
     h.layer.setVisible(false)
     h.layer.setVisible(true)
     expect(h.record(211222290)!.labelEntity.show).toBe(false)
+  })
+
+  describe('clamping to the tiles', () => {
+    it('sets a ship on the tiles once and leaves it there while nothing changes', () => {
+      const surface = vi.fn(() => 50)
+      let generation = 1
+      const h = harness({ clamp: { surface, generation: () => generation } })
+      h.layer.sync([vessel()], NOW)
+      h.layer.sync([vessel()], NOW + 100)
+      h.layer.sync([vessel()], NOW + 5000)
+      expect(surface).toHaveBeenCalledTimes(1)
+      // Keel on the picked height: the box stands half its height above it
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(50 + 3 / 2, 1)
+    })
+
+    it('reads the height again after the ship moved, and after the tiles under it changed', () => {
+      const surface = vi.fn(() => 50)
+      let generation = 1
+      const h = harness({ clamp: { surface, generation: () => generation } })
+      h.layer.sync([vessel()], NOW)
+      // 10 m north: within the tolerance, no second pick
+      h.layer.sync([vessel({ lat: 54.0982 + 10 / 111_132 })], NOW + 100)
+      expect(surface).toHaveBeenCalledTimes(1)
+      // 40 m north: a fresh pick
+      h.layer.sync([vessel({ lat: 54.0982 + 40 / 111_132 })], NOW + 200)
+      expect(surface).toHaveBeenCalledTimes(2)
+      // The tiles refined under a resting ship: picked again, once
+      generation = 2
+      h.layer.sync([vessel({ lat: 54.0982 + 40 / 111_132 })], NOW + 300)
+      h.layer.sync([vessel({ lat: 54.0982 + 40 / 111_132 })], NOW + 400)
+      expect(surface).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not pick for a ship off screen, and rides the fallback surface until it is seen', () => {
+      const surface = vi.fn(() => 50)
+      const h = harness({ frustum: Intersect.OUTSIDE, clamp: { surface, generation: () => 1 } })
+      h.layer.sync([vessel()], NOW)
+      h.layer.sync([vessel()], NOW + 100)
+      expect(surface).not.toHaveBeenCalled()
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(37.75 + 3 / 2, 1)
+    })
+
+    it('keeps the fallback where the pick finds no tile, and asks again next tick', () => {
+      const surface = vi.fn<(lon: number, lat: number) => number | undefined>(() => undefined)
+      const h = harness({ clamp: { surface, generation: () => 1 } })
+      h.layer.sync([vessel()], NOW)
+      surface.mockReturnValue(52)
+      // A long pause snaps the eased pose, so the height can be read off directly
+      h.layer.sync([vessel()], NOW + 3000)
+      expect(surface).toHaveBeenCalledTimes(2)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(52 + 3 / 2, 1)
+    })
   })
 })

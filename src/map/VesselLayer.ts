@@ -54,6 +54,22 @@ export interface VesselLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface (calibrated like the ferry routes). */
   readonly waterSurfaceHeight: number
+  /**
+   * Ellipsoid height of the loaded scene geometry under a position – the
+   * tiles' own water, whatever level Google's mesh has it at there
+   * (scene.clampToHeight: an offscreen pick per call, ~1.4 ms). undefined
+   * where nothing is loaded yet or picking is unsupported (offline). The
+   * `exclude` list holds the ships' own primitives so a hull does not pick
+   * itself. Optional: without it every ship rides waterSurfaceHeight.
+   */
+  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  /**
+   * Bumped whenever the loaded tiles changed – a load cycle finished, or
+   * the tileset was swapped – so a clamped height that was read off a
+   * coarse tile is read again off the fine one. Without it a ship would
+   * have to poll.
+   */
+  surfaceGeneration?(): number
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
   /** Screen rectangles the names keep clear of (the webcam pictures). */
@@ -333,7 +349,33 @@ interface VesselRecord {
   renderedPosition: Cartesian3
   renderedBearing: number
   renderedStamp: number
+  /**
+   * Height the hull was last clamped to (null: never – the ship rides
+   * the host's water surface until it is), and where and against which
+   * tiles it was read, so the clamp is only repeated when one of the two
+   * changed.
+   */
+  clampedHeight: number | null
+  clampLon: number
+  clampLat: number
+  clampedGeneration: number
 }
+
+/*
+ * The ships are clamped to the tiles rather than set on a fixed water
+ * surface: inland the water is a staircase of lock reaches and Google's
+ * mesh is the only thing that says where each step lies. A clamp is an
+ * offscreen pick (~1.4 ms measured 2026-09-08), so it is made only when
+ * its answer could have changed – the ship moved CLAMP_MOVE_M since the
+ * last one, or the tiles under it did (host.surfaceGeneration) – and only
+ * for ships on screen; the rest ride the fallback surface unseen and are
+ * clamped the tick they come into view. CLAMP_BUDGET_PER_TICK caps the
+ * work of a tick when many ships qualify at once (a city switch, a load
+ * cycle over a busy harbour) – the rest follow next tick. A fleet at rest
+ * under a resting camera costs nothing.
+ */
+const CLAMP_BUDGET_PER_TICK = 3
+const CLAMP_MOVE_M = 25
 
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll(0, 0, 0)
@@ -346,6 +388,9 @@ const WINDOW_GLOW_MAX = 0.85
 
 export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
+  /** See clampExclusions(). */
+  private readonly clampExclusionList: object[] = []
+  private clampExclusionsStale = true
   private visible = true
   private labelsVisible = true
   /** MMSI the camera is chasing, null when free. */
@@ -494,6 +539,8 @@ export class VesselLayer {
       y: number
       halfWidth: number
     }[] = []
+    let clampBudget = CLAMP_BUDGET_PER_TICK
+    const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -516,6 +563,7 @@ export class VesselLayer {
       if (!record) {
         record = this.createVessel(vessel, nowMs)
         this.vessels.set(vessel.mmsi, record)
+        this.clampExclusionsStale = true
         this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
 
@@ -529,10 +577,31 @@ export class VesselLayer {
       const drawnHeight = record.model
         ? spec.height * heightScale(lengthScale, widthScale)
         : record.builtHeight
+      // Clamp to the tiles – only when the answer could have changed, only
+      // on screen, at most CLAMP_BUDGET_PER_TICK a tick (see the constants)
+      if (this.host.clampToSurface && clampBudget > 0) {
+        const movedM = Math.hypot(
+          (sample.lon - record.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
+          (sample.lat - record.clampLat) * 111_132,
+        )
+        const stale =
+          record.clampedHeight === null ||
+          movedM > CLAMP_MOVE_M ||
+          record.clampedGeneration !== surfaceGeneration
+        if (stale && this.isOnScreen(cullingVolume, record.displayPosition)) {
+          clampBudget--
+          const h = this.host.clampToSurface(sample.lon, sample.lat, this.clampExclusions())
+          record.clampLon = sample.lon
+          record.clampLat = sample.lat
+          record.clampedGeneration = surfaceGeneration
+          if (h !== undefined) record.clampedHeight = h
+        }
+      }
+      const surface = record.clampedHeight ?? this.host.waterSurfaceHeight
       const target = Cartesian3.fromDegrees(
         sample.lon,
         sample.lat,
-        this.host.waterSurfaceHeight + drawnHeight / 2,
+        surface + drawnHeight / 2,
         undefined,
         positionScratch,
       )
@@ -855,6 +924,10 @@ export class VesselLayer {
       renderedPosition: Cartesian3.clone(position),
       renderedBearing: sample.bearingDeg,
       renderedStamp: this.renderStamp,
+      clampedHeight: null,
+      clampLon: sample.lon,
+      clampLat: sample.lat,
+      clampedGeneration: -1,
     }
     void this.attachModel(record, vessel.mmsi)
     return record
@@ -900,6 +973,7 @@ export class VesselLayer {
       record.primitive = null
     }
     record.model = model
+    this.clampExclusionsStale = true
     // fromGltfAsync clones the matrix – rebind so the in-place scale
     // composition in sync() reaches the model.
     record.modelMatrix = model.modelMatrix
@@ -913,5 +987,25 @@ export class VesselLayer {
     if (record.model) this.viewer.scene.primitives.remove(record.model)
     this.viewer.entities.remove(record.labelEntity)
     this.vessels.delete(mmsi)
+    this.clampExclusionsStale = true
+  }
+
+  /**
+   * Everything a clamp pick has to look past: the hulls, their
+   * placeholder boxes and the name plates – or a ship would be set on its
+   * own deck. Rebuilt only when a ship came, went or got its hull, not
+   * per tick.
+   */
+  private clampExclusions(): object[] {
+    if (this.clampExclusionsStale) {
+      this.clampExclusionList.length = 0
+      for (const r of this.vessels.values()) {
+        if (r.model) this.clampExclusionList.push(r.model)
+        if (r.primitive) this.clampExclusionList.push(r.primitive)
+        this.clampExclusionList.push(r.labelEntity)
+      }
+      this.clampExclusionsStale = false
+    }
+    return this.clampExclusionList
   }
 }

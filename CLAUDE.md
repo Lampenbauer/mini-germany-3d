@@ -492,6 +492,27 @@ Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
 `ais.simulatedByMmsi` (Rostock FG/FW, Kiel F1/F2, Hamburg 18× HADAG).
 
+**Ships are clamped to the tiles, and the clamps are rationed.** Until
+2026-09-08 every ship sat on sea level plus the calibrated offset, which put
+Frankfurt's fleet 87 m and Berlin's 31 m under the tiles (the Main is a
+staircase of lock reaches, Berlin sits on two water levels). Two cures were
+built and compared the same day: a measured water surface per lock reach in
+`city.json` (more data, more logic; shelved) and a `scene.clampToHeight`
+pick per hull ([VesselLayer](src/map/VesselLayer.ts)), which the user chose
+for being less code. Measured cost: 1.4 ms per pick, an offscreen render
+with a `readPixels` stall, so never clamp per tick — the layer picks only
+for ships on screen and only when the ship moved 25 m or the tileset's
+`allTilesLoaded` fired (`surfaceGeneration` in `CesiumMap`), capped at
+three a tick; a fleet at rest costs nothing. The pick answers with whatever
+LOD is loaded (coarse and fine differ by metres, a ship at a quay can land
+on a baked-in crane or on Google's own photographed hull), which is why the
+generation bump re-reads it after every load cycle. The ships' own
+primitives are on the pick's exclusion list, or a hull would be set on its
+own deck. `tileset.getHeight` (CPU, 0.3 ms) was rejected: it answered for
+only half the fleet. `sampleHeightMostDetailed` was rejected harder: it
+loads the finest tiles under every ship (10 000 tiles and 100 MB for one
+fleet) and feeds the tile-tree leak.
+
 For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs` and
 `scripts/test-php-parser.mjs` run in CI. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a

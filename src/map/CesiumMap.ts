@@ -148,6 +148,8 @@ const FALLBACK_TERRAIN_HEIGHT = 5
  * all: below sea level only in a harbor tunnel, above 3 km nowhere. A
  * number outside is a tile that has not loaded or a ray that hit the sky.
  */
+const clampScratch = new Cartesian3()
+
 function plausibleGroundHeight(height: number): boolean {
   return Number.isFinite(height) && height > -100 && height < 3000
 }
@@ -688,6 +690,8 @@ export class CesiumMap {
   private underground = false
   /** The city on the map (see setCity). */
   private city: City
+  /** Bumped when the loaded tiles changed – see VesselLayerHost.surfaceGeneration. */
+  private surfaceGeneration = 0
   /** Camera leash (see enforceCameraLimits); null while flying between cities. */
   private cameraLimits: CameraLimits | null
   /**
@@ -943,6 +947,19 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.routes.heightOffset + FERRY_ROUTE_EXTRA_LIFT
       },
+      // The ships float on the tiles' own water (see VesselLayer)
+      surfaceGeneration: () => this.surfaceGeneration,
+      clampToSurface: (lon, lat, exclude) => {
+        const scene = this.viewer.scene
+        if (!this.googleTileset || !scene.clampToHeightSupported) return undefined
+        const clamped = scene.clampToHeight(
+          Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch),
+          exclude,
+        )
+        if (!clamped) return undefined
+        const height = Cartographic.fromCartesian(clamped).height
+        return plausibleGroundHeight(height) ? height : undefined
+      },
       get pixelRatio() {
         return map.effectivePixelRatio
       },
@@ -1166,6 +1183,11 @@ export class CesiumMap {
    */
   private async createTileset(): Promise<Cesium3DTileset> {
     const tileset = await createGooglePhotorealistic3DTileset()
+    // A finished load cycle means the tiles under the ships may have
+    // refined – they read their height off the tiles again (VesselLayer)
+    tileset.allTilesLoaded.addEventListener(() => {
+      this.surfaceGeneration++
+    })
     // enableCollision: prevents the camera from getting below the tiles
     tileset.enableCollision = true
     // Receives the vehicles' shadows, casts none of its own: the photo
@@ -1382,6 +1404,7 @@ export class CesiumMap {
       tileset.preloadWhenHidden = false
       tileset.show = true
       this.googleTileset = tileset
+      this.surfaceGeneration++
       // remove() destroys the old tileset, tree and all – all but what
       // Cesium's command bins still point at, purged after the next frame
       this.viewer.scene.primitives.remove(current)
