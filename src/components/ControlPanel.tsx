@@ -344,8 +344,26 @@ export function ControlPanel(props: ControlPanelProps) {
     // attribution line at the bottom edge of the map. The panel itself does
     // not scroll – only the line list inside it does, so the clock, the
     // time-lapse and the layer switches stay put however long the list gets.
-    <Card className="pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden border-border/60 bg-card/85 backdrop-blur-md">
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
+    <Card
+      className={cn(
+        'pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-card/85 backdrop-blur-md',
+        // Folded away, the panel is head and clock and nothing else: green
+        // all through, edge included, rather than a green head sitting on a
+        // stub of card. Unfolded it keeps the card's own quiet border.
+        collapsed ? 'border-brand' : 'border-border/60',
+      )}
+    >
+      {/*
+          The panel wears the About dialog's head: the same deep green
+          (--brand), solid down to where the card's content begins and then
+          run out into the card's own colour, so the panel reads as one
+          surface rather than as a green box stacked on a grey one. The
+          negative margins let the header's background bleed over the
+          card's top padding and over the gap below it, which is what makes
+          the green and the gradient below meet without a seam; the padding
+          added back leaves everything inside exactly where it sat.
+      */}
+      <CardHeader className="-mt-4 -mb-4 flex flex-row items-center justify-between gap-2 bg-brand pt-4 pb-4">
         <CardTitle className="flex min-w-0 items-center gap-1.5 text-base">
           <TramFront className="size-5 shrink-0 text-primary" aria-hidden />
           {/* The title itself opens the list of cities – it names the one
@@ -448,7 +466,26 @@ export function ControlPanel(props: ControlPanelProps) {
         </Tooltip>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <CardContent
+        className={cn(
+          'relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-hidden',
+          // Collapsed, the green has to reach the bottom edge as well: the
+          // card keeps 16 px of padding under its last child, and the same
+          // bleed the header uses at the top carries the fill over it.
+          collapsed && '-mb-4 pb-4',
+        )}
+      >
+        {/* Where the green gives out. Behind the content (-z-10 inside the
+            content's own stacking context), so the clock and the controls
+            sit on it rather than under it. Collapsed there is nothing left
+            for it to give out into, so it fills instead of fading. */}
+        <div
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-x-0 -z-10',
+            collapsed ? 'inset-y-0 bg-brand' : 'top-0 h-40 bg-linear-to-b from-brand to-transparent',
+          )}
+        />
         {/* Clock + pause: also visible while the panel is collapsed */}
         <div className="flex items-center justify-between gap-2">
           <div
