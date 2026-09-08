@@ -87,10 +87,31 @@ test('the data attribution opens in the app\u2019s own dialog', async () => {
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('li').first()).toContainText('OpenStreetMap')
   await expect(page.locator('.cesium-credit-lightbox-overlay')).toBeHidden()
+  // The interface steps back for as long as a dialog is up, so the credits
+  // are read over the bare map. The panel clock stands in for all of it.
+  await expect(page.getByTestId('sim-clock')).toBeHidden()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('sim-clock')).toBeVisible()
   // …and handed back, so Cesium goes on writing to it
   await expect(page.locator('.cesium-credit-lightbox > ul')).toHaveCount(1)
+})
+
+test('reads the About dialog over a bare map, and hands the focus back', async () => {
+  // The interface steps back while a dialog is up. The button that opened
+  // it steps back with it, which is the part worth checking in a real
+  // browser: focus cannot return to an element that is still display:none,
+  // so the wrapper has to be visible again by the time Radix restores it.
+  const button = page.getByRole('button', { name: 'About this project' })
+  await button.click()
+  const dialog = page.getByRole('dialog', { name: 'Mini Germany 3D' })
+  await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('sim-clock')).toBeHidden()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('sim-clock')).toBeVisible()
+  await expect(button).toBeFocused()
 })
 
 test('shows the frozen simulation time 08:30', async () => {

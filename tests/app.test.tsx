@@ -366,6 +366,41 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
   })
 
+  it('takes the interface away while a dialog is up, and gives it back', () => {
+    // A dialog is something to read; the panel and the cards behind it are
+    // not part of the reading. What is read stays: the dialog is portaled
+    // to the body, so it is never inside the wrapper that goes away.
+    render(<App />)
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+
+    fireEvent.click(screen.getByRole('button', { name: 'About this project' }))
+    const about = screen.getByRole('dialog', { name: 'Mini Germany 3D' })
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+    expect(screen.getByTestId('ui-overlay').contains(about)).toBe(false)
+
+    fireEvent.click(within(about).getByRole('button', { name: 'Close about dialog' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
+  it('gives back what H had left, not the interface, after a dialog', () => {
+    // The two hides mean different things. H is the reader's own choice and
+    // has to outlive a dialog opened on top of it – otherwise looking a
+    // shortcut up would undo the clear map it was looked up for.
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+
+    fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
+    const about = screen.getByRole('dialog', { name: 'Mini Germany 3D' })
+    fireEvent.click(within(about).getByRole('button', { name: 'Close about dialog' }))
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+
+    // And H still works as the way back, once nothing is on top of it.
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+  })
+
   it('pauses and plays again on Space', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()

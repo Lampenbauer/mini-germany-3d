@@ -599,6 +599,23 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false)
   /** Cesium's credits, opened from the "Data attribution" link it draws. */
   const [creditsOpen, setCreditsOpen] = useState(false)
+  /**
+   * A dialog is something to read, and it reads better over a bare map: for
+   * as long as one is up the interface goes away exactly as H takes it, and
+   * closing gives back whatever was there before.
+   *
+   * Derived rather than written into uiHidden, because the two mean
+   * different things. H is a choice the reader made and it has to survive a
+   * dialog: whoever cleared the map first, then opened this to look
+   * something up, wants the map still clear afterwards, not the panel
+   * springing back unasked. Pressing H while a dialog is up therefore
+   * changes nothing on screen and everything after the close, which is the
+   * only reading of it that keeps both meanings intact.
+   *
+   * The dialogs themselves are untouched by this: Radix portals them to the
+   * body, so only their JSX sits inside the overlay below, never their DOM.
+   */
+  const interfaceHidden = uiHidden || aboutOpen || creditsOpen
   /** Lends Cesium's own credit list to the dialog while it is open. */
   const borrowCreditList = useCallback((host: HTMLElement | null) => {
     mapRef.current?.borrowCreditList(host)
@@ -2693,11 +2710,13 @@ export default function App() {
           hides all of them at once without unmounting any: the panel keeps
           whether it was collapsed, an open card stays open, and the time
           field keeps what was picked in it. */}
-      <div className={cn('contents', uiHidden && 'hidden')} data-testid="ui-overlay">
+      <div className={cn('contents', interfaceHidden && 'hidden')} data-testid="ui-overlay">
         {/* What this map is and is not, with the keyboard at the end –
             opened with ? or the question mark under the map controls,
             dismissed with ?, Escape, the close button or a click outside.
-            Inside the overlay, so H takes it away with everything else. */}
+            Its JSX sits here, its DOM does not: Radix portals a dialog to
+            the body, which is what lets opening one hide this wrapper –
+            the map is left bare behind the dialog rather than under it. */}
         <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
 
         {/* The credits behind Cesium's "Data attribution" link, in this
