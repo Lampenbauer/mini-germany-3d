@@ -262,6 +262,12 @@ npm test               # Unit tests (Vitest): geodesy, timetable engine, clock, 
 npm run test:e2e       # Functional E2E tests (Playwright, fully offline & deterministic)
 ```
 
+The unit tests run in Node; a test that renders a component or touches
+`window`/`document` declares `// @vitest-environment jsdom` in its first line
+(jsdom costs about half a second per file, so it is not the default). On the
+CI runner Vitest is pinned to two workers – see the `test` block in
+[vite.config.ts](vite.config.ts) for why.
+
 The E2E tests start the real app in offline mode with a frozen simulation time
 (08:30) and render Cesium headless via SwiftShader. Everything runs automatically
 in CI (GitHub Actions), see `.github/workflows/ci.yml`.

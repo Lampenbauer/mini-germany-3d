@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PreparedDirection, PreparedLine } from '@/data/network-types'
 import type { VehicleSnapshot } from '@/engine/simulation'

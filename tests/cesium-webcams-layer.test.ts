@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { Cartographic, type BillboardCollection, type Viewer } from 'cesium'
 import { describe, expect, it, vi } from 'vitest'
 import type { Webcam } from '@/lib/webcams-extract'

@@ -351,7 +351,17 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    // Node by default: only the component tests need a DOM, and jsdom
+    // costs ~0.7 s per file on the CI runner – 62 s of a 217 s run when
+    // every one of the 85 files got one. A test that renders declares
+    // `// @vitest-environment jsdom` in its first line.
+    environment: 'node',
+    // The repo is private, and GitHub's standard runner for private repos
+    // has 2 vCPUs; Vitest 4 keeps one for its main thread and runs the
+    // files on the other, one after another (default: cpus − 1). The main
+    // thread mostly waits, so two workers are the better use of the two
+    // cores there. Locally the default (all cores but one) stands.
+    maxWorkers: process.env.CI ? 2 : undefined,
     globals: true,
     setupFiles: ['tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],

@@ -49,17 +49,24 @@ describe.each(cityNetworks.map((entry) => [entry.city.slug, entry] as const))(
   })
 
   it("all coordinates lie within the city's bounding box", () => {
+    // Counted, not asserted per point: the thirteen networks hold a third
+    // of a million path points, and four expect() calls on each of them
+    // took 15 s of the CI run for a check that is a millisecond of
+    // arithmetic. The first stray point is named so a failure still says
+    // where to look.
     const box = city.boundingBox
+    const strays: string[] = []
     for (const line of network.lines) {
       for (const dir of line.directions) {
         for (const [lon, lat] of dir.path) {
-          expect(lon).toBeGreaterThan(box.west)
-          expect(lon).toBeLessThan(box.east)
-          expect(lat).toBeGreaterThan(box.south)
-          expect(lat).toBeLessThan(box.north)
+          if (lon <= box.west || lon >= box.east || lat <= box.south || lat >= box.north) {
+            strays.push(`${line.id}/R${dir.direction}: ${lon}, ${lat}`)
+          }
         }
       }
     }
+    expect(strays.slice(0, 3)).toEqual([])
+    expect(strays.length).toBe(0)
   })
 
   it('has every line on a mode the city asks for, drawn with a known consist or a box', () => {

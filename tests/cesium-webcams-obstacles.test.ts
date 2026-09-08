@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { Cartesian2, Cartesian3, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'

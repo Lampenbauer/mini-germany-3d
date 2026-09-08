@@ -42,6 +42,23 @@ shortcut skips [tsconfig.app.json](tsconfig.app.json), which is what includes
 `tests/`. A tuple error in a test once passed locally and failed CI exactly
 this way.
 
+**Unit tests run in Node; a DOM is opted into per file.** The `test` block in
+[vite.config.ts](vite.config.ts) sets `environment: 'node'`, and the 18 files
+that render or touch `window`/`document` open with
+`// @vitest-environment jsdom` on their first line. jsdom cost ~0.7 s per
+file on the CI runner – 62 s of a 217 s run when all 85 files got one. A new
+component test without the line fails loudly (`document is not defined`), so
+the miss is cheap; the trap is the other way round: do not put jsdom back as
+the default. The same block pins `maxWorkers: 2` under `CI`: the repo is
+private, GitHub's standard runner for private repos has 2 vCPUs, and Vitest 4
+defaults to `cpus − 1` workers, which ran the whole suite on one core, file
+after file. Measured 2026-09-09: 217 s before, ~90 s expected after, locally
+36 s → 28 s with two workers. Per-file cost is the lever from here – a new
+test file costs its imports and environment in full, so a check that belongs
+to an existing file goes there rather than into a new one, and an assertion
+per data point (`network.test.ts` once ran four `expect`s on 331 000 path
+points, 15 s) is counted instead.
+
 **A change is not finished when the code works.** Every change — a fix as much
 as a feature — ends with a sweep for what else already talks about the thing
 you touched. Grep for the name you changed, the flag you added, the number you
