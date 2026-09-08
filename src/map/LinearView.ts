@@ -299,7 +299,7 @@ export class LinearView {
         const dot = document.createElementNS(SVG_NS, 'circle')
         dot.setAttribute('r', '6')
         dot.setAttribute('fill', snap.color)
-        dot.setAttribute('stroke', '#f8fafc')
+        dot.setAttribute('stroke', 'oklch(0.9842 0.0034 247.86)')
         dot.setAttribute('stroke-width', '2')
         dot.dataset.vehicle = snap.id
         dot.style.cursor = 'pointer'
@@ -381,8 +381,8 @@ export class LinearView {
         tick.setAttribute('cx', String(station.x))
         tick.setAttribute('cy', String(row.y))
         tick.setAttribute('r', '3.5')
-        tick.setAttribute('fill', '#f8fafc')
-        tick.setAttribute('stroke', '#334155')
+        tick.setAttribute('fill', 'oklch(0.9842 0.0034 247.86)')
+        tick.setAttribute('stroke', 'oklch(0.3717 0.0392 257.29)')
         tick.setAttribute('stroke-width', '1.5')
         tick.dataset.stop = station.id
         tick.style.cursor = 'pointer'
@@ -391,7 +391,7 @@ export class LinearView {
         const label = document.createElementNS(SVG_NS, 'text')
         label.textContent = station.name
         label.setAttribute('transform', `translate(${station.x} ${row.y - 12}) rotate(${LABEL_ANGLE})`)
-        label.setAttribute('fill', '#cbd5e1')
+        label.setAttribute('fill', 'oklch(0.869 0.0198 252.89)')
         label.setAttribute('font-size', '11')
         label.dataset.stop = station.id
         label.style.cursor = 'pointer'

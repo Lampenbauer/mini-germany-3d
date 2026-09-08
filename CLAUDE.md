@@ -88,6 +88,19 @@ with the `Co-Authored-By` trailer. See `git log` for the register.
 
 ---
 
+## Interface and styling
+
+**Colours are `oklch()`, not hex.** That is what the theme tokens in
+`index.css` already speak, and it holds for Tailwind arbitrary values, canvas
+`fillStyle`/`shadowColor` and SVG paint attributes alike. The one exception is
+forced: Cesium's `Color.fromCssColorString` parses hex, `rgb()` and `hsl()` and
+nothing else, so every colour that reaches it — hull colours, the ship name
+plate, the globe base — stays hex. A silent failure either way, so keep the two
+apart deliberately.
+
+
+---
+
 ## Cities and the data pipeline
 
 Thirteen cities are in the build ([src/cities/definitions.ts](src/cities/definitions.ts));

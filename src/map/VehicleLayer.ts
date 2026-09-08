@@ -1157,11 +1157,11 @@ export class VehicleLayer {
     const textX = (width - (textWidth + suffixGap + suffixWidth)) / 2
     const textY = height / 2 + 0.5 * ratio
     ctx.font = font
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = 'oklch(1 0 0)'
     ctx.fillText(lineId, textX, textY)
     if (delaySuffix) {
       ctx.font = suffixFont
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)'
+      ctx.fillStyle = 'oklch(1 0 0 / 0.88)'
       ctx.fillText(delaySuffix, textX + textWidth + suffixGap, textY)
     }
 
