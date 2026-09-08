@@ -288,8 +288,10 @@ describe('App (UI shell)', () => {
     render(<App />)
     const trigger = screen.getByRole('button', { name: 'Set simulation date (today to a week ahead)' })
     // The button opens on the day the simulation stands on – today, until
-    // one is picked – short and in the interface's own order (en-GB here)
-    const shortDay = (key: string) => `${key.slice(8)}/${key.slice(5, 7)}/${key.slice(2, 4)}`
+    // one is picked – in the one shape every language gets: "8. Sep 2026"
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const shortDay = (key: string) =>
+      `${parseInt(key.slice(8), 10)}. ${MONTHS[parseInt(key.slice(5, 7), 10) - 1]} ${key.slice(0, 4)}`
     expect(trigger).toHaveTextContent(shortDay(berlinDateKey(Date.now())))
     fireEvent.click(trigger)
     // react-day-picker's month is a grid; its day buttons carry data-day

@@ -121,6 +121,17 @@ border included. Change the green in one place. The
 lighter greens beside it (`oklch(0.8254 0.1241 174.21)`, `oklch(0.6283 0.0988
 174.84)`) are local to the dialog that uses them.
 
+**Dates are written `12. Sep 2026`, in every language.** One shape everywhere:
+day, full stop, the month's own abbreviation without a trailing full stop
+(German's "Sep." loses it), four-digit year. An all-numeric date reads as two
+different days on either side of the Channel, which is the reason. The control
+panel's date button is the only place a calendar date is shown, and it is
+built there by hand rather than by `Intl` — see `shownDayLabel` in
+[src/components/ControlPanel.tsx](src/components/ControlPanel.tsx). Its row is
+tight: 320 px hold the date, a 96 px time field and the "Now" button, and
+"28. Mär 2026" wants about 91 px of the remainder. Measure before adding
+anything to that row – the failure is a truncated date, which no test catches.
+
 
 ---
 

@@ -302,14 +302,17 @@ export function ControlPanel(props: ControlPanelProps) {
   // a select shows what is selected, and something is, whether or not the
   // viewer put it there.
   const shownDay = pickedDate ?? minDay
-  // That day on the button, short: the button shares its row with the time
-  // field and Now, and a four-digit year did not fit beside the caret
-  // ("07.09.2…"). Two digits do, in either language's own order.
-  const shownDayLabel = new Intl.DateTimeFormat(getLanguage() === 'de' ? 'de-DE' : 'en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  }).format(shownDay)
+  // That day on the button, in the one shape every language gets here:
+  // "12. Sep 2026". A named month cannot be read the wrong way round,
+  // which an all-numeric date can (08/09 is two different days on either
+  // side of the Channel), and it fits beside the caret where a written-out
+  // month would not. Only the month's name follows the interface language.
+  // The month's own abbreviation, minus the full stop some locales append
+  // to it ("Sep." in German): the trailing dot belongs to the day here, and
+  // the same shape in every language is the point.
+  const shownDayLabel = `${shownDay.getDate()}. ${format(shownDay, 'MMM', {
+    locale: calendarLocale,
+  }).replace(/\.$/, '')} ${shownDay.getFullYear()}`
 
   // The cities the picker lists, by name and in the language the interface
   // speaks: Köln sorts under K and Cologne under C, München under M and
@@ -517,48 +520,64 @@ export function ControlPanel(props: ControlPanelProps) {
                 read as one block with it rather than as the next section
                 down. */}
             <div className="-mt-2 flex items-center gap-2">
-              <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={t('sim.setDate')}
-                    className="min-w-0 flex-1 justify-between font-normal"
+              {/*
+                Day and time read as one field: the two halves set one
+                moment, and side by side as separate boxes they read as two
+                unrelated controls. One input-shaped frame around both, a
+                hairline between the halves, and the frame lights up
+                whichever half is focused – the shape a date-time field has
+                everywhere else.
+              */}
+              <div className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-input bg-black/50 shadow-xs transition-colors focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/50">
+                <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t('sim.setDate')}
+                      className="h-full min-w-0 flex-1 justify-between gap-1 rounded-r-none px-2 font-normal hover:bg-transparent focus-visible:ring-0"
+                    >
+                      <span className="truncate">{shownDayLabel}</span>
+                      <CaretDownIcon className="size-4 shrink-0 opacity-60" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-auto overflow-hidden p-0"
+                    align="start"
+                    sideOffset={2}
                   >
-                    <span className="truncate">{shownDayLabel}</span>
-                    <CaretDownIcon className="size-4 shrink-0 opacity-60" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto overflow-hidden p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    locale={calendarLocale}
-                    selected={shownDay}
-                    defaultMonth={shownDay}
-                    startMonth={minDay}
-                    endMonth={maxDay}
-                    disabled={{ before: minDay, after: maxDay }}
-                    onSelect={(day) => {
-                      if (!day) return
-                      setPickedDate(day)
-                      props.onSetDate(format(day, 'yyyy-MM-dd'))
-                      setDateOpen(false)
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Input
-                ref={timeInputRef}
-                type="time"
-                aria-label={t('sim.setTime')}
-                className="h-8 w-[5.5rem] shrink-0 appearance-none bg-transparent [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
-                onChange={(e) => {
-                  if (e.target.value) props.onSetTime(e.target.value)
-                }}
-              />
+                    <Calendar
+                      mode="single"
+                      locale={calendarLocale}
+                      selected={shownDay}
+                      defaultMonth={shownDay}
+                      startMonth={minDay}
+                      endMonth={maxDay}
+                      disabled={{ before: minDay, after: maxDay }}
+                      onSelect={(day) => {
+                        if (!day) return
+                        setPickedDate(day)
+                        props.onSetDate(format(day, 'yyyy-MM-dd'))
+                        setDateOpen(false)
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+                <Input
+                  ref={timeInputRef}
+                  type="time"
+                  aria-label={t('sim.setTime')}
+                  className="h-full w-17 shrink-0 appearance-none rounded-l-none border-0 bg-transparent px-2 text-center shadow-none focus-visible:ring-0 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                  onChange={(e) => {
+                    if (e.target.value) props.onSetTime(e.target.value)
+                  }}
+                />
+              </div>
               <Button
                 variant="outline"
                 size="sm"
+                className="shrink-0"
                 onClick={() => {
                   // Back to the real clock – the time field emptied, so it
                   // does not keep advertising a time no longer set, and the
