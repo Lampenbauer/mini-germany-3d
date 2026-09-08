@@ -156,7 +156,9 @@ VITE_CESIUM_ION_TOKEN=your-token
   last. The camera's block belongs to the map, so the diagram keeps only full
   screen; the layers stay, because the switches outlive the reading they were
   set in. Under it all, on its own, the question mark that opens the About
-  dialog.
+  dialog. Each tooltip names its shortcut in parentheses where the button has
+  one – compass `(C)`, 2D `(2)` / 3D `(3)`, camera reset `(R)`, full screen
+  `(F)`.
 - **Weather popover:** upper right, the opposite corner from the camera controls
   – it dresses the map rather than commanding it. That corner belongs to the
   cards whenever one is up, and the button gives it up entirely rather than

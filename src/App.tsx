@@ -423,6 +423,14 @@ const GROUPED_CONTROL =
 const RAIL_BOX =
   'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md'
 
+/**
+ * A tooltip that also teaches the key: "Back to the city (R)". The key goes
+ * on the tooltip and not on the button's aria-label – the name of a button
+ * is what it does, and the keyboard tab of the About dialog is where a
+ * screen reader is told the shortcuts, all of them at once.
+ */
+const withKey = (label: string, key: string) => `${label} (${key})`
+
 /** What the compass button says it will do, by the quarter it aims at. */
 const CARDINAL_KEY: Record<number, MessageKey> = {
   0: 'camera.faceNorth',
@@ -2915,7 +2923,7 @@ export default function App() {
                     />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">{alignHeadingLabel}</TooltipContent>
+                <TooltipContent side="left">{withKey(alignHeadingLabel, 'C')}</TooltipContent>
               </Tooltip>
             )}
             {!linear && (
@@ -2931,8 +2939,10 @@ export default function App() {
                     {cameraIs2D ? '3D' : '2D'}
                   </Button>
                 </TooltipTrigger>
+                {/* The digit names the view to be in, not the flip: from
+                    2D the key that gets you out is 3 (see the key handler). */}
                 <TooltipContent side="left">
-                  {cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                  {cameraIs2D ? withKey(t('camera.to3d'), '3') : withKey(t('camera.to2d'), '2')}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -2949,7 +2959,7 @@ export default function App() {
                     <Home aria-hidden />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">{t('camera.reset')}</TooltipContent>
+                <TooltipContent side="left">{withKey(t('camera.reset'), 'R')}</TooltipContent>
               </Tooltip>
             )}
             {/* The photo mode – lens, exposure, grade and the miniature
@@ -2978,7 +2988,7 @@ export default function App() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  {fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                  {withKey(fullscreen ? t('view.exitFullscreen') : t('view.fullscreen'), 'F')}
                 </TooltipContent>
               </Tooltip>
             )}
