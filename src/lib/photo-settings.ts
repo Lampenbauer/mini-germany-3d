@@ -99,6 +99,14 @@ export interface PhotoSettings extends PhotoGrade {
    * length (see focalLengthMm).
    */
   fovDeg: number
+  /**
+   * The rule-of-thirds guides over the frame, the ones a phone camera
+   * offers. Alone among the settings here it changes nothing about the
+   * picture: it is drawn over the map by the interface (see App.tsx) and
+   * goes away with the interface, so what a screenshot catches is the
+   * city and never the guides.
+   */
+  grid: boolean
   tiltShift: TiltShiftSettings
 }
 
@@ -125,6 +133,7 @@ export const DEFAULT_TILT_SHIFT_SETTINGS: TiltShiftSettings = {
 
 export const DEFAULT_PHOTO_SETTINGS: PhotoSettings = {
   fovDeg: lensFovDeg(config.camera.miniatureDefault),
+  grid: false,
   exposureEv: 0,
   whiteBalanceK: NEUTRAL_WHITE_BALANCE_K,
   contrast: 1,
@@ -166,6 +175,7 @@ export function isDefaultPhotoSettings(settings: PhotoSettings): boolean {
   const dts = d.tiltShift
   return (
     settings.fovDeg === d.fovDeg &&
+    settings.grid === d.grid &&
     settings.exposureEv === d.exposureEv &&
     settings.whiteBalanceK === d.whiteBalanceK &&
     settings.contrast === d.contrast &&

@@ -2730,6 +2730,35 @@ export default function App() {
           whether it was collapsed, an open card stays open, and the time
           field keeps what was picked in it. */}
       <div className={cn('contents', interfaceHidden && 'hidden')} data-testid="ui-overlay">
+        {/* The framing guides from the photo popover – thirds, the way a
+            phone camera draws them. Inside this wrapper on purpose: they
+            are a guide for composing the shot, not part of it, so H takes
+            them away with everything else a moment before the shutter.
+            Hairlines with a dark halo, because they have to read over a
+            white roof and over water in the same frame. */}
+        {photo.grid && (
+          <div
+            aria-hidden
+            data-testid="photo-grid"
+            className="pointer-events-none absolute inset-0 z-[6]"
+          >
+            {[1, 2].map((third) => (
+              <div
+                key={`v${third}`}
+                className="absolute inset-y-0 w-px bg-white/50 shadow-[0_0_2px_oklch(0_0_0_/_0.55)]"
+                style={{ left: `${(third * 100) / 3}%` }}
+              />
+            ))}
+            {[1, 2].map((third) => (
+              <div
+                key={`h${third}`}
+                className="absolute inset-x-0 h-px bg-white/50 shadow-[0_0_2px_oklch(0_0_0_/_0.55)]"
+                style={{ top: `${(third * 100) / 3}%` }}
+              />
+            ))}
+          </div>
+        )}
+
         {/* What this map is and is not, with the keyboard at the end –
             opened with ? or the question mark under the map controls,
             dismissed with ?, Escape, the close button or a click outside.

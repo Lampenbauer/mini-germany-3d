@@ -34,6 +34,8 @@ const en = {
   // on it: the sky in the weather popover, the lens in the camera block.
   'scene.tiltShift': 'Miniature effect',
   'scene.showTiltShift': 'Show the miniature effect',
+  'scene.grid': 'Grid',
+  'scene.showGrid': 'Show the framing grid',
   // The photo popover: the camera the city is shot with
   'photo.title': 'Photo mode',
   'photo.reset': 'Reset to defaults',
@@ -306,6 +308,8 @@ const de: Record<MessageKey, string> = {
   'webcams.flyTo': 'Zu {name} fliegen',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
+  'scene.grid': 'Raster',
+  'scene.showGrid': 'Bildraster anzeigen',
   'photo.title': 'Fotomodus',
   'photo.reset': 'Auf Standardwerte zurücksetzen',
   'photo.resetKnob': 'Doppelklick setzt diesen Regler zurück',

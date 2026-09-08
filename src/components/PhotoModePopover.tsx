@@ -241,6 +241,18 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
             <div className="bg-border h-px" role="separator" />
 
             <div className="flex flex-col gap-2.5">
+              {/* The framing guides a phone camera offers – thirds, over
+                  the whole frame. The only switch here that changes
+                  nothing about the picture: it is drawn by the interface
+                  and leaves with it, so a screenshot never catches it. */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{t('scene.grid')}</span>
+                <Switch
+                  aria-label={t('scene.showGrid')}
+                  checked={settings.grid}
+                  onCheckedChange={(grid) => set('grid', grid)}
+                />
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">{t('scene.tiltShift')}</span>
                 {/* The switch brings the lens of its look along (see
