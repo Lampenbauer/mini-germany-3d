@@ -141,7 +141,7 @@ export function VehicleCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-md"
+      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
       data-testid="vehicle-card"
     >
       <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -244,7 +244,10 @@ export function VehicleCard({
                           {hasMarker && (
                             <span
                               data-testid="vehicle-position"
-                              className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background"
+                              // Ringed in the same white the line diagram rings
+                              // its vehicle dots with (LinearView.sync), so a
+                              // vehicle reads the same mark in both readings.
+                              className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[oklch(0.9842_0.0034_247.86)]"
                               style={{
                                 top: `calc(${markerFraction * 100}% + 0.625rem)`,
                                 backgroundColor: vehicle.color,
