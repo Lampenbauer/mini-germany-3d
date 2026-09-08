@@ -176,8 +176,9 @@ before the first request), then `gl.beginQuery(ext.TIME_ELAPSED_EXT)` /
 `defineProperty` — `applyShadowState` re-sets it every tick. City comes from the
 hash (`#city=berlin`). The dev build inflates React (jsxDEV).
 
-Baseline 2026-09-05 (M5 Pro, 1600×1000 CSS at DPR 2, MSAA 4, SSE 6 CSS px, real
-Google tiles):
+Baseline 2026-09-05 (M5 Pro, 1600×1000 CSS at DPR 2, SSE 6 CSS px, real Google
+tiles). MSAA was still 4 then, which is what the "MSAA 4" column costs — the app
+runs 2× since, so a frame today is cheaper than the totals below:
 
 | view | GPU/frame | CPU in `viewer.render()` | of which shadows | MSAA 4 | sky atmosphere |
 |---|---|---|---|---|---|
@@ -222,8 +223,15 @@ Consequences to keep in mind:
 - `SHADOW_MAP_SIZE` is **8192** (a 16384² texture, ~1 GB — Cesium packs the 4
   cascades 2×2). The user deliberately raised this back from 4096 for the shadow
   edge. **Do not propose lowering it again**; the 256 MB / ~2.5 ms it saves are
-  known and were weighed. MSAA 4× (≈60 % of GPU frame time) was left untouched —
-  that decision is still open.
+  known and were weighed.
+- **MSAA is 2×** since 2026-09-08 (`msaaSamples` in the `Viewer` options), down
+  from Cesium's default of 4. It was the most expensive item in a frame — 11.7 of
+  the home view's 19 GPU ms — and the sampling rate is spent almost entirely on
+  this map's own strokes: 4× against 1× differs in 17 % of the pixels, 4× against
+  2× in only 14 %, nearly all of it route-polyline edges. There is no `?msaa=`
+  URL knob; `__cesiumViewer.scene.msaaSamples = n` plus `__cesiumViewer.render()`
+  changes it live (values 1, 2, 4, 8; the setter silently clamps to the driver's
+  `gl.MAX_SAMPLES` and the multisample path is gated on `> 1`).
 
 ### Tile LOD: check the memory ratchet first
 
