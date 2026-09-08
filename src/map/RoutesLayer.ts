@@ -99,13 +99,6 @@ const ROUTE_LIFT_STEP = 0.15
 const ROUTE_LIFT_SLOTS = 8
 
 /**
- * Additional lift for ferry route lines in meters: their NHN height is 0,
- * but the Google mesh's water surface undulates up to ~1 m around the
- * geoid, which the land-calibrated height offset cannot capture.
- */
-export const FERRY_ROUTE_EXTRA_LIFT = 1.25
-
-/**
  * Attention pulse on a line's route after "zoom to line": the opacity
  * swings smoothly from full to zero and back (cosine), several dips over
  * the total duration. Smooth instead of hard on/off blinking – the route
@@ -301,15 +294,18 @@ export class RoutesLayer {
     network.lines.forEach((line, index) => {
       const color = Color.fromCssColorString(line.color)
       const entities: Entity[] = []
-      // Ferry lines get extra clearance: their heights are 0 m NHN, but
-      // the water surface in the Google mesh undulates (waves, wakes,
-      // reconstruction noise) up to ~1 m around the geoid, and the
-      // land-calibrated offset does not account for it – without the
-      // extra lift the lines visibly dip into the water tiles.
-      const modeLift = line.mode === 'ferry' ? FERRY_ROUTE_EXTRA_LIFT : 0
       // The base lift is added when the positions are written, so it can
       // follow the camera height (see updateForCameraHeight).
-      const lift = (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP + modeLift
+      const lift = (index % ROUTE_LIFT_SLOTS) * ROUTE_LIFT_STEP
+      // A ferry line is draped over the tiles: its profile is the water
+      // level, and the water in Google's mesh lies wherever the survey
+      // found it – a lock reach, a tide, a metre of wake and noise –
+      // which no height and no lift of ours can follow. Until 2026-09-08
+      // the lines rode NHN 0 plus the offset plus 1.25 m and still dipped
+      // into the water or floated over it. Clamping is the per-frame
+      // classification the other routes avoid, affordable for a handful
+      // of short lines; the ships float the same way (VesselLayer).
+      const draped = line.mode === 'ferry' && !this.host.offline
 
       const dirs = [line.directions[0]]
       // Only draw the second direction if it has its own geometry or its
@@ -324,7 +320,7 @@ export class RoutesLayer {
         // too, at 0 m plus lift, rather than clamped ones: clamping
         // classifies against the depth buffer on every rendered frame,
         // which made the grid globe cost twice the GPU of the photo tiles.
-        const heights = this.host.offline ? dir.path.map(() => 0) : dir.heights
+        const heights = this.host.offline ? dir.path.map(() => 0) : draped ? undefined : dir.heights
         const pieces = splitPathByTunnels(dir.path, dir.cum, dir.tunnels, heights)
         pieces.forEach((piece, pieceIndex) => {
           const inTunnel = piece.tunnel

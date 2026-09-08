@@ -46,7 +46,7 @@ import type { PhotoSettings } from '@/lib/photo-settings'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
-import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
+import { ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { BridgeDecks } from './bridge-decks'
 import {
   CLOUD_BASE_M,
@@ -60,7 +60,7 @@ import { TiltShiftEffect } from './TiltShiftEffect'
 import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { StopsLayer } from './StopsLayer'
-import { VesselLayer } from './VesselLayer'
+import { VesselLayer, WATER_SURFACE_FALLBACK_LIFT } from './VesselLayer'
 import { WebcamsLayer } from './WebcamsLayer'
 import type { AisVessel } from '@/lib/ais-extract'
 import type { Webcam } from '@/lib/webcams-extract'
@@ -958,10 +958,10 @@ export class CesiumMap {
       requestRender: () => this.requestRender(),
       obstacles: () => map.webcamsLayer.screenRects,
       windowPosition: (position) => this.windowPosition(position),
-      // Water level like the ferry routes: NHN 0 plus the calibrated
-      // offset plus the same lift that clears the tiles' wavy water mesh.
+      // Fallback water level: NHN 0 plus the calibrated offset plus a
+      // lift that clears the tiles' wavy water mesh (see VesselLayer).
       get waterSurfaceHeight() {
-        return map.routes.heightOffset + FERRY_ROUTE_EXTRA_LIFT
+        return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
       },
       // The ships float on the tiles' own water (see VesselLayer)
       surfaceGeneration: () => this.surfaceGeneration,

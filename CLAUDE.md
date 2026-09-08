@@ -508,7 +508,13 @@ LOD is loaded (coarse and fine differ by metres, a ship at a quay can land
 on a baked-in crane or on Google's own photographed hull), which is why the
 generation bump re-reads it after every load cycle. The ships' own
 primitives are on the pick's exclusion list, or a hull would be set on its
-own deck. `tileset.getHeight` (CPU, 0.3 ms) was rejected: it answered for
+own deck. The **ferry route lines** drape over the tiles the same way
+since 2026-09-08: `clampToGround` polylines, the per-frame classification
+every other route avoids, because NHN 0 plus offset plus a 1.25 m lift
+(`FERRY_ROUTE_EXTRA_LIFT`, gone) still dipped into the water or floated
+over it. A clamped line does not pulse on "zoom to line" (Cesium's
+per-material batch does not re-evaluate colours per frame). Offline the
+ferry lines lie on the ellipsoid like every other route. `tileset.getHeight` (CPU, 0.3 ms) was rejected: it answered for
 only half the fleet. `sampleHeightMostDetailed` was rejected harder: it
 loads the finest tiles under every ship (10 000 tiles and 100 MB for one
 fleet) and feeds the tile-tree leak.

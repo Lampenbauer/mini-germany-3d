@@ -377,6 +377,14 @@ interface VesselRecord {
 const CLAMP_BUDGET_PER_TICK = 3
 const CLAMP_MOVE_M = 25
 
+/**
+ * Meters the fallback water surface (host.waterSurfaceHeight, NHN 0 plus
+ * the calibrated offset) rides above the geoid: the water in Google's
+ * mesh undulates up to ~1 m around it, and a hull on the fallback would
+ * otherwise sit in it. Only ships without a clamp answer ride it.
+ */
+export const WATER_SURFACE_FALLBACK_LIFT = 1.25
+
 const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll(0, 0, 0)
 const scaleScratch = new Cartesian3()
