@@ -401,7 +401,15 @@ export function ControlPanel(props: ControlPanelProps) {
                   <CaretDownIcon className="size-4 shrink-0 opacity-60" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 p-1.5 ring-1 ring-border/80 shadow-xl/60">
+              <PopoverContent
+                align="start"
+                // Close under the trigger: these two lists open inside the
+                // panel, not out over the map like the weather and photo
+                // popovers, and the shared 8 px gap read as a list that had
+                // come loose from the control it belongs to.
+                sideOffset={2}
+                className="w-56 p-1.5 ring-1 ring-border/80 shadow-xl/60"
+              >
                 <ul role="listbox" aria-label={t('city.pick')} className="flex flex-col gap-0.5">
                   {cityChoices.map(({ city, name }) => {
                     const current = city.slug === props.city.slug
