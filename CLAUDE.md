@@ -90,6 +90,21 @@ with the `Co-Authored-By` trailer. See `git log` for the register.
 
 ## Interface and styling
 
+**Styling lives in the markup.** Tailwind classes on the element, never a
+per-component stylesheet. The About and Credits dialogs each had one and both
+were folded back into their components on 2026-09-08; nothing should grow a
+`*.css` file next to a `*.tsx` again. What is left in
+[src/index.css](src/index.css) is the theme tokens, the preflight corrections,
+and the handful of rules that reach markup this app does not own — Cesium's
+credit bar, the panels-opaque switch for the offline tests. A repeated class
+string belongs in a `const` in the same file, not in a stylesheet.
+
+**Tailwind v4 reads the source as text.** A class name assembled at runtime
+(`` `${VARIANT}px-8` ``) is a class no rule is ever generated for, and it fails
+silently — the element simply has no padding. Write every candidate out in
+full, including the long stacked variants
+(`sm:[@media(max-height:560px)]:py-5`).
+
 **Colours are `oklch()`, not hex.** That is what the theme tokens in
 `index.css` already speak, and it holds for Tailwind arbitrary values, canvas
 `fillStyle`/`shadowColor` and SVG paint attributes alike. The one exception is
@@ -97,6 +112,14 @@ forced: Cesium's `Color.fromCssColorString` parses hex, `rgb()` and `hsl()` and
 nothing else, so every colour that reaches it — hull colours, the ship name
 plate, the globe base — stays hex. A silent failure either way, so keep the two
 apart deliberately.
+
+**The green is one value.** `--brand` in `index.css` is the deep green of the
+About dialog's hero and of the control panel's head, which runs out into the
+card's own colour where the card's content begins – except folded away, where
+the panel is head and clock and nothing else and so is green all through,
+border included. Change the green in one place. The
+lighter greens beside it (`oklch(0.8254 0.1241 174.21)`, `oklch(0.6283 0.0988
+174.84)`) are local to the dialog that uses them.
 
 
 ---

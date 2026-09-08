@@ -27,6 +27,14 @@
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.705 0.015 286.067);
+  /*
+   * The map's own green, outside the zinc scale: the deep ground of the
+   * About dialog's hero and, since the control panel wears the same head,
+   * the top of that panel too. One value, so the two heads cannot drift
+   * apart – the lighter greens beside it stay local to the dialog that
+   * uses them.
+   */
+  --brand: oklch(0.3229 0.0448 183.84);
 }
 
 .dark {
@@ -70,6 +78,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

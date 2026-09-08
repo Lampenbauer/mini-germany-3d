@@ -7,7 +7,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { t } from '@/lib/i18n'
-import './credits-dialog.css'
 
 /**
  * Where everything on screen comes from – Cesium's credits, in this
@@ -16,6 +15,10 @@ import './credits-dialog.css'
  * onCreditsRequested); the Google and Cesium terms want these names
  * reachable wherever their data is drawn, which is why the link itself
  * stays where it is.
+ *
+ * A small sibling of the About dialog: the same eyebrow, the same tight
+ * title, the same links – but no hero, being a footnote rather than a
+ * story.
  *
  * The list is Cesium's own element, borrowed while the dialog is up: it
  * is rewritten on every frame as tiles load and layers come and go, and
@@ -31,7 +34,19 @@ function BorrowedCredits(props: { borrow: (host: HTMLElement | null) => void }) 
     // updated into nothing.
     return () => borrow(null)
   }, [borrow])
-  return <div ref={host} className="credits-list" />
+  return (
+    /*
+     * Cesium's rules only reach its list inside .cesium-credit-lightbox, so
+     * here it arrives unstyled: a bare <ul> of <li>s, each holding whatever
+     * markup the source gave – plain text, a link, or a logo bitmap. Those
+     * are not ours to put classes on, hence the descendant selectors. The
+     * logos ship as bitmaps at their natural size, as in the credit line.
+     */
+    <div
+      ref={host}
+      className="border-t border-border pt-4 text-[12px] leading-[1.7] text-muted-foreground [&_a:hover]:underline [&_a]:font-[550] [&_a]:text-foreground [&_a]:no-underline [&_a]:underline-offset-4 [&_img]:[zoom:0.7] [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-[10px]"
+    />
+  )
 }
 
 export function CreditsDialog(props: {
@@ -41,16 +56,26 @@ export function CreditsDialog(props: {
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent closeLabel={t('credits.close')} className="credits-dialog sm:max-w-md">
+      <DialogContent
+        closeLabel={t('credits.close')}
+        className="max-h-[calc(100dvh-2rem)] rounded-[20px] shadow-[0_24px_100px_oklch(0_0_0_/_0.33)] sm:max-w-md"
+      >
         <DialogHeader>
           {/* The same eyebrow the About dialog wears, so the two read as
               siblings – this one without its hero, being a footnote. */}
-          <p className="credits-eyebrow" aria-hidden>
-            <span />
+          <p
+            className="mb-[14px] flex items-center gap-2 text-[10px] font-semibold text-muted-foreground"
+            aria-hidden
+          >
+            <span className="size-1.5 rounded-full bg-[oklch(0.8254_0.1241_174.21)]" />
             {t('credits.eyebrow')}
           </p>
-          <DialogTitle className="credits-title">{t('credits.title')}</DialogTitle>
-          <DialogDescription className="credits-lead">{t('credits.lead')}</DialogDescription>
+          <DialogTitle className="text-[22px] leading-[1.15] font-[650] tracking-[-0.035em]">
+            {t('credits.title')}
+          </DialogTitle>
+          <DialogDescription className="mt-[6px] text-[13px] leading-[1.65] text-pretty">
+            {t('credits.lead')}
+          </DialogDescription>
         </DialogHeader>
         <BorrowedCredits borrow={props.borrow} />
       </DialogContent>
