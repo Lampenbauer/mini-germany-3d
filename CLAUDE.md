@@ -508,7 +508,12 @@ LOD is loaded (coarse and fine differ by metres, a ship at a quay can land
 on a baked-in crane or on Google's own photographed hull), which is why the
 generation bump re-reads it after every load cycle. The ships' own
 primitives are on the pick's exclusion list, or a hull would be set on its
-own deck. The **ferry route lines** drape over the tiles the same way
+own deck. The **scheduled ferries** (VehicleLayer, mode `ferry`) float the same
+way since 2026-09-08: the same `clampToSurface`, 3 picks a tick, again
+after 25 m or a `surfaceGeneration` bump, the route profile until the
+first answer, with hull, badge and the line's own polylines on the
+exclusion list; `FERRY_FLOAT_LIFT` stays on top for the mesh's crests.
+The **ferry route lines** drape over the tiles the same way
 since 2026-09-08: `clampToGround` polylines, the per-frame classification
 every other route avoids, because NHN 0 plus offset plus a 1.25 m lift
 (`FERRY_ROUTE_EXTRA_LIFT`, gone) still dipped into the water or floated

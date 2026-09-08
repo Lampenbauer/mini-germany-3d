@@ -927,6 +927,10 @@ export class CesiumMap {
       },
       bridgeDeckHeight: (lineId, direction, distance) =>
         this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
+      // The ferries float on the tiles' own water like the AIS fleet
+      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      surfaceGeneration: () => this.surfaceGeneration,
+      routeExclusions: (lineId) => this.routes.entitiesOf(lineId),
       get nightFactor() {
         return map.nightFactor
       },
@@ -965,17 +969,7 @@ export class CesiumMap {
       },
       // The ships float on the tiles' own water (see VesselLayer)
       surfaceGeneration: () => this.surfaceGeneration,
-      clampToSurface: (lon, lat, exclude) => {
-        const scene = this.viewer.scene
-        if (!this.googleTileset || !scene.clampToHeightSupported) return undefined
-        const clamped = scene.clampToHeight(
-          Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch),
-          exclude,
-        )
-        if (!clamped) return undefined
-        const height = Cartographic.fromCartesian(clamped).height
-        return plausibleGroundHeight(height) ? height : undefined
-      },
+      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
       get pixelRatio() {
         return map.effectivePixelRatio
       },
@@ -2487,6 +2481,24 @@ export class CesiumMap {
       scene.drawingBufferWidth,
       scene.drawingBufferHeight,
     )
+  }
+
+  /**
+   * Ellipsoid height of the loaded scene geometry under a position – an
+   * offscreen pick (scene.clampToHeight) that lands on whatever is drawn
+   * there, minus `exclude`. undefined without tiles or where nothing is
+   * loaded yet. The ships and the ferries float on it (see VesselLayer).
+   */
+  private clampToSurface(lon: number, lat: number, exclude: object[]): number | undefined {
+    const scene = this.viewer.scene
+    if (!this.googleTileset || !scene.clampToHeightSupported) return undefined
+    const clamped = scene.clampToHeight(
+      Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch),
+      exclude,
+    )
+    if (!clamped) return undefined
+    const height = Cartographic.fromCartesian(clamped).height
+    return plausibleGroundHeight(height) ? height : undefined
   }
 
   private sampleGroundHeight(lon: number, lat: number): number | undefined {

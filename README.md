@@ -808,8 +808,9 @@ interpolated for each active trip and translated into a position + travel direct
 (heading of the 3D model). Vehicles and stops do not use Cesium's `HeightReference`
 clamping (unreliable on 3D tiles); their height is set explicitly. Vehicles ride the
 route's terrain profile (see [Data](#data--gtfs--gtfs-realtime--osm)) and, on a
-bridge, the deck measured on the tiles; stops – and vehicles of a dataset without
-heights – take tile heights measured by ray casts. Since those heights depend on
+bridge, the deck measured on the tiles; the ferries float on the tiles' own water,
+clamped like the AIS fleet (see [AIS](#ais-live-harbour-traffic)); stops – and
+vehicles of a dataset without heights – take tile heights measured by ray casts. Since those heights depend on
 the tile LOD currently loaded, they are re-measured as the camera approaches –
 otherwise a stop measured from the overview would keep floating several meters
 above the roofs up close.

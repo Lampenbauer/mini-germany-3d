@@ -93,6 +93,19 @@ export interface VehicleLayerHost {
    * the profile.
    */
   bridgeDeckHeight?(lineId: string, direction: 0 | 1, distance: number): number | undefined
+  /**
+   * Ellipsoid height of the loaded scene geometry under a position – the
+   * tiles' own water under a ferry (scene.clampToHeight, an offscreen pick
+   * per call, ~1.4 ms; see VesselLayerHost). `exclude` holds the ferry's
+   * own primitives, her badge and her route's polylines, so she is not
+   * set on her own deck or on the line she sails. Optional: without it
+   * the ferries ride the route profile's water level.
+   */
+  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  /** Bumped whenever the loaded tiles changed – a clamped height is read again. */
+  surfaceGeneration?(): number
+  /** A line's route polylines (entities), kept out of the ferries' clamp. */
+  routeExclusions?(lineId: string): readonly object[]
   /** 0..1 day→night ramp – the cabin glow fades in along it. */
   readonly nightFactor: number
   readonly pixelRatio: number
@@ -182,6 +195,15 @@ interface VehicleRecord {
   groundHeight: number
   /** Frame counter of the last height query (sampling is staggered). */
   lastSampleFrame: number
+  /**
+   * Ferries only: the water height clamped to the tiles, null until a
+   * pick answered; where and at which surface generation it was read
+   * (see FERRY_CLAMP_MOVE_M).
+   */
+  clampedHeight: number | null
+  clampLon: number
+  clampLat: number
+  clampedGeneration: number
   /** Position of the last tick – detects movement for render requests. */
   lastPosition: Cartesian3
   /**
@@ -512,16 +534,30 @@ export const VEHICLE_CONSISTS: Record<string, VehicleModelSpec> = {
 }
 
 /**
- * Extra meters between the sampled water surface and the ferries' model
- * waterline, already folded into the ferry consists' baseLift above. The
- * Google mesh's water undulates (waves, wakes, reconstruction noise)
- * around the height sampled under the vessel, and a hull riding exactly
- * on the sample sits visibly sunk wherever the mesh crests – the same
- * reason the ferry ROUTES get their own extra lift in RoutesLayer.
+ * Extra meters between the water surface clamped under a ferry and her
+ * model's waterline, already folded into the ferry consists' baseLift
+ * above. The Google mesh's water undulates (waves, wakes, reconstruction
+ * noise) around the height read under the vessel, and a hull riding
+ * exactly on the reading sits visibly sunk wherever the mesh crests.
  * Riding high reads as a shallow-draft vessel; riding low reads as
  * sinking, so the lift errs upward.
  */
 export const FERRY_FLOAT_LIFT = 1.1
+
+/*
+ * The scheduled ferries float on the tiles' own water like the AIS fleet
+ * (VesselLayer): inland the water is a staircase of lock reaches and
+ * Google's mesh is the only thing that says where each step lies, and
+ * even at sea the profile's level and the mesh's differ by a metre. A
+ * clamp is an offscreen pick (~1.4 ms), so it is made only when its
+ * answer could have changed – the ferry moved FERRY_CLAMP_MOVE_M since
+ * the last one, or the tiles under her did (host.surfaceGeneration) –
+ * only for ferries on screen, and at most FERRY_CLAMP_BUDGET_PER_TICK a
+ * tick; the rest ride the route profile until their turn. A moored
+ * fleet under a resting camera costs nothing.
+ */
+const FERRY_CLAMP_BUDGET_PER_TICK = 3
+const FERRY_CLAMP_MOVE_M = 25
 
 /** Model consist for a vehicle; undefined keeps the colored box. */
 function modelSpecFor(snap: VehicleSnapshot): VehicleModelSpec | undefined {
@@ -727,6 +763,19 @@ export class VehicleLayer {
     return this.vehicles.get(id)?.lastPosition ?? null
   }
 
+  /**
+   * What a ferry's clamp must not land on: her own body and wagons, her
+   * badge, and the polylines of the line she sails (draped over the same
+   * water, see RoutesLayer). Built per pick – three a tick at most.
+   */
+  private clampExclusions(record: VehicleRecord, snap: VehicleSnapshot): object[] {
+    const list: object[] = []
+    for (let i = 0; i < record.group.length; i++) list.push(record.group.get(i))
+    list.push(record.labelEntity)
+    for (const entity of this.host.routeExclusions?.(snap.lineId) ?? []) list.push(entity)
+    return list
+  }
+
   /** Debug: current ground heights of the vehicles (see __mrt.groundHeights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.vehicles.entries()].map(([id, record]) => ({
@@ -794,6 +843,8 @@ export class VehicleLayer {
       camera.upWC,
     )
     let anyVehicleInView = false
+    let clampBudget = FERRY_CLAMP_BUDGET_PER_TICK
+    const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
      * anyVehicleInView, which reaches out to the render range. The map's
@@ -899,11 +950,44 @@ export class VehicleLayer {
         if (inView) anyVehicleInView = true
       }
 
+      const followed = snap.id === this.followId
+
+      // A ferry floats on the tiles' water (see FERRY_CLAMP_BUDGET_PER_TICK)
+      if (snap.mode === 'ferry' && this.host.clampToSurface) {
+        if (clampBudget > 0 && (inView || followed)) {
+          const movedM = Math.hypot(
+            (snap.lon - record.clampLon) * 111_320 * Math.cos((snap.lat * Math.PI) / 180),
+            (snap.lat - record.clampLat) * 111_132,
+          )
+          const stale =
+            record.clampedHeight === null ||
+            movedM > FERRY_CLAMP_MOVE_M ||
+            record.clampedGeneration !== surfaceGeneration
+          if (stale) {
+            clampBudget--
+            const h = this.host.clampToSurface(snap.lon, snap.lat, this.clampExclusions(record, snap))
+            record.clampLon = snap.lon
+            record.clampLat = snap.lat
+            record.clampedGeneration = surfaceGeneration
+            if (h !== undefined) record.clampedHeight = h
+          }
+        }
+        if (record.clampedHeight !== null && record.groundHeight !== record.clampedHeight) {
+          record.groundHeight = record.clampedHeight
+          position = Cartesian3.fromDegrees(
+            snap.lon,
+            snap.lat,
+            record.groundHeight + record.halfHeight + 0.3,
+            undefined,
+            positionScratch,
+          )
+        }
+      }
+
       // Fallback for vehicles WITHOUT route heights (approximated dataset):
       // sample the tile height in a staggered fashion (not every tram in
       // every frame) and only where visible – tileset.getHeight does a ray
       // intersection against the loaded tiles and would dominate the tick.
-      const followed = snap.id === this.followId
       if (
         routeGroundHeight === undefined &&
         this.host.fixedGroundHeight === undefined &&
@@ -1344,6 +1428,10 @@ export class VehicleLayer {
       bearing: snap.bearing,
       groundHeight: this.host.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
+      clampedHeight: null,
+      clampLon: snap.lon,
+      clampLat: snap.lat,
+      clampedGeneration: -1,
       lastPosition: Cartesian3.clone(initialPosition),
       renderedPosition: Cartesian3.clone(initialPosition),
       renderedStamp: this.renderStamp,
