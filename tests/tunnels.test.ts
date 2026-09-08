@@ -94,7 +94,7 @@ describe('splitPathByTunnels', () => {
   const total = cum[cum.length - 1]
 
   it('returns the whole path as one above-ground piece without tunnels', () => {
-    expect(splitPathByTunnels(path, cum, [])).toEqual([{ path, tunnel: false }])
+    expect(splitPathByTunnels(path, cum, [])).toEqual([{ path, cum, tunnel: false }])
   })
 
   it('splits into above-ground/tunnel/above-ground pieces with shared boundaries', () => {
@@ -109,6 +109,11 @@ describe('splitPathByTunnels', () => {
 
     // The middle path vertex survives in the last piece
     expect(pieces[2].path).toContainEqual(path[1])
+
+    // Every piece vertex knows its distance along the whole direction
+    expect(pieces[0].cum).toEqual([0, 400])
+    expect(pieces[1].cum).toEqual([400, 700])
+    expect(pieces[2].cum).toEqual([700, cum[1], total])
 
     // Piece lengths match the requested ranges
     const len = (p: LonLat[]) => cumulativeDistances(p).at(-1)!

@@ -47,6 +47,7 @@ import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import { FERRY_ROUTE_EXTRA_LIFT, ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
+import { BridgeDecks } from './bridge-decks'
 import {
   CLOUD_BASE_M,
   CLOUD_SHADOW_FUNCTION_GLSL,
@@ -672,6 +673,8 @@ export class CesiumMap {
   private readonly webcamsLayer: WebcamsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
+  /** Bridge decks measured on the tiles for routes and vehicles (see bridge-decks.ts). */
+  private readonly bridgeDecks: BridgeDecks
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
   private readonly streetLamps: StreetLampsLayer
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
@@ -888,8 +891,19 @@ export class CesiumMap {
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
+      deckHeight: (lineId, direction, distance) =>
+        this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
+      bridgeStations: (lineId, direction, from, to) =>
+        this.bridgeDecks.stationsBetween(lineId, direction, from, to),
     })
     this.routes.resetHeightOffset(opts.city.terrain.geoidOffsetFallback)
+    this.bridgeDecks = new BridgeDecks(this.viewer, {
+      requestRender: () => this.requestRender(),
+      sampleSurfaceHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      surfaceGeneration: () => this.surfaceGeneration,
+      deckChanged: (lineId, direction) => this.routes.refreshDirection(lineId, direction),
+      routeHeightOffset: () => this.routes.heightOffset,
+    })
     this.streetLamps = new StreetLampsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get nightFactor() {
@@ -911,6 +925,8 @@ export class CesiumMap {
       get routeHeightOffset() {
         return map.routes.heightOffset
       },
+      bridgeDeckHeight: (lineId, direction, distance) =>
+        this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
       get nightFactor() {
         return map.nightFactor
       },
@@ -1558,6 +1574,7 @@ export class CesiumMap {
     this.webcamsLayer.clear()
     this.stops.clear()
     this.routes.clear()
+    this.bridgeDecks.clear()
     this.streetLamps.clear()
     this.nearestVehicleMeters = Number.POSITIVE_INFINITY
     this.applyShadowState()
@@ -1961,6 +1978,7 @@ export class CesiumMap {
     maxTickMotionPx: number
   } {
     this.stops.update()
+    this.bridgeDecks.update()
     const info = this.vehicleLayer.sync(snapshots, visibleLines)
     this.nearestVehicleMeters = info.nearestBodyMeters
     this.applyShadowState()
@@ -2220,9 +2238,26 @@ export class CesiumMap {
 
 
 
-  /** Routes layer (see RoutesLayer) – the map only forwards. */
+  /**
+   * Routes layer (see RoutesLayer) – the map only forwards. The bridge
+   * decks come with the routes: on the photo tiles they are measured
+   * there, offline and in the deterministic tests there are no tiles.
+   */
   addRoutes(network: PreparedNetwork): void {
     this.routes.add(network)
+    if (!this.opts.offline && this.opts.fixedGroundHeight === undefined) {
+      this.bridgeDecks.add(network)
+    }
+  }
+
+  /** Debug/test: progress of the bridge deck measurement (see __mrt.bridgeDecks). */
+  getBridgeDeckInfo(): BridgeDecks['info'] {
+    return this.bridgeDecks.info
+  }
+
+  /** Debug: one line's measured bridge vertices (see __mrt.bridgeDecks). */
+  getBridgeDeckDetails(lineId: string): ReturnType<BridgeDecks['details']> {
+    return this.bridgeDecks.details(lineId)
   }
 
   setRoutesVisible(visible: boolean): void {

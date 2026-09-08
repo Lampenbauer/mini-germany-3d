@@ -86,6 +86,13 @@ export interface VehicleLayerHost {
   readonly defaultGroundHeight: number
   /** NHN→ellipsoid offset the route profile heights are drawn at. */
   readonly routeHeightOffset: number
+  /**
+   * Ellipsoidal height of a bridge deck measured on the tiles under a
+   * point of a direction (see map/bridge-decks.ts), undefined where the
+   * profile height applies. Optional: without it every vehicle rides
+   * the profile.
+   */
+  bridgeDeckHeight?(lineId: string, direction: 0 | 1, distance: number): number | undefined
   /** 0..1 day→night ramp – the cabin glow fades in along it. */
   readonly nightFactor: number
   readonly pixelRatio: number
@@ -857,12 +864,15 @@ export class VehicleLayer {
 
       // Vehicle height: terrain profile of the route (NHN + calibrated
       // offset) whenever the direction carries DGM heights – deterministic,
-      // congruent with the route polylines, and free of ray casts. In
-      // offline mode the ground is the bare ellipsoid, where NHN heights
-      // would float mid-air, so the fallback below applies there too.
+      // congruent with the route polylines, and free of ray casts – except
+      // on a bridge, where the deck measured on the tiles stands in for
+      // the profile (the routes take the same one). In offline mode the
+      // ground is the bare ellipsoid, where NHN heights would float
+      // mid-air, so the fallback below applies there too.
       const routeGroundHeight =
         this.host.fixedGroundHeight === undefined && !this.host.offline && snap.nhn !== undefined
-          ? snap.nhn + this.host.routeHeightOffset
+          ? (this.host.bridgeDeckHeight?.(snap.lineId, snap.direction, snap.distance) ??
+            snap.nhn + this.host.routeHeightOffset)
           : undefined
       if (routeGroundHeight !== undefined) {
         record.groundHeight = routeGroundHeight

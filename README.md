@@ -32,7 +32,7 @@ pipeline (see [Cities](#cities)).
 | Several cities, one map | Every city is a definition (`src/cities/<slug>/city.json`) plus generated data next to it. The caret beside the panel title switches; the old city's routes, stops, lamps and vehicles are taken down, the camera flies to the next city's home view with the leash lifted, and the new city's data comes in as a lazy chunk of its own. `#city=<slug>` in the URL names the city a link opens on |
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Kiel's Förde ferries sail as the same double-enders, sized per line; Berlin's U-Bahn (BR H) and S-Bahn (BR 481) run as six-section third-rail consists – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
-| Routes/lines on the map | Polylines at absolute terrain heights in line colors (clamped onto the tiles only for a dataset without heights); zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
+| Routes/lines on the map | Polylines at absolute terrain heights in line colors (clamped onto the tiles only for a dataset without heights); on a bridge the deck is measured on the tiles instead – a bare-earth terrain model knows no viaduct, and Berlin's Stadtbahn ran through its own arches until it was (see [Data](#data--gtfs--gtfs-realtime--osm)); zooming to a line pulses its route while all other lines briefly step aside; tunnel sections at reduced opacity |
 | Lines pulled straight | A switch turns the map into a diagram: every line becomes a row of its own, its stops sitting along it at the distance they really are, and the city fades out underneath. The camera climbs straight above the middle of the drawn network first and only then do the lines straighten – a plan is the reading closest to the diagram, and it puts every line on screen for the transition. It frames what is switched on, not the city: with two lines showing, the plan is of those two. Leaving runs backwards: the lines fold onto the map and only then does the camera fly, home by default or to whatever the press was aiming at – flying to a stop, following a vehicle or zooming to a line all bring the map back and then go there. It is a morph, not a cut – each line leaves the screen position the map has it at and is drawn straight from there, because the map and the diagram read the same number, the distance along the route. Only one of the two ever draws the network: the map lets go of its routes, stops, vehicles and names the frame the morph starts and takes them back the frame it ends, and since the two lie exactly on top of each other at rest, neither handover has anything to show. The vehicles travel over with it and keep running on the rows. One shared scale for every row, so a 50 km line stays five times the length of a 10 km one; the panel's line filter is the diagram's filter too. The three readings – surface, underground, line diagram – are tabs at the foot of the map, exactly one lit, each reachable from each. `#…&view=linear` and `#…&view=underground` open straight into a reading; the surface needs no word |
 | Stops layer | One disc + name per stop position – bare light slate text with a thin dark halo, no plate, so the names settle into the photograph instead of competing with the vehicle badges – the serving lines in parentheses ("Kröpeliner Tor (1, 4, 5, 6)"), screen-space label decluttering (nearest wins – the ship names run through the same pass), stops disappear with their lines |
 | Miniature look (tilt-shift) | A screen-space band of focus with the frame blurred above and below it – the blur disc grows with the distance from the band like a real circle of confusion, highlights spread into bright bokeh instead of averaging away, the band itself is crisped – plus a toy-plastic grade and a vignette: the shallow depth of field a tilted lens gives a model. Three post-process passes (the blur runs on a quarter-size frame), ramped down by the camera pose and off at street level or looking straight down. Off when the app opens (`config.camera.miniatureDefault`); the switch in the photo popover (the aperture button in the camera block) and `tiltshift=1` turn it on, and the popover's knobs set its blur radius, sharp band, feather, focus line, bokeh weighting and sharpening – it is a lens on the map rather than a command to it, which is why it sits with the camera |
@@ -565,7 +565,26 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   compared square by square with Mapterhorn, every tile touching a
   missing square rebuilt) and they are committed like any other city
   data. Bridge sections get a
-  straight deck interpolated between their end points. With these heights the app draws the route polylines at
+  straight deck interpolated between their end points – right for a river
+  bridge whose ends stand on the banks, wrong for a viaduct whose ends
+  meet the ground: the terrain model is bare earth and knows no
+  structure, so Berlin's six-kilometre Stadtbahn came out at street
+  level. Inside a bridge range the app therefore measures the deck on the
+  Google tiles at run time (`src/map/bridge-decks.ts`): a CPU ray per
+  route vertex – and per station every 30 m where a straight bridge way
+  has no vertex – against the loaded tiles, only for points on screen, a
+  few per pass, nearest to the camera first, read again after every load
+  cycle and kept for the rest of the visit; vehicles and route polylines
+  take the measured deck, the polylines through the stations too, and
+  blend into the profile at the portals. A ray answers with whatever is
+  on top – or, where the mesh lost a thin bridge, with the water
+  underneath – so a sample counts fully only where it stands clear above
+  the profile (a little above it, a low bridge's deck sets its own point
+  and nothing else), and a station hall's roof among those, samples no
+  deck could climb to from their neighbours at the mode's gradient, is
+  pruned and interpolated across, while the hump of a real bridge
+  stays. With
+  these heights the app draws the route polylines at
   absolute heights instead of clamping them onto the 3D tiles per frame –
   that classification pass costs measurable GPU time on every rendered
   frame. The NHN→ellipsoid offset is calibrated at runtime against sampled
@@ -752,6 +771,8 @@ src/
 │                           # morph between the two readings
 ├── map/*Layer.ts           # Routes, stops, street lamps, vehicles, AIS vessels –
 │                           # each with clear() for the move to the next city
+├── map/bridge-decks.ts     # Bridge decks read off the tiles per route vertex, for
+│                           # the routes and the vehicles on them
 ├── components/             # shadcn-style UI (ControlPanel with the city picker, the
 │                           # layers/photo/weather popovers of the map's control
 │                           # rail, cards, ui/*)
@@ -785,10 +806,13 @@ speeds (tram ~30, subway ~36, S-Bahn ~40, bus ~25 km/h, ferries ~6 kn) plus 25 s
 dwell time. Every frame, the distance along the route is
 interpolated for each active trip and translated into a position + travel direction
 (heading of the 3D model). Vehicles and stops do not use Cesium's `HeightReference`
-clamping (unreliable on 3D tiles); their height is set explicitly from tile heights
-measured by ray casts. Since those heights depend on the tile LOD currently loaded,
-they are re-measured as the camera approaches – otherwise a stop measured from the
-overview would keep floating several meters above the roofs up close.
+clamping (unreliable on 3D tiles); their height is set explicitly. Vehicles ride the
+route's terrain profile (see [Data](#data--gtfs--gtfs-realtime--osm)) and, on a
+bridge, the deck measured on the tiles; stops – and vehicles of a dataset without
+heights – take tile heights measured by ray casts. Since those heights depend on
+the tile LOD currently loaded, they are re-measured as the camera approaches –
+otherwise a stop measured from the overview would keep floating several meters
+above the roofs up close.
 
 **How the two readings of the network work:** The map and the diagram draw the
 same data on different axes. Everything either of them needs comes from one

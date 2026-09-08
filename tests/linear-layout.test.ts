@@ -40,6 +40,7 @@ function line(
       dist: direction === 0 ? dist : lengthMeters - dist,
     })),
     tunnels: [],
+    bridges: [],
   })
   return {
     id,

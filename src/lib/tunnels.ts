@@ -79,6 +79,12 @@ export function isInTunnel(ranges: readonly TunnelRange[], dist: number): boolea
 /** A contiguous portion of a direction path, above ground or in a tunnel. */
 export interface PathPiece {
   path: LonLat[]
+  /**
+   * Distance of every piece vertex along the whole direction path, in
+   * meters – what the map needs to look a vertex up in a profile that is
+   * kept per direction rather than per piece (the measured bridge decks).
+   */
+  cum: number[]
   tunnel: boolean
   /** Per-vertex heights of the piece – present iff heights were passed in. */
   heights?: number[]
@@ -98,7 +104,7 @@ export function splitPathByTunnels(
   heights?: readonly number[],
 ): PathPiece[] {
   const wholePath = (): PathPiece[] => [
-    { path, tunnel: false, ...(heights ? { heights: [...heights] } : {}) },
+    { path, cum: [...cum], tunnel: false, ...(heights ? { heights: [...heights] } : {}) },
   ]
   if (ranges.length === 0 || path.length < 2) return wholePath()
   const total = cum[cum.length - 1]
@@ -107,7 +113,12 @@ export function splitPathByTunnels(
   const pushPiece = (start: number, end: number, tunnel: boolean): void => {
     const slice = slicePath(path, cum, start, end, heights)
     if (slice.path.length >= 2) {
-      pieces.push({ path: slice.path, tunnel, ...(slice.heights ? { heights: slice.heights } : {}) })
+      pieces.push({
+        path: slice.path,
+        cum: slice.cum,
+        tunnel,
+        ...(slice.heights ? { heights: slice.heights } : {}),
+      })
     }
   }
   for (const [start, end] of ranges) {
@@ -121,7 +132,8 @@ export function splitPathByTunnels(
 
 /**
  * Sub-polyline between two distances: interpolated boundary points plus all
- * original vertices strictly in between (consecutive duplicates dropped).
+ * original vertices strictly in between (consecutive duplicates dropped),
+ * each with its distance along the whole path.
  */
 function slicePath(
   path: LonLat[],
@@ -129,23 +141,25 @@ function slicePath(
   start: number,
   end: number,
   heights?: readonly number[],
-): { path: LonLat[]; heights?: number[] } {
+): { path: LonLat[]; cum: number[]; heights?: number[] } {
   const out: LonLat[] = []
+  const dists: number[] = []
   const hs: number[] | undefined = heights ? [] : undefined
-  const push = (lon: number, lat: number, h: number | undefined): void => {
+  const push = (lon: number, lat: number, d: number, h: number | undefined): void => {
     const prev = out[out.length - 1]
     if (prev && prev[0] === lon && prev[1] === lat) return
     out.push([lon, lat])
+    dists.push(d)
     if (hs && h !== undefined) hs.push(h)
   }
   const first = sampleAtDistance(path, cum, start)
-  push(first.lon, first.lat, heights ? heightAtDistance(heights, cum, start) : undefined)
+  push(first.lon, first.lat, start, heights ? heightAtDistance(heights, cum, start) : undefined)
   for (let i = 0; i < path.length; i++) {
     if (cum[i] <= start) continue
     if (cum[i] >= end) break
-    push(path[i][0], path[i][1], heights?.[i])
+    push(path[i][0], path[i][1], cum[i], heights?.[i])
   }
   const last = sampleAtDistance(path, cum, end)
-  push(last.lon, last.lat, heights ? heightAtDistance(heights, cum, end) : undefined)
-  return { path: out, heights: hs }
+  push(last.lon, last.lat, end, heights ? heightAtDistance(heights, cum, end) : undefined)
+  return { path: out, cum: dists, heights: hs }
 }

@@ -125,6 +125,13 @@ export interface MrtTestApi {
   loopTicks: () => number
   lastLoopError: () => string | null
   groundHeights: () => { id: string; groundHeight: number }[]
+  /**
+   * Bridge decks measured on the tiles (see map/bridge-decks.ts): the
+   * city's progress, or with a line id that line's vertices one by one.
+   */
+  bridgeDecks: (
+    lineId?: string,
+  ) => ReturnType<CesiumMap['getBridgeDeckInfo']> | ReturnType<CesiumMap['getBridgeDeckDetails']>
   anyVehicleInView: () => boolean
   /** Street lighting: lamps batched into the scene and their current opacity. */
   streetLamps: () => { drawn: number; alpha: number }
@@ -1469,6 +1476,8 @@ export default function App() {
       loopTicks: () => loopTicks,
       lastLoopError: () => lastLoopError,
       groundHeights: () => map.getGroundHeights(),
+      bridgeDecks: (lineId?: string) =>
+        lineId === undefined ? map.getBridgeDeckInfo() : map.getBridgeDeckDetails(lineId),
       tileMemory: () => map.getTileMemoryInfo(),
       shadowMap: () => map.getShadowMapInfo(),
       anyVehicleInView: () => lastAnyVehicleInView,

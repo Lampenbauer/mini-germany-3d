@@ -34,6 +34,7 @@ function testLine(): PreparedLine {
       { id: 'b', name: 'B', coord: [12.1, 54.1], dist: LENGTH },
     ],
     tunnels: [],
+    bridges: [],
   })
   return {
     id: 'T',

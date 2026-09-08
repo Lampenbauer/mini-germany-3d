@@ -513,6 +513,49 @@ only half the fleet. `sampleHeightMostDetailed` was rejected harder: it
 loads the finest tiles under every ship (10 000 tiles and 100 MB for one
 fleet) and feeds the tile-tree leak.
 
+**Bridge decks are measured on the tiles too, with a CPU ray, not a pick.**
+The pipeline's bridge profile is a straight deck between the terrain heights
+at both ends of a bridge range (`applyBridgeProfile`); the terrain model is
+bare earth, so a viaduct whose ends meet the ground comes out at street
+level – Berlin's Stadtbahn (one 6.2 km bridge range, OSM tags it
+correctly) had the S-Bahn in its own arches and 10 m under the
+Hauptbahnhof's upper level, and every Hochbahn (Berlin U1/U3, Hamburg U3,
+Cologne 13) is the same case. Since 2026-09-08
+[bridge-decks.ts](src/map/bridge-decks.ts) reads the deck off the tiles per
+route vertex inside a bridge range, plus stations every 30 m where a
+straight bridge way has none (Frankfurt's Friedensbrücke: one vertex in
+289 m; the routes draw through the stations) – on screen only, 6 per 200 ms pass,
+nearest first, again after each `surfaceGeneration`, kept for the visit,
+one point shared by every line on the same OSM way (Berlin: 1281 points
+for 107 directions) – and vehicles and route polylines take it, blending
+into the profile at the portals (`heightAt`). It uses `tileset.getHeight`, the tool the ships
+rejected, for two reasons that do not apply to ships: a route vertex has
+the route's own polyline drawn exactly on it at exactly the wrong height,
+which `clampToHeight` would pick without a long exclusion list (badges,
+stop names, lamps too), and a vertex that gets no answer this pass is
+simply asked again; measured 2026-09-08 on real tiles: ~1 ms a ray. A ray
+answers with whatever is on top, or – where the mesh lost a thin bridge,
+as at the Humboldthafen – with the water underneath, so a sample is
+trusted only 2.5 m and more above the profile (`DECK_ABOVE_PROFILE_M`;
+between 1 m and that it is weak and sets its own point where no trusted
+one encloses it – the Friedensbrücke's deck stands 1.3 m over the
+profile – and below that the profile stands, which is right at a portal
+and no worse than before over a hole), and among the trusted ones station halls (the
+Stadtbahn's stand 12–16 m over the rails, the Hauptbahnhof's 8 m over the
+southern tracks) and survey-day trains are pruned as samples no deck
+could climb to from their neighbours at the mode's gradient
+(`pruneRoofs`, a slope-limited lower envelope; `DECK_MAX_GRADIENT`: 3 %
+rail, 5 % tram, 8 % bus – a steeper real ramp is softened to it, and a
+hall longer than twice its roof height over it keeps a tent in its
+middle). Route rewrites are rationed to one per direction per second –
+each re-batches the polyline geometry. Stops on a
+viaduct are untouched: they already re-measure themselves near the camera
+(`StopsLayer.resolveHeights`). `__mrt.bridgeDecks()` shows the progress,
+`__mrt.bridgeDecks(lineId)` a line's vertices with sample and verdict.
+Real fix, if ever wanted: a surface model (DOM1) for bridge ranges in
+`data:heights`; it was weighed against this and deferred for needing one
+source per state.
+
 For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs` and
 `scripts/test-php-parser.mjs` run in CI. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a

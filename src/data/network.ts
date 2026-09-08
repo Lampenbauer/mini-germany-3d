@@ -2,7 +2,7 @@ import { config } from '@/config'
 import { cumulativeDistances, projectOntoPath } from '@/lib/geo'
 import type { LonLat } from '@/lib/geo'
 import type { City } from '@/lib/city'
-import { mirrorTunnelRanges, normalizeTunnelRanges } from '@/lib/tunnels'
+import { mirrorTunnelRanges, normalizeTunnelRanges, type TunnelRange } from '@/lib/tunnels'
 import type {
   DirectionJson,
   NetworkJson,
@@ -64,6 +64,7 @@ function prepareDirection(
     totalLength,
     stops,
     tunnels: normalizeTunnelRanges(dir.tunnels, totalLength),
+    bridges: normalizeTunnelRanges(dir.bridges, totalLength),
     heights,
   }
 }
@@ -80,8 +81,50 @@ function mirrorDirection(dir: DirectionJson, totalLength: number): DirectionJson
     path: [...dir.path].reverse() as LonLat[],
     stops: [...dir.stops].reverse(),
     tunnels: mirrorTunnelRanges(normalizeTunnelRanges(dir.tunnels, totalLength), totalLength),
+    bridges: mirrorTunnelRanges(normalizeTunnelRanges(dir.bridges, totalLength), totalLength),
     heights: dir.heights ? [...dir.heights].reverse() : undefined,
   }
+}
+
+/**
+ * True when the reverse direction is an exact mirror of the forward one
+ * (path reversed point for point, tunnel and bridge ranges mirrored) –
+ * then one set of route polylines and one measured bridge profile cover
+ * both directions. Directions that merely share length and endpoints
+ * (loops, asymmetric tagging) are handled separately.
+ */
+export function directionsAreMirrored(
+  forward: PreparedDirection,
+  reverse: PreparedDirection,
+): boolean {
+  if (forward.path.length !== reverse.path.length) return false
+  const lastPoint = forward.path.length - 1
+  for (let i = 0; i <= lastPoint; i++) {
+    const a = forward.path[lastPoint - i]
+    const b = reverse.path[i]
+    if (a[0] !== b[0] || a[1] !== b[1]) return false
+  }
+  return (
+    rangesAreMirrored(forward.tunnels, reverse.tunnels, forward.totalLength) &&
+    rangesAreMirrored(forward.bridges, reverse.bridges, forward.totalLength)
+  )
+}
+
+/**
+ * Mirrored meter ranges are recomputed floats – compared with a tolerance
+ * far below visibility instead of bit-exact.
+ */
+function rangesAreMirrored(
+  forward: readonly TunnelRange[],
+  reverse: readonly TunnelRange[],
+  totalLength: number,
+): boolean {
+  const mirrored = mirrorTunnelRanges(forward, totalLength)
+  if (mirrored.length !== reverse.length) return false
+  return mirrored.every(
+    ([start, end], i) =>
+      Math.abs(start - reverse[i][0]) < 0.01 && Math.abs(end - reverse[i][1]) < 0.01,
+  )
 }
 
 /**

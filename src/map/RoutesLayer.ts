@@ -20,10 +20,11 @@ import {
   type Entity,
   type Viewer,
 } from 'cesium'
-import type { PreparedDirection, PreparedNetwork } from '@/data/network-types'
+import { directionsAreMirrored } from '@/data/network'
+import type { PreparedNetwork } from '@/data/network-types'
 import type { BoundingBox } from '@/lib/city'
 import type { LonLat } from '@/lib/geo'
-import { mirrorTunnelRanges, splitPathByTunnels } from '@/lib/tunnels'
+import { splitPathByTunnels } from '@/lib/tunnels'
 import { routeTunnelOpacity } from './tunnel-view'
 
 /** What the routes layer needs from the map around it. */
@@ -35,6 +36,24 @@ export interface RoutesLayerHost {
    * polylines rather than clamped ones (see add).
    */
   readonly offline: boolean
+  /**
+   * Ellipsoidal height of a bridge deck measured on the tiles under a
+   * point of a direction (see map/bridge-decks.ts), undefined where the
+   * profile height applies. Optional: without it every piece rides the
+   * pipeline's profile.
+   */
+  deckHeight?(lineId: string, direction: 0 | 1, distance: number): number | undefined
+  /**
+   * The deck's measured stations strictly between two distances of a
+   * direction (see map/bridge-decks.ts) – extra polyline vertices, so a
+   * line follows a bridge's hump rather than cutting it with a chord.
+   */
+  bridgeStations?(
+    lineId: string,
+    direction: 0 | 1,
+    fromDistance: number,
+    toDistance: number,
+  ): { lon: number; lat: number; cum: number }[]
 }
 
 /** Base alpha of the route polylines. */
@@ -99,33 +118,19 @@ const ROUTE_PULSE_PERIOD_MS = 750
 const ROUTE_PULSE_FADE_MS = 250
 
 
-/**
- * True when the reverse direction is an exact mirror of the forward one
- * (path reversed point for point, tunnel ranges mirrored) – then a single
- * set of polylines covers both directions. Directions that merely share
- * length and endpoints (e.g. loops, or asymmetric tunnel tagging) are
- * drawn separately.
- */
-function directionsAreMirrored(
-  forward: PreparedDirection,
-  reverse: PreparedDirection,
-): boolean {
-  if (forward.path.length !== reverse.path.length) return false
-  const lastPoint = forward.path.length - 1
-  for (let i = 0; i <= lastPoint; i++) {
-    const a = forward.path[lastPoint - i]
-    const b = reverse.path[i]
-    if (a[0] !== b[0] || a[1] !== b[1]) return false
-  }
-  const mirrored = mirrorTunnelRanges(forward.tunnels, forward.totalLength)
-  if (mirrored.length !== reverse.tunnels.length) return false
-  // Mirrored meter ranges are recomputed floats – compare with a tolerance
-  // far below visibility instead of bit-exact.
-  return mirrored.every(
-    ([start, end], i) =>
-      Math.abs(start - reverse.tunnels[i][0]) < 0.01 &&
-      Math.abs(end - reverse.tunnels[i][1]) < 0.01,
-  )
+interface HeightRoutePieceSpec {
+  lineId: string
+  direction: 0 | 1
+  path: LonLat[]
+  /** Distance of every piece vertex along its direction (deck lookup). */
+  cum: number[]
+  /** Profile height per piece vertex, meters NHN. */
+  heights: number[]
+  lift: number
+}
+
+interface HeightRoutePiece extends HeightRoutePieceSpec {
+  entity: Entity
 }
 
 export class RoutesLayer {
@@ -133,10 +138,10 @@ export class RoutesLayer {
   /**
    * Route pieces drawn at absolute heights (NHN + routeHeightOffset) –
    * kept so the calibration can rewrite their positions once the real
-   * NHN→ellipsoid offset has been measured against the loaded tiles.
+   * NHN→ellipsoid offset has been measured against the loaded tiles, and
+   * so a measured bridge deck can rewrite its direction's pieces.
    */
-  private heightRoutePieces: { entity: Entity; path: LonLat[]; heights: number[]; lift: number }[] =
-    []
+  private heightRoutePieces: HeightRoutePiece[] = []
   /** Current NHN→ellipsoidal offset for route heights (calibrated later). */
   private routeHeightOffset = ROUTE_HEIGHT_OFFSET_FALLBACK
   /** Lift every height-based piece rides with (see updateForCameraHeight). */
@@ -349,20 +354,23 @@ export class RoutesLayer {
           const id = `route:${line.id}:${dir.direction}:${pieceIndex}`
           let entity: Entity
           if (piece.heights && piece.heights.length === piece.path.length) {
+            const spec: HeightRoutePieceSpec = {
+              lineId: line.id,
+              direction: dir.direction,
+              path: piece.path,
+              cum: piece.cum,
+              heights: piece.heights,
+              lift,
+            }
             entity = this.viewer.entities.add({
               id,
               polyline: {
-                positions: this.routePiecePositions(piece.path, piece.heights, lift),
+                positions: this.routePiecePositions(spec),
                 width: 5,
                 material,
               },
             })
-            this.heightRoutePieces.push({
-              entity,
-              path: piece.path,
-              heights: piece.heights,
-              lift,
-            })
+            this.heightRoutePieces.push({ entity, ...spec })
           } else {
             entity = this.viewer.entities.add({
               id,
@@ -449,12 +457,32 @@ export class RoutesLayer {
 
   /**
    * World positions of a height-based route piece at the current offset
-   * and lift. Offline the heights are ellipsoidal already (0 m, see add)
-   * and no NHN→ellipsoid offset applies.
+   * and lift: the deck measured on the tiles where there is one, the
+   * profile height plus offset elsewhere. Offline the heights are
+   * ellipsoidal already (0 m, see add) and neither applies.
    */
-  private routePiecePositions(path: LonLat[], heights: number[], lift: number): Cartesian3[] {
-    const base = (this.host.offline ? 0 : this.routeHeightOffset) + this.baseLift + lift
-    return path.map(([lon, lat], i) => Cartesian3.fromDegrees(lon, lat, heights[i] + base))
+  private routePiecePositions(piece: HeightRoutePieceSpec): Cartesian3[] {
+    const lift = this.baseLift + piece.lift
+    if (this.host.offline) {
+      return piece.path.map(([lon, lat], i) => Cartesian3.fromDegrees(lon, lat, piece.heights[i] + lift))
+    }
+    const offset = this.routeHeightOffset
+    const { lineId, direction, path, cum, heights } = piece
+    const positions: Cartesian3[] = []
+    for (let i = 0; i < path.length; i++) {
+      const deck = this.host.deckHeight?.(lineId, direction, cum[i])
+      positions.push(Cartesian3.fromDegrees(path[i][0], path[i][1], (deck ?? heights[i] + offset) + lift))
+      if (i + 1 === path.length || !this.host.bridgeStations) continue
+      for (const station of this.host.bridgeStations(lineId, direction, cum[i], cum[i + 1])) {
+        const t = (station.cum - cum[i]) / (cum[i + 1] - cum[i])
+        const profile = heights[i] + (heights[i + 1] - heights[i]) * t
+        const stationDeck = this.host.deckHeight?.(lineId, direction, station.cum)
+        positions.push(
+          Cartesian3.fromDegrees(station.lon, station.lat, (stationDeck ?? profile + offset) + lift),
+        )
+      }
+    }
+    return positions
   }
 
   /**
@@ -463,14 +491,29 @@ export class RoutesLayer {
    * work (a few hundred polylines) – not a per-frame cost.
    */
   private applyRouteHeightOffset(): void {
-    for (const piece of this.heightRoutePieces) {
-      const polyline = piece.entity.polyline
-      if (!polyline) continue
-      polyline.positions = new ConstantProperty(
-        this.routePiecePositions(piece.path, piece.heights, piece.lift),
-      )
-    }
+    for (const piece of this.heightRoutePieces) this.rewritePiece(piece)
     this.host.requestRender()
+  }
+
+  /**
+   * Rewrites one direction's pieces – after its bridge deck was measured
+   * on the tiles (see map/bridge-decks.ts). The deck layer rations these
+   * calls: every rewrite re-batches the polyline geometry.
+   */
+  refreshDirection(lineId: string, direction: 0 | 1): void {
+    let any = false
+    for (const piece of this.heightRoutePieces) {
+      if (piece.lineId !== lineId || piece.direction !== direction) continue
+      this.rewritePiece(piece)
+      any = true
+    }
+    if (any) this.host.requestRender()
+  }
+
+  private rewritePiece(piece: HeightRoutePiece): void {
+    const polyline = piece.entity.polyline
+    if (!polyline) return
+    polyline.positions = new ConstantProperty(this.routePiecePositions(piece))
   }
 
   setLineVisible(lineId: string, visible: boolean): void {

@@ -69,8 +69,9 @@ export interface DirectionJson {
   tunnels?: TunnelRange[]
   /**
    * Bridge sections as [start, end] meter ranges along `path` (OSM
-   * bridge=*). Only consumed by the data pipeline (bridge decks are
-   * interpolated into `heights` there); the runtime ignores them.
+   * bridge=*). The data pipeline interpolates a straight deck into
+   * `heights` across them; the map measures the real deck on the tiles
+   * inside them (map/bridge-decks.ts).
    */
   bridges?: [number, number][]
   /**
@@ -120,6 +121,11 @@ export interface PreparedDirection {
   stops: PreparedStop[]
   /** Normalized tunnel sections (sorted, merged, clamped); [] = none. */
   tunnels: TunnelRange[]
+  /**
+   * Normalized bridge sections, the same shape as `tunnels`; [] = none.
+   * Inside them the map reads the deck off the tiles at run time.
+   */
+  bridges: TunnelRange[]
   /**
    * Terrain height per path vertex (meters NHN), validated against the
    * path length; undefined = clamp routes to the 3D tiles instead.
