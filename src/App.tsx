@@ -421,7 +421,7 @@ const GROUPED_CONTROL =
  * the group above it.
  */
 const RAIL_BOX =
-  'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md'
+  'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-xl'
 
 /**
  * A tooltip that also teaches the key: "Back to the city (R)". The key goes

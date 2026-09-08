@@ -59,7 +59,7 @@ export function StopCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-md"
+      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
       data-testid="stop-card"
     >
       <CardHeader className="flex flex-row items-center justify-between gap-2">

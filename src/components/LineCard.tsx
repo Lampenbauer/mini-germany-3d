@@ -72,7 +72,7 @@ export function LineCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-md"
+      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
       data-testid="line-card"
     >
       <CardHeader className="flex flex-row items-start justify-between gap-2">

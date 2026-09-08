@@ -77,7 +77,7 @@ export function WeatherPopover(props: WeatherPopoverProps) {
           // The picked-sky state has to beat the shared bg-card/85, which
           // tailwind-merge would otherwise let win over a variant.
           className={cn(
-            'pointer-events-auto h-9 border border-border/60 backdrop-blur-md',
+            'pointer-events-auto h-9 border border-border/60 backdrop-blur-xl',
             // With a reading beside the icon the button grows into a pill
             temperature !== null && 'w-auto gap-1.5 px-2.5',
             picked

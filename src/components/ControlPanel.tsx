@@ -247,7 +247,7 @@ export function ControlPanel(props: ControlPanelProps) {
     // time-lapse and the layer switches stay put however long the list gets.
     <Card
       className={cn(
-        'pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-card/85 backdrop-blur-md',
+        'pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-card/85 backdrop-blur-xl shadow-[0_8px_28px_oklch(0_0_0_/_0.35)]',
         // Folded away, the panel is head and clock and nothing else: green
         // all through, edge included, rather than a green head sitting on a
         // stub of card. Unfolded it keeps the card's own quiet border.
