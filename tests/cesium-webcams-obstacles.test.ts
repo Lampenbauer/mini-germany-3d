@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import type { Webcam } from '@/lib/webcams-extract'
-import { keepNonOverlappingLabels } from '@/map/StopsLayer'
+import { STOP_LABEL_METRICS } from '@/map/StopsLayer'
+import { keepNonOverlappingLabels } from '@/map/screen-rects'
 import { VehicleLayer } from '@/map/VehicleLayer'
 import { WEBCAM_LONG_SIDE_METERS, WebcamsLayer } from '@/map/WebcamsLayer'
 import { rectCoversPoint } from '@/map/screen-rects'
@@ -43,10 +44,13 @@ describe('the stop declutter around pictures', () => {
         { x: 200, y: 150, halfWidth: 30 },
         { x: 400, y: 150, halfWidth: 30 },
       ],
+      STOP_LABEL_METRICS,
       [picture],
     )
     expect(visible).toEqual([false, true])
-    expect(keepNonOverlappingLabels([{ x: 200, y: 150, halfWidth: 30 }])).toEqual([true])
+    expect(
+      keepNonOverlappingLabels([{ x: 200, y: 150, halfWidth: 30 }], STOP_LABEL_METRICS),
+    ).toEqual([true])
   })
 })
 

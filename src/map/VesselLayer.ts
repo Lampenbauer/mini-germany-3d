@@ -42,7 +42,11 @@ import {
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
 import { cameraFramingScale } from './CameraLens'
-import { rectCoversBox, type ScreenRect } from './screen-rects'
+import {
+  keepNonOverlappingLabels,
+  type LabelMetrics,
+  type ScreenRect,
+} from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { FollowCamera } from '@/map/FollowCamera'
 
@@ -70,9 +74,45 @@ export interface VesselLayerHost {
 const VESSEL_BODY_VISIBLE_RANGE = 20_000
 /** The name floats this many CSS pixels above the ship (negative = up). */
 const NAME_PIXEL_OFFSET_Y = -16
-/** Rough glyph width of the 10 px name font, for the picture test. */
-const NAME_PX_PER_CHAR = 6
-const NAME_HEIGHT_PX = 12
+/** Rough glyph width of the 11 px bold name font, for the picture test. */
+const NAME_PX_PER_CHAR = 7
+/** Plate height and side padding in CSS px – see NAME_PLATE below. */
+const NAME_HEIGHT_PX = 21
+const NAME_PAD_X_PX = 7
+/** Clearance the plates keep from each other and from a webcam picture. */
+const NAME_GAP_PX = 4
+/**
+ * The plate as the declutter sees it. The label is anchored on its text
+ * baseline, so the plate straddles the anchor: its bottom edge sits half a
+ * plate below NAME_PIXEL_OFFSET_Y.
+ */
+const NAME_METRICS: LabelMetrics = {
+  offsetY: NAME_PIXEL_OFFSET_Y + NAME_HEIGHT_PX / 2,
+  height: NAME_HEIGHT_PX,
+  gap: NAME_GAP_PX,
+}
+/**
+ * A ship's name is written on a dark plate, the negative of the light one
+ * the stop names wear (StopsLayer.stopNameplate): over water, where every
+ * backdrop is one dark blue, a light plate would shout and outlined text
+ * would disappear. The two together mean the fleet and the network can be
+ * told apart at a glance, and neither can be taken for a vehicle, which
+ * wears its line colour and nothing else.
+ *
+ * Cesium's own label background rather than a canvas billboard: a name is
+ * unique per ship, and a canvas image would leave a texture-atlas region
+ * behind for every ship that ever passed (see the badge note in
+ * VehicleLayer).
+ *
+ * Opaque, and that is load-bearing rather than a taste: nothing declutters
+ * the fleet's names the way StopsLayer declutters the stops', so in a busy
+ * harbour a dozen of them land on each other. Opaque, that reads as a pile
+ * with the nearest name on top – the way the vehicles' badges have always
+ * behaved. At 90 % it read as one illegible blob instead, every name
+ * blending through the ones in front of it.
+ */
+const NAME_PLATE = Color.fromCssColorString('#1e293b')
+const NAME_INK = Color.fromCssColorString('#f8fafc')
 /** Ship names fade in below this camera distance (meters). */
 const NAME_VISIBLE_RANGE = 30_000
 /**
@@ -244,8 +284,9 @@ function heightScale(lengthScale: number, widthScale: number): number {
 
 /**
  * Hull color and height by AIS ship type group – muted, the fleet is
- * scenery. The color outlines the ship's name label for good, the height
- * only shapes the placeholder box until the glTF hull is in.
+ * scenery. The height only shapes the placeholder box until the glTF hull
+ * is in; the name plate above it is the one slate for every ship (see
+ * NAME_PLATE), so a name is read as a name rather than as a type.
  */
 function vesselStyle(typeCode: number): { color: string; height: number } {
   const group = Math.floor(typeCode / 10)
@@ -440,6 +481,19 @@ export class VesselLayer {
     let maxScreenMotionPx = 0
     // …and since the last tick alone, for the app's speed estimate
     let maxTickMotionPx = 0
+    /*
+     * The names in the frame, filled by the loop and pruned after it.
+     * Without a windowPosition from the host (the unit tests' viewer has
+     * none) there is no screen to declutter on, and every name stays.
+     */
+    const windowPosition = this.host.windowPosition
+    const nameCandidates: {
+      record: VesselRecord
+      distance: number
+      x: number
+      y: number
+      halfWidth: number
+    }[] = []
     for (const vessel of vessels) {
       if (nowMs - vessel.positionAt > AIS_EXPIRE_MS) continue
       alive.add(vessel.mmsi)
@@ -510,20 +564,31 @@ export class VesselLayer {
         Matrix4.multiplyByScale(record.matrix, scaleScratch, record.modelMatrix)
       }
       record.labelPosition.setValue(record.displayPosition)
-      // A name that would sit on a webcam picture steps aside for it
+      const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
+      /*
+       * Which names are drawn is settled after the loop, by the same
+       * declutter the stop names use: a busy harbour puts a dozen plates
+       * on the same patch of screen, and Cesium cannot let the nearest one
+       * cover the rest – a LabelCollection draws every background first
+       * and every glyph after, in two collections of its own, so the names
+       * write straight over each other whatever the plate's opacity. The
+       * loop only collects the candidates.
+       */
       let nameShown = this.visible && this.labelsVisible
-      if (nameShown && obstacles.length > 0) {
-        const window = this.host.windowPosition?.(record.displayPosition)
-        if (
-          window &&
-          rectCoversBox(
-            obstacles,
-            window.x,
-            window.y + NAME_PIXEL_OFFSET_Y + NAME_HEIGHT_PX / 2,
-            (record.labelText.length * NAME_PX_PER_CHAR) / 2,
-            NAME_HEIGHT_PX,
-          )
-        ) {
+      if (nameShown && distance < NAME_VISIBLE_RANGE && windowPosition) {
+        const window = windowPosition(record.displayPosition)
+        if (window) {
+          nameCandidates.push({
+            record,
+            distance,
+            x: window.x,
+            y: window.y,
+            halfWidth: (record.labelText.length * NAME_PX_PER_CHAR) / 2 + NAME_PAD_X_PX,
+          })
+          // Settled below; leave what it has until then.
+          nameShown = record.labelEntity.show === true
+        } else {
+          // Behind the camera – nothing to draw and nothing to declutter
           nameShown = false
         }
       }
@@ -531,7 +596,6 @@ export class VesselLayer {
         record.labelEntity.show = nameShown
         this.host.requestRender()
       }
-      const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
       const showBody = this.visible && distance < VESSEL_BODY_VISIBLE_RANGE
       if (showBody && distance < nearestHullMeters) {
         nearestHullMeters = distance
@@ -609,6 +673,19 @@ export class VesselLayer {
         record.labelText = text
         record.labelEntity.label.text = new ConstantProperty(text)
         this.repaintIfOnScreen(cullingVolume, record.lastPosition)
+      }
+    }
+
+    // Nearest first, so the closest ship keeps her name in a crowd – and
+    // the webcam pictures are claimed before any of them, which is how a
+    // name steps aside for a picture it would sit on.
+    nameCandidates.sort((a, b) => a.distance - b.distance)
+    const namesVisible = keepNonOverlappingLabels(nameCandidates, NAME_METRICS, obstacles)
+    for (let i = 0; i < nameCandidates.length; i++) {
+      const { record } = nameCandidates[i]
+      if (record.labelEntity.show !== namesVisible[i]) {
+        record.labelEntity.show = namesVisible[i]
+        this.host.requestRender()
       }
     }
 
@@ -745,11 +822,12 @@ export class VesselLayer {
       show: this.visible && this.labelsVisible,
       label: {
         text: labelText,
-        font: '10px "Inter Variable", system-ui, sans-serif',
-        fillColor: Color.WHITE,
-        outlineColor: color,
-        outlineWidth: 2,
-        style: LabelStyle.FILL_AND_OUTLINE,
+        font: 'bold 11px "Inter Variable", system-ui, sans-serif',
+        fillColor: NAME_INK,
+        style: LabelStyle.FILL,
+        showBackground: true,
+        backgroundColor: NAME_PLATE,
+        backgroundPadding: new Cartesian2(NAME_PAD_X_PX, 5),
         pixelOffset: new Cartesian2(0, NAME_PIXEL_OFFSET_Y),
         distanceDisplayCondition: new DistanceDisplayCondition(0, NAME_VISIBLE_RANGE),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,

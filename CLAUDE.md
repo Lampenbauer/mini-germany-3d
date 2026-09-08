@@ -154,6 +154,34 @@ in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
 narrower than the group above it, because the group's border sits outside its
 buttons.
 
+**Three kinds of name on the map, and they must not converge.** A vehicle
+wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),
+`lineBadge`). A stop wears a light slate plate with dark text and its lines in
+grey ([StopsLayer](src/map/StopsLayer.ts), `stopNameplate`). A ship wears the
+same slate inverted — a dark plate with white text
+([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Land light, water dark,
+traffic in colour: that is how the fleet is told from the network at a glance,
+so do not give any of the three the look of another.
+
+**Cesium cannot stack labels — a crowd has to be decluttered, not layered.**
+A `LabelCollection` keeps two BillboardCollections of its own, one for every
+background and one for every glyph, and updates them in that order: every
+plate is drawn, then every name on top of every plate. So a name is never
+covered by the label in front of it, whatever the plate's opacity — an opaque
+ship plate was tried on its own first and a busy Warnow still came out as a
+pile of overlapping names. Do not reach for opacity to fix that; it cannot
+work.
+
+`keepNonOverlappingLabels` in [screen-rects.ts](src/map/screen-rects.ts) is
+the cure, and both the stop names and the ship names run through it: nearest
+wins, the losers are hidden, the webcam pictures are claimed before any label.
+It takes the plate's geometry per call (`STOP_LABEL_METRICS`, `NAME_METRICS`)
+because the two plates are different sizes, and it is pure so it can be tested
+without a scene.
+
+The vehicle badges need none of it: they are canvas billboards, which *do*
+occlude one another, and a line number is small enough that a pile of them
+still reads. Keep all three plates opaque either way.
 
 ---
 

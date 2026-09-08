@@ -25,7 +25,11 @@ import {
 import type { PreparedNetwork } from '@/data/network-types'
 import { FRAMING_SCALE } from './camera-fov'
 import { isInTunnel } from '@/lib/tunnels'
-import type { ScreenRect } from './screen-rects'
+import {
+  keepNonOverlappingLabels,
+  type LabelMetrics,
+  type ScreenRect,
+} from './screen-rects'
 import { tunnelOpacity } from './tunnel-view'
 
 /** What the stops layer needs from the map around it. */
@@ -139,6 +143,10 @@ export const STOP_LABEL_RANGE = 2600 * FRAMING_SCALE
 
 /** Rendered size of a stop disc in CSS px (fill + outline). */
 const STOP_DISC_SIZE = 10
+/** The disc is the name plate's colours the other way round, so a stop
+ *  reads as one mark: light ring on the plate, dark ring on the disc. */
+const STOP_DISC_FILL = 'oklch(0.9842 0.0034 247.86)'
+const STOP_DISC_STROKE = 'oklch(0.3717 0.0392 257.29)'
 
 /** Font size of the stop name plates in CSS px. */
 const STOP_LABEL_FONT_SIZE = 13
@@ -146,17 +154,48 @@ const STOP_LABEL_FONT_SIZE = 13
 const STOP_LABEL_LINES_FONT_SIZE = 11
 const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
 
-/** Canvas height of a stop name plate in CSS px (font + outline). */
-const STOP_LABEL_HEIGHT = 20
+/** Corner radius of the plate, in CSS px. */
+const STOP_LABEL_RADIUS = 5
+/*
+ * The plate and its ink. Slate, as everywhere else in this interface, and
+ * kept just short of opaque so a stop never quite hides what it stands on.
+ */
+const STOP_LABEL_PLATE = 'oklch(0.9842 0.0034 247.86 / 0.95)'
+const STOP_LABEL_NAME = 'oklch(0.2077 0.0398 265.75)'
+const STOP_LABEL_LINES = 'oklch(0.5544 0.0407 257.42)'
+const STOP_LABEL_SHADOW = 'oklch(0.2077 0.0398 265.75 / 0.45)'
 
-/** Vertical anchor offset of a stop label above its disc in CSS px. */
-const STOP_LABEL_OFFSET_Y = -16
+/** Height of the plate a stop name is written on, in CSS px. */
+const STOP_LABEL_PLATE_HEIGHT = 20
+/** Transparent margin around the plate that its drop shadow needs. */
+const STOP_LABEL_SHADOW_PAD = 3
+/** Canvas height of a stop name plate in CSS px (plate + shadow margin). */
+const STOP_LABEL_HEIGHT = STOP_LABEL_PLATE_HEIGHT + 2 * STOP_LABEL_SHADOW_PAD
+
+/**
+ * Vertical anchor offset of a stop label above its disc in CSS px. The
+ * canvas is anchored by its bottom edge, so the shadow margin below the
+ * plate is added back here – the plate itself sits 16 px above the disc,
+ * as it did when the canvas ended where the plate does.
+ */
+const STOP_LABEL_OFFSET_Y = -16 + STOP_LABEL_SHADOW_PAD
 
 /**
  * Minimum screen-space gap between two stop labels in CSS px – labels whose
  * padded rectangles intersect an already accepted one are hidden.
  */
 const STOP_LABEL_GAP = 4
+
+/**
+ * The stop plate as the declutter sees it: bottom edge STOP_LABEL_OFFSET_Y
+ * above the disc, STOP_LABEL_HEIGHT tall, keeping STOP_LABEL_GAP clear.
+ * Exported for the test that pins the pruning.
+ */
+export const STOP_LABEL_METRICS: LabelMetrics = {
+  offsetY: STOP_LABEL_OFFSET_Y,
+  height: STOP_LABEL_HEIGHT,
+  gap: STOP_LABEL_GAP,
+}
 
 
 
@@ -166,43 +205,6 @@ const windowScratch = new Cartesian2()
 /** Nearest-stop working set of the height sampling (see resolveHeights). */
 const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).fill(null)
 const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
-
-/** One label's anchor on screen (CSS px) and half its rendered width. */
-export interface LabelBox {
-  x: number
-  y: number
-  halfWidth: number
-}
-
-/**
- * Screen-space label pruning. The boxes come in nearest-first order, and a
- * label stays visible only where its box overlaps none of the boxes already
- * kept – so the nearest stop wins a collision. `obstacles` are kept before
- * any label: the webcam pictures, which no label may sit on.
- *
- * Pure on purpose: this is the part of the declutter worth testing, and it
- * needs neither a scene nor a camera to do it.
- */
-export function keepNonOverlappingLabels(
-  boxes: readonly LabelBox[],
-  obstacles: readonly ScreenRect[] = [],
-): boolean[] {
-  const kept: { left: number; right: number; top: number; bottom: number }[] = [...obstacles]
-  return boxes.map((box) => {
-    const halfWidth = box.halfWidth + STOP_LABEL_GAP
-    // Window y grows downward; the label is anchored bottom-center at
-    // pixelOffset above the disc.
-    const bottom = box.y + STOP_LABEL_OFFSET_Y
-    const top = bottom - STOP_LABEL_HEIGHT - STOP_LABEL_GAP
-    const left = box.x - halfWidth
-    const right = box.x + halfWidth
-    const free = !kept.some(
-      (rect) => left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top,
-    )
-    if (free) kept.push({ left, right, top, bottom })
-    return free
-  })
-}
 
 export class StopsLayer {
   /** Discs AND name plates in one collection (add order = overlap order). */
@@ -457,19 +459,27 @@ export class StopsLayer {
     ctx.beginPath()
     // Stroke is centered on the arc – pull the radius in by half of it
     ctx.arc(center, center, center - ratio, 0, 2 * Math.PI)
-    ctx.fillStyle = '#f8fafc'
+    ctx.fillStyle = STOP_DISC_FILL
     ctx.fill()
     ctx.lineWidth = 2 * ratio
-    ctx.strokeStyle = '#334155'
+    ctx.strokeStyle = STOP_DISC_STROKE
     ctx.stroke()
     return canvas
   }
 
   /**
-   * Renders a stop name plus the serving lines in parentheses (outlined
-   * text, the lines slightly smaller and dimmer) to a canvas at the
-   * drawing-buffer pixel ratio. Returns undefined where no 2D canvas is
-   * available (jsdom).
+   * Renders a stop name plus the serving lines in parentheses onto a light
+   * plate, at the drawing-buffer pixel ratio.
+   *
+   * A plate rather than the outlined text this used to be: outlined text
+   * is legible on anything but reads as part of the photograph, and over
+   * Google's tiles – bright roofs, dark trees, wet asphalt – it never held
+   * one weight. The plate is the same slate the ship names wear
+   * (VesselLayer), only inverted: dark on light for what stands on land,
+   * light on dark for what floats. Neither can be mistaken for a vehicle,
+   * which wears its own line colour and nothing else.
+   *
+   * Returns undefined where no 2D canvas is available (jsdom).
    */
   private stopNameplate(
     name: string,
@@ -480,7 +490,7 @@ export class StopsLayer {
     const ctx = canvas.getContext('2d')
     if (!ctx) return undefined
     const ratio = this.host.pixelRatio
-    const nameFont = `${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
+    const nameFont = `500 ${Math.round(STOP_LABEL_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
     const linesFont = `${Math.round(STOP_LABEL_LINES_FONT_SIZE * ratio)}px ${STOP_LABEL_FONT_FAMILY}`
     const suffix = lines.length > 0 ? `(${lines.join(', ')})` : ''
     ctx.font = nameFont
@@ -488,28 +498,43 @@ export class StopsLayer {
     ctx.font = linesFont
     const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
     const gap = suffix ? 5 * ratio : 0
-    const padX = 4 * ratio
-    const height = Math.round(STOP_LABEL_HEIGHT * ratio)
-    const width = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
-    canvas.width = width
-    canvas.height = height
+    const padX = 8 * ratio
+    const pad = Math.round(STOP_LABEL_SHADOW_PAD * ratio)
+    const plateHeight = Math.round(STOP_LABEL_PLATE_HEIGHT * ratio)
+    const plateWidth = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
+    canvas.width = plateWidth + 2 * pad
+    canvas.height = plateHeight + 2 * pad
+
+    ctx.beginPath()
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(pad, pad, plateWidth, plateHeight, STOP_LABEL_RADIUS * ratio)
+    } else {
+      ctx.rect(pad, pad, plateWidth, plateHeight)
+    }
+    // The shadow is what lifts the plate off a bright roof; it lives in the
+    // margin the canvas carries for it, so it is never clipped.
+    ctx.shadowColor = STOP_LABEL_SHADOW
+    ctx.shadowBlur = 3 * ratio
+    ctx.shadowOffsetY = ratio
+    ctx.fillStyle = STOP_LABEL_PLATE
+    ctx.fill()
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+    ctx.shadowOffsetY = 0
+
+    const textY = pad + plateHeight / 2
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = 3 * ratio
-    ctx.strokeStyle = '#0f172a'
     ctx.font = nameFont
-    ctx.strokeText(name, padX, height / 2)
-    ctx.fillStyle = '#e2e8f0'
-    ctx.fillText(name, padX, height / 2)
+    ctx.fillStyle = STOP_LABEL_NAME
+    ctx.fillText(name, pad + padX, textY)
     if (suffix) {
       ctx.font = linesFont
-      ctx.strokeText(suffix, padX + nameWidth + gap, height / 2)
       // Dimmer than the name, so long line lists stay secondary
-      ctx.fillStyle = '#b7c2d0'
-      ctx.fillText(suffix, padX + nameWidth + gap, height / 2)
+      ctx.fillStyle = STOP_LABEL_LINES
+      ctx.fillText(suffix, pad + padX + nameWidth + gap, textY)
     }
-    return { canvas, width: width / ratio, height: height / ratio }
+    return { canvas, width: canvas.width / ratio, height: canvas.height / ratio }
   }
 
   /**
@@ -557,6 +582,7 @@ export class StopsLayer {
 
     const visible = keepNonOverlappingLabels(
       candidates.map((c) => ({ x: c.x, y: c.y, halfWidth: c.record.labelHalfWidth })),
+      STOP_LABEL_METRICS,
       this.host.obstacles?.() ?? [],
     )
     let changed = false

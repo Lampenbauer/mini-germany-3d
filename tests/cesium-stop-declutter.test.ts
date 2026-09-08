@@ -1,6 +1,7 @@
 import { Cartesian2, Cartesian3, Matrix4, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { keepNonOverlappingLabels, STOP_LABEL_RANGE } from '@/map/StopsLayer'
+import { STOP_LABEL_METRICS, STOP_LABEL_RANGE } from '@/map/StopsLayer'
+import { keepNonOverlappingLabels } from '@/map/screen-rects'
 import { stopsHarness } from './stops-test-harness'
 
 /**
@@ -21,7 +22,7 @@ describe('keepNonOverlappingLabels', () => {
         { x: 200, y: 300, halfWidth: 40 },
         { x: 230, y: 305, halfWidth: 40 }, // overlaps the first horizontally
         { x: 600, y: 300, halfWidth: 40 }, // far enough to the side
-      ]),
+      ], STOP_LABEL_METRICS),
     ).toEqual([true, false, true])
   })
 
@@ -30,25 +31,31 @@ describe('keepNonOverlappingLabels', () => {
       keepNonOverlappingLabels([
         { x: 200, y: 300, halfWidth: 40 },
         { x: 200, y: 400, halfWidth: 40 },
-      ]),
+      ], STOP_LABEL_METRICS),
     ).toEqual([true, true])
   })
 
   it('lets a wide label collide where a narrow one would not', () => {
-    const narrow = keepNonOverlappingLabels([
-      { x: 200, y: 300, halfWidth: 10 },
-      { x: 260, y: 300, halfWidth: 10 },
-    ])
-    const wide = keepNonOverlappingLabels([
-      { x: 200, y: 300, halfWidth: 40 },
-      { x: 260, y: 300, halfWidth: 40 },
-    ])
+    const narrow = keepNonOverlappingLabels(
+      [
+        { x: 200, y: 300, halfWidth: 10 },
+        { x: 260, y: 300, halfWidth: 10 },
+      ],
+      STOP_LABEL_METRICS,
+    )
+    const wide = keepNonOverlappingLabels(
+      [
+        { x: 200, y: 300, halfWidth: 40 },
+        { x: 260, y: 300, halfWidth: 40 },
+      ],
+      STOP_LABEL_METRICS,
+    )
     expect(narrow).toEqual([true, true])
     expect(wide).toEqual([true, false])
   })
 
   it('is empty-safe', () => {
-    expect(keepNonOverlappingLabels([])).toEqual([])
+    expect(keepNonOverlappingLabels([], STOP_LABEL_METRICS)).toEqual([])
   })
 })
 
