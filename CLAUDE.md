@@ -40,6 +40,34 @@ shortcut skips [tsconfig.app.json](tsconfig.app.json), which is what includes
 `tests/`. A tuple error in a test once passed locally and failed CI exactly
 this way.
 
+**A change is not finished when the code works.** Every change — a fix as much
+as a feature — ends with a sweep for what else already talks about the thing
+you touched. Grep for the name you changed, the flag you added, the number you
+moved, and follow it into:
+
+- **[README.md](README.md)** — it is load-bearing documentation, not a summary:
+  the feature table, the URL-parameter table, the `city.json` field list, the
+  architecture tree with its file-by-file comments, the scripts table, the
+  attribution list. A new URL parameter, script, `city.json` field or terrain
+  source that is not in there is only half-added.
+- **The app's own prose** — [src/lib/i18n.ts](src/lib/i18n.ts) carries strings
+  that repeat facts about the project, and it carries them **twice**, in the
+  `en` and `de` tables. The About dialog states the city count in `about.lead`
+  and lists what the map is built from; the keyboard tab lists the shortcuts;
+  the credits carry the licenses. A German table left behind is the usual miss.
+- **Code comments elsewhere** — this codebase explains its decisions in prose
+  next to them, so a constant that moves usually invalidates a sentence in
+  another file that quotes its old value.
+- **Tests** — `tests/<slug>.test.ts` pins per-city line sets, heights and
+  vehicle counts; `tests/mode-mapping.test.ts` pins the two mode knobs.
+- **This file**, when the change settles something it records as open or
+  describes differently.
+
+Worked example: adding a city means `definitions.ts`, the README intro *and*
+Cities section *and* attribution list, `about.lead` plus `city.name.<slug>` in
+both i18n tables, and a new `tests/<slug>.test.ts` — six places, one of which
+compiles fine while being wrong.
+
 **Commits land on `main`.** `git checkout -b`, `git switch -c` and
 `git checkout -- .` are denied by the permission policy here, so the working
 tree can never be reset to replay edits topic by topic. To split finished work
