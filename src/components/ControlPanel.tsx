@@ -381,15 +381,16 @@ export function ControlPanel(props: ControlPanelProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  // Borderless until it is pointed at, then a select's own
-                  // outline – the title has to read as a title first and
-                  // as a control second, or the panel gains a box at its
-                  // top edge that competes with the card's. The open list
-                  // keeps the outline, so the trigger stays lit under it.
+                  // Under the pointer it darkens and nothing more, like
+                  // the other three controls of the panel's head – the
+                  // title has to read as a title first and as a control
+                  // second, or the panel gains a box at its top edge that
+                  // competes with the card's. Only the open list draws the
+                  // outline, so the trigger stays lit under it.
                   // The negative margin hangs the button's own padding
                   // outside the row, which leaves the title exactly where
                   // it sat when it was a plain span.
-                  className="-ml-2.5 min-w-0 shrink gap-1 border border-transparent text-base font-semibold hover:border-input data-[state=open]:border-input data-[state=open]:bg-accent"
+                  className="-ml-2.5 min-w-0 shrink gap-1 border border-transparent text-base font-semibold hover:bg-accent data-[state=open]:border-input data-[state=open]:bg-accent"
                   // The name of the button is the city on it, the way a
                   // select is named by its value; what it opens is said
                   // by the popup type and by the list's own label.
@@ -457,7 +458,7 @@ export function ControlPanel(props: ControlPanelProps) {
               // card is for, and at full strength it pulled against the
               // title beside it. It comes up to full weight under the
               // pointer, so it still answers like a button.
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label={collapsed ? t('panel.expand') : t('panel.collapse')}
               onClick={() => setCollapsed((c) => !c)}
             >
@@ -498,8 +499,9 @@ export function ControlPanel(props: ControlPanelProps) {
             {props.clockText}
           </div>
           <Button
-            variant="secondary"
+            variant="ghost"
             size="icon-sm"
+            className="hover:bg-accent"
             aria-label={props.paused ? t('sim.resume') : t('sim.pause')}
             onClick={props.onTogglePause}
           >
@@ -528,7 +530,7 @@ export function ControlPanel(props: ControlPanelProps) {
                 whichever half is focused – the shape a date-time field has
                 everywhere else.
               */}
-              <div className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-input bg-black/50 shadow-xs transition-colors focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/50">
+              <div className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-input bg-accent shadow-xs transition-colors focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/50">
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                   <PopoverTrigger asChild>
                     <Button

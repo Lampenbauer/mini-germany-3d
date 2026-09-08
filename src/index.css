@@ -19,9 +19,16 @@
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
   --muted-foreground: oklch(0.552 0.016 285.938);
-  /* Hover tint: deliberately further from --card than shadcn's default so
-     hovered controls are clearly visible on the translucent panels */
-  --accent: oklch(0.93 0.002 286.375);
+  /*
+   * The app's one subtle surface: what a control takes on under the
+   * pointer, what the date/time field and the time-lapse track stand on.
+   * A wash of the ground colour rather than shadcn's grey step, so it
+   * reads the same over the panel's green head, over its card body and
+   * over a popover – three different backdrops that a fixed grey cannot
+   * all sit on. Every hover in the app goes through this one value; move
+   * it and they all move together.
+   */
+  --accent: oklch(0 0 0 / 0.07);
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.92 0.004 286.32);
@@ -50,8 +57,8 @@
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.274 0.006 286.033);
   --muted-foreground: oklch(0.705 0.015 286.067);
-  /* Hover tint, see the light-theme note */
-  --accent: oklch(0.37 0.009 286.033);
+  /* The same wash, deeper – see the light-theme note */
+  --accent: oklch(0 0 0 / 0.5);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 12%);

@@ -113,6 +113,18 @@ nothing else, so every colour that reaches it — hull colours, the ship name
 plate, the globe base — stays hex. A silent failure either way, so keep the two
 apart deliberately.
 
+**Every hover is one value.** `--accent` in `index.css` is a wash of the
+ground colour (50 % black in the dark theme), not shadcn's grey step: it is
+what a control takes on under the pointer, and it is also the ground the
+date/time field and the time-lapse track stand on, so the two read as the same
+surface. A wash rather than a fixed grey because the same controls sit over
+the panel's green head, over its card body and over a popover, and no one grey
+sits on all three. Do not hard-code a hover colour on a control; move
+`--accent` instead. Two places deliberately use it for something that is not a
+hover — the current city in the picker and the calendar's "today" — and both
+carry a second marker (a check, the selected day's own fill) so a subtle wash
+is enough.
+
 **The green is one value.** `--brand` in `index.css` is the deep green of the
 About dialog's hero and of the control panel's head, which runs out into the
 card's own colour where the card's content begins – except folded away, where
