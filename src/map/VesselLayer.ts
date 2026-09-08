@@ -78,9 +78,9 @@ const NAME_PIXEL_OFFSET_Y = -16
 const NAME_PX_PER_CHAR = 6
 /** Plate height and side padding in CSS px – see NAME_PLATE below. */
 const NAME_HEIGHT_PX = 19
-const NAME_PAD_X_PX = 4
+const NAME_PAD_X_PX = 3
 /** Clearance the plates keep from each other and from a webcam picture. */
-const NAME_GAP_PX = 4
+const NAME_GAP_PX = 6
 /**
  * The plate as the declutter sees it. The label is anchored on its text
  * baseline, so the plate straddles the anchor: its bottom edge sits half a
@@ -92,8 +92,8 @@ const NAME_METRICS: LabelMetrics = {
   gap: NAME_GAP_PX,
 }
 /**
- * A ship's name is written on a dark plate, the negative of the light one
- * the stop names wear (StopsLayer.stopNameplate): over water, where every
+ * A ship's name is written on a dark plate, unlike the stop names, which
+ * are bare haloed text (StopsLayer.stopNameImage): over water, where every
  * backdrop is one dark blue, a light plate would shout and outlined text
  * would disappear. The two together mean the fleet and the network can be
  * told apart at a glance, and neither can be taken for a vehicle, which
@@ -114,7 +114,7 @@ const NAME_METRICS: LabelMetrics = {
 const NAME_PLATE = Color.fromCssColorString('#1e293b')
 const NAME_INK = Color.fromCssColorString('#f8fafc')
 /** Ship names fade in below this camera distance (meters). */
-const NAME_VISIBLE_RANGE = 30_000
+const NAME_VISIBLE_RANGE = 35_000
 /**
  * Beyond this camera distance a moving vessel neither requests repaints
  * nor holds the render loop at its animation rate – the app's
@@ -567,7 +567,7 @@ export class VesselLayer {
       const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
       /*
        * Which names are drawn is settled after the loop, by the same
-       * declutter the stop names use: a busy harbour puts a dozen plates
+       * declutter the stop names use: a busy harbour puts a dozen names
        * on the same patch of screen, and Cesium cannot let the nearest one
        * cover the rest – a LabelCollection draws every background first
        * and every glyph after, in two collections of its own, so the names

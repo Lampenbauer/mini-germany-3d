@@ -120,7 +120,7 @@ export interface CesiumMapOptions {
   onSelectVessel?: (mmsi: number | null) => void
   /** A webcam picture was clicked: its windy.com page, which the terms want opened. */
   onOpenWebcam?: (url: string) => void
-  /** Click on a stop disc or name plate (null = click on empty map). */
+  /** Click on a stop disc or name (null = click on empty map). */
   onSelectStop?: (stopId: string | null) => void
   onTilesetStatus?: (status: TilesetStatus) => void
   /**
@@ -662,7 +662,7 @@ export class CesiumMap {
   private tileShader: CustomShader | null = null
   /** Rain field and overcast grade – owns its own state (see WeatherOverlay). */
   private readonly weather: WeatherOverlay
-  /** Discs, name plates, declutter and stop heights (see StopsLayer). */
+  /** Discs, names, declutter and stop heights (see StopsLayer). */
   private readonly stops: StopsLayer
   /** AIS harbor traffic (see VesselLayer). */
   private vesselLayer: VesselLayer
@@ -1138,7 +1138,7 @@ export class CesiumMap {
   /**
    * Selectable object under a screen position, or null. Vehicle body
    * primitives return their instance id as a string, the number label an
-   * Entity – both carry the "vehicle:" prefix. Stop discs and name plates
+   * Entity – both carry the "vehicle:" prefix. Stop discs and names
    * are billboards whose id is the "stop:"-prefixed stop id, and AIS hulls
    * and their name labels the "vessel:"-prefixed MMSI.
    */

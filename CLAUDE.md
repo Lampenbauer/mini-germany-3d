@@ -156,12 +156,19 @@ buttons.
 
 **Three kinds of name on the map, and they must not converge.** A vehicle
 wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),
-`lineBadge`). A stop wears a light slate plate with dark text and its lines in
-grey ([StopsLayer](src/map/StopsLayer.ts), `stopNameplate`). A ship wears the
-same slate inverted — a dark plate with white text
-([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Land light, water dark,
-traffic in colour: that is how the fleet is told from the network at a glance,
-so do not give any of the three the look of another.
+`lineBadge`). A stop wears no plate at all: light slate text in a thin dark
+halo, its lines a shade dimmer ([StopsLayer](src/map/StopsLayer.ts),
+`stopNameImage`).
+A ship wears a dark slate plate with white text
+([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Bare text on land, a
+dark plate on water, traffic in colour: that is how the fleet is told from the
+network at a glance, so do not give any of the three the look of another.
+
+The stop names are deliberately the *quietest* of the three. They had a light
+plate until 2026-09-08 — white, then a grey pill — and whatever its colour it
+was the brightest thing over Google's tiles and outshouted the line badges. A
+vehicle is the news, a stop is the furniture; if the stop names ever draw the
+eye before the badges do, that is the bug. Do not give them a plate back.
 
 **Cesium cannot stack labels — a crowd has to be decluttered, not layered.**
 A `LabelCollection` keeps two BillboardCollections of its own, one for every

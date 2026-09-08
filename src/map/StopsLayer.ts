@@ -1,5 +1,5 @@
 /**
- * The stops layer: one disc plus one name plate per stop position, their
+ * The stops layer: one disc plus one name per stop position, their
  * line-driven visibility, the screen-space label declutter, and the
  * camera-dependent height refinement on the photo tiles.
  *
@@ -69,10 +69,10 @@ export interface StopHeightSample {
 interface StopEntityRecord {
   /** Disc marker – a billboard in stopBillboards, added before all names. */
   disc: Billboard
-  /** Name plate – a billboard in stopBillboards, added after all discs. */
+  /** Name – a billboard in stopBillboards, added after all discs. */
   label: Billboard
   /**
-   * Half the rendered name plate width in CSS px – the screen-space
+   * Half the rendered name width in CSS px – the screen-space
    * rectangle for the label declutter.
    */
   labelHalfWidth: number
@@ -139,64 +139,83 @@ const STOP_RETRY_MS = 1500
  */
 const STOP_DISC_RANGE = 20000 * FRAMING_SCALE
 /** Exported so the declutter test can stand its camera outside it. */
-export const STOP_LABEL_RANGE = 1000 * FRAMING_SCALE
+export const STOP_LABEL_RANGE = 2000 * FRAMING_SCALE
 
 /** Rendered size of a stop disc in CSS px (fill + outline). */
 const STOP_DISC_SIZE = 10
-/** The disc is the name plate's colours the other way round, so a stop
- *  reads as one mark: light ring on the plate, dark ring on the disc. */
+/** The disc wears the name's colours, so a stop reads as one mark: light
+ *  ink in a dark halo, light disc in a dark ring. */
 const STOP_DISC_FILL = 'oklch(0.9842 0.0034 247.86)'
 const STOP_DISC_STROKE = 'oklch(0.3717 0.0392 257.29)'
 
-/** Font size of the stop name plates in CSS px. */
+/** Font size of the stop names in CSS px. */
 const STOP_LABEL_FONT_SIZE = 10
 /** Font size of the serving-lines suffix, e.g. "(1, 5, 25)". */
 const STOP_LABEL_LINES_FONT_SIZE = 9
 const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
 
-/** Corner radius of the plate, in CSS px. */
-const STOP_LABEL_RADIUS = 3
 /*
- * The plate and its ink. Slate, as everywhere else in this interface, and
- * kept just short of opaque so a stop never quite hides what it stands on.
+ * The ink and its halo. A stop name is bare text, not a plate: the plate –
+ * white, then grey, then a pill – was the brightest thing over Google's
+ * tiles whatever its colour and outshouted the line badges, which are what
+ * the map is about. A vehicle is the news, a stop is the furniture. Bare
+ * text carries no surface of its own, so it settles into the photograph
+ * instead of sitting on it, and the map keeps its three kinds of name apart
+ * by texture rather than by plate: a badge is white on colour, a ship is
+ * white on a dark plate, a stop is light ink with a dark halo, the way a
+ * street name is written on any map.
+ *
+ * The halo is what makes bare text hold one weight over bright roofs, dark
+ * trees and wet asphalt alike. It is thin – a rim, not a plate returning
+ * by the back door – and dark rather than light, because Google's tiles
+ * are mostly bright in daylight and a light rim there is no rim at all.
+ * Slate, as everywhere else in this interface; the line list a shade
+ * dimmer than the name so long lists stay secondary.
  */
-const STOP_LABEL_PLATE = 'oklch(0.9842 0.0034 247.86 / 0.85)'
-const STOP_LABEL_NAME = 'oklch(0.2077 0.0398 265.75)'
-const STOP_LABEL_LINES = 'oklch(0.5544 0.0407 257.42)'
+const STOP_LABEL_NAME = 'oklch(0.9842 0.0034 247.86)'
+const STOP_LABEL_LINES = 'oklch(0.9288 0.0126 255.51)'
+const STOP_LABEL_HALO = 'oklch(0.3717 0.0392 257.29)'
+/** Width of the halo stroke in CSS px – drawn centred on the glyph edge,
+ *  so half of it shows outside the ink. */
+const STOP_LABEL_HALO_WIDTH = 3
 
-/** Space left of the name and right of the line list, in CSS px. */
-const STOP_LABEL_PAD_X = 4
-/** …and above and below the line inside the plate. */
-const STOP_LABEL_PAD_Y = 2
 /**
- * Canvas height of a stop name plate: the line plus that padding, derived
- * rather than tuned, so the plate follows the font instead of having to be
- * re-tuned beside it.
+ * Margin around the text inside its canvas, in CSS px, on every side: the
+ * half of the halo that lies outside the glyphs, rounded up to a whole
+ * pixel. Derived from the stroke rather than tuned beside it, so a thicker
+ * halo cannot be clipped at the canvas edge by a margin nobody widened.
+ */
+const STOP_LABEL_PAD = Math.ceil(STOP_LABEL_HALO_WIDTH / 2)
+/**
+ * Canvas height of a stop name: the line plus that margin above and below,
+ * so the canvas follows the font and the halo instead of having to be
+ * re-tuned beside them.
  *
  * Checked against the real ink rather than against the nominal size: at
  * 10 px the tallest German stop names ("Gehlsdorf Fähre") span 10.34 px
  * from the umlaut dots down to the descender – a hair more than the font
- * size, and the ratio holds as the size moves – so two pixels of padding
- * leave a little under two clear on each side.
+ * size, and the ratio holds as the size moves – so the margin leaves a
+ * little under two pixels clear on each side, which is what the halo's
+ * outer half needs.
  */
-const STOP_LABEL_HEIGHT = STOP_LABEL_FONT_SIZE + 2 * STOP_LABEL_PAD_Y
+const STOP_LABEL_HEIGHT = STOP_LABEL_FONT_SIZE + 2 * STOP_LABEL_PAD
 
 /**
  * Vertical anchor offset of a stop label above its disc in CSS px: the
  * canvas is anchored by its bottom edge, so this is the gap itself – close
- * enough that plate and disc read as one mark rather than as a plate
+ * enough that name and disc read as one mark rather than as a name
  * floating over a dot.
  */
-const STOP_LABEL_OFFSET_Y = -12
+const STOP_LABEL_OFFSET_Y = -10
 
 /**
  * Minimum screen-space gap between two stop labels in CSS px – labels whose
  * padded rectangles intersect an already accepted one are hidden.
  */
-const STOP_LABEL_GAP = 24
+const STOP_LABEL_GAP = 12
 
 /**
- * The stop plate as the declutter sees it: bottom edge STOP_LABEL_OFFSET_Y
+ * The stop name as the declutter sees it: bottom edge STOP_LABEL_OFFSET_Y
  * above the disc, STOP_LABEL_HEIGHT tall, keeping STOP_LABEL_GAP clear.
  * Exported for the test that pins the pruning.
  */
@@ -216,7 +235,7 @@ const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).
 const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
 
 export class StopsLayer {
-  /** Discs AND name plates in one collection (add order = overlap order). */
+  /** Discs AND names in one collection (add order = overlap order). */
   private stopBillboards: BillboardCollection | null = null
   private stopRecords: StopEntityRecord[] = []
   /** A stop changed (position, visibility) – the label declutter must rerun. */
@@ -265,7 +284,7 @@ export class StopsLayer {
   /**
    * Underground view: the stops on the surface are ghosted, the ones on an
    * underground platform stay solid – the same swap the routes and vehicles
-   * make. Disc and name plate carry it via their color multiplier.
+   * make. Disc and name carry it via their color multiplier.
    */
   setUnderground(underground: boolean): void {
     if (underground === this.underground) return
@@ -320,7 +339,7 @@ export class StopsLayer {
   }
 
   add(network: PreparedNetwork): void {
-    // One shared billboard collection for discs AND name plates, rendered
+    // One shared billboard collection for discs AND names, rendered
     // purely translucent – see stopBillboards for why the add order inside
     // a single collection is the only reliable overlap order. The names
     // are pre-rendered to canvases (like the tram badges); Cesium's Label
@@ -394,15 +413,15 @@ export class StopsLayer {
       return disc
     })
 
-    // Second pass: every name plate after every disc
+    // Second pass: every name after every disc
     unique.forEach((stop, i) => {
-      const plate = this.stopNameplate(stop.name, stop.lines)
+      const image = this.stopNameImage(stop.name, stop.lines)
       const label = billboards.add({
         id: `stop:${stop.id}`,
         position: positions[i],
-        image: plate?.canvas,
-        width: plate?.width,
-        height: plate?.height,
+        image: image?.canvas,
+        width: image?.width,
+        height: image?.height,
         horizontalOrigin: HorizontalOrigin.CENTER,
         verticalOrigin: VerticalOrigin.BOTTOM,
         pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
@@ -412,8 +431,8 @@ export class StopsLayer {
       this.stopRecords.push({
         disc: discs[i],
         label,
-        labelHalfWidth: plate
-          ? plate.width / 2
+        labelHalfWidth: image
+          ? image.width / 2
           : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
         lines: stop.lines,
         lineVisible: true,
@@ -477,20 +496,12 @@ export class StopsLayer {
   }
 
   /**
-   * Renders a stop name plus the serving lines in parentheses onto a light
-   * plate, at the drawing-buffer pixel ratio.
-   *
-   * A plate rather than the outlined text this used to be: outlined text
-   * is legible on anything but reads as part of the photograph, and over
-   * Google's tiles – bright roofs, dark trees, wet asphalt – it never held
-   * one weight. The plate is the same slate the ship names wear
-   * (VesselLayer), only inverted: dark on light for what stands on land,
-   * light on dark for what floats. Neither can be mistaken for a vehicle,
-   * which wears its own line colour and nothing else.
-   *
-   * Returns undefined where no 2D canvas is available (jsdom).
+   * Renders a stop name plus the serving lines in parentheses as haloed
+   * text, at the drawing-buffer pixel ratio – see STOP_LABEL_NAME for why
+   * bare text and not a plate. Returns undefined where no 2D canvas is
+   * available (jsdom).
    */
-  private stopNameplate(
+  private stopNameImage(
     name: string,
     lines: string[],
   ): { canvas: HTMLCanvasElement; width: number; height: number } | undefined {
@@ -507,24 +518,24 @@ export class StopsLayer {
     ctx.font = linesFont
     const suffixWidth = suffix ? ctx.measureText(suffix).width : 0
     const gap = suffix ? 4 * ratio : 0
-    const padX = STOP_LABEL_PAD_X * ratio
-    const plateHeight = Math.round(STOP_LABEL_HEIGHT * ratio)
-    const plateWidth = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
-    canvas.width = plateWidth
-    canvas.height = plateHeight
+    const padX = STOP_LABEL_PAD * ratio
+    canvas.width = Math.ceil(nameWidth + gap + suffixWidth + 2 * padX)
+    canvas.height = Math.round(STOP_LABEL_HEIGHT * ratio)
 
-    ctx.beginPath()
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(0, 0, plateWidth, plateHeight, STOP_LABEL_RADIUS * ratio)
-    } else {
-      ctx.rect(0, 0, plateWidth, plateHeight)
-    }
-    ctx.fillStyle = STOP_LABEL_PLATE
-    ctx.fill()
-
-    const textY = plateHeight / 2
+    const textY = canvas.height / 2
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
+    // The halo first, under both runs, so the name's rim never cuts into
+    // the line list where the two meet; round joins keep it a soft edge.
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = STOP_LABEL_HALO_WIDTH * ratio
+    ctx.strokeStyle = STOP_LABEL_HALO
+    ctx.font = nameFont
+    ctx.strokeText(name, padX, textY)
+    if (suffix) {
+      ctx.font = linesFont
+      ctx.strokeText(suffix, padX + nameWidth + gap, textY)
+    }
     ctx.font = nameFont
     ctx.fillStyle = STOP_LABEL_NAME
     ctx.fillText(name, padX, textY)

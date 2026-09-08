@@ -689,7 +689,7 @@ export default function App() {
   /**
    * What the stop card shows about each stop: name, position, serving
    * lines, underground platform. Same aggregation the stops layer runs
-   * for its name plates – a stop belongs to every line calling at it.
+   * for its names – a stop belongs to every line calling at it.
    */
   const stopInfoById = useMemo(() => {
     const byId = new Map<string, StopInfo>()
@@ -809,7 +809,7 @@ export default function App() {
     [selectVehicle],
   )
 
-  /** Stop selection (click on a disc/name plate, or a #stop= link). */
+  /** Stop selection (click on a disc/name, or a #stop= link). */
   const selectStop = useCallback(
     (id: string | null) => {
       if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
@@ -2623,7 +2623,7 @@ export default function App() {
    * than by "is it the page", because a click on the map leaves the focus
    * on Cesium's canvas, which is exactly where the pause has to work.
    *
-   * What the MAP draws is deliberately untouched by H – stop plates,
+   * What the MAP draws is deliberately untouched by H – stop names,
    * vehicle numbers, ship names and routes all live in the WebGL scene
    * rather than in the DOM, and the Layers switches are what turn those
    * off. Cesium's credit line stays for the same reason plus a better
