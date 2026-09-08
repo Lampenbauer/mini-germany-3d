@@ -24,7 +24,9 @@ Saturday-only and correctly sits still on a weekday; do not "fix" it. Synthetic
 headways are acceptable only where no real data exists at all (a city without
 `schedule.json`). When data fidelity and a livelier map conflict, fidelity wins.
 This was stated explicitly after a synthetic fallback ran a line that was
-suspended for track works.
+suspended for track works. Known gaps that follow from the same principle and
+are *not* modelled: Rostock's construction reroutes (line 1) and split routes
+(line 5) during the Werftdreieck works still run on their normal alignment.
 
 **The data pipeline runs in CI, never locally.** The nightly workflow
 ([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC; OSM only on
@@ -112,6 +114,14 @@ reads before asking the server.
 
 Never store per-vertex heights in a city folder — vertices and lamps are
 resampled after every OSM refresh, only a raster survives.
+
+Two dead ends already walked for Hamburg, so nobody walks them twice: the 2016
+DGM1 zip Mapterhorn imports *does* contain the centre tiles (~110 MB each), so
+the gap is an upstream import problem, not missing source data; and
+`geodienste.hamburg.de/HH_WMS_DGM1` is a rendering service, not a bulk source —
+`GetMap` returns colour-class PNG/TIFF with no raw heights, and
+`GetFeatureInfo` returns a real value per point but also nodata markers
+(200, −20) depending on scale.
 
 ### The two mode-mapping knobs
 
@@ -219,11 +229,20 @@ scene-graph update even for `show=false` models — only `submitDrawCommands`
 checks `show` — so a hidden *parent* `PrimitiveCollection` is the only way to
 skip children.
 
+Where Berlin's CPU actually goes, measured the same day: of 22 ms render CPU in
+the home view, 16.8 ms are the 3002 wagon `Model` primitives (13.2 ms for the
+969 shown bodies, 3.6 ms for the 2033 hidden ones); tiles and everything else
+are 5.2 ms. A known inefficiency sits there: `showBody` uses the `FRAMING_SCALE`
+pinned to the 25° lens even when the 60° lens is on, so bodies are drawn out to
+7.7 km, where a wagon is about 3 px.
+
 ### Rendering is event-driven and motion-paced
 
 Idle renders happen on `CesiumMap.requestRender()` flags plus a 15 s heartbeat.
 **Every new visible scene mutation in `CesiumMap` must call `requestRender()`**,
-or it stays invisible for up to 15 seconds.
+or it stays invisible for up to 15 seconds. Two related budgets from the same
+pass: the stop-height bootstrap samples only ~40 stops (full sampling kept the
+tileset loading for minutes), and vehicles count as "in view" only within 12 km.
 
 Since 2026-09-05, frames and sim ticks are paced by on-screen motion:
 `VehicleLayer`/`VesselLayer` measure each in-view object's screen motion since
