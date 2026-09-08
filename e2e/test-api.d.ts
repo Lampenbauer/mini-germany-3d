@@ -9,7 +9,7 @@ declare global {
   }
 
   interface Window {
-    /** Test hook of raf-stall.spec.ts: freezes requestAnimationFrame. */
+    /** Test hook of render-loop.spec.ts: freezes requestAnimationFrame. */
     __stopRaf?: boolean
     __mrt?: {
       ready: boolean

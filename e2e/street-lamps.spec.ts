@@ -56,7 +56,12 @@ test('?lamps=0 leaves the street lighting out entirely', async ({ page }) => {
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
-  await page.waitForTimeout(5000)
+  // Two loop ticks, not a fixed sleep: the lamps are built from the loop,
+  // so a loop that has run twice and built nothing is the evidence.
+  const ticks = await page.evaluate(() => window.__mrt!.loopTicks())
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.loopTicks()), { timeout: 30_000 })
+    .toBeGreaterThan(ticks + 1)
   const info = await page.evaluate(() => window.__mrt!.streetLamps())
   expect(info.drawn).toBe(0)
   expect(info.alpha).toBe(0)

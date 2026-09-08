@@ -8,7 +8,13 @@ import { cityBySlug } from '../src/cities/definitions'
  * Nothing here is read off the screen, so the scene is raised as cheaply
  * as it can be: routes, stops and labels off. Under SwiftShader those are
  * what a frame is spent on (see the note in tilt-shift.spec.ts), and this
- * spec drives the camera through dozens of gestures, each of them frames.
+ * spec drives the camera through a dozen gestures, each of them frames.
+ *
+ * One scene for all of it. The link from far away, the drag and the wheel
+ * used to be separate boots, and raising the map cost more than the
+ * gestures: the fence is the same fence whichever way the camera runs
+ * into it, and it is moved between the parts by editing the URL hash –
+ * the app applies an edited pose without a reload (see camera-hash.spec.ts).
  */
 
 /** The fence in degrees: the city limits widened by 15 km. */
@@ -30,8 +36,10 @@ function cameraView(page: import('@playwright/test').Page) {
   })
 }
 
-test('a shared link from far away lands at the fence', async ({ page }) => {
-  test.setTimeout(240_000)
+test('a link from far away lands at the fence, and dragging and zooming out both stop there', async ({
+  page,
+}) => {
+  test.setTimeout(300_000)
 
   // Munich, 2000 km up – outside the fence in every component, so the
   // camera has to end up in its south-western corner at the ceiling.
@@ -41,36 +49,27 @@ test('a shared link from far away lands at the fence', async ({ page }) => {
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
+  const landed = await cameraView(page)
+  expect(landed.lon).toBeCloseTo(FENCE.west, 2)
+  expect(landed.lat).toBeCloseTo(FENCE.south, 2)
+  expect(landed.height).toBeLessThanOrEqual(MAX_HEIGHT + 1)
 
-  const view = await cameraView(page)
-  expect(view.lon).toBeCloseTo(FENCE.west, 2)
-  expect(view.lat).toBeCloseTo(FENCE.south, 2)
-  expect(view.height).toBeLessThanOrEqual(MAX_HEIGHT + 1)
-})
-
-/**
- * Both gestures on one scene. They used to be two tests, and raising the
- * map twice for them cost more than the gestures themselves: the fence
- * is the same fence whether a drag or a wheel runs into it, and the
- * camera is moved between the two by editing the URL hash – the app
- * applies an edited pose without a reload (see camera-hash.spec.ts).
- */
-test('dragging and zooming out both stop at the fence', async ({ page }) => {
-  test.setTimeout(240_000)
-
-  // Start on the eastern border, looking north so a horizontal drag moves
+  // Over to the eastern border, looking north so a horizontal drag moves
   // the camera along the east–west axis.
-  await page.goto(
-    `/?offline=1&time=08:30&paused=1#${CHEAP}&lat=54.1&lon=${FENCE.east}&height=3000&heading=0&pitch=-60`,
+  await page.evaluate(
+    (hash) => {
+      window.location.hash = hash
+    },
+    `#${CHEAP}&lat=54.1&lon=${FENCE.east}&height=3000&heading=0&pitch=-60`,
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
-    timeout: 120_000,
-  })
+  await expect
+    .poll(async () => (await cameraView(page)).height, { timeout: 30_000 })
+    .toBeLessThan(3500)
 
   // Dragging the map to the left pushes the camera east – into the fence.
-  // Three drags are plenty from the border; each one is seconds of
+  // Two drags are plenty from the border; each one is seconds of
   // SwiftShader rendering on CI.
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     await page.mouse.move(1000, 400)
     await page.mouse.down()
     await page.mouse.move(300, 400, { steps: 4 })
@@ -85,9 +84,12 @@ test('dragging and zooming out both stop at the fence', async ({ page }) => {
   // Now the ceiling, from high up and straight down: climbing to it from
   // the home view takes dozens of wheel steps, and on a CI runner under
   // SwiftShader every one of them is seconds of rendering.
-  await page.evaluate(() => {
-    window.location.hash = '#routes=0&stops=0&labels=0&lat=54.09&lon=12.13&height=14000&heading=0&pitch=-90'
-  })
+  await page.evaluate(
+    (hash) => {
+      window.location.hash = hash
+    },
+    `#${CHEAP}&lat=54.09&lon=12.13&height=14000&heading=0&pitch=-90`,
+  )
   await expect
     .poll(async () => (await cameraView(page)).height, { timeout: 30_000 })
     .toBeGreaterThan(10_000)
@@ -96,8 +98,8 @@ test('dragging and zooming out both stop at the fence', async ({ page }) => {
   // Keep scrolling out well past the ceiling – the fence has to hold at
   // every step, not just at the end.
   await page.mouse.move(640, 400)
-  for (let i = 0; i < 6; i++) {
-    await page.mouse.wheel(0, 1200)
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, 1800)
     await page.waitForTimeout(150)
     const view = await cameraView(page)
     expect(view.height).toBeLessThanOrEqual(MAX_HEIGHT + 1)

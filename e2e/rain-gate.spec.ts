@@ -1,31 +1,44 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 /**
- * Below ground there is no weather: no drops falling around a camera that
- * sits under the city.
+ * Rain, on one deliberately cheap page – routes and stops off, a 40-drop
+ * pool. Visible rain counts as an animation, so the app renders the whole
+ * scene at full rate for as long as it falls, and the UI tick these tests
+ * wait on rides along on that loop. Measured locally under SwiftShader:
+ * the full scene at 1000 drops runs the loop at 2.6 ticks/s, this page at
+ * 8.6 – and a loaded CI runner is a large factor slower again.
  *
- * On its own page, and a deliberately cheap one – routes and stops off, a
- * 40-drop pool. Visible rain counts as an animation, so the app renders
- * the whole scene at full rate for as long as it falls, and the UI tick
- * this test waits on rides along on that loop. Measured locally under
- * SwiftShader: the full scene at 1000 drops runs the loop at 2.6 ticks/s,
- * this page at 8.6 – and a loaded CI runner is a large factor slower
- * again. Sharing app.spec's page also meant a flake here retried all
- * fourteen of its tests.
+ * Both tests on the same page: they used to boot the very same URL twice.
+ * A pose under the cloud base: rain falls from the clouds, and a camera
+ * above them – the home view is – sees none (see WeatherOverlay).
  */
-test('the underground view stops the rain', async ({ page }) => {
-  test.setTimeout(240_000)
-  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
-  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
 
-  // A pose under the cloud base: rain falls from the clouds, and a camera
-  // above them – the home view is – sees none (see WeatherOverlay)
+test.describe.configure({ mode: 'serial' })
+
+let page: Page
+const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
+const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
+
+test.beforeAll(async ({ browser }) => {
+  page = await browser.newPage()
   await page.goto(
     '/?offline=1&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
   )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
+})
+
+test.afterAll(async () => {
+  await page.close()
+})
+
+/**
+ * Below ground there is no weather: no drops falling around a camera that
+ * sits under the city.
+ */
+test('the underground view stops the rain', async () => {
+  test.setTimeout(240_000)
 
   await page.evaluate(() => window.__mrt!.setRain(0.2))
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
@@ -42,26 +55,16 @@ test('the underground view stops the rain', async ({ page }) => {
   await page.evaluate(() => window.__mrt!.setRain(0.2))
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
   await page.evaluate(() => window.__mrt!.setRain(0))
+  await expect.poll(drops, slowPoll).toBe(0)
 })
 
 /**
- * The weather picker in the scene popover, on the same cheap page: a
- * picked sky is set rather than polled, so it works offline – and it has
- * to reach the map through the same per-tick path the live weather uses.
+ * The weather picker in the scene popover: a picked sky is set rather
+ * than polled, so it works offline – and it has to reach the map through
+ * the same per-tick path the live weather uses.
  */
-test('a picked sky puts rain in the air and takes it out again', async ({ page }) => {
+test('a picked sky puts rain in the air and takes it out again', async () => {
   test.setTimeout(240_000)
-  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
-  const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
-
-  // A pose under the cloud base: rain falls from the clouds, and a camera
-  // above them – the home view is – sees none (see WeatherOverlay)
-  await page.goto(
-    '/?offline=1&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
-  )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
-    timeout: 120_000,
-  })
 
   const button = page.getByRole('button', { name: 'Weather' })
   const buttonBox = (await button.boundingBox())!

@@ -160,6 +160,29 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   expect(home.height).toBeLessThan(CITY.home.height * 1.2)
   expect(home.height).toBeGreaterThan(CITY.home.height * 0.8)
   expect(home.lon).toBeCloseTo(CITY.home.longitude, 1)
+
+  // Aiming at something on the diagram is aiming at something on the
+  // map: the lines fold back and the flight starts once they are down.
+  // A second pass through the diagram – cheaper than the boot this had
+  // as a test of its own – and "Follow" on the card a dot opens.
+  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
+    timeout: 30_000,
+  })
+  await expect
+    .poll(() => diagram.locator('circle[data-vehicle]').count(), { timeout: 20_000 })
+    .toBeGreaterThan(0)
+  await diagram.locator('circle[data-vehicle]').first().click()
+  await expect(page.getByTestId('vehicle-card')).toBeVisible()
+  await page.getByRole('button', { name: 'Follow' }).click()
+
+  // The map is back, the URL says so, and the camera is down at the vehicle
+  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
+  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
+  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
+  await expect
+    .poll(async () => (await cameraPose(page)).height, { timeout: 30_000 })
+    .toBeLessThan(500)
 })
 
 /**
@@ -245,20 +268,26 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 })
 
 /**
- * All three readings travel in the URL, and the map is the one that
- * needs no word for it: `view=` is absent on the surface, `view=linear`
- * for the diagram, `view=underground` for the tunnels.
+ * L pulls the lines straight, S puts the city back, U goes under it – the
+ * same three the tabs at the foot of the map carry. And all three
+ * readings travel in the URL, the map being the one that needs no word
+ * for it: `view=` is absent on the surface, `view=linear` for the
+ * diagram, `view=underground` for the tunnels. One page for both: the
+ * keys are the switches, the hash is what each press leaves behind.
  */
-test('the URL carries whichever reading is on screen', async ({ page }) => {
+test('the keyboard reaches all three readings, and the URL carries whichever is on screen', async ({
+  page,
+}) => {
   test.setTimeout(240_000)
 
   const hash = () => page.evaluate(() => window.location.hash)
+  const linear = () => page.evaluate(() => window.__mrt!.linear())
 
   // A pose in the link and a camera left to settle. Both matter: without
   // them the boot flight is still writing the hash for its own reasons,
   // and a press that writes nothing looks like a press that works.
   await page.goto(
-    `/?offline=1&time=08:30#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
+    `/?offline=1&time=08:30&paused=1#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
   )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   await expect
@@ -268,13 +297,22 @@ test('the URL carries whichever reading is on screen', async ({ page }) => {
 
   // The underground view moves no camera of its own, so nothing but the
   // press itself can put it in the URL.
-  await page.getByRole('tab', { name: 'Underground' }).click()
+  await page.keyboard.press('u')
+  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute('data-state', 'active', {
+    timeout: 30_000,
+  })
   await expect.poll(hash, { timeout: 10_000 }).toContain('view=underground')
 
-  // The diagram writes its own, and the surface writes nothing at all
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  // The diagram writes its own ...
+  await page.keyboard.press('l')
+  await expect.poll(linear, { timeout: 60_000 }).toBe(true)
+  await expect(page.getByTestId('linear-view')).toBeVisible()
   await expect.poll(hash, { timeout: 30_000 }).toContain('view=linear')
-  await page.getByRole('tab', { name: 'Surface' }).click()
+
+  // ... and the surface writes nothing at all
+  await page.keyboard.press('s')
+  await expect.poll(linear, { timeout: 60_000 }).toBe(false)
+  await expect(page.getByRole('tab', { name: 'Surface' })).toHaveAttribute('data-state', 'active')
   await expect.poll(hash, { timeout: 30_000 }).not.toContain('view=')
 
   // An edited hash applies without a reload, like every other switch
@@ -350,42 +388,6 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
   )
 })
 
-/**
- * Aiming at something on the diagram is aiming at something on the map:
- * the lines fold back and the flight starts once they are down.
- */
-test('following a vehicle from the diagram brings the map back', async ({ page }) => {
-  test.setTimeout(240_000)
-
-  await page.goto(`/?offline=1&time=08:30${VIEW}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
-  await expect
-    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
-    .toBeGreaterThan(0)
-
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
-  const diagram = page.getByTestId('linear-view')
-  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
-    timeout: 30_000,
-  })
-
-  // A dot on a row, then "Follow" on the card it opens
-  await expect
-    .poll(() => diagram.locator('circle[data-vehicle]').count(), { timeout: 20_000 })
-    .toBeGreaterThan(0)
-  await diagram.locator('circle[data-vehicle]').first().click()
-  await expect(page.getByTestId('vehicle-card')).toBeVisible()
-  await page.getByRole('button', { name: 'Follow' }).click()
-
-  // The map is back, the URL says so, and the camera is down at the vehicle
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
-  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
-  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
-  await expect
-    .poll(async () => (await cameraPose(page)).height, { timeout: 30_000 })
-    .toBeLessThan(500)
-})
-
 test('a shared link opens straight into the diagram', async ({ page }) => {
   test.setTimeout(240_000)
 
@@ -402,26 +404,4 @@ test('a shared link opens straight into the diagram', async ({ page }) => {
   expect(plan.lon).toBeCloseTo(CENTER.lon, 2)
   expect(plan.lat).toBeCloseTo(CENTER.lat, 2)
   expect(await diagram.locator('svg > g:first-child > path').count()).toBeGreaterThan(3)
-})
-
-test('the keyboard reaches all three readings', async ({ page }) => {
-  test.setTimeout(240_000)
-
-  await page.goto(`/?offline=1&time=08:30&paused=1#stops=0&labels=0`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
-
-  // L pulls the lines straight, S puts the city back, U goes under it –
-  // the same three the tabs at the foot of the map carry.
-  await page.keyboard.press('l')
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 60_000 }).toBe(true)
-  await expect(page.getByTestId('linear-view')).toBeVisible()
-
-  await page.keyboard.press('s')
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 60_000 }).toBe(false)
-  await expect(page.getByRole('tab', { name: 'Surface' })).toHaveAttribute('data-state', 'active')
-
-  await page.keyboard.press('u')
-  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute('data-state', 'active', {
-    timeout: 30_000,
-  })
 })
