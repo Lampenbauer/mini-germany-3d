@@ -144,6 +144,16 @@ tight: 320 px hold the date, a 96 px time field and the "Now" button, and
 "28. Mär 2026" wants about 91 px of the remainder. Measure before adding
 anything to that row – the failure is a truncated date, which no test catches.
 
+**The map's controls live on the rail, not in the panel.** The control panel is
+the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
+to the boxes at the lower right: the layers popover (routes, stops, names,
+webcams), the camera's block, the photo popover. The Layers block moved out of
+the panel on 2026-09-08 for exactly that reason; do not move map switches back
+into it. All three boxes are built the same way (`RAIL_BOX` + `GROUPED_CONTROL`
+in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
+narrower than the group above it, because the group's border sits outside its
+buttons.
+
 
 ---
 

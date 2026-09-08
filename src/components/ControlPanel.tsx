@@ -2,11 +2,9 @@ import { memo, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { de, enGB } from 'react-day-picker/locale'
 import {
-  Camera,
   Check,
   Gauge,
   Info,
-  Layers,
   Pause,
   Play,
   Ship,
@@ -23,12 +21,6 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -53,12 +45,6 @@ export interface CityChoice {
   name: string
   /** Transit modes the city's network has – shown as icons in the list. */
   modes: readonly TransitMode[]
-}
-
-/** One webcam as the panel lists it. */
-export interface WebcamChoice {
-  id: number
-  title: string
 }
 
 export interface ControlPanelProps {
@@ -86,25 +72,6 @@ export interface ControlPanelProps {
   onFocusLine: (lineId: string) => void
   /** Alle Linien einer Gruppe auf einmal ein-/ausblenden. */
   onSetLinesVisible: (lineIds: string[], visible: boolean) => void
-  showRoutes: boolean
-  onToggleRoutes: (visible: boolean) => void
-  showStops: boolean
-  onToggleStops: (visible: boolean) => void
-  /** Vehicle numbers and ship names – one switch for every name on the map. */
-  showLabels: boolean
-  onToggleLabels: (visible: boolean) => void
-  /** The city's live webcams, as last polled – empty without the layer. */
-  webcams: WebcamChoice[]
-  /** The Webcams switch: pictures on the map or not (the list stays). */
-  showWebcams: boolean
-  onToggleWebcams: (visible: boolean) => void
-  /**
-   * The underground view: the pictures are off the map whatever the
-   * switch says, so the switch and the list go grey until the surface.
-   */
-  webcamsDisabled: boolean
-  /** A camera in the list was clicked: the map flies to its picture. */
-  onFlyToWebcam: (id: number) => void
   /**
    * Whether the AIS fleet can be shown at all. False leaves its row out
    * entirely – offline, in the tests, and without a configured endpoint
@@ -199,75 +166,6 @@ const LineGroup = memo(function LineGroup(props: {
         ))}
       </ul>
     </div>
-  )
-})
-
-/**
- * The Webcams layer row: a switch like the other layers', and the city's
- * cameras folded out under it as a shadcn accordion – one row per camera,
- * a click flies the map to its picture. The switch sits next to the
- * trigger, not inside it (a button in a button), so toggling the
- * pictures leaves the list where it is. The list keeps its own scroll so
- * a city with many cameras does not push the traffic list off the panel.
- * Memoized like the line groups: the panel re-renders for the clock, the
- * list only changes with a poll.
- */
-const WebcamsRow = memo(function WebcamsRow(props: {
-  webcams: WebcamChoice[]
-  showWebcams: boolean
-  disabled: boolean
-  onToggleWebcams: (visible: boolean) => void
-  onFlyToWebcam: (id: number) => void
-}) {
-  return (
-    <Accordion type="single" collapsible>
-      <AccordionItem value="webcams" className="border-b-0">
-        {/*
-          The trigger spans the whole row, the switch floats over its right
-          end: a button inside a button is invalid HTML, and a switch next
-          to a narrower trigger left the hover shape short of the row.
-        */}
-        <div className="relative">
-          <AccordionTrigger
-            className="-mx-1 -my-0.5 w-[calc(100%+0.5rem)] cursor-pointer items-center justify-start gap-1 px-1 py-0.5 pr-11 font-normal hover:bg-accent/60 hover:no-underline [&>svg]:order-first [&>svg]:translate-y-0"
-            aria-label={t('layers.webcams')}
-          >
-            <span className="flex items-baseline gap-1">
-              <span className="text-sm">{t('layers.webcams')}</span>
-              <span className="text-xs text-muted-foreground">({props.webcams.length})</span>
-            </span>
-          </AccordionTrigger>
-          <Switch
-            className="absolute top-1/2 right-0 -translate-y-1/2"
-            aria-label={t('layers.showWebcams')}
-            checked={props.showWebcams}
-            disabled={props.disabled}
-            onCheckedChange={props.onToggleWebcams}
-          />
-        </div>
-        <AccordionContent className="pt-1.5 pb-0">
-          <ScrollArea className="max-h-48" viewportClassName="scroll-fade-y">
-            <ul className="flex flex-col pl-5">
-              {props.webcams.map((webcam) => (
-                <li key={webcam.id}>
-                  <button
-                    type="button"
-                    className="-mx-1 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
-                    aria-label={t('webcams.flyTo', { name: webcam.title })}
-                    title={webcam.title}
-                    disabled={props.disabled}
-                    onClick={() => props.onFlyToWebcam(webcam.id)}
-                  >
-                    <Camera className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="truncate text-sm leading-tight">{webcam.title}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </ScrollArea>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
   )
 })
 
@@ -620,49 +518,6 @@ export function ControlPanel(props: ControlPanelProps) {
                 value={[props.speed]}
                 onValueChange={([v]) => props.onSpeedChange(v)}
               />
-            </div>
-
-            <div className="h-px bg-border" role="separator" />
-
-            {/* Layers */}
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-1.5 text-sm font-medium">
-                <Layers className="size-4" aria-hidden />
-                {t('layers.title')}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">{t('layers.routes')}</span>
-                <Switch
-                  aria-label={t('layers.showRoutes')}
-                  checked={props.showRoutes}
-                  onCheckedChange={props.onToggleRoutes}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">{t('layers.stops')}</span>
-                <Switch
-                  aria-label={t('layers.showStops')}
-                  checked={props.showStops}
-                  onCheckedChange={props.onToggleStops}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">{t('layers.labels')}</span>
-                <Switch
-                  aria-label={t('layers.showLabels')}
-                  checked={props.showLabels}
-                  onCheckedChange={props.onToggleLabels}
-                />
-              </div>
-              {props.webcams.length > 0 && (
-                <WebcamsRow
-                  webcams={props.webcams}
-                  showWebcams={props.showWebcams}
-                  disabled={props.webcamsDisabled}
-                  onToggleWebcams={props.onToggleWebcams}
-                  onFlyToWebcam={props.onFlyToWebcam}
-                />
-              )}
             </div>
 
             <div className="h-px bg-border" role="separator" />

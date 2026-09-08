@@ -9,6 +9,7 @@ import {
   TrainFrontTunnel,
 } from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
+import { LayersPopover, type WebcamChoice } from '@/components/LayersPopover'
 import { CompassIcon } from '@/components/CompassIcon'
 import { PhotoModePopover } from '@/components/PhotoModePopover'
 import { WeatherPopover } from '@/components/WeatherPopover'
@@ -411,6 +412,16 @@ function medianStopNhn(network: PreparedNetwork): number {
  */
 const GROUPED_CONTROL =
   'rounded-none border-t border-border/60 bg-transparent shadow-none first:border-t-0'
+
+/**
+ * The glass box a rail button sits in, whether it holds one button or
+ * five. Built the same way in every case on purpose: a bordered box
+ * around a borderless button is 2 px wider than the same button carrying
+ * its own border, and a lone button styled by hand ended up narrower than
+ * the group above it.
+ */
+const RAIL_BOX =
+  'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md'
 
 /** What the compass button says it will do, by the quarter it aims at. */
 const CARDINAL_KEY: Record<number, MessageKey> = {
@@ -2068,8 +2079,8 @@ export default function App() {
     [handleToggleWebcams, leaveLinearFor],
   )
 
-  /** What the panel lists per camera – the array identity only changes with a poll. */
-  const webcamChoices = useMemo(
+  /** What the layers popover lists per camera – the array identity only changes with a poll. */
+  const webcamChoices = useMemo<WebcamChoice[]>(
     () => webcams.map((webcam) => ({ id: webcam.id, title: webcam.title })),
     [webcams],
   )
@@ -2744,17 +2755,6 @@ export default function App() {
             onToggleLine={handleToggleLine}
             onFocusLine={handleFocusLine}
             onSetLinesVisible={handleSetLinesVisible}
-            showRoutes={showRoutes}
-            onToggleRoutes={handleToggleRoutes}
-            showStops={showStops}
-            onToggleStops={handleToggleStops}
-            showLabels={showLabels}
-            onToggleLabels={handleToggleLabels}
-            webcams={webcamChoices}
-            showWebcams={showWebcams}
-            webcamsDisabled={underground}
-            onToggleWebcams={handleToggleWebcams}
-            onFlyToWebcam={handleFlyToWebcam}
             aisAvailable={aisAvailable}
             showAisVessels={showAisVessels}
             onToggleAisVessels={handleToggleAisVessels}
@@ -2873,11 +2873,29 @@ export default function App() {
             the map, so the diagram keeps only full screen, which is the
             window's. */}
         <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-3">
-          <div
-            role="group"
-            aria-label={t('view.controls')}
-            className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-md"
-          >
+          {/* What is drawn on the map, above the block that aims the camera
+              at it: routes, stops, the names, the webcams. Its own button
+              rather than a fifth in the group below – that group is the
+              camera's, and none of this points anywhere. It stays in the
+              diagram too: the switches outlive the reading they were set
+              in, and the map is what they are set for. */}
+          <div className={RAIL_BOX}>
+            <LayersPopover
+              showRoutes={showRoutes}
+              onToggleRoutes={handleToggleRoutes}
+              showStops={showStops}
+              onToggleStops={handleToggleStops}
+              showLabels={showLabels}
+              onToggleLabels={handleToggleLabels}
+              webcams={webcamChoices}
+              showWebcams={showWebcams}
+              webcamsDisabled={underground}
+              onToggleWebcams={handleToggleWebcams}
+              onFlyToWebcam={handleFlyToWebcam}
+              triggerClassName={GROUPED_CONTROL}
+            />
+          </div>
+          <div role="group" aria-label={t('view.controls')} className={RAIL_BOX}>
             {!linear && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -2970,21 +2988,23 @@ export default function App() {
               commands nothing and aims nothing, it is where the reader is
               told what they are looking at, so it stands apart from the
               group rather than in it. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto border border-border/60 bg-card/85 shadow-xs backdrop-blur-md"
-                aria-label={t('about.open')}
-                aria-pressed={aboutOpen}
-                onClick={() => setAboutOpen((open) => !open)}
-              >
-                <CircleHelp aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{t('about.open')}</TooltipContent>
-          </Tooltip>
+          <div className={RAIL_BOX}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className={GROUPED_CONTROL}
+                  aria-label={t('about.open')}
+                  aria-pressed={aboutOpen}
+                  onClick={() => setAboutOpen((open) => !open)}
+                >
+                  <CircleHelp aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{t('about.open')}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </div>
     </div>

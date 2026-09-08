@@ -46,11 +46,11 @@ pipeline (see [Cities](#cities)).
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation, filtered per city (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Weather | Open-Meteo precipitation, cloud cover and temperature for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the weather button. The live sky is shown only near real time (`?rain=0` opts out); the weather popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one |
 | Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen low-poly archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`) |
-| Live webcams | Windy's webcams as pictures floating over the spot they look from: a world-sized billboard per camera, its longest side 150 m at the picture's own aspect ratio, its bottom edge 180 m above the ground, facing the viewer. Polled every ten minutes through a proxy that keeps the API key (`/api/webcams?city=…`); a click opens the camera's windy.com page and the credit line carries Windy's courtesy text. Stop names, vehicle badges and ship names that would sit on a picture step aside for it. The Layers block has a Webcams switch with the city's cameras folded out under it – a click flies to the picture. `?webcams=0` leaves the layer out entirely |
+| Live webcams | Windy's webcams as pictures floating over the spot they look from: a world-sized billboard per camera, its longest side 150 m at the picture's own aspect ratio, its bottom edge 180 m above the ground, facing the viewer. Polled every ten minutes through a proxy that keeps the API key (`/api/webcams?city=…`); a click opens the camera's windy.com page and the credit line carries Windy's courtesy text. Stop names, vehicle badges and ship names that would sit on a picture step aside for it. The layers popover has a Webcams switch with the city's cameras listed under it – a click flies to the picture. `?webcams=0` leaves the layer out entirely |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover, Tabs) |
 | About the map | The question mark below the map controls (or `?`) opens a dialog that says what this is: where it comes from – [mini-tokyo-3d](https://minitokyo3d.com) put Tokyo's trains on a 3D map, [legible-cities](https://github.com/richc117/legible-cities) draws timetable animations out of open GTFS – and, above all, what it is not: not live vehicle tracking. The feeds carry the timetable and the delay, not the position, so every vehicle drives its scheduled trip with the GTFS-RT delay shifting it; only the AIS ships are where they really are. The dialog opens with Mario’s project story and inspirations; map details and keyboard shortcuts have their own tabs |
 | Keyboard | Bare keys, no modifiers: `Space` pauses and plays, `+`/`−` step the time-lapse, `N` returns to the real time, `S`/`U`/`L` pick the surface, the underground and the line diagram, `R` puts the camera on the city's home view, `C` turns it to the next quarter, `2`/`3` flatten and tip it, `M` is the miniature lens, `F` is full screen, `H` hides the interface, `Esc` closes whichever card is open, and `?` opens the About dialog, which lists them in its Keyboard tab. Space gives way to the control the keyboard stands on – there it is the click – and every key stays out of the time field |
-| Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city; a dialog does it on its own while it is open. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the Layers switches are what turn those off, and Cesium's credit line stays either way; its "Data attribution" opens in the app's own dialog rather than in Cesium's lightbox. Not shared in the URL: a reload always brings the interface back |
+| Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city; a dialog does it on its own while it is open. What the map itself draws (stop plates, vehicle numbers, ship names, routes) is untouched; the layers popover's switches are what turn those off, and Cesium's credit line stays either way; its "Data attribution" opens in the app's own dialog rather than in Cesium's lightbox. Not shared in the URL: a reload always brings the interface back |
 | Full screen | A button in the lower-right column puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
 | Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
 
@@ -122,8 +122,8 @@ VITE_CESIUM_ION_TOKEN=your-token
   chases it facing the direction of travel; rotating the camera hands control back
   to free orbit (zooming keeps the chase). Clicking empty map, "Stop following", or
   a camera reset ends the follow mode.
-- **Pulling the lines straight:** The top button of the map controls swaps the
-  city for a diagram of it – every line straightened into a row, the stops along
+- **Pulling the lines straight:** The Line diagram tab at the foot of the map
+  swaps the city for a diagram of it – every line straightened into a row, the stops along
   it where their distance puts them, the vehicles running on the rows. The camera
   climbs straight above the middle of whatever is switched on, keeping its compass
   heading, and the lines only begin to straighten once it is there – switch most
@@ -148,10 +148,15 @@ VITE_CESIUM_ION_TOKEN=your-token
   camera – they replace what the camera looks at. The words appear from 1120px
   up, where the group still clears the panel; below that the icons carry it
   alone. Arrow keys move between the tabs, Enter picks.
-- **Map controls:** at the lower right edge of the map, one block – compass,
-  2D/3D pitch toggle, camera reset, the photo mode (the miniature look lives in
-  its popover), and full screen last.
-  All of it belongs to the map, so the diagram keeps only full screen.
+- **Map controls:** at the lower right edge of the map, three boxes of the same
+  width, one under the other. The layers popover on top – routes, stops, the
+  names, and the city's webcams listed under their switch – then the camera's
+  own block: compass, 2D/3D pitch toggle, camera reset, the photo mode (the
+  miniature look lives in its popover), and full screen
+  last. The camera's block belongs to the map, so the diagram keeps only full
+  screen; the layers stay, because the switches outlive the reading they were
+  set in. Under it all, on its own, the question mark that opens the About
+  dialog.
 - **Weather popover:** upper right, the opposite corner from the camera controls
   – it dresses the map rather than commanding it. That corner belongs to the
   cards whenever one is up, and the button gives it up entirely rather than
@@ -736,7 +741,9 @@ src/
 │                           # morph between the two readings
 ├── map/*Layer.ts           # Routes, stops, street lamps, vehicles, AIS vessels –
 │                           # each with clear() for the move to the next city
-├── components/             # shadcn-style UI (ControlPanel with the city picker, cards, ui/*)
+├── components/             # shadcn-style UI (ControlPanel with the city picker, the
+│                           # layers/photo/weather popovers of the map's control
+│                           # rail, cards, ui/*)
 └── App.tsx                 # Viewer effect (once) + city session effect (per city),
                             # render loop pacing, test API (window.__mrt)
 

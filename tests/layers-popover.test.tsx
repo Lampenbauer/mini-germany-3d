@@ -1,40 +1,27 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ControlPanel, type ControlPanelProps } from '@/components/ControlPanel'
+import { LayersPopover, type LayersPopoverProps } from '@/components/LayersPopover'
 import { setLanguage } from '@/lib/i18n'
 
 /**
- * The Webcams row in the Layers block: a switch like the other layers',
- * a caret that folds the city's cameras out, and a click on a camera
- * that flies to it.
+ * The layers popover on the map's control rail: the switches for routes,
+ * stops and names, and under them the Webcams row – a switch like the
+ * others, a caret that folds the city's cameras out, and a click on a
+ * camera that flies to it.
  */
 
 beforeEach(() => {
   setLanguage('en')
 })
 
-function panel(overrides: Partial<ControlPanelProps> = {}) {
+/** Renders the popover and opens it – its contents exist only while it is up. */
+function layers(overrides: Partial<LayersPopoverProps> = {}) {
   const onToggleWebcams = vi.fn()
   const onFlyToWebcam = vi.fn()
-  const props: ControlPanelProps = {
-    city: { slug: 'rostock', name: 'Rostock', modes: ['tram'] },
-    cities: [{ slug: 'rostock', name: 'Rostock', modes: ['tram'] }],
-    cityLoading: false,
-    onSelectCity: vi.fn(),
-    clockText: '12:00:00',
-    speed: 1,
-    paused: false,
-    onSpeedChange: vi.fn(),
-    onTogglePause: vi.fn(),
-    onSetTime: vi.fn(),
-    onResetTime: vi.fn(),
-    onSetDate: vi.fn(),
-    lines: [],
-    onToggleLine: vi.fn(),
-    onFocusLine: vi.fn(),
-    onSetLinesVisible: vi.fn(),
+  const onToggleRoutes = vi.fn()
+  const props: LayersPopoverProps = {
     showRoutes: true,
-    onToggleRoutes: vi.fn(),
+    onToggleRoutes,
     showStops: true,
     onToggleStops: vi.fn(),
     showLabels: true,
@@ -47,48 +34,55 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     webcamsDisabled: false,
     onToggleWebcams,
     onFlyToWebcam,
-    aisAvailable: false,
-    showAisVessels: false,
-    onToggleAisVessels: vi.fn(),
     ...overrides,
   }
-  render(<ControlPanel {...props} />)
-  return { onToggleWebcams, onFlyToWebcam }
+  render(<LayersPopover {...props} />)
+  // The only button before the popover opens, and its name follows the
+  // interface language – the German case would not find "Layers".
+  fireEvent.click(screen.getByRole('button'))
+  return { onToggleWebcams, onFlyToWebcam, onToggleRoutes }
 }
 
-describe('the Webcams row in the Layers block', () => {
+describe('the layers popover', () => {
+  it('carries the switches for what is drawn on the map', () => {
+    const h = layers()
+    expect(screen.getByRole('switch', { name: 'Show stops' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByRole('switch', { name: 'Show vehicle and ship labels' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('switch', { name: 'Show routes' }))
+    expect(h.onToggleRoutes).toHaveBeenCalledWith(false)
+  })
+
   it('is left out while the city has no cameras', () => {
-    panel({ webcams: [] })
+    layers({ webcams: [] })
     expect(screen.queryByRole('switch', { name: 'Show webcams' })).not.toBeInTheDocument()
   })
 
   it('switches the pictures on and off like the other layers', () => {
-    const h = panel()
+    const h = layers()
     const toggle = screen.getByRole('switch', { name: 'Show webcams' })
     expect(toggle).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(toggle)
     expect(h.onToggleWebcams).toHaveBeenCalledWith(false)
   })
 
-  it('folds the cameras out, and a click flies to one', () => {
-    const h = panel()
-    const trigger = screen.getByRole('button', { name: 'Webcams' })
-    expect(trigger).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('button', { name: 'Fly to Rostock: Warnemünde' })).not.toBeInTheDocument()
-    fireEvent.click(trigger)
-    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  it('lists the cameras straight away, and a click flies to one', () => {
+    const h = layers()
+    // No caret to open any more – the list is the bottom of the popover
+    expect(screen.queryByRole('button', { name: 'Webcams' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Fly to Rostock: Warnemünde' }))
     expect(h.onFlyToWebcam).toHaveBeenCalledWith(1397655670)
     expect(screen.getByText('(2)')).toBeInTheDocument()
   })
 
   it('goes grey in the underground view, where the pictures are off the map', () => {
-    const h = panel({ webcamsDisabled: true })
+    const h = layers({ webcamsDisabled: true })
     const toggle = screen.getByRole('switch', { name: 'Show webcams' })
     expect(toggle).toBeDisabled()
     fireEvent.click(toggle)
     expect(h.onToggleWebcams).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Webcams' }))
     const camera = screen.getByRole('button', { name: 'Fly to Rostock: Warnemünde' })
     expect(camera).toBeDisabled()
     fireEvent.click(camera)
@@ -97,8 +91,8 @@ describe('the Webcams row in the Layers block', () => {
 
   it('speaks German', () => {
     setLanguage('de')
-    panel()
+    layers()
     expect(screen.getByRole('switch', { name: 'Webcams anzeigen' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Webcams' })).toBeInTheDocument()
+    expect(screen.getByText('Webcams')).toBeInTheDocument()
   })
 })

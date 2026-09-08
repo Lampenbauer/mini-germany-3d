@@ -173,11 +173,13 @@ describe('App (UI shell)', () => {
     const network = loadRostockNetwork()
     const lineCount = network.lines.length
     const modeCount = new Set(network.lines.map((l) => l.mode)).size
-    // + 3 layer switches (routes, stops, labels – the miniature effect
-    // moved to the scene popover) + transit-mode group switches (only
-    // visible when there is more than one mode). The lines arrive with
+    // The panel is the lines and nothing else now: routes, stops and
+    // labels moved out to the layers popover on the map's rail, and the
+    // miniature effect to the photo popover before them. What is left is
+    // one switch per line plus the transit-mode group switches (only
+    // there when the city has more than one mode). The lines arrive with
     // the city's data, a moment after the first render.
-    const expected = lineCount + 3 + (modeCount > 1 ? modeCount : 0)
+    const expected = lineCount + (modeCount > 1 ? modeCount : 0)
     await waitFor(() =>
       expect(screen.getAllByRole('switch', { name: /^Show / })).toHaveLength(expected),
     )
@@ -342,13 +344,13 @@ describe('App (UI shell)', () => {
     expect(panel.className).not.toContain('overflow-y-auto')
   })
 
-  it('shows layer switches for routes and stops', () => {
+  it('shows layer switches for routes and stops, behind the rail button', () => {
     render(<App />)
-    const panel = screen.getByText('Layers').closest('div')!.parentElement!
-    expect(within(panel).getByRole('switch', { name: 'Show routes' })).toBeInTheDocument()
-    expect(
-      within(panel).getByRole('switch', { name: 'Show stops' }),
-    ).toBeInTheDocument()
+    // Not in the control panel any more, and not on screen until asked for
+    expect(screen.queryByRole('switch', { name: 'Show routes' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
+    expect(screen.getByRole('switch', { name: 'Show routes' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Show stops' })).toBeInTheDocument()
   })
 
   it('takes the whole interface away on H and brings it back', () => {
@@ -428,6 +430,7 @@ describe('App (UI shell)', () => {
     const button = screen.getByRole('button', { name: 'Pause simulation' })
     fireEvent.keyDown(button, { key: ' ', code: 'Space' })
     expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
     const stopsSwitch = screen.getByRole('switch', { name: 'Show stops' })
     fireEvent.keyDown(stopsSwitch, { key: ' ', code: 'Space' })
     expect(screen.getByRole('button', { name: 'Pause simulation' })).toBeInTheDocument()
@@ -626,7 +629,7 @@ describe('App (UI shell)', () => {
     setLanguage('de')
     render(<App />)
     expect(screen.getByText('Verkehr')).toBeInTheDocument()
-    expect(screen.getByText('Ebenen')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ebenen' }))
     expect(screen.getByRole('switch', { name: 'Routen anzeigen' })).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Haltestellen anzeigen' })).toBeInTheDocument()
     // Line names from the (English) dataset are localized for display

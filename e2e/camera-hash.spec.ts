@@ -132,6 +132,8 @@ test('layer toggles travel in the URL and are restored', async ({ page }) => {
     timeout: 120_000,
   })
 
+  // The layer switches live in the popover on the map's control rail
+  await page.getByRole('button', { name: 'Layers' }).click()
   await page.getByRole('switch', { name: 'Show routes' }).click()
   await page.getByRole('switch', { name: 'Show stops' }).click()
   await expect
@@ -144,6 +146,7 @@ test('layer toggles travel in the URL and are restored', async ({ page }) => {
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
+  await page.getByRole('button', { name: 'Layers' }).click()
   await expect(page.getByRole('switch', { name: 'Show routes' })).toHaveAttribute(
     'aria-checked',
     'false',
@@ -152,6 +155,7 @@ test('layer toggles travel in the URL and are restored', async ({ page }) => {
     'aria-checked',
     'false',
   )
+  await page.keyboard.press('Escape')
   // The boot flag ?paused=1 was in the URL anyway – the button shows Resume
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
 })
@@ -163,6 +167,7 @@ test('an edited hash applies without a reload', async ({ page }) => {
     '/?offline=1&time=08:30&paused=1#lat=54.0901&lon=12.1405&height=6000&heading=0&pitch=-60',
   )
   await page.waitForFunction(() => window.__mrt?.ready === true)
+  await page.getByRole('button', { name: 'Layers' }).click()
   await expect(page.getByRole('switch', { name: 'Show stops' })).toHaveAttribute(
     'aria-checked',
     'true',
