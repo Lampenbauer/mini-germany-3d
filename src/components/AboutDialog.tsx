@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import { t, type MessageKey } from '@/lib/i18n'
 
 const MINI_TOKYO_URL = 'https://minitokyo3d.com'
-const LEGIBLE_CITIES_URL = 'https://github.com/richc117/legible-cities'
+const LEGIBLE_CITIES_URL = 'https://richc117.github.io/legible-cities/'
 const AUTHOR_URL = 'https://www.lampenbauer.com/mario-fotograf/'
 const AUTHOR_SITE_URL = 'https://www.lampenbauer.com/'
 const AUTHOR_LINKEDIN_URL = 'https://www.linkedin.com/in/mario-m%C3%BCller-1ba877266/'
@@ -32,7 +32,7 @@ const AUTHOR_LINKEDIN_URL = 'https://www.linkedin.com/in/mario-m%C3%BCller-1ba87
 
 /** A tab in the dialog's own tab bar: an underline, not the app's pill. */
 const TAB =
-  'h-[51px] shrink-0 rounded-none border-b-2 border-transparent px-0 text-[12px] ' +
+  'h-12 shrink-0 rounded-none border-b-2 border-transparent px-0 text-xs ' +
   'hover:bg-transparent hover:text-foreground ' +
   'aria-selected:border-b-[oklch(0.6283_0.0988_174.84)] aria-selected:bg-transparent aria-selected:text-foreground ' +
   'aria-selected:hover:bg-transparent ' +
@@ -42,12 +42,16 @@ const TAB =
 /** One scrollable tab panel. Radix hides the inactive one with [hidden],
  *  which a display:flex of our own would otherwise talk over. */
 const PANEL =
-  'flex flex-col gap-[26px] px-8 pt-7 pb-8 text-[13px] leading-[1.7] text-muted-foreground ' +
+  'flex flex-col gap-6.5 px-8 pt-7 pb-8 text-[13px] leading-relaxed text-muted-foreground ' +
   'data-[state=inactive]:hidden max-sm:p-6'
 
 /** A section heading inside a panel, and the paragraphs under it. */
-const HEADING = 'text-[15px] font-semibold tracking-[-0.025em] text-foreground'
-const BODY = 'mt-[7px] text-pretty'
+const HEADING = 'text-[15px] font-semibold tracking-tight text-foreground'
+const BODY = 'mt-1.75 text-pretty'
+
+/** The icon beside a section on the details tab, in the dialog's green. */
+const ICON =
+  'mt-0.75 size-4.75 shrink-0 text-[oklch(0.6283_0.0988_174.84)] dark:text-[oklch(0.8075_0.1028_174.78)]'
 
 const SHORTCUTS: readonly { keys: readonly string[]; labelKey: MessageKey }[] = [
   { keys: ['Space'], labelKey: 'keys.pause' },
@@ -70,7 +74,7 @@ function Outward(props: { href: string; children: React.ReactNode }) {
       href={props.href}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-[3px] rounded-[2px] font-[550] text-foreground no-underline underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+      className="inline-flex items-center gap-0.75 rounded-xs font-[550] text-foreground no-underline underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
     >
       {props.children}<ArrowUpRight aria-hidden className="size-3.5 opacity-50" />
     </a>
@@ -83,7 +87,7 @@ function NetworkIllustration() {
     <svg
       // Behind the hero's text (the hero isolates, so -z-10 stops there)
       // and faded out towards the headline it must not compete with.
-      className="absolute top-0 -right-3 -z-10 h-full w-[260px] text-[oklch(0.9518_0.0254_171.96)] [mask-image:linear-gradient(to_right,transparent,black_32%)] max-sm:right-[-100px] max-sm:opacity-[.18]"
+      className="absolute top-0 -right-3 -z-10 h-full w-65 text-[oklch(0.9518_0.0254_171.96)] [mask-image:linear-gradient(to_right,transparent,black_32%)] max-sm:-right-25 max-sm:opacity-18"
       viewBox="0 0 280 220"
       fill="none"
       aria-hidden="true"
@@ -102,7 +106,7 @@ function NetworkIllustration() {
         <circle cx="37" cy="103" r="5" /><circle cx="196" cy="214" r="5" />
         <circle cx="119" cy="128" r="9" /><circle cx="165" cy="158" r="7" />
       </g>
-      <g transform="translate(153 87) rotate(-45)">
+      <g transform="translate(163 96) rotate(-45)">
         <rect x="-17" y="-8" width="34" height="16" rx="6" fill="oklch(0.9787 0.0091 161.36)" stroke="oklch(0.3229 0.0448 183.84)" strokeWidth="2" />
         <path d="M-7 -4V4M0 -4V4M7 -4V4" stroke="oklch(0.3229 0.0448 183.84)" strokeWidth="3" />
       </g>
@@ -122,8 +126,8 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
         // lifted over the illustration and turned light – DialogContent
         // renders it itself, which is why it is reached by selector.
         className={cn(
-          'h-[min(740px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-[20px] bg-card p-0 shadow-[0_24px_100px_oklch(0_0_0_/_0.33)] sm:max-w-[680px]',
-          '[&>button:last-child]:z-1 [&>button:last-child]:text-[oklch(0.9698_0.0091_161.35)] [&>button:last-child:hover]:bg-[oklch(1_0_0_/_0.125)]',
+          'h-[min(740px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-[20px] bg-card p-0 shadow-[0_24px_100px_oklch(0_0_0_/_0.33)] sm:max-w-170',
+          '[&>button:last-child]:z-1 [&>button:last-child]:text-[oklch(0.9698_0.0091_161.35)] [&>button:last-child:hover]:bg-white/12',
         )}
         onOpenAutoFocus={() => {
           returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -138,15 +142,15 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
         <DialogHeader
           className={cn(
             'relative isolate shrink-0 gap-0 overflow-hidden bg-brand p-8 text-[oklch(0.9698_0.0091_161.35)]',
-            'max-sm:px-6 max-sm:py-[26px]',
+            'max-sm:px-6 max-sm:py-6.5',
             'sm:[@media(max-height:560px)]:px-8 sm:[@media(max-height:560px)]:py-5',
           )}
         >
           <NetworkIllustration />
           <span
             className={cn(
-              'mb-[22px] flex items-center gap-2 text-[10px] font-semibold text-[oklch(0.8564_0.0404_176.63)]',
-              'max-sm:mb-[18px] max-sm:text-[9px]',
+              'mb-5.5 flex items-center gap-2 text-[10px] font-semibold text-[oklch(0.8564_0.0404_176.63)]',
+              'max-sm:mb-4.5 max-sm:text-[9px]',
               'sm:[@media(max-height:560px)]:mb-2.5',
             )}
           >
@@ -155,7 +159,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
           </span>
           <DialogTitle
             className={cn(
-              'max-w-[390px] text-[36px] leading-[1.12] font-[650] tracking-[-0.055em]',
+              'max-w-[390px] text-4xl leading-[1.12] font-[650] tracking-tighter',
               'max-sm:max-w-[260px] max-sm:text-[32px]',
               'sm:[@media(max-height:560px)]:text-[28px]',
             )}
@@ -164,9 +168,9 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
           </DialogTitle>
           <DialogDescription
             className={cn(
-              'mt-3 max-w-[355px] text-[14px] leading-[1.65] text-pretty text-[oklch(0.8782_0.0268_172.79)]',
+              'mt-3 max-w-[355px] text-sm leading-relaxed text-pretty text-[oklch(0.8782_0.0268_172.79)]',
               'max-sm:max-w-[250px] max-sm:text-[13px]',
-              'sm:[@media(max-height:560px)]:mt-[7px] sm:[@media(max-height:560px)]:max-w-[410px]',
+              'sm:[@media(max-height:560px)]:mt-1.75 sm:[@media(max-height:560px)]:max-w-[410px]',
             )}
           >
             {t('about.lead')}
@@ -176,7 +180,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
         <Tabs defaultValue="story" className="min-h-0 flex-1 gap-0">
           <TabsList
             aria-label={t('about.open')}
-            className="w-full shrink-0 justify-start gap-[22px] rounded-none border-0 border-b border-b-border bg-transparent px-8 py-0 shadow-none backdrop-blur-none max-sm:gap-5 max-sm:px-6"
+            className="w-full shrink-0 justify-start gap-5.5 rounded-none border-0 border-b border-b-border bg-transparent px-8 py-0 shadow-none backdrop-blur-none max-sm:gap-5 max-sm:px-6"
           >
             <TabsTrigger value="story" className={TAB}>{t('about.storyTab')}</TabsTrigger>
             <TabsTrigger value="details" className={TAB}>{t('about.detailsTab')}</TabsTrigger>
@@ -188,63 +192,57 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
               stay put however long a panel gets. */}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
             <TabsContent value="story" className={PANEL}>
-              <section className="flex gap-[18px] max-sm:flex-col max-sm:gap-3">
-                <div
-                  className="flex size-[46px] shrink-0 items-center justify-center rounded-[15px] border border-[oklch(0.6283_0.0988_174.84_/_0.149)] bg-[oklch(0.6283_0.0988_174.84_/_0.071)] text-[25px] font-semibold tracking-[-0.08em] text-[oklch(0.5577_0.0908_175.29)] dark:text-[oklch(0.8075_0.1028_174.78)]"
-                  aria-hidden="true"
-                >
-                  m.
-                </div>
+              <section className="flex gap-4.5 max-sm:flex-col max-sm:gap-3">
                 <div>
-                  <h3 className="text-[21px] leading-[1.3] font-semibold tracking-[-0.025em] text-foreground">
+                  <h3 className="text-[21px] leading-tight font-semibold tracking-tight text-foreground">
                     {t('about.whoTitle')}
                   </h3>
                   <p className={BODY}>{t('about.who')}</p>
                   <p className={cn(BODY, 'text-foreground')}>{t('about.invitation')}</p>
-                  <div className="mt-[15px] flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
+                  <div className="mt-3.75 flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
                     <Outward href={AUTHOR_URL}>{t('about.authorLink')}</Outward>
                     <Outward href={AUTHOR_SITE_URL}>lampenbauer.com</Outward>
                     <Outward href={AUTHOR_LINKEDIN_URL}>LinkedIn</Outward>
                   </div>
                 </div>
               </section>
-              <section className="border-t border-border pt-[22px]">
-                <h3 className="mb-[14px] text-[11px] font-semibold tracking-[-0.025em] text-muted-foreground">
+              <section className="border-t border-border pt-5.5">
+                <h3 className="mb-3.5 text-[11px] font-semibold tracking-tight text-muted-foreground">
                   {t('about.rootsTitle')}
                 </h3>
-                <div className="grid grid-cols-2 gap-6 max-sm:grid-cols-1 max-sm:gap-[18px]">
-                  <div className="relative pl-[15px]">
-                    <span className="absolute top-[5px] bottom-[3px] left-0 w-[3px] rounded-[2px] bg-[oklch(0.6283_0.0988_174.84)]" />
+                <div className="grid grid-cols-2 gap-6 max-sm:grid-cols-1 max-sm:gap-4.5">
+                  <div className="relative pl-3.75">
+                    <span className="absolute top-1.25 bottom-0.75 left-0 w-0.75 rounded-xs bg-[oklch(0.6283_0.0988_174.84)]" />
                     <Outward href={MINI_TOKYO_URL}>mini-tokyo-3d</Outward>
-                    <p className={cn(BODY, 'text-[12px]')}>{t('about.miniTokyo')}</p>
+                    <p className={cn(BODY, 'text-xs leading-relaxed')}>{t('about.miniTokyo')}</p>
                   </div>
-                  <div className="relative pl-[15px]">
-                    <span className="absolute top-[5px] bottom-[3px] left-0 w-[3px] rounded-[2px] bg-[oklch(0.6764_0.0813_250.78)]" />
+                  <div className="relative pl-3.75">
+                    <span className="absolute top-1.25 bottom-0.75 left-0 w-0.75 rounded-xs bg-[oklch(0.6764_0.0813_250.78)]" />
                     <Outward href={LEGIBLE_CITIES_URL}>legible-cities</Outward>
-                    <p className={cn(BODY, 'text-[12px]')}>{t('about.legibleCities')}</p>
+                    <p className={cn(BODY, 'text-xs leading-relaxed')}>{t('about.legibleCities')}</p>
                   </div>
                 </div>
               </section>
             </TabsContent>
 
             <TabsContent value="details" className={PANEL}>
-              <section className="flex items-start gap-[14px]">
-                <TrainFront aria-hidden className="mt-[3px] size-[19px] shrink-0 text-[oklch(0.6283_0.0988_174.84)] dark:text-[oklch(0.8075_0.1028_174.78)]" />
+              <section className="flex items-start gap-3.5">
+                <TrainFront aria-hidden className={ICON} />
                 <div><h3 className={HEADING}>{t('about.notTitle')}</h3><p className={BODY}>{t('about.notLive')}</p></div>
               </section>
-              <section className="flex items-start gap-[14px]">
-                <Ship aria-hidden className="mt-[3px] size-[19px] shrink-0 text-[oklch(0.6283_0.0988_174.84)] dark:text-[oklch(0.8075_0.1028_174.78)]" />
+              <section className="flex items-start gap-3.5">
+                <Ship aria-hidden className={ICON} />
                 <div><h3 className={HEADING}>{t('about.shipsTitle')}</h3><p className={BODY}>{t('about.notShips')}</p></div>
               </section>
-              <section className="flex items-start gap-[14px]">
-                <Route aria-hidden className="mt-[3px] size-[19px] shrink-0 text-[oklch(0.6283_0.0988_174.84)] dark:text-[oklch(0.8075_0.1028_174.78)]" />
+              <section className="flex items-start gap-3.5">
+                <Route aria-hidden className={ICON} />
                 <div>
                   <h3 className={HEADING}>{t('about.exploreTitle')}</h3>
                   <p className={BODY}>{t('about.notRouting')}</p>
                   <p className={BODY}>{t('about.notComplete')}</p>
                 </div>
               </section>
-              <section className="border-t border-border pt-5 text-[12px]">
+              <section className="border-t border-border pt-5 text-xs leading-relaxed">
                 <h3 className={HEADING}>{t('about.builtTitle')}</h3>
                 <p className={BODY}>{t('about.built')}</p>
               </section>
@@ -255,7 +253,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
                 <h3 className={HEADING}>{t('keys.open')}</h3>
                 <p className={BODY}>{t('about.keyboardLead')}</p>
               </div>
-              <ul className="grid grid-cols-2 gap-x-[26px] gap-y-0 max-sm:grid-cols-1">
+              <ul className="grid grid-cols-2 gap-x-6.5 gap-y-0 max-sm:grid-cols-1">
                 {SHORTCUTS.map(({ keys, labelKey }) => (
                   <li
                     key={labelKey}
@@ -266,7 +264,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
                       {keys.map((key) => (
                         <kbd
                           key={key}
-                          className="min-w-[23px] rounded-[5px] border border-b-2 border-border bg-muted px-[5px] py-[2px] text-center text-[10px] text-foreground [font-family:inherit]"
+                          className="min-w-5.75 rounded-sm border border-b-2 border-border bg-muted px-1.25 py-0.5 text-center text-[10px] text-foreground [font-family:inherit]"
                         >
                           {key}
                         </kbd>

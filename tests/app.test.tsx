@@ -472,7 +472,7 @@ describe('App (UI shell)', () => {
     expect(about).toHaveTextContent('Hi, I’m Mario.')
     // The two ancestors are linked, and the links leave the page safely
     const link = within(about).getByRole('link', { name: 'legible-cities' })
-    expect(link).toHaveAttribute('href', 'https://github.com/richc117/legible-cities')
+    expect(link).toHaveAttribute('href', 'https://richc117.github.io/legible-cities/')
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
     fireEvent.mouseDown(within(about).getByRole('tab', { name: 'Good to know' }), { button: 0, ctrlKey: false })
     expect(about).toHaveTextContent('Their positions are calculated')
