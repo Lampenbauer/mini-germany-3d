@@ -96,7 +96,7 @@ const NAME_PX_PER_CHAR = 6
 const NAME_HEIGHT_PX = 19
 const NAME_PAD_X_PX = 3
 /** Clearance the plates keep from each other and from a webcam picture. */
-const NAME_GAP_PX = 6
+const NAME_GAP_PX = 2
 /**
  * The plate as the declutter sees it. The label is anchored on its text
  * baseline, so the plate straddles the anchor: its bottom edge sits half a
