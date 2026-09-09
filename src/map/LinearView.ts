@@ -129,6 +129,10 @@ interface RowElements {
 
 interface VehicleElements {
   dot: SVGCircleElement
+  /** The row it hangs on – a rebuild without that line takes it down. */
+  lineId: string
+  /** The colour on the dot right now, so a change repaints and nothing else. */
+  color: string
   /** Where the dot started the morph, in screen units. */
   from: ScreenPoint | null
   /** Where its row puts it, as of the last sync. */
@@ -306,10 +310,18 @@ export class LinearView {
         this.vehicleGroup.append(dot)
         vehicle = {
           dot,
+          lineId: snap.lineId,
+          color: snap.color,
           from: this.morphOrigin(snap, row),
           target: { x: vehicleX(row, snap.distance, snap.direction), y: row.y },
         }
         this.vehicles.set(snap.id, vehicle)
+      } else if (vehicle.color !== snap.color) {
+        // The trip ids the simulation generates are lineId-direction-minute
+        // and repeat between cities (see simTripId), so the dot a city
+        // switch hands over can be another city's line in another colour.
+        vehicle.color = snap.color
+        vehicle.dot.setAttribute('fill', snap.color)
       }
       vehicle.target = { x: vehicleX(row, snap.distance, snap.direction), y: row.y }
       // Where it goes is this tick's business; where it is right now is the
@@ -399,6 +411,17 @@ export class LinearView {
       }
       this.detailGroup.append(stations)
       this.rowElements.set(row.lineId, { row, path, badge, stations })
+    }
+
+    // A dot rides a row: the ones whose line the new layout does not carry
+    // go with the rows just replaced, rather than being drawn over the new
+    // ones until the next sync clears them. This is where the city the
+    // diagram was closed in leaves it – the sync that would have emptied it
+    // never ran while it was hidden.
+    for (const [id, vehicle] of this.vehicles) {
+      if (this.rowElements.has(vehicle.lineId)) continue
+      vehicle.dot.remove()
+      this.vehicles.delete(id)
     }
   }
 

@@ -151,3 +151,47 @@ describe('LinearView vehicles during the morph', () => {
     expect(at().x).toBeCloseTo(vehicleX(row, LENGTH, 0), 6)
   })
 })
+
+/**
+ * A city switch with the diagram closed. Nothing syncs it while it is
+ * hidden, so the dots of the city being left are still hanging on rows
+ * that setLines is about to replace – and the trip ids the simulation
+ * generates (lineId-direction-minute, see simTripId) repeat between
+ * cities, so the next city's tram can ask for exactly the dot the last
+ * one left behind.
+ */
+describe('LinearView across a city switch', () => {
+  let container: HTMLDivElement
+  let view: LinearView
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.append(container)
+    view = new LinearView(container, { onSelectVehicle: () => {}, onSelectStop: () => {} })
+  })
+
+  /** The same line id and trip id in another city's colour. */
+  const lineIn = (color: string): PreparedLine => ({ ...testLine(), color })
+  const dots = () => container.querySelectorAll('circle[data-vehicle="trip-1"]')
+
+  it('repaints a dot the next city asks for by the same trip id', () => {
+    view.setLines([lineIn('#5d106a')], { width: 1000 })
+    view.sync([snapshot({ color: '#5d106a' })])
+    expect(dots()[0].getAttribute('fill')).toBe('#5d106a')
+
+    view.setLines([lineIn('#00b0ea')], { width: 1000 })
+    view.sync([snapshot({ color: '#00b0ea' })])
+    expect(dots()).toHaveLength(1)
+    expect(dots()[0].getAttribute('fill')).toBe('#00b0ea')
+  })
+
+  it('takes a dot down with the row it was riding', () => {
+    view.setLines([testLine()], { width: 1000 })
+    view.sync([snapshot()])
+    expect(dots()).toHaveLength(1)
+
+    // The next city has no line of that number at all
+    view.setLines([{ ...testLine(), id: 'X' }], { width: 1000 })
+    expect(dots()).toHaveLength(0)
+  })
+})

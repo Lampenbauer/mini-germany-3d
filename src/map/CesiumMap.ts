@@ -295,6 +295,13 @@ const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
  */
 const SHADOW_MIN_CASTER_PX = 2
 const SHADOW_CASTER_WIDTH_M = 2.65
+/**
+ * Beam assumed for the nearest hull while none has been measured – before
+ * the first AIS sync, and again for the city that arrives. A launch is
+ * narrower and a freighter far wider; this only has to hold until the fleet
+ * reports its own widths on the next tick.
+ */
+const FALLBACK_VESSEL_WIDTH_M = 10
 
 /**
  * Shadows off for this long and the shadow map's texture is released
@@ -756,7 +763,7 @@ export class CesiumMap {
   private nearestVehicleMeters = Number.POSITIVE_INFINITY
   private nearestVesselMeters = Number.POSITIVE_INFINITY
   /** Beam of that closest hull – how wide a shadow it can throw. */
-  private nearestVesselWidthM = 10
+  private nearestVesselWidthM = FALLBACK_VESSEL_WIDTH_M
 
   /** Unit up vector at the city center (sun elevation reference). */
   private cityUp: Cartesian3 | null = null
@@ -1571,6 +1578,10 @@ export class CesiumMap {
     this.bridgeDecks.clear()
     this.streetLamps.clear()
     this.nearestVehicleMeters = Number.POSITIVE_INFINITY
+    // The ships leave with the city on the app's next tick (see above), and
+    // the shadow gate lets go of the last hull now rather than one tick late.
+    this.nearestVesselMeters = Number.POSITIVE_INFINITY
+    this.nearestVesselWidthM = FALLBACK_VESSEL_WIDTH_M
     this.applyShadowState()
     this.requestRender()
   }

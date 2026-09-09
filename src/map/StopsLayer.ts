@@ -440,7 +440,7 @@ export class StopsLayer {
         distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_LABEL_RANGE),
         disableDepthTestDistance: 3000,
       })
-      this.stopRecords.push({
+      const record: StopEntityRecord = {
         disc: discs[i],
         label,
         labelHalfWidth: image
@@ -455,7 +455,14 @@ export class StopsLayer {
         sampledFrom: Number.POSITIVE_INFINITY,
         retryAfter: 0,
         nhn: stop.nhn,
-      })
+      }
+      this.stopRecords.push(record)
+      // The underground view is the reader's and outlives the city switch,
+      // so the stops that arrive take it as it stands. Every other layer
+      // reads the flag as it draws; these two billboards carry it in a
+      // colour written once, which left a city entered from below wearing
+      // its surface stops solid over the tunnels.
+      this.applyStopOpacity(record)
     })
     this.stopLabelsDirty = true
     this.host.requestRender()

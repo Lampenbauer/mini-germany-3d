@@ -58,7 +58,17 @@ export function stopsHarness(
   }
   const viewer = {
     camera,
-    scene: { primitives: { add: (p: unknown) => primitives.push(p) } },
+    scene: {
+      primitives: {
+        add: (p: unknown) => primitives.push(p),
+        // clear() takes its collection off the scene – a city switch does
+        // that and then add()s the next city's into a fresh one.
+        remove: (p: unknown) => {
+          const index = primitives.indexOf(p)
+          if (index >= 0) primitives.splice(index, 1)
+        },
+      },
+    },
   } as unknown as Viewer
 
   const sampleGroundHeight = vi.fn<(lon: number, lat: number) => number | undefined>(
@@ -74,12 +84,14 @@ export function stopsHarness(
   })
   layer.add(networkOf(stops))
 
-  const collection = primitives[0] as BillboardCollection
+  /** The collection the layer is filling right now – add() builds a new
+   *  one per city, so this follows a switch. */
+  const collection = () => primitives[primitives.length - 1] as BillboardCollection
   const count = stops.length
   /** Disc billboard of the nth stop (discs are added before all names). */
-  const disc = (index: number) => collection.get(index)
+  const disc = (index: number) => collection().get(index)
   /** Name plate of the nth stop (added after every disc). */
-  const label = (index: number) => collection.get(count + index)
+  const label = (index: number) => collection().get(count + index)
 
   return { layer, collection, disc, label, camera, sampleGroundHeight, requestRender, count }
 }

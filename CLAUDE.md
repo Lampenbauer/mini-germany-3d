@@ -354,6 +354,37 @@ Consists are composed from existing meshes wherever possible — see
 `VEHICLE_CONSISTS` in [src/map/VehicleLayer.ts](src/map/VehicleLayer.ts).
 `tests/cities.test.ts` uses Paris as its "outside every box" point.
 
+### Switching cities at runtime
+
+A city switch is a swap, not a reload. `CesiumMap.clearCity` takes the routes,
+stops, lamps, vehicles and bridge decks down, the app's own cleanup stops the
+pollers, drops the selections and lets the chase go, and on a flight both
+happen halfway through it (`CITY_HANDOVER_FRACTION`, see `setCity`). What
+survives is every layer *instance* and everything it still holds — which is
+where three bugs of one family were found on 2026-09-09:
+
+- **Anything keyed by an identifier needs the thing that actually
+  distinguishes it in the key.** Line numbers repeat between cities (24 of
+  Frankfurt's 37 are numbers Berlin has too) and the simulation's trip ids are
+  `lineId-direction-minute` (`simTripId`), so they collide as well. The badge
+  cache handed the next city the colour of the line it had drawn first, and
+  the diagram's dots did the same — `badgeCache` carries the colour in its key
+  now, `LinearView` repaints a dot whose colour changed under it.
+- **What is drawn per city goes down with the city.** `LinearView.buildRows`
+  rebuilds the rows but used to leave the dots hanging, so the city the
+  diagram was closed in was still on it — nothing syncs a hidden diagram.
+- **What the reader switched on has to reach the city that arrives.** The
+  underground view outlives the switch, and every layer reads the flag as it
+  draws — except the stop billboards, whose colour is written once when they
+  are made, so a city entered from below wore its surface stops solid over
+  the tunnels. `StopsLayer.add` applies it per record now.
+
+The AIS fleet is the exception that is fine: `clearCity` deliberately leaves
+it alone and the app's next tick syncs the new city's ships in, an empty list
+first. Async work started in the city being left is guarded everywhere it
+lands — the wagon models by record identity, the webcam pictures by their
+record, the height bootstrap by `bootstrapGeneration`; keep it that way.
+
 ---
 
 ## Rendering and performance

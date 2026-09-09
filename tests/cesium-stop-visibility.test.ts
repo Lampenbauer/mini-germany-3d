@@ -1,7 +1,7 @@
 import { Cartesian2, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ROUTE_PULSE_DURATION_MS } from '@/map/RoutesLayer'
-import { stopsHarness } from './stops-test-harness'
+import { networkOf, stopsHarness } from './stops-test-harness'
 
 /**
  * Line-driven stop visibility: hiding lines hides exactly the stops no
@@ -143,6 +143,20 @@ describe('underground view on the stops', () => {
     layer.setUnderground(false)
     expect(disc(0).color.alpha).toBeCloseTo(1, 5)
     expect(disc(1).color.alpha).toBeCloseTo(0.2, 5)
+  })
+
+  it('ghosts the surface stops of the city that arrives', () => {
+    const { layer, disc } = stopsHarness(stops)
+    layer.setUnderground(true)
+    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
+
+    // A city switch below ground: clearCity() takes these stops off and the
+    // next city's go up while the reader is still down there. The view is
+    // the reader's, not the city's, so it has to reach them.
+    layer.clear()
+    layer.add(networkOf([{ id: 'next', name: 'Nächste', lon: 10.7, lat: 53.87, lines: ['1'] }]))
+
+    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
   })
 
   it('counts a stop as underground when any serving line runs below', () => {

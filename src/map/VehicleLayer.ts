@@ -892,7 +892,7 @@ export class VehicleLayer {
 
       // GTFS-RT delay on the badge ("+2" after the line number): swap the
       // badge image whenever the rounded minute value changes. The canvases
-      // are cached per line+suffix, so steady delays cost nothing per tick.
+      // are cached per line+colour+suffix, so steady delays cost nothing.
       const delaySuffix = delayBadgeSuffix(snap)
       if (delaySuffix !== record.delaySuffix) {
         record.delaySuffix = delaySuffix
