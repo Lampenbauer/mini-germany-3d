@@ -34,7 +34,7 @@ const AUTHOR_LINKEDIN_URL = 'https://www.linkedin.com/in/mario-m%C3%BCller-1ba87
 const TAB =
   'h-12 shrink-0 rounded-none border-b-2 border-transparent px-0 text-xs ' +
   'hover:bg-transparent hover:text-foreground ' +
-  'aria-selected:border-b-[oklch(0.6283_0.0988_174.84)] aria-selected:bg-transparent aria-selected:text-foreground ' +
+  'aria-selected:border-b-brand-light aria-selected:bg-transparent aria-selected:text-foreground ' +
   'aria-selected:hover:bg-transparent ' +
   'focus-visible:ring-0 focus-visible:outline-2 focus-visible:-outline-offset-5 focus-visible:outline-ring ' +
   'max-sm:text-[11px] max-sm:[&_svg]:hidden'
@@ -51,7 +51,7 @@ const BODY = 'mt-1.75 text-pretty'
 
 /** The icon beside a section on the details tab, in the dialog's green. */
 const ICON =
-  'mt-0.75 size-4.75 shrink-0 text-[oklch(0.6283_0.0988_174.84)] dark:text-[oklch(0.8075_0.1028_174.78)]'
+  'mt-0.75 size-4.75 shrink-0 text-brand-mid'
 
 const SHORTCUTS: readonly { keys: readonly string[]; labelKey: MessageKey }[] = [
   { keys: ['Space'], labelKey: 'keys.pause' },
@@ -96,7 +96,7 @@ function NetworkIllustration() {
         <path d="M0 45H280M0 85H280M0 125H280M0 165H280M0 205H280M40 0V220M80 0V220M120 0V220M160 0V220M200 0V220M240 0V220" />
       </g>
       <g strokeWidth="9" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M-15 172H70Q88 172 101 159L183 77Q196 64 214 64H300" stroke="oklch(0.8254 0.1241 174.21)" />
+        <path d="M-15 172H70Q88 172 101 159L183 77Q196 64 214 64H300" className="stroke-brand-light" />
         <path d="M62 -15V55Q62 72 75 85L154 164Q167 177 186 177H296" stroke="oklch(0.8189 0.1059 75.1)" />
         <path d="M-10 103H94Q111 103 124 116L183 175Q196 188 196 207V235" stroke="oklch(0.7382 0.1 252.77)" />
       </g>
@@ -126,7 +126,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
         // lifted over the illustration and turned light – DialogContent
         // renders it itself, which is why it is reached by selector.
         className={cn(
-          'h-[min(740px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-[20px] bg-card p-0 shadow-[0_24px_100px_oklch(0_0_0_/_0.33)] sm:max-w-170',
+          'h-[min(740px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-2xl bg-card p-0 shadow-2xl sm:max-w-170',
           '[&>button:last-child]:z-1 [&>button:last-child]:text-[oklch(0.9698_0.0091_161.35)] [&>button:last-child:hover]:bg-white/12',
         )}
         onOpenAutoFocus={() => {
@@ -149,12 +149,12 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
           <NetworkIllustration />
           <span
             className={cn(
-              'mb-5.5 flex items-center gap-2 text-[10px] font-semibold text-[oklch(0.8564_0.0404_176.63)]',
+              'mb-5.5 flex items-center gap-2 text-2xs font-semibold text-[oklch(0.8564_0.0404_176.63)]',
               'max-sm:mb-4.5 max-sm:text-[9px]',
               'sm:[@media(max-height:560px)]:mb-2.5',
             )}
           >
-            <span className="size-1.5 rounded-full bg-[oklch(0.8254_0.1241_174.21)]" />
+            <span className="size-1.5 rounded-full bg-brand-light" />
             {t('about.eyebrow')}
           </span>
           <DialogTitle
@@ -212,7 +212,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
                 </h3>
                 <div className="grid grid-cols-2 gap-6 max-sm:grid-cols-1 max-sm:gap-4.5">
                   <div className="relative pl-3.75">
-                    <span className="absolute top-1.25 bottom-0.75 left-0 w-0.75 rounded-xs bg-[oklch(0.6283_0.0988_174.84)]" />
+                    <span className="absolute top-1.25 bottom-0.75 left-0 w-0.75 rounded-xs bg-brand-mid" />
                     <Outward href={MINI_TOKYO_URL}>mini-tokyo-3d</Outward>
                     <p className={cn(BODY, 'text-xs leading-relaxed')}>{t('about.miniTokyo')}</p>
                   </div>
@@ -264,7 +264,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
                       {keys.map((key) => (
                         <kbd
                           key={key}
-                          className="min-w-5.75 rounded-sm border border-b-2 border-border bg-muted px-1.25 py-0.5 text-center text-[10px] text-foreground [font-family:inherit]"
+                          className="min-w-5.75 rounded-sm border border-b-2 border-border bg-muted px-1.25 py-0.5 text-center text-2xs text-foreground [font-family:inherit]"
                         >
                           {key}
                         </kbd>

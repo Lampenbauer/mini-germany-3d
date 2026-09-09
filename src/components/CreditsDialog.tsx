@@ -44,7 +44,7 @@ function BorrowedCredits(props: { borrow: (host: HTMLElement | null) => void }) 
      */
     <div
       ref={host}
-      className="border-t border-border pt-4 text-[12px] leading-[1.7] text-muted-foreground [&_a:hover]:underline [&_a]:font-[550] [&_a]:text-foreground [&_a]:no-underline [&_a]:underline-offset-4 [&_img]:[zoom:0.7] [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-[10px]"
+      className="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground [&_a:hover]:underline [&_a]:font-[550] [&_a]:text-foreground [&_a]:no-underline [&_a]:underline-offset-4 [&_img]:[zoom:0.7] [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2.5"
     />
   )
 }
@@ -58,22 +58,22 @@ export function CreditsDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         closeLabel={t('credits.close')}
-        className="max-h-[calc(100dvh-2rem)] rounded-[20px] shadow-[0_24px_100px_oklch(0_0_0_/_0.33)] sm:max-w-md"
+        className="max-h-[calc(100dvh-2rem)] rounded-2xl shadow-2xl sm:max-w-md"
       >
         <DialogHeader>
           {/* The same eyebrow the About dialog wears, so the two read as
               siblings – this one without its hero, being a footnote. */}
           <p
-            className="mb-[14px] flex items-center gap-2 text-[10px] font-semibold text-muted-foreground"
+            className="mb-3.5 flex items-center gap-2 text-2xs font-semibold text-muted-foreground"
             aria-hidden
           >
-            <span className="size-1.5 rounded-full bg-[oklch(0.8254_0.1241_174.21)]" />
+            <span className="size-1.5 rounded-full bg-brand-light" />
             {t('credits.eyebrow')}
           </p>
-          <DialogTitle className="text-[22px] leading-[1.15] font-[650] tracking-[-0.035em]">
+          <DialogTitle className="text-2xl leading-tight font-semibold tracking-tight">
             {t('credits.title')}
           </DialogTitle>
-          <DialogDescription className="mt-[6px] text-[13px] leading-[1.65] text-pretty">
+          <DialogDescription className="mt-1.5 text-[13px] leading-relaxed text-pretty">
             {t('credits.lead')}
           </DialogDescription>
         </DialogHeader>

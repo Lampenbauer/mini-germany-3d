@@ -147,8 +147,12 @@ About dialog's hero and of the control panel's head, which runs out into the
 card's own colour where the card's content begins – except folded away, where
 the panel is head and clock and nothing else and so is green all through,
 border included. Change the green in one place. The
-lighter greens beside it (`oklch(0.8254 0.1241 174.21)`, `oklch(0.6283 0.0988
-174.84)`) are local to the dialog that uses them.
+lit green of the eyebrow dot is `--brand-light` beside it, because the About
+and the Credits dialog both wear it, and `--brand-mid` is the green for
+marks on the card (the About dialog's section icons, the bar before a
+link), lifted in the dark theme; the remaining greens in the About dialog
+are that dialog's own. `--text-2xs` (10 px) is the eyebrows' size and the
+one font size added below Tailwind's own scale.
 
 **Dates are written `12. Sep 2026`, in every language.** One shape everywhere:
 day, full stop, the month's own abbreviation without a trailing full stop
