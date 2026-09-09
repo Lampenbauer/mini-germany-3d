@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { Cartesian2, SceneTransforms } from 'cesium'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ROUTE_PULSE_DURATION_MS } from '@/map/RoutesLayer'
 import { stopsHarness } from './stops-test-harness'
 
 /**
@@ -44,6 +46,80 @@ describe('line-driven stop visibility', () => {
 
     layer.setVisibleLines(new Set())
     expect([disc(0).show, disc(1).show, disc(2).show]).toEqual([false, false, false])
+  })
+})
+
+describe('line focus on the stops', () => {
+  const stops = [
+    { id: 'a', name: 'Only 1', lon: 12.1, lat: 54.09, lines: ['1'] },
+    { id: 'b', name: 'Shared', lon: 12.101, lat: 54.09, lines: ['1', '5'] },
+    { id: 'c', name: 'Only 5', lon: 12.102, lat: 54.09, lines: ['5'] },
+  ]
+
+  let clockMs = 0
+
+  afterEach(() => vi.restoreAllMocks())
+
+  /** A screen for the declutter update() runs: no two names collide on it. */
+  function spreadOnScreen() {
+    let n = 0
+    vi.spyOn(SceneTransforms, 'worldToWindowCoordinates').mockImplementation(
+      (_scene, _position, result) => Cartesian2.fromElements(100 + 200 * n++, 300, result),
+    )
+  }
+
+  function focused() {
+    clockMs = 50_000
+    vi.spyOn(performance, 'now').mockImplementation(() => clockMs)
+    spreadOnScreen()
+    const h = stopsHarness(stops)
+    h.layer.startLineFocus('1', ROUTE_PULSE_DURATION_MS)
+    return h
+  }
+
+  it('leaves the stops of every other line off the map while the pulse runs', () => {
+    const { layer, disc, label } = focused()
+    expect(disc(0).show).toBe(true)
+    expect(disc(1).show).toBe(true)
+    expect(disc(2).show).toBe(false)
+    // The name goes with its disc, as under the line filter
+    expect(label(2).show).toBe(false)
+
+    // …and the declutter, which reads the same composed visibility, does
+    // not hand it back on its next pass
+    layer.update()
+    expect(label(2).show).toBe(false)
+    expect(label(0).show).toBe(true)
+  })
+
+  it('brings them back on the first frame after the focus ends', () => {
+    const { layer, disc } = focused()
+
+    // Still inside the window – one millisecond short of the end
+    clockMs += ROUTE_PULSE_DURATION_MS - 1
+    layer.update()
+    expect(disc(2).show).toBe(false)
+
+    clockMs += 1
+    layer.update()
+    expect(disc(2).show).toBe(true)
+  })
+
+  it('never shows a stop the line filter has taken off', () => {
+    clockMs = 50_000
+    vi.spyOn(performance, 'now').mockImplementation(() => clockMs)
+    const { layer, disc } = stopsHarness(stops)
+
+
+    layer.setVisibleLines(new Set(['1']))
+    layer.startLineFocus('5', ROUTE_PULSE_DURATION_MS)
+
+    // Shared with the focused line and shown by the filter – on the map
+    expect(disc(1).show).toBe(true)
+    // Focused line, but switched off in the panel – stays off
+    expect(disc(2).show).toBe(false)
+    // Shown by the filter, but not on the focused line – steps aside
+    expect(disc(0).show).toBe(false)
   })
 })
 

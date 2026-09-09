@@ -8,7 +8,10 @@ import { VehicleLayer } from '@/map/VehicleLayer'
 /**
  * "Zoom to line" clears the stage: for the duration of the route pulse
  * only the focused line's vehicle badges stay up, so the other lines'
- * labels do not cover the route the pulse is pointing at.
+ * labels do not cover the route the pulse is pointing at. The other two
+ * layers that step aside with them are pinned where they live –
+ * cesium-stop-visibility.test.ts for the stops, cesium-vessel-layer.test.ts
+ * for the ship names.
  */
 
 let clockMs = 0

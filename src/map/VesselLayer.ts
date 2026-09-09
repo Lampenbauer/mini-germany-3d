@@ -401,6 +401,8 @@ export class VesselLayer {
   private clampExclusionsStale = true
   private visible = true
   private labelsVisible = true
+  /** "Zoom to line" keeps the names off until this instant (startLineFocus). */
+  private lineFocusUntil = 0
   /** MMSI the camera is chasing, null when free. */
   private followMmsi: number | null = null
   private readonly followCamera: FollowCamera
@@ -509,6 +511,8 @@ export class VesselLayer {
     const camera = this.viewer.camera
     // Webcam pictures on screen – a name that would sit on one steps aside
     const obstacles = this.host.obstacles?.() ?? []
+    // …and every name steps aside while a "zoom to line" focus runs
+    const namesAside = this.namesAside()
     const cullingVolume = camera.frustum.computeCullingVolume(
       camera.positionWC,
       camera.directionWC,
@@ -651,7 +655,7 @@ export class VesselLayer {
        * write straight over each other whatever the plate's opacity. The
        * loop only collects the candidates.
        */
-      let nameShown = this.visible && this.labelsVisible
+      let nameShown = this.visible && this.labelsVisible && !namesAside
       if (nameShown && distance < NAME_VISIBLE_RANGE && windowPosition) {
         const window = windowPosition(record.displayPosition)
         if (window) {
@@ -801,7 +805,7 @@ export class VesselLayer {
         if (record.primitive) record.primitive.show = false
         if (record.model) record.model.show = false
       }
-      record.labelEntity.show = visible && this.labelsVisible
+      record.labelEntity.show = visible && this.labelsVisible && !this.namesAside()
     }
     this.host.requestRender()
   }
@@ -845,9 +849,31 @@ export class VesselLayer {
     if (visible === this.labelsVisible) return
     this.labelsVisible = visible
     for (const record of this.vessels.values()) {
-      record.labelEntity.show = this.visible && visible
+      record.labelEntity.show = this.visible && visible && !this.namesAside()
     }
     this.host.requestRender()
+  }
+
+  /**
+   * "Zoom to line": the ship names step aside for the route pulse, the way
+   * the other lines' vehicle badges do (VehicleLayer.startLineFocus). No
+   * ship belongs to a line here – the scheduled ferries are the vehicle
+   * layer's – so every name goes, or the plates over the water would be
+   * the only ones left on a screen the pulse is clearing. The hulls stay:
+   * a name is what covers a route, a hull is where the ship is.
+   *
+   * The names come back on the first sync after the focus has run out,
+   * a tick behind the pulse, again like the badges.
+   */
+  startLineFocus(durationMs: number): void {
+    this.lineFocusUntil = performance.now() + durationMs
+    for (const record of this.vessels.values()) record.labelEntity.show = false
+    this.host.requestRender()
+  }
+
+  /** Whether a running line focus currently keeps the names off screen. */
+  private namesAside(): boolean {
+    return performance.now() < this.lineFocusUntil
   }
 
   get vesselCount(): number {
@@ -896,7 +922,7 @@ export class VesselLayer {
     const labelEntity = this.viewer.entities.add({
       id: `vessel:${vessel.mmsi}`,
       position: labelPosition,
-      show: this.visible && this.labelsVisible,
+      show: this.visible && this.labelsVisible && !this.namesAside(),
       label: {
         text: labelText,
         font: 'bold 10px "Inter Variable", system-ui, sans-serif',

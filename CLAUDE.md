@@ -203,6 +203,21 @@ was the brightest thing over Google's tiles and outshouted the line badges. A
 vehicle is the news, a stop is the furniture; if the stop names ever draw the
 eye before the badges do, that is the bug. Do not give them a plate back.
 
+**"Zoom to line" clears the stage, and every layer that draws on it has to
+join.** `CesiumMap.focusLine` pulses the line's route for
+`ROUTE_PULSE_DURATION_MS` and takes everything else off for exactly that span:
+the other routes (`RoutesLayer.startPulse`), the other lines' badges
+(`VehicleLayer.startLineFocus`), the discs and names of every stop the line
+does not call at (`StopsLayer.startLineFocus`) and every ship name
+(`VesselLayer.startLineFocus` — no ship belongs to a line, so all of them go).
+Bodies and hulls stay: a name is what covers a route, a body is where the thing
+is. None of the three needs a timer — the badges and the ship names expire in
+their layer's next sync, the stops in the next frame's `update()`, and the
+pulse keeps frames coming to its very end. A new layer that puts something over
+the map and does not join is the one thing left standing on the route the pulse
+is pointing at, which is how the stops and the ships were found on 2026-09-09,
+long after the pulse itself was built.
+
 **The cards state facts the sources state, not simulation results.**
 [line-profile.ts](src/lib/line-profile.ts) and
 [city-profile.ts](src/lib/city-profile.ts) carry no travel time, no speed

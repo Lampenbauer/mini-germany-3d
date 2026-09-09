@@ -1,6 +1,7 @@
 import { Cartesian3, Cartographic, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib/ais-extract'
+import { ROUTE_PULSE_DURATION_MS } from '@/map/RoutesLayer'
 import { VesselLayer } from '@/map/VesselLayer'
 
 /**
@@ -362,6 +363,62 @@ describe('VesselLayer', () => {
       h.layer.sync([vessel()], NOW + 3000)
       expect(surface).toHaveBeenCalledTimes(2)
       expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(52 + 3 / 2, 1)
+    })
+  })
+
+  /**
+   * "Zoom to line" clears the stage: the ship names step aside for the
+   * route pulse like the other lines' vehicle badges, and the hulls stay.
+   */
+  describe('line focus on the ship names', () => {
+    /** The layer reads performance.now(); the ships' own clock is nowMs. */
+    let clockMs = 0
+    const OTHER = 211333440
+
+    function focused() {
+      clockMs = 50_000
+      vi.spyOn(performance, 'now').mockImplementation(() => clockMs)
+      const h = harness()
+      h.layer.sync([vessel()], NOW)
+      expect(h.record(211222290)!.labelEntity.show).toBe(true)
+      h.layer.startLineFocus(ROUTE_PULSE_DURATION_MS)
+      return h
+    }
+
+    it('takes the names off at once and keeps the hulls', () => {
+      const h = focused()
+      expect(h.record(211222290)!.labelEntity.show).toBe(false)
+      h.layer.sync([vessel()], NOW + 100)
+      expect(h.record(211222290)!.labelEntity.show).toBe(false)
+      // Only the names step aside – the fleet itself stays on the water
+      expect(h.layer.vesselCount).toBe(1)
+      expect(h.removedPrimitives).toHaveLength(0)
+    })
+
+    it('lets a ship that arrives during the focus arrive without her name', () => {
+      const h = focused()
+      h.layer.sync([vessel(), vessel({ mmsi: OTHER, name: 'AURORA' })], NOW + 100)
+      expect(h.record(OTHER)!.labelEntity.show).toBe(false)
+    })
+
+    it('brings the names back on the first sync after the focus ends', () => {
+      const h = focused()
+
+      clockMs += ROUTE_PULSE_DURATION_MS - 1
+      h.layer.sync([vessel()], NOW + 100)
+      expect(h.record(211222290)!.labelEntity.show).toBe(false)
+
+      clockMs += 1
+      h.layer.sync([vessel()], NOW + 200)
+      expect(h.record(211222290)!.labelEntity.show).toBe(true)
+    })
+
+    it('leaves the names off when the Labels switch is off anyway', () => {
+      const h = focused()
+      h.layer.setLabelsVisible(false)
+      clockMs += ROUTE_PULSE_DURATION_MS
+      h.layer.sync([vessel()], NOW + 100)
+      expect(h.record(211222290)!.labelEntity.show).toBe(false)
     })
   })
 })

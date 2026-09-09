@@ -80,7 +80,8 @@ interface StopEntityRecord {
   lines: string[]
   /**
    * At least one serving line is currently shown – drives disc/label
-   * visibility together with the global stops layer toggle.
+   * visibility together with the global stops layer toggle and with a
+   * running line focus (see startLineFocus).
    */
   lineVisible: boolean
   /** Platform lies on an underground section (drives the ghosting). */
@@ -247,6 +248,8 @@ export class StopsLayer {
   private lastStopSampleAt = 0
   /** Underground view (see setUnderground). */
   private underground = false
+  /** Running "zoom to line" focus (see startLineFocus), null = none. */
+  private lineFocus: { lineId: string; until: number } | null = null
 
   constructor(
     private readonly viewer: Viewer,
@@ -266,6 +269,8 @@ export class StopsLayer {
       this.stopBillboards = null
     }
     this.stopRecords = []
+    // The focus named a line of the city being left.
+    this.lineFocus = null
     this.stopLabelsDirty = true
     this.host.requestRender()
   }
@@ -306,10 +311,17 @@ export class StopsLayer {
   }
 
   /**
-   * Per-frame upkeep: refine a few stop heights and rerun the declutter if
-   * the camera moved or a stop changed. Both are no-ops when nothing did.
+   * Per-frame upkeep: let an expired line focus go, refine a few stop
+   * heights and rerun the declutter if the camera moved or a stop changed.
+   * All three are no-ops when nothing did.
    */
   update(): void {
+    // No timer of its own: the pulse keeps frames coming to its very end
+    // (RoutesLayer.updatePulse), so the stops are back one frame after it.
+    if (this.lineFocus && performance.now() >= this.lineFocus.until) {
+      this.lineFocus = null
+      this.applyStopVisibility()
+    }
     this.resolveHeights()
     this.declutterLabels()
   }
@@ -452,15 +464,43 @@ export class StopsLayer {
   /**
    * Applies the line visibility to the stops: a stop stays on the map as
    * long as at least one line serving it is shown. Composes with the
-   * global stops layer toggle (collection show) and with the label
-   * declutter, which skips hidden stops and re-runs after a change.
+   * global stops layer toggle (collection show), with a running line focus
+   * (see startLineFocus) and with the label declutter, which skips hidden
+   * stops and re-runs after a change.
    */
   setVisibleLines(visibleLines: ReadonlySet<string>): void {
+    for (const record of this.stopRecords) {
+      record.lineVisible = record.lines.some((id) => visibleLines.has(id))
+    }
+    this.applyStopVisibility()
+  }
+
+  /**
+   * "Zoom to line": for these few seconds only the stops that line calls at
+   * stay on the map. The other routes fade out for the attention pulse (see
+   * RoutesLayer) and the other lines' badges step aside with them
+   * (VehicleLayer.startLineFocus) – every disc and name the line does not
+   * call at would otherwise be the furniture left standing on the very
+   * route the pulse is pointing at. The panel's line filter still has the
+   * last word: a focus never shows a stop the filter has taken off.
+   */
+  startLineFocus(lineId: string, durationMs: number): void {
+    this.lineFocus = { lineId, until: performance.now() + durationMs }
+    this.applyStopVisibility()
+  }
+
+  /**
+   * Writes the composed visibility of every stop onto its billboards: at
+   * least one serving line shown, and the focused line among them while a
+   * focus runs. `disc.show` carries the composed state on its own – the
+   * declutter reads it and only ever writes `label.show`.
+   */
+  private applyStopVisibility(): void {
+    const focus = this.lineFocus?.lineId
     let changed = false
     for (const record of this.stopRecords) {
-      const visible = record.lines.some((id) => visibleLines.has(id))
-      if (visible === record.lineVisible) continue
-      record.lineVisible = visible
+      const visible = record.lineVisible && (focus === undefined || record.lines.includes(focus))
+      if (visible === record.disc.show) continue
       record.disc.show = visible
       // Re-shown labels start visible; the declutter prunes overlaps on
       // its next pass (stopLabelsDirty below).
@@ -578,7 +618,9 @@ export class StopsLayer {
     // label is off screen either way, its show flag does not matter.
     const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
     for (const record of this.stopRecords) {
-      if (!record.lineVisible) continue
+      // disc.show is the composed visibility (line filter and focus): a
+      // stop that is off the map has no name to place either.
+      if (!record.disc.show) continue
       const distance = Cartesian3.distance(cameraPosition, record.position)
       if (distance > STOP_LABEL_RANGE) continue
       const windowPosition = SceneTransforms.worldToWindowCoordinates(
