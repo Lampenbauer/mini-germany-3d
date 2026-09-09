@@ -1,7 +1,7 @@
 import { Crosshair, Ship, X } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Stat } from '@/components/Stat'
 import type { AisVessel } from '@/lib/ais-extract'
 import { t } from '@/lib/i18n'
 import {
@@ -14,12 +14,17 @@ import {
 } from '@/lib/vessel-info'
 
 /**
- * The selected AIS ship, in the vehicle card's clothes: same shell, same
- * follow button, different contents. A ship has none of what the vehicle
- * card is built around – no line, no trip, no timetable of stops – and
- * everything it does have (the static report and the navigational status)
- * the vehicle card has no place for, so the two share a look rather than
- * a component.
+ * The selected AIS ship, in the vehicle card's shell but not its clothes:
+ * a ship has none of what the vehicle card is built around – no line, no
+ * trip, no timetable of stops – and everything it does have (the static
+ * report and the navigational status) the vehicle card has no place for.
+ *
+ * The head is the ship's name plate from the map, dark slate with light
+ * text (VesselLayer, NAME_PLATE): on the map a dark plate on water is how
+ * the live fleet is told from the timetabled network, and the card keeps
+ * that – the city card wears the network's green, this one the harbour's
+ * slate. The eyebrow says where the ship comes from, with the age of her
+ * last fix, because nothing else on the map ignores the panel's clock.
  *
  * Every field can be missing: static reports arrive only every six minutes
  * and small craft often send none at all, so a nameless ship shows her
@@ -44,55 +49,82 @@ export function VesselCard({ vessel, nowMs, following, onToggleFollow, onClose }
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
+      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
       data-testid="vessel-card"
     >
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <Ship className="size-4" aria-hidden />
-          </span>
-          <span className="truncate" data-testid="vessel-name">
-            {vesselTitle(vessel)}
-          </span>
-        </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label={t('vehicle.close')} onClick={onClose}>
-          <X aria-hidden />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          <span className="text-muted-foreground">{t('vehicle.status')}</span>
-          <span data-testid="vessel-status">
-            {statusKey ? t(statusKey) : t('vessel.unknown')}
-            <span className="text-muted-foreground">
-              {' · '}
-              {formatFixAge(vessel.positionAt, nowMs)}
+      <CardHeader className="gap-0 bg-slate-800 px-5 pt-4 pb-4 text-slate-50">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <span className="mb-1.5 flex items-center gap-2 text-2xs font-semibold text-slate-300">
+              {/* The pulse is the one animation on a card: it says "live"
+                  where every other figure on the map is the timetable's. */}
+              <span className="size-1.5 animate-pulse rounded-full bg-brand-light" aria-hidden />
+              {t('vessel.live')}
+              <span className="font-normal text-slate-400">
+                {' · '}
+                {formatFixAge(vessel.positionAt, nowMs)}
+              </span>
             </span>
-          </span>
+            <CardTitle className="flex items-center gap-2 text-2xl leading-tight font-semibold tracking-tight">
+              <Ship className="size-5 shrink-0 text-slate-400" aria-hidden />
+              <span className="truncate" data-testid="vessel-name">
+                {vesselTitle(vessel)}
+              </span>
+            </CardTitle>
+            {/* Type, status and the MMSI in one line; a Class B transponder
+                sends no status at all and a small craft often no static
+                report, so each says "unknown" with its own name rather than
+                as a bare word twice over. */}
+            <p className="mt-1 text-sm text-slate-300">
+              <span data-testid="vessel-type">{typeKey ? t(typeKey) : t('vessel.typeUnknown')}</span>
+              {' · '}
+              <span data-testid="vessel-status">
+                {statusKey ? t(statusKey) : t('vessel.statusUnknown')}
+              </span>
+              {' · '}
+              <span className="whitespace-nowrap tabular-nums" data-testid="vessel-mmsi">
+                {t('vessel.mmsi')} {vessel.mmsi}
+              </span>
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="-mt-1 -mr-2 shrink-0"
+            aria-label={t('vehicle.close')}
+            onClick={onClose}
+          >
+            <X aria-hidden />
+          </Button>
+        </div>
+      </CardHeader>
 
-          <span className="text-muted-foreground">{t('vessel.speed')}</span>
-          <span data-testid="vessel-speed">{formatSpeed(vessel.sogKn)}</span>
-
-          <span className="text-muted-foreground">{t('vessel.type')}</span>
-          <span data-testid="vessel-type">{typeKey ? t(typeKey) : t('vessel.unknown')}</span>
-
-          <span className="text-muted-foreground">{t('vessel.dimensions')}</span>
-          <span data-testid="vessel-dimensions">{dimensions ?? t('vessel.notReported')}</span>
-
-          <span className="text-muted-foreground">{t('vessel.draught')}</span>
-          <span data-testid="vessel-draught">
-            {draughtM === null ? t('vessel.notReported') : `${draughtM.toFixed(1)} m`}
-          </span>
+      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+        <div className="grid grid-cols-3 gap-2">
+          <Stat
+            label={t('vessel.speed')}
+            value={formatSpeed(vessel.sogKn)}
+            muted={vessel.sogKn === null}
+            testId="vessel-speed"
+          />
+          <Stat
+            label={t('vessel.dimensions')}
+            value={dimensions ?? t('vessel.notReported')}
+            muted={dimensions === null}
+            testId="vessel-dimensions"
+          />
+          <Stat
+            label={t('vessel.draught')}
+            value={draughtM === null ? t('vessel.notReported') : `${draughtM.toFixed(1)} m`}
+            muted={draughtM === null}
+            testId="vessel-draught"
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button variant={following ? 'default' : 'outline'} size="sm" onClick={onToggleFollow}>
             <Crosshair aria-hidden />
             {following ? t('follow.stop') : t('follow.vessel')}
           </Button>
-          <Badge variant="secondary" data-testid="vessel-mmsi">
-            {t('vessel.mmsi')} {vessel.mmsi}
-          </Badge>
         </div>
       </CardContent>
     </Card>

@@ -145,10 +145,13 @@ carry a second marker (a check, the selected day's own fill) so a subtle wash
 is enough.
 
 **The green is one value.** `--brand` in `index.css` is the deep green of the
-About dialog's hero and of the control panel's head, which runs out into the
+About dialog's hero, of the control panel's head, which runs out into the
 card's own colour where the card's content begins – except folded away, where
 the panel is head and clock and nothing else and so is green all through,
-border included. Change the green in one place. The
+border included – and of the city card's head, which opens from the panel's
+and carries the About dialog's small network
+([NetworkIllustration](src/components/NetworkIllustration.tsx)) faded into
+its corner. Change the green in one place. The
 lit green of the eyebrow dot is `--brand-light` beside it, because the About
 and the Credits dialog both wear it, and `--brand-mid` is the green for
 marks on the card (the About dialog's section icons, the bar before a
@@ -186,6 +189,9 @@ A ship wears a dark slate plate with white text
 ([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Bare text on land, a
 dark plate on water, traffic in colour: that is how the fleet is told from the
 network at a glance, so do not give any of the three the look of another.
+The vessel card's head is that plate's slate (`bg-slate-800`) for the same
+reason, while the city card's is the network's green: the two cards wear
+their side of the divide, so do not paint the ship's card green to match.
 
 The stop names are deliberately the *quietest* of the three. They had a light
 plate until 2026-09-08 — white, then a grey pill — and whatever its colour it

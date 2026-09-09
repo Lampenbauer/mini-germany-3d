@@ -159,9 +159,9 @@ describe('vessel-info', () => {
   })
 
   it('gives the fix age in the unit that reads well', () => {
-    expect(formatFixAge(NOW - 20_000, NOW)).toBe('last fix 20 s ago')
-    expect(formatFixAge(NOW - 240_000, NOW)).toBe('last fix 4 min ago')
+    expect(formatFixAge(NOW - 20_000, NOW)).toBe('last update 20 s ago')
+    expect(formatFixAge(NOW - 240_000, NOW)).toBe('last update 4 min ago')
     // A clock that runs backwards must not produce a negative age
-    expect(formatFixAge(NOW + 5_000, NOW)).toBe('last fix 0 s ago')
+    expect(formatFixAge(NOW + 5_000, NOW)).toBe('last update 0 s ago')
   })
 })

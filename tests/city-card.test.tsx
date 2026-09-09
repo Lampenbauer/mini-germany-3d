@@ -67,18 +67,20 @@ describe('the city card', () => {
   it('states the network in numbers, with the idle lines counted against their mode', () => {
     card()
     expect(screen.getByTestId('city-card-name')).toHaveTextContent('Rostock')
-    expect(screen.getByTestId('city-lines')).toHaveTextContent('36 lines · 35 running today')
+    // A tile: the figure, and the second thing the data says under it
+    expect(screen.getByTestId('city-lines')).toHaveTextContent(/^36 lines/)
+    expect(screen.getByTestId('city-lines')).toHaveTextContent('35 running today')
     // Badges per mode: "5/6" where a tram line stands still, plain counts elsewhere
     expect(screen.getByLabelText('Tram 5/6')).toBeInTheDocument()
     expect(screen.getByLabelText('Bus 25')).toBeInTheDocument()
     expect(screen.getByTestId('city-stops')).toHaveTextContent('614 stop positions')
-    expect(screen.getByTestId('city-route')).toHaveTextContent(
-      '424 km of line · 3.8 km in tunnel (1 %)',
-    )
+    expect(screen.getByTestId('city-route')).toHaveTextContent(/^424 km of line/)
+    expect(screen.getByTestId('city-route')).toHaveTextContent('3.8 km in tunnel (1 %)')
     expect(screen.getByTestId('city-elevation')).toHaveTextContent(
       '0–53 m above sea level · highest: Südstadt',
     )
-    expect(screen.getByTestId('city-trips')).toHaveTextContent('3,595 a day · 1,575 short workings')
+    expect(screen.getByTestId('city-trips')).toHaveTextContent(/^3,595 a day/)
+    expect(screen.getByTestId('city-trips')).toHaveTextContent('1,575 short workings')
     // The day begins at 03:50 and its night ends at 04:06 – a pause, so both ends are named
     expect(screen.getByTestId('city-service')).toHaveTextContent('03:50–04:06')
     expect(screen.getByTestId('city-running')).toHaveTextContent(
@@ -133,10 +135,11 @@ describe('the city card', () => {
   it('speaks German with German digits', () => {
     setLanguage('de')
     card()
-    expect(screen.getByTestId('city-lines')).toHaveTextContent('36 Linien · 35 fahren heute')
-    expect(screen.getByTestId('city-trips')).toHaveTextContent('3.595 am Tag · 1.575 Kurzfahrten')
-    expect(screen.getByTestId('city-route')).toHaveTextContent(
-      '424 km Linienlänge · 3,8 km im Tunnel (1 %)',
-    )
+    expect(screen.getByTestId('city-lines')).toHaveTextContent(/^36 Linien/)
+    expect(screen.getByTestId('city-lines')).toHaveTextContent('35 fahren heute')
+    expect(screen.getByTestId('city-trips')).toHaveTextContent(/^3\.595 am Tag/)
+    expect(screen.getByTestId('city-trips')).toHaveTextContent('1.575 Kurzfahrten')
+    expect(screen.getByTestId('city-route')).toHaveTextContent(/^424 km Linienlänge/)
+    expect(screen.getByTestId('city-route')).toHaveTextContent('3,8 km im Tunnel (1 %)')
   })
 })
