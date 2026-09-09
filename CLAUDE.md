@@ -124,13 +124,11 @@ silently — the element simply has no padding. Write every candidate out in
 full, including the long stacked variants
 (`sm:[@media(max-height:560px)]:py-5`).
 
-**Colours are `oklch()`, not hex.** That is what the theme tokens in
-`index.css` already speak, and it holds for Tailwind arbitrary values, canvas
-`fillStyle`/`shadowColor` and SVG paint attributes alike. The one exception is
-forced: Cesium's `Color.fromCssColorString` parses hex, `rgb()` and `hsl()` and
-nothing else, so every colour that reaches it — hull colours, the ship name
-plate, the globe base — stays hex. A silent failure either way, so keep the two
-apart deliberately.
+**Cesium reads no `oklch()`.** `Color.fromCssColorString` parses hex,
+`rgb()` and `hsl()` and nothing else, and fails silently on anything more
+modern, so every colour that reaches it — hull colours, the ship name plate,
+the globe base — stays hex. Elsewhere the notation is free; the theme tokens
+in `index.css` happen to be `oklch()`.
 
 **Every hover is one value.** `--accent` in `index.css` is a wash of the
 ground colour (50 % black in the dark theme), not shadcn's grey step: it is
