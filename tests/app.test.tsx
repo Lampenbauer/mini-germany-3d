@@ -469,7 +469,10 @@ describe('App (UI shell)', () => {
     // The project story opens first; details and shortcuts have their own tabs.
     expect(about).toHaveTextContent('mini-tokyo-3d')
     expect(about).toHaveTextContent('legible-cities')
-    expect(about).toHaveTextContent('Hi, I’m Mario.')
+    // The project comes first on that tab, the person behind it after it
+    const text = about.textContent ?? ''
+    expect(text.indexOf('The city, seen from above.')).toBeGreaterThan(-1)
+    expect(text.indexOf('Hi, I’m Mario')).toBeGreaterThan(text.indexOf('The city, seen from above.'))
     // The two ancestors are linked, and the links leave the page safely
     const link = within(about).getByRole('link', { name: 'legible-cities' })
     expect(link).toHaveAttribute('href', 'https://richc117.github.io/legible-cities/')
@@ -495,7 +498,7 @@ describe('App (UI shell)', () => {
     render(<App />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
-    expect(screen.getByRole('dialog', { name: 'Mini Germany 3D' })).toHaveTextContent('Hi, I’m Mario.')
+    expect(screen.getByRole('dialog', { name: 'Mini Germany 3D' })).toHaveTextContent('The city, seen from above.')
     // ? again puts it away …
     fireEvent.keyDown(window, { key: '?', code: 'Slash', shiftKey: true })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

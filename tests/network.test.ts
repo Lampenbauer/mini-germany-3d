@@ -49,7 +49,7 @@ describe.each(cityNetworks.map((entry) => [entry.city.slug, entry] as const))(
   })
 
   it("all coordinates lie within the city's bounding box", () => {
-    // Counted, not asserted per point: the thirteen networks hold a third
+    // Counted, not asserted per point: the networks together hold a third
     // of a million path points, and four expect() calls on each of them
     // took 15 s of the CI run for a check that is a millisecond of
     // arithmetic. The first stray point is named so a failure still says

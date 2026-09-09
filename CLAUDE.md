@@ -71,8 +71,10 @@ moved, and follow it into:
   source that is not in there is only half-added.
 - **The app's own prose** — [src/lib/i18n.ts](src/lib/i18n.ts) carries strings
   that repeat facts about the project, and it carries them **twice**, in the
-  `en` and `de` tables. The About dialog states the city count in `about.lead`
-  and lists what the map is built from; the keyboard tab lists the shortcuts;
+  `en` and `de` tables. The About dialog lists what the map is built from
+  (and deliberately never says how many cities there are – the count changed
+  often enough to be a trap, so no prose anywhere states it); the keyboard
+  tab lists the shortcuts;
   the credits carry the licenses. A German table left behind is the usual miss.
 - **Code comments elsewhere** — this codebase explains its decisions in prose
   next to them, so a constant that moves usually invalidates a sentence in
@@ -83,8 +85,8 @@ moved, and follow it into:
   describes differently.
 
 Worked example: adding a city means `definitions.ts`, the README intro *and*
-Cities section *and* attribution list, `about.lead` plus `city.name.<slug>` in
-both i18n tables, and a new `tests/<slug>.test.ts` — six places, one of which
+Cities section *and* attribution list, `city.name.<slug>` in both i18n
+tables, and a new `tests/<slug>.test.ts` — five places, one of which
 compiles fine while being wrong.
 
 **Commits land on `main`.** `git checkout -b`, `git switch -c` and
@@ -206,7 +208,7 @@ not the smallest and largest departure – a feed codes a night bus's 00:30
 as 24:30 of the day before and another line's 00:03 as the day's own, so
 min/max spans 28 hours in Rostock and reads as a quarter of an hour in
 Berlin. A pause under an hour is "round the clock", which the hourly night
-buses make true for eleven of the thirteen cities; Lübeck and
+buses make true for all cities but two; Lübeck and
 Wilhelmshaven keep a night.
 
 **Cesium cannot stack labels — a crowd has to be decluttered, not layered.**
@@ -233,7 +235,7 @@ still reads. Keep all three plates opaque either way.
 
 ## Cities and the data pipeline
 
-Thirteen cities are in the build ([src/cities/definitions.ts](src/cities/definitions.ts));
+The cities in the build are listed in [src/cities/definitions.ts](src/cities/definitions.ts);
 Rostock is the default. The README's [Cities](README.md#cities) section documents
 `city.json` field by field and the `add-city` → pipeline sequence. What follows
 is what the data itself taught.

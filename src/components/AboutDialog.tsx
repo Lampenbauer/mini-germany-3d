@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { t, type MessageKey } from '@/lib/i18n'
@@ -48,6 +49,9 @@ const PANEL =
 /** A section heading inside a panel, and the paragraphs under it. */
 const HEADING = 'text-[15px] font-semibold tracking-tight text-foreground'
 const BODY = 'mt-1.75 text-pretty'
+
+/** The muted heading over the story tab's lower sections. */
+const SMALL_HEADING = 'mb-3 text-xs font-semibold tracking-tight text-muted-foreground'
 
 /** The icon beside a section on the details tab, in the dialog's green. */
 const ICON =
@@ -189,27 +193,31 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
             </TabsTrigger>
           </TabsList>
           {/* One scroller for all three panels, so the hero and the tab bar
-              stay put however long a panel gets. */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+              stay put however long a panel gets – the app's own scroll area,
+              with the fade at both ends that the panel and the cards wear. */}
+          <ScrollArea className="flex-1" viewportClassName="scroll-fade-y overscroll-contain">
             <TabsContent value="story" className={PANEL}>
-              <section className="flex gap-4.5 max-sm:flex-col max-sm:gap-3">
-                <div>
-                  <h3 className="text-[21px] leading-tight font-semibold tracking-tight text-foreground">
-                    {t('about.whoTitle')}
-                  </h3>
-                  <p className={BODY}>{t('about.who')}</p>
-                  <p className={cn(BODY, 'text-foreground')}>{t('about.invitation')}</p>
-                  <div className="mt-3.75 flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
-                    <Outward href={AUTHOR_URL}>{t('about.authorLink')}</Outward>
-                    <Outward href={AUTHOR_SITE_URL}>lampenbauer.com</Outward>
-                    <Outward href={AUTHOR_LINKEDIN_URL}>LinkedIn</Outward>
-                  </div>
+              {/* The project first, the person after it: the tab is
+                  named after the project, so that is what it opens on. */}
+              <section>
+                <h3 className="text-[21px] leading-tight font-semibold tracking-tight text-foreground">
+                  {t('about.projectTitle')}
+                </h3>
+                <p className={BODY}>{t('about.project')}</p>
+                <p className={BODY}>{t('about.projectRealism')}</p>
+                <p className={cn(BODY, 'text-foreground')}>{t('about.invitation')}</p>
+              </section>
+              <section className="border-t border-border pt-5.5">
+                <h3 className={SMALL_HEADING}>{t('about.whoTitle')}</h3>
+                <p className="text-pretty">{t('about.who')}</p>
+                <div className="mt-3.75 flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
+                  <Outward href={AUTHOR_URL}>{t('about.authorLink')}</Outward>
+                  <Outward href={AUTHOR_SITE_URL}>lampenbauer.com</Outward>
+                  <Outward href={AUTHOR_LINKEDIN_URL}>LinkedIn</Outward>
                 </div>
               </section>
               <section className="border-t border-border pt-5.5">
-                <h3 className="mb-3.5 text-[11px] font-semibold tracking-tight text-muted-foreground">
-                  {t('about.rootsTitle')}
-                </h3>
+                <h3 className={SMALL_HEADING}>{t('about.rootsTitle')}</h3>
                 <div className="grid grid-cols-2 gap-6 max-sm:grid-cols-1 max-sm:gap-4.5">
                   <div className="relative pl-3.75">
                     <span className="absolute top-1.25 bottom-0.75 left-0 w-0.75 rounded-xs bg-brand-mid" />
@@ -274,7 +282,7 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
                 ))}
               </ul>
             </TabsContent>
-          </div>
+          </ScrollArea>
         </Tabs>
       </DialogContent>
     </Dialog>
