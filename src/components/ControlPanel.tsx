@@ -82,7 +82,7 @@ export interface ControlPanelProps {
   showAisVessels: boolean
   onToggleAisVessels: (visible: boolean) => void
   /**
-   * How much of the fleet is out at this instant – the counts beside the
+   * How much of the fleet is out at this instant – the counts in brackets after the
    * group headers and the traffic heading. Null before the first snapshot,
    * when the panel shows no counts rather than zeros.
    */
@@ -139,20 +139,23 @@ const LineGroup = memo(function LineGroup(props: {
           <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Icon className="size-3.5" aria-hidden />
             {t(MODE_KEY[props.mode])}
+            {/* How many of the mode are out, in brackets right after the
+                name – "Tram (23)" – so the number reads as part of the
+                title rather than as a control beside the switch. The bare
+                number: the Traffic heading above says "out now" once for
+                all of them, and four groups repeating it read as noise.
+                It swells with the rush hour and empties at night under
+                the time-lapse. */}
+            {props.running !== null && (
+              <span
+                className="font-normal tabular-nums"
+                title={t('traffic.running', { count: props.running })}
+                data-testid={`running-${props.mode}`}
+              >
+                ({props.running})
+              </span>
+            )}
           </span>
-          {/* How many of the mode are out: the number that swells with the
-              rush hour and empties at night under the time-lapse. The bare
-              number – the Traffic heading above says "out now" once for
-              all of them, and four groups repeating it read as noise. */}
-          {props.running !== null && (
-            <span
-              className={cn(HEADER_COUNT, 'ml-auto')}
-              title={t('traffic.running', { count: props.running })}
-              data-testid={`running-${props.mode}`}
-            >
-              {props.running}
-            </span>
-          )}
           <Switch
             aria-label={t('lines.showAll', { mode: t(MODE_KEY[props.mode]) })}
             checked={allVisible}
@@ -629,16 +632,19 @@ export function ControlPanel(props: ControlPanelProps) {
                         <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           <Ship className="size-3.5" aria-hidden />
                           {t('traffic.ais')}
+                          {/* In brackets after the name like the mode counts
+                              above, and only while the switch is on: off, the
+                              count would promise ships the map is not drawing. */}
+                          {props.showAisVessels && props.aisVesselCount > 0 && (
+                            <span
+                              className="font-normal tabular-nums"
+                              title={t('traffic.aisCount', { count: props.aisVesselCount })}
+                              data-testid="ais-count"
+                            >
+                              ({props.aisVesselCount})
+                            </span>
+                          )}
                         </span>
-                        {/* Only while the switch is on: off, the count would
-                            promise ships the map is not drawing. */}
-                        {props.showAisVessels && props.aisVesselCount > 0 && (
-                          <span className={cn(HEADER_COUNT, 'ml-auto')} data-testid="ais-count">
-                            {t('traffic.aisCount', {
-                              count: props.aisVesselCount,
-                            })}
-                          </span>
-                        )}
                         <Switch
                           aria-label={t('traffic.showAis')}
                           checked={props.showAisVessels}

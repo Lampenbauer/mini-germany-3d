@@ -198,8 +198,8 @@ eye before the badges do, that is the bug. Do not give them a plate back.
 [city-profile.ts](src/lib/city-profile.ts) carry no travel time, no speed
 and no vehicle-kilometres, because the app invents those from a cruise
 speed and a fixed dwell; a card claiming them would present an assumption
-as timetable. The live rows ("Out now", the counts beside the panel's group
-headers) are the simulation's and say so by changing. Two measures on the
+as timetable. The live rows ("Out now", the counts in brackets after the panel's
+group headers) are the simulation's and say so by changing. Two measures on the
 city card are named carefully on purpose: *stop positions*, not stops
 (one per OSM platform node – Doberaner Platz is eight), and *line
 kilometres*, not network length (a shared corridor counts once per line).

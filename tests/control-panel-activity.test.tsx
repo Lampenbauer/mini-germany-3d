@@ -67,12 +67,13 @@ describe('the live counts in the control panel', () => {
     panel()
     expect(screen.getByTestId('running-total')).toHaveTextContent('41 out now')
     // The groups carry the bare number; the heading has said "out now" once
-    expect(screen.getByTestId('running-tram')).toHaveTextContent(/^38$/)
+    expect(screen.getByTestId('running-tram')).toHaveTextContent(/^\(38\)$/)
     expect(screen.getByTestId('running-tram')).toHaveAttribute('title', '38 out now')
     // A mode with nothing out reads zero, not nothing – the ferries are
     // simply not running, which is a fact about the moment
-    expect(screen.getByTestId('running-ferry')).toHaveTextContent(/^0$/)
-    expect(screen.getByTestId('ais-count')).toHaveTextContent('14 ships')
+    expect(screen.getByTestId('running-ferry')).toHaveTextContent(/^\(0\)$/)
+    expect(screen.getByTestId('ais-count')).toHaveTextContent(/^\(14\)$/)
+    expect(screen.getByTestId('ais-count')).toHaveAttribute('title', '14 ships')
   })
 
   it('shows no counts before the first snapshot', () => {
@@ -91,7 +92,7 @@ describe('the live counts in the control panel', () => {
     setLanguage('de')
     panel()
     expect(screen.getByTestId('running-total')).toHaveTextContent('41 unterwegs')
-    expect(screen.getByTestId('ais-count')).toHaveTextContent('14 Schiffe')
+    expect(screen.getByTestId('ais-count')).toHaveAttribute('title', '14 Schiffe')
   })
 })
 
