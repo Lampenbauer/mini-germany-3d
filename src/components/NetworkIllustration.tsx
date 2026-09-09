@@ -28,7 +28,7 @@ export function NetworkIllustration(props: { className?: string }) {
         <circle cx="37" cy="103" r="5" /><circle cx="196" cy="214" r="5" />
         <circle cx="119" cy="128" r="9" /><circle cx="165" cy="158" r="7" />
       </g>
-      <g transform="translate(153 87) rotate(-45)">
+      <g transform="translate(167 92) rotate(-45)">
         <rect x="-17" y="-8" width="34" height="16" rx="6" fill="oklch(0.9787 0.0091 161.36)" stroke="oklch(0.3229 0.0448 183.84)" strokeWidth="2" />
         <path d="M-7 -4V4M0 -4V4M7 -4V4" stroke="oklch(0.3229 0.0448 183.84)" strokeWidth="3" />
       </g>

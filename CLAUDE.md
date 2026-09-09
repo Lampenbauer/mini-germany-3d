@@ -189,9 +189,15 @@ A ship wears a dark slate plate with white text
 ([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Bare text on land, a
 dark plate on water, traffic in colour: that is how the fleet is told from the
 network at a glance, so do not give any of the three the look of another.
-The vessel card's head is that plate's slate (`bg-slate-800`) for the same
-reason, while the city card's is the network's green: the two cards wear
-their side of the divide, so do not paint the ship's card green to match.
+The cards keep to the same divide ([card-parts.tsx](src/components/card-parts.tsx)
+holds their head, tiles and chips): the city and the stop card wear the
+network's green, the line and the vehicle card the line's own colour – in
+white ink on the deep colours and in near-black on the light ones, chosen
+by the colour's luminance (`headInk`; Rostock's light-blue bus 19 and
+orange line 6 were unreadable in white) – and the vessel card the plate's
+slate (`bg-slate-800`). Do not paint the ship's card green to match, and do not
+give a stop a line's colour – a stop is the network's furniture, not a
+line's.
 
 The stop names are deliberately the *quietest* of the three. They had a light
 plate until 2026-09-08 — white, then a grey pill — and whatever its colour it

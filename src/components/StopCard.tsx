@@ -1,7 +1,8 @@
-import { Crosshair, X } from 'lucide-react'
+import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { CardHead, EyebrowDot, LineChip, SectionLabel } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
@@ -42,6 +43,12 @@ function countdown(departureSec: number, nowSec: number): string {
   return minutes <= 0 ? t('stop.now') : t('vehicle.inMinutes', { count: minutes })
 }
 
+/**
+ * The stop clicked on the map: its lines, the next hour's departures and
+ * the lines a short walk away. A stop is the network's furniture, not a
+ * line's, so the head is the network's green like the city card's, with
+ * the serving lines' chips on it in their own colours.
+ */
 export function StopCard({
   stop,
   departures,
@@ -59,39 +66,41 @@ export function StopCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
+      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
       data-testid="stop-card"
     >
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex min-w-0 items-center gap-2 text-base">
-          <span className="truncate">{stop.name}</span>
-          {stop.inTunnel && (
-            <Badge variant="secondary" className="shrink-0">
-              {t('stop.underground')}
-            </Badge>
-          )}
-        </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label={t('stop.close')} onClick={onClose}>
-          <X aria-hidden />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex flex-wrap gap-1" data-testid="stop-lines">
+      <CardHead
+        className="bg-brand"
+        eyebrow={
+          <>
+            <EyebrowDot />
+            {t('stop.eyebrow')}
+            {stop.inTunnel && (
+              <span className="font-normal text-brand-light/70">
+                {' · '}
+                <span>{t('stop.underground')}</span>
+              </span>
+            )}
+          </>
+        }
+        eyebrowClassName="text-brand-light"
+        title={<span className="text-pretty">{stop.name}</span>}
+        titleClassName="text-xl"
+        closeLabel={t('stop.close')}
+        onClose={onClose}
+      >
+        <span className="mt-3 flex flex-wrap gap-1" data-testid="stop-lines">
           {stop.lines.map((line) => (
-            <span
-              key={line.id}
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 text-xs font-semibold text-white"
-              style={{ backgroundColor: line.color }}
-            >
-              {line.id}
-            </span>
+            <LineChip key={line.id} id={line.id} color={line.color} />
           ))}
-        </div>
+        </span>
+      </CardHead>
 
+      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
         <div className="flex flex-col gap-1">
-          <span className="text-sm text-muted-foreground">{t('stop.departures')}</span>
+          <SectionLabel>{t('stop.departures')}</SectionLabel>
           {departures.length === 0 ? (
-            <span className="text-sm" data-testid="stop-no-departures">
+            <span className="text-sm text-muted-foreground" data-testid="stop-no-departures">
               {t('stop.noDepartures')}
             </span>
           ) : (
@@ -104,7 +113,7 @@ export function StopCard({
                         between a clickable row and a plain one – this
                         column says so without hovering. The slot stays in
                         the layout when empty so the rows stay aligned. */}
-                    <span className="flex w-3.5 shrink-0 justify-center">
+                    <span className="flex w-3.5 shrink-0 justify-center text-muted-foreground">
                       {dep.active && (
                         <VehicleIcon
                           className="size-3.5"
@@ -116,21 +125,16 @@ export function StopCard({
                     <span className="w-11 shrink-0 font-mono text-xs tabular-nums">
                       {formatArrival(dep.departureSec)}
                     </span>
-                    <span
-                      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded px-1.5 text-xs font-semibold text-white"
-                      style={{ backgroundColor: dep.color }}
-                    >
-                      {dep.lineId}
-                    </span>
+                    <LineChip id={dep.lineId} color={dep.color} />
                     <span className="min-w-0 flex-1 truncate text-left text-sm">
                       {dep.destination}
                     </span>
                     {dep.realtime && (
-                      <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      <Badge variant="secondary" className="shrink-0 text-2xs">
                         {formatDelay(dep.delaySeconds)}
                       </Badge>
                     )}
-                    <span className="shrink-0 text-xs text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                       {countdown(dep.departureSec, simSeconds)}
                     </span>
                   </>
@@ -142,14 +146,14 @@ export function StopCard({
                     {dep.active ? (
                       <button
                         type="button"
-                        className="flex w-full cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-accent"
+                        className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent"
                         title={t('stop.flyToVehicle')}
                         onClick={() => onSelectVehicle(dep.tripId)}
                       >
                         {row}
                       </button>
                     ) : (
-                      <div className="flex w-full items-center gap-2 px-1 py-0.5">{row}</div>
+                      <div className="-mx-1 flex w-full items-center gap-2 px-1 py-1">{row}</div>
                     )}
                   </li>
                 )
@@ -160,16 +164,10 @@ export function StopCard({
 
         {nearby.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-sm text-muted-foreground">{t('stop.nearby')}</span>
+            <SectionLabel>{t('stop.nearby')}</SectionLabel>
             <div className="flex flex-wrap gap-1" data-testid="stop-nearby">
               {nearby.map((line) => (
-                <span
-                  key={line.id}
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded px-1.5 text-xs font-semibold text-white"
-                  style={{ backgroundColor: line.color }}
-                >
-                  {line.id}
-                </span>
+                <LineChip key={line.id} id={line.id} color={line.color} />
               ))}
             </div>
           </div>

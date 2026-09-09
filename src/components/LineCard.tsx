@@ -1,8 +1,9 @@
-import { ArrowLeftRight, ArrowRight, Crosshair, X } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight, Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { CardHead, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import { formatDelay } from '@/components/VehicleCard'
 import { MODE_KEY, t } from '@/lib/i18n'
@@ -19,6 +20,13 @@ import {
  * its route and the shape of its service day. Everything shown is stated
  * by the data (see line-profile.ts) – nothing here is simulated, which is
  * why there is no travel time and no average speed.
+ *
+ * The head is the line's own colour, the way its vehicles wear it on the
+ * map, with the ink the colour's lightness asks for (headInk); the number
+ * inverts to that ink with the colour as its own, so the badge does not
+ * vanish into its own ground. The figures
+ * stand on tiles, the live rows – how much of the line is out, when it
+ * next leaves – and the list of its vehicles follow.
  */
 export interface LineCardProps {
   profile: LineProfile
@@ -47,6 +55,7 @@ export function LineCard({
   onClose,
 }: LineCardProps) {
   const ModeIcon = MODE_ICON[profile.mode]
+  const ink = headInk(color)
   const minutes = (seconds: number) => Math.round(seconds / 60)
   // Both termini's next departures, soonest first – which end it leaves
   // from matters less than when something next moves.
@@ -72,131 +81,144 @@ export function LineCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
+      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
       data-testid="line-card"
     >
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <CardTitle className="flex min-w-0 flex-col gap-1 text-base">
-          <span className="flex items-center gap-2">
-            <span
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white"
-              style={{ backgroundColor: color }}
-            >
-              {profile.lineId}
-            </span>
+      <CardHead
+        className={ink.text}
+        style={{ backgroundColor: color }}
+        eyebrow={
+          <span className="flex items-center gap-1.5" data-testid="line-mode">
+            <ModeIcon className="size-3.5" aria-hidden />
+            {t(MODE_KEY[profile.mode])}
+          </span>
+        }
+        eyebrowClassName={ink.muted}
+        title={
+          <>
+            <LineChip id={profile.lineId} color={color} size="lg" inverted />
             <span className="truncate" data-testid="line-name">
               {name}
             </span>
-          </span>
-          {/* Both termini, with the double arrow the panel's toggles use –
-              a line is not the one direction its data happens to list first. */}
-          <span className="flex items-center gap-1.5 text-sm font-normal text-muted-foreground">
-            {profile.from}
+          </>
+        }
+        // Both termini, with the double arrow the panel's toggles use – a
+        // line is not the one direction its data happens to list first.
+        lead={
+          <span className="flex items-center gap-1.5">
+            <span className="truncate">{profile.from}</span>
             <ArrowLeftRight className="size-3.5 shrink-0" aria-hidden />
-            {profile.to}
+            <span className="truncate">{profile.to}</span>
           </span>
-        </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label={t('line.close')} onClick={onClose}>
-          <X aria-hidden />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          <span className="text-muted-foreground">{t('line.service')}</span>
-          <span data-testid="line-service">
-            {profile.service ? (
+        }
+        leadClassName={ink.muted}
+        closeLabel={t('line.close')}
+        onClose={onClose}
+      />
+
+      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Stat
+            label={t('line.service')}
+            value={
+              profile.service
+                ? `${formatServiceTime(profile.service.first)}–${formatServiceTime(profile.service.last)}`
+                : t('line.noSchedule')
+            }
+            muted={!profile.service}
+            note={
+              profile.service && profile.headway ? (
+                <>
+                  {t('line.everyMin', { count: minutes(profile.headway.median) })}
+                  {/* Only worth naming when the peak is actually denser */}
+                  {profile.headway.peak !== null &&
+                    minutes(profile.headway.peak) < minutes(profile.headway.median) &&
+                    ` · ${t('line.peakMin', { count: minutes(profile.headway.peak) })}`}
+                </>
+              ) : undefined
+            }
+            testId="line-service"
+          />
+          <Stat
+            label={t('line.route')}
+            value={formatLength(profile.lengthMeters)}
+            note={
               <>
-                {formatServiceTime(profile.service.first)}–{formatServiceTime(profile.service.last)}
-                {profile.headway && (
-                  <span className="text-muted-foreground">
-                    {' · '}
-                    {t('line.everyMin', { count: minutes(profile.headway.median) })}
-                    {/* Only worth naming when the peak is actually denser */}
-                    {profile.headway.peak !== null &&
-                      minutes(profile.headway.peak) < minutes(profile.headway.median) &&
-                      ` · ${t('line.peakMin', { count: minutes(profile.headway.peak) })}`}
-                  </span>
-                )}
+                {t('line.stops', { count: formatStopCount(profile.stopCount) })}
+                {' · '}
+                {t('line.spacing', { count: Math.round(profile.meanStopSpacing) })}
               </>
-            ) : (
-              t('line.noSchedule')
-            )}
-          </span>
-
-          <span className="text-muted-foreground">{t('line.route')}</span>
-          <span data-testid="line-route">
-            {formatLength(profile.lengthMeters)}
-            <span className="text-muted-foreground">
-              {' · '}
-              {t('line.stops', { count: formatStopCount(profile.stopCount) })}
-              {' · '}
-              {t('line.spacing', { count: Math.round(profile.meanStopSpacing) })}
-            </span>
-          </span>
-
+            }
+            testId="line-route"
+          />
           {profile.trips && (
-            <>
-              <span className="text-muted-foreground">{t('line.trips')}</span>
-              <span data-testid="line-trips">
-                {t('line.tripsPerDay', { count: profile.trips.total })}
-                {/* The reason not every trip reaches the terminus above */}
-                {profile.trips.shortWorkings > 0 && (
-                  <span className="text-muted-foreground">
-                    {' · '}
-                    {t('line.shortWorkings', { count: profile.trips.shortWorkings })}
-                  </span>
-                )}
-              </span>
-            </>
+            <Stat
+              label={t('line.trips')}
+              value={t('line.tripsPerDay', { count: profile.trips.total })}
+              // The reason not every trip reaches the terminus above
+              note={
+                profile.trips.shortWorkings > 0
+                  ? t('line.shortWorkings', { count: profile.trips.shortWorkings })
+                  : undefined
+              }
+              testId="line-trips"
+            />
           )}
-
           {activity && (
-            <>
-              <span className="text-muted-foreground">{t('line.running')}</span>
-              <span data-testid="line-running">
-                {activity.vehicles.length > 0
+            <Stat
+              label={t('line.running')}
+              value={
+                activity.vehicles.length > 0
                   ? t('line.runningCount', { count: activity.vehicles.length })
-                  : t('line.runningNone')}
-                {/* Only where the feed covers this line – see buildLineActivity */}
-                {activity.delay && (
-                  <span className="text-muted-foreground">
-                    {' · '}
-                    {minutes(Math.abs(activity.delay.medianSeconds)) < 1
-                      ? t('line.punctual')
-                      : activity.delay.medianSeconds > 0
-                        ? t('line.delayed', { count: minutes(activity.delay.medianSeconds) })
-                        : t('line.early', { count: minutes(-activity.delay.medianSeconds) })}
-                  </span>
-                )}
-              </span>
-
-              <span className="text-muted-foreground">{t('line.nextOut')}</span>
-              <span data-testid="line-next">
-                {upcoming.length > 0
-                  ? upcoming.map((entry) => (
-                      <span key={entry.destination} className="block truncate">
-                        {formatServiceTime(entry.at)}
-                        <span className="text-muted-foreground"> → {entry.destination}</span>
-                      </span>
-                    ))
-                  : t('line.nextNone')}
-              </span>
-            </>
+                  : t('line.runningNone')
+              }
+              muted={activity.vehicles.length === 0}
+              // Only where the feed covers this line – see buildLineActivity
+              note={
+                activity.delay
+                  ? minutes(Math.abs(activity.delay.medianSeconds)) < 1
+                    ? t('line.punctual')
+                    : activity.delay.medianSeconds > 0
+                      ? t('line.delayed', { count: minutes(activity.delay.medianSeconds) })
+                      : t('line.early', { count: minutes(-activity.delay.medianSeconds) })
+                  : undefined
+              }
+              testId="line-running"
+            />
           )}
         </div>
+
+        {/* The sections under the tiles are ruled off from one another,
+            as on the city card. */}
+        {activity && (
+          <div className="flex flex-col gap-1 border-t border-border pt-3">
+            <SectionLabel>{t('line.nextOut')}</SectionLabel>
+            <span className="text-sm" data-testid="line-next">
+              {upcoming.length > 0
+                ? upcoming.map((entry) => (
+                    <span key={entry.destination} className="flex items-center gap-2 truncate">
+                      <span className="font-mono text-xs tabular-nums">{formatServiceTime(entry.at)}</span>{' '}
+                      <span className="truncate text-muted-foreground">→ {entry.destination}</span>
+                    </span>
+                  ))
+                : t('line.nextNone')}
+            </span>
+          </div>
+        )}
+
         {byDirection.length > 0 && (
           <ScrollArea
-            className="max-h-48"
+            className="max-h-48 border-t border-border pt-3"
             viewportClassName="scroll-fade-y"
             data-testid="line-vehicles"
           >
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-2">
               {byDirection.map((group) => (
-                <div key={group.direction} className="flex flex-col">
-                  <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                <div key={group.direction} className="flex flex-col gap-0.5">
+                  <SectionLabel className="flex items-center gap-1 truncate normal-case tracking-normal">
                     <ArrowRight className="size-3 shrink-0" aria-hidden />
                     {group.destination}
-                  </span>
+                  </SectionLabel>
                   <ol className="flex flex-col">
                     {group.vehicles.map((v) => {
                       // Where it is, in one phrase – the row's text and its
@@ -211,17 +233,17 @@ export function LineCard({
                               unlike the stop card's departures each row is a link. */}
                           <button
                             type="button"
-                            className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+                            className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent"
                             onClick={() => onSelectVehicle(v.id)}
                             aria-label={t('line.showVehicle', {
                               name: position,
                               destination: group.destination,
                             })}
                           >
-                            <ModeIcon className="size-3.5 shrink-0" aria-hidden />
+                            <ModeIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                             <span className="min-w-0 flex-1 truncate text-sm">{position}</span>
                             {v.realtime && (
-                              <Badge variant="secondary" className="shrink-0 text-[10px]">
+                              <Badge variant="secondary" className="shrink-0 text-2xs">
                                 {formatDelay(v.delaySeconds)}
                               </Badge>
                             )}
@@ -235,15 +257,12 @@ export function LineCard({
             </div>
           </ScrollArea>
         )}
+
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onFlyTo}>
             <Crosshair aria-hidden />
             {t('line.flyTo')}
           </Button>
-          <Badge variant="secondary" data-testid="line-mode">
-            <ModeIcon aria-hidden />
-            {t(MODE_KEY[profile.mode])}
-          </Badge>
         </div>
       </CardContent>
     </Card>

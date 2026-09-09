@@ -170,6 +170,7 @@ const en = {
   'vehicle.vehicle': 'Vehicle',
   'vehicle.interchange': 'Change at {name}',
   // Stop card
+  'stop.eyebrow': 'Stop',
   'stop.departures': 'Departures',
   'stop.noDepartures': 'No departures in the next hour',
   'stop.nearby': 'Nearby lines',
@@ -467,6 +468,7 @@ const de: Record<MessageKey, string> = {
   'vehicle.lastStop': 'Endhalt',
   'vehicle.vehicle': 'Fahrzeug',
   'vehicle.interchange': 'Umstieg {name}',
+  'stop.eyebrow': 'Haltestelle',
   'stop.departures': 'Abfahrten',
   'stop.noDepartures': 'Keine Abfahrten in der nächsten Stunde',
   'stop.nearby': 'Linien in der Nähe',

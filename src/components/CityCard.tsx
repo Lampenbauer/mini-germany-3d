@@ -1,10 +1,9 @@
-import { Crosshair, X } from 'lucide-react'
+import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { CardHead, EyebrowDot, LineChip, Stat } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import { NetworkIllustration } from '@/components/NetworkIllustration'
-import { Stat } from '@/components/Stat'
 import { MODE_KEY, t } from '@/lib/i18n'
 import {
   formatCount,
@@ -66,35 +65,26 @@ export function CityCard({
       className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
       data-testid="city-card"
     >
-      {/* The panel's green head, isolated so the illustration can sit
-          behind the text (-z-10 stops at the head), faded towards the
-          name it must not compete with and towards the top, where the
-          close button has to stay legible over it. */}
-      <CardHeader className="relative isolate gap-0 overflow-hidden bg-brand px-5 pt-4 pb-4">
-        <NetworkIllustration className="absolute top-0 -right-4 -z-10 h-full opacity-80 mask-l-from-45% mask-t-from-35%" />
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <span className="mb-1.5 flex items-center gap-2 text-2xs font-semibold text-brand-light">
-              <span className="size-1.5 rounded-full bg-brand-light" aria-hidden />
-              {t('city.factsSubtitle')}
-            </span>
-            <CardTitle
-              className="truncate text-2xl leading-tight font-semibold tracking-tight"
-              data-testid="city-card-name"
-            >
-              {name}
-            </CardTitle>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="-mt-1 -mr-2 shrink-0"
-            aria-label={t('city.close')}
-            onClick={onClose}
-          >
-            <X aria-hidden />
-          </Button>
-        </div>
+      <CardHead
+        className="bg-brand"
+        // Behind the text (-z-10 stops at the head), faded towards the name
+        // it must not compete with and towards the top, where the close
+        // button has to stay legible over it.
+        behind={
+          <NetworkIllustration className="absolute top-0 -right-4 -z-10 h-full opacity-80 mask-l-from-45% mask-t-from-35%" />
+        }
+        eyebrow={
+          <>
+            <EyebrowDot />
+            {t('city.factsSubtitle')}
+          </>
+        }
+        eyebrowClassName="text-brand-light"
+        title={<span className="truncate">{name}</span>}
+        titleTestId="city-card-name"
+        closeLabel={t('city.close')}
+        onClose={onClose}
+      >
         {/* One chip per mode with its line count; "7/8" where a line of
             the mode stands still today. On the green they wear a wash of
             white rather than the card's grey. */}
@@ -119,10 +109,10 @@ export function CityCard({
             )
           })}
         </span>
-      </CardHeader>
+      </CardHead>
 
       <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
-        <div className="grid grid-cols-2">
+        <div className="grid grid-cols-2 gap-2">
           <Stat
             label={t('city.lines')}
             value={t('city.linesCount', { count: formatCount(profile.lines.total) })}
@@ -190,13 +180,7 @@ export function CityCard({
                       km: formatKilometres(profile.longest.meters, 1),
                     })}
                   >
-                    <span
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
-                      style={{ backgroundColor: longestLine.color }}
-                      aria-hidden
-                    >
-                      {longestLine.id}
-                    </span>
+                    <LineChip id={longestLine.id} color={longestLine.color} className="size-6 rounded-md text-xs font-bold" />
                     <span className="min-w-0 truncate">{longestLine.name}</span>
                     <span className="shrink-0 text-muted-foreground">
                       {formatKilometres(profile.longest.meters, 1)}
@@ -248,7 +232,7 @@ export function CityCard({
           // meeting aligns their first lines.
           <div className="flex items-start gap-3 border-t border-border pt-3 text-sm">
             <span className={`flex shrink-0 items-center gap-1.5 ${ROW_LABEL}`}>
-              <span className="size-1.5 rounded-full bg-brand-mid" aria-hidden />
+              <EyebrowDot className="bg-brand-mid" />
               {t('city.running')}
             </span>
             <span data-testid="city-running">

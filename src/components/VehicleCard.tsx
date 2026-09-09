@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, Crosshair, X } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { ArrowRight, Crosshair } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { CardHead, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
+import { MODE_ICON } from '@/components/mode-icon'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_KEY, t, type MessageKey } from '@/lib/i18n'
@@ -139,66 +140,87 @@ export function VehicleCard({
       ?.scrollIntoView?.({ block: 'center' })
   }, [vehicle.id])
 
+  const ModeIcon = MODE_ICON[vehicle.mode]
+  const ink = headInk(vehicle.color)
   return (
     <Card
-      className="pointer-events-auto w-100 border-border/60 bg-card/85 backdrop-blur-xl"
+      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
       data-testid="vehicle-card"
     >
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span
-            className="flex size-7 items-center justify-center rounded-md text-sm font-bold text-white"
-            style={{ backgroundColor: vehicle.color }}
-          >
-            {vehicle.lineId}
-          </span>
+      {/* The line's colour as the head, the way the vehicle wears it on
+          the map; the ink follows the colour's lightness (headInk) and
+          the number inverts to it with the colour as its own ink. */}
+      <CardHead
+        className={ink.text}
+        style={{ backgroundColor: vehicle.color }}
+        eyebrow={
           <span className="flex items-center gap-1.5">
-            {vehicle.origin}
-            <ArrowRight className="size-4 text-muted-foreground" aria-hidden />
-            {vehicle.destination}
-          </span>
-        </CardTitle>
-        <Button variant="ghost" size="icon-sm" aria-label={t('vehicle.close')} onClick={onClose}>
-          <X aria-hidden />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          <span className="text-muted-foreground">{t('vehicle.status')}</span>
-          <span data-testid="vehicle-status">{statusText(vehicle)}</span>
-          {finalStop && (
-            <>
-              <span className="text-muted-foreground">{t('vehicle.arrival')}</span>
-              <span data-testid="vehicle-arrival">
-                {formatArrival(finalStop.arrivalSec)}
-                <span className="text-muted-foreground">
-                  {' · '}
-                  {stopsLeft === 0
-                    ? t('vehicle.lastStop')
-                    : `${
-                        minutesUntil(finalStop.arrivalSec, simSeconds) < 1
-                          ? t('vehicle.arriving')
-                          : t('vehicle.inMinutes', {
-                              count: minutesUntil(finalStop.arrivalSec, simSeconds),
-                            })
-                      } · ${t('vehicle.stopsLeft', { count: stopsLeft })}`}
-                </span>
-              </span>
-            </>
-          )}
-          <span className="text-muted-foreground">{t('vehicle.vehicle')}</span>
-          <span data-testid="vehicle-type">
+            <ModeIcon className="size-3.5" aria-hidden />
             {t(MODE_KEY[vehicle.mode])}
-            <span className="text-muted-foreground">
-              {' · '}
-              {Math.round(vehicle.vehicle.length)} m
+            <span className={`font-normal ${ink.dim}`}>{' · '}{vehicle.lineName}</span>
+          </span>
+        }
+        eyebrowClassName={ink.muted}
+        title={
+          <>
+            <LineChip id={vehicle.lineId} color={vehicle.color} size="lg" inverted />
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-pretty">
+              {vehicle.origin}
+              <ArrowRight className={`size-4 shrink-0 ${ink.dim}`} aria-hidden />
+              {vehicle.destination}
             </span>
-          </span>
+          </>
+        }
+        titleClassName="items-start text-xl"
+        lead={
+          <>
+            <span data-testid="vehicle-status">{statusText(vehicle)}</span>
+            {' · '}
+            {vehicle.realtime ? (
+              <span data-testid="vehicle-delay">{formatDelayLong(vehicle.delaySeconds)}</span>
+            ) : (
+              <span>{t('vehicle.onSchedule')}</span>
+            )}
+          </>
+        }
+        leadClassName={ink.muted}
+        closeLabel={t('vehicle.close')}
+        onClose={onClose}
+      />
+
+      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+        <div className="grid grid-cols-2 gap-2">
+          {/* Arrival at the destination: the value is already in the list
+              (delay applied), just buried at its bottom – this lifts it
+              into the summary. */}
+          {finalStop && (
+            <Stat
+              label={t('vehicle.arrival')}
+              value={formatArrival(finalStop.arrivalSec)}
+              note={
+                stopsLeft === 0
+                  ? t('vehicle.lastStop')
+                  : `${
+                      minutesUntil(finalStop.arrivalSec, simSeconds) < 1
+                        ? t('vehicle.arriving')
+                        : t('vehicle.inMinutes', {
+                            count: minutesUntil(finalStop.arrivalSec, simSeconds),
+                          })
+                    } · ${t('vehicle.stopsLeft', { count: stopsLeft })}`
+              }
+              testId="vehicle-arrival"
+            />
+          )}
+          <Stat
+            label={t('vehicle.vehicle')}
+            value={t(MODE_KEY[vehicle.mode])}
+            note={`${Math.round(vehicle.vehicle.length)} m`}
+            testId="vehicle-type"
+          />
         </div>
+
         <div className="flex flex-col gap-1">
-          <span className="text-sm text-muted-foreground">
-            {stops.length > 0 ? t('vehicle.stops') : t('vehicle.nextStop')}
-          </span>
+          <SectionLabel>{stops.length > 0 ? t('vehicle.stops') : t('vehicle.nextStop')}</SectionLabel>
           {stops.length > 0 ? (
             // Vertical timeline: one dot per stop, each row draws the line
             // segment from its dot down to the next one, and the vehicle
@@ -222,7 +244,7 @@ export function VehicleCard({
                     >
                       <button
                         type="button"
-                        className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent/60"
+                        className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent"
                         aria-label={t('vehicle.flyToStop', { name: stop.name })}
                         title={t('vehicle.flyToThisStop')}
                         onClick={() => onFlyToStop(stop)}
@@ -233,7 +255,7 @@ export function VehicleCard({
                             <span className="absolute -bottom-2.5 left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-border" />
                           )}
                           <span
-                            className={`relative mt-[5px] size-2.5 rounded-full border-2 bg-card ${
+                            className={`relative mt-1.25 size-2.5 rounded-full border-2 bg-card ${
                               stop.passed && !hasMarker ? 'opacity-40' : ''
                             }`}
                             style={{
@@ -283,17 +305,16 @@ export function VehicleCard({
             </span>
           )}
         </div>
+
         {interchange.length > 0 && interchangeStop && (
           <div className="flex flex-col gap-1">
-            <span className="text-sm text-muted-foreground">
-              {t('vehicle.interchange', { name: interchangeStop.name })}
-            </span>
+            <SectionLabel>{t('vehicle.interchange', { name: interchangeStop.name })}</SectionLabel>
             <div className="flex flex-wrap gap-1" data-testid="vehicle-interchange">
               {interchange.map((line) => (
                 <button
                   key={line.id}
                   type="button"
-                  className="inline-flex h-5 min-w-5 cursor-pointer items-center justify-center rounded px-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-80"
+                  className={`${lineChipClass()} cursor-pointer transition-opacity hover:opacity-80`}
                   style={{ backgroundColor: line.color }}
                   aria-label={t('lines.flyTo', { name: line.id })}
                   title={t('lines.flyTo', { name: line.id })}
@@ -305,6 +326,7 @@ export function VehicleCard({
             </div>
           </div>
         )}
+
         <div className="flex items-center gap-2">
           <Button
             variant={following ? 'default' : 'outline'}
@@ -314,13 +336,6 @@ export function VehicleCard({
             <Crosshair aria-hidden />
             {following ? t('follow.stop') : t(FOLLOW_KEY[vehicle.mode])}
           </Button>
-          {vehicle.realtime ? (
-            <Badge variant="secondary" data-testid="vehicle-delay">
-              {formatDelayLong(vehicle.delaySeconds)}
-            </Badge>
-          ) : (
-            <Badge variant="secondary">{t('vehicle.onSchedule')}</Badge>
-          )}
         </div>
       </CardContent>
     </Card>

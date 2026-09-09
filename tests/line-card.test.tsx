@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { headInk, relativeLuminance } from '@/components/card-parts'
 import { LineCard } from '@/components/LineCard'
 import type { LineActivity, LineProfile, LineVehicle } from '@/lib/line-profile'
 
@@ -218,5 +219,26 @@ describe('LineCard live rows', () => {
     expect(screen.queryByTestId('line-next')).not.toBeInTheDocument()
     // The profile stands on its own
     expect(screen.getByTestId('line-route')).toBeInTheDocument()
+  })
+})
+
+describe('the ink on a line-coloured head', () => {
+  it('goes dark on the light colours a white would sink into', () => {
+    // Rostock's bus 19 (light blue) and line 6 (orange) were unreadable in white
+    expect(headInk('#5dc5f0').text).toBe('text-slate-950')
+    expect(headInk('#f5b335').text).toBe('text-slate-950')
+    expect(headInk('#ffd400').text).toBe('text-slate-950')
+  })
+
+  it('stays white on the deep ones, the mid greens and teals included', () => {
+    expect(headInk('#5D106A').text).toBe('text-white')
+    expect(headInk('#e2001a').text).toBe('text-white')
+    expect(headInk('#3ab54a').text).toBe('text-white')
+    expect(headInk('#00aaaa').text).toBe('text-white')
+  })
+
+  it('reads a colour that is not hex as a dark one', () => {
+    expect(relativeLuminance('rgb(255, 255, 255)')).toBeNull()
+    expect(headInk('rgb(255, 255, 255)').text).toBe('text-white')
   })
 })
