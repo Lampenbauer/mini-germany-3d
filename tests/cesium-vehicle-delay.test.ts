@@ -1,5 +1,5 @@
-import { Cartesian3, Entity, Intersect, JulianDate, Primitive, type Viewer } from 'cesium'
-import { describe, expect, it } from 'vitest'
+import { Cartesian3, Color, Entity, Intersect, JulianDate, Primitive, type Viewer } from 'cesium'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { delayBadgeSuffix, VehicleLayer } from '@/map/VehicleLayer'
@@ -125,5 +125,85 @@ describe('delay suffix on the vehicle label', () => {
     layer.sync([snapshot({ realtime: false, delaySeconds: 0 })], visible)
     expect(record.delaySuffix).toBe('')
     expect(labelText(record)).toBe('1')
+  })
+})
+
+/**
+ * The badge cache is keyed by line number, colour AND delay suffix. It
+ * outlives the city switch – the layer does – and line numbers repeat
+ * across cities in other colours (Berlin's S1 against Rostock's), so a
+ * key without the colour handed the new city the old city's badge while
+ * its VehicleCard showed the right one.
+ *
+ * jsdom has no 2D canvas and the suite runs in Node, so the canvas here is
+ * a stub: its data URL carries the colour the plate was filled with, which
+ * is all these assertions read.
+ */
+describe('the line badge cache', () => {
+  function stubCanvasDocument(): { created: () => number } {
+    let created = 0
+    vi.stubGlobal('document', {
+      createElement: () => {
+        created++
+        let plate = ''
+        const ctx = {
+          font: '',
+          textAlign: '',
+          textBaseline: '',
+          fillStyle: '',
+          measureText: (text: string) => ({ width: text.length * 7 }),
+          beginPath: () => {},
+          roundRect: () => {},
+          rect: () => {},
+          // The plate is the one fill(); the texts go through fillText()
+          fill: () => {
+            plate = ctx.fillStyle
+          },
+          fillText: () => {},
+        }
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => ctx,
+          toDataURL: () => `data:image/png;plate=${plate}`,
+        }
+      },
+    })
+    return { created: () => created }
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** The badge as the sync loop asks for it. */
+  const badgeOf = (layer: VehicleLayer, lineId: string, css: string, suffix = '') =>
+    (
+      layer as unknown as {
+        lineBadge(id: string, color: Color, suffix?: string): { image: string } | undefined
+      }
+    ).lineBadge(lineId, Color.fromCssColorString(css), suffix)
+
+  it('draws a second badge when the same line number arrives in another colour', () => {
+    stubCanvasDocument()
+    const layer = vehicleLayerWithFakeViewer()
+
+    const rostock = badgeOf(layer, 'S1', '#66CDAA')
+    const berlin = badgeOf(layer, 'S1', '#D474AE')
+
+    expect(rostock!.image).toContain(Color.fromCssColorString('#66CDAA').toCssColorString())
+    expect(berlin!.image).toContain(Color.fromCssColorString('#D474AE').toCssColorString())
+    expect(berlin!.image).not.toBe(rostock!.image)
+  })
+
+  it('still draws one canvas per line number, colour and delay suffix', () => {
+    const canvases = stubCanvasDocument()
+    const layer = vehicleLayerWithFakeViewer()
+
+    badgeOf(layer, '1', '#e2001a')
+    badgeOf(layer, '1', '#e2001a')
+    expect(canvases.created()).toBe(1)
+
+    // A delay suffix is a badge of its own, the colour unchanged
+    badgeOf(layer, '1', '#e2001a', '+2')
+    expect(canvases.created()).toBe(2)
   })
 })

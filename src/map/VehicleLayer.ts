@@ -630,7 +630,8 @@ export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delay
 
 export class VehicleLayer {
   private vehicles = new Map<string, VehicleRecord>()
-  /** Rendered line badges (rounded rectangle + line number), one per line. */
+  /** Rendered line badges (rounded rectangle + line number), one per line
+   *  number, colour and delay suffix – see lineBadge for the colour. */
   private badgeCache = new Map<string, LineBadge>()
   private selectedId: string | null = null
   private followId: string | null = null
@@ -1214,7 +1215,12 @@ export class VehicleLayer {
   private lineBadge(lineId: string, color: Color, delaySuffix = ''): LineBadge | undefined {
     // ??= : prototype-based test instances skip the class field initializers
     this.badgeCache ??= new Map()
-    const cacheKey = delaySuffix ? `${lineId}|${delaySuffix}` : lineId
+    // The colour is part of the key, not just the number: the cache outlives
+    // the city switch (clear() lets the vehicles go, not this map), and the
+    // same line number turns up in the next city in another colour – Berlin's
+    // S1 is not Rostock's. Without it those lines wore the previous city's
+    // colour on the map while their card showed the right one.
+    const cacheKey = `${lineId}|${color.toCssColorString()}|${delaySuffix}`
     const cached = this.badgeCache.get(cacheKey)
     if (cached) return cached
     if (typeof document === 'undefined') return undefined

@@ -496,8 +496,12 @@ frame after a release costs 23–28 ms instead of 18–20).
 
 Also: a canvas assigned as a billboard image gets a fresh GUID per billboard and
 a `TextureAtlas` never frees regions, so vehicle badges are **data URLs** (keyed
-by URL → one region per line+delay). `WebcamsLayer.clear` destroys its
-collection per city for the same reason.
+by URL → one region per line+colour+delay). The colour belongs in the badge
+cache's own key for the same reason it belongs in the atlas's: `badgeCache`
+outlives the city switch, and a line number met in an earlier city otherwise
+keeps that city's colour while its card shows the right one (fixed 2026-09-09;
+up to 24 of a city's lines were wrong after one switch).
+`WebcamsLayer.clear` destroys its collection per city for the same reason.
 
 When measuring heap: readings without `HeapProfiler.collectGarbage` are
 garbage-inclusive and mislead. `Runtime.queryObjects` on
