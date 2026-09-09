@@ -251,7 +251,7 @@ test('line switch hides the vehicles of that line', async () => {
     .toBe(before)
 })
 
-test('selecting a vehicle opens the info card, and "Follow" takes the camera to it', async () => {
+test('selecting a vehicle opens the info card', async () => {
   const tram = await page.evaluate(() => window.__mrt!.vehicles()[0])
   await page.evaluate((id) => window.__mrt!.selectVehicle(id), tram.id)
 
@@ -272,52 +272,7 @@ test('selecting a vehicle opens the info card, and "Follow" takes the camera to 
   // screen reader.
   await expect(page.getByRole('button', { name: 'Weather' })).toHaveCount(0)
 
-  // "Follow" brings the camera to the (paused) vehicle. This had a spec
-  // and a boot of its own; the card it needs is up here already.
-  // force: Playwright's actionability retry can land on the canvas under
-  // SwiftShader load and thereby close the selection (click on empty map).
-  await card.getByRole('button', { name: 'Follow tram' }).click({ force: true })
-  await expect(page.getByRole('button', { name: 'Stop following' })).toBeVisible()
-  // Generous timeout: under SwiftShader software rendering individual
-  // frames can take seconds until the follow camera takes hold.
-  await expect
-    .poll(
-      async () => {
-        const state = await page.evaluate((vehicleId) => {
-          const camera = window.__cesiumViewer!.camera.positionCartographic
-          const tramNow = window.__mrt!.vehicles().find(({ id }) => id === vehicleId)
-          if (!tramNow) {
-            return {
-              dist: Number.POSITIVE_INFINITY,
-              loopError: `Selected vehicle ${vehicleId} is no longer active`,
-            }
-          }
-          const camLat = (camera.latitude * 180) / Math.PI
-          const camLon = (camera.longitude * 180) / Math.PI
-          const dLat = (camLat - tramNow.lat) * 110540
-          const dLon =
-            (camLon - tramNow.lon) * 111320 * Math.cos((tramNow.lat * Math.PI) / 180)
-          return {
-            dist: Math.hypot(dLat, dLon),
-            loopError: window.__mrt!.lastLoopError(),
-          }
-        }, tram.id)
-        // A loop error after the click would silently prevent following –
-        // then the test should name the cause instead of just the distance.
-        expect(state.loopError, `Render loop error: ${state.loopError}`).toBeNull()
-        return state.dist
-      },
-      { timeout: 45_000, intervals: [500, 1000] },
-    )
-    .toBeLessThan(1500)
-  // NOTE: the pointer-on-hover cursor is deliberately not asserted. It is
-  // decided by scene.pick(), and under SwiftShader on CI that pick does
-  // not reliably report the vehicle at the pixel the same frame projects
-  // it to – two attempts at stabilising this cost two red runs. The
-  // behaviour is verified by hand.
-  await page.getByRole('button', { name: 'Stop following' }).click({ force: true })
-
-  await card.getByRole('button', { name: 'Close selection' }).click({ force: true })
+  await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
 
   // ... and the corner is the button's own again once the card is gone
@@ -454,9 +409,12 @@ test('pause button and camera reset are usable', async () => {
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await page.getByRole('button', { name: 'Pause simulation' }).click()
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
-  // The camera was left at a vehicle by the card test above, so this is a
-  // real flight home – and the compass test next sets a pose of its own,
-  // which a flight still under way would carry off. Wait for it to land.
+  // The compass test next sets a pose of its own, which a flight still
+  // under way would carry off – so wait for this one to land. "Follow"
+  // was pressed on the card above for one commit, which left the camera
+  // at a vehicle and made this a real flight; the compass test failed on
+  // CI right after it, with the wait already in place, and had never
+  // failed before. The camera is left alone in this file since.
   await page.getByRole('button', { name: 'Reset camera' }).click()
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting), {

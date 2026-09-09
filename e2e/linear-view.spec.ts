@@ -160,29 +160,6 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   expect(home.height).toBeLessThan(CITY.home.height * 1.2)
   expect(home.height).toBeGreaterThan(CITY.home.height * 0.8)
   expect(home.lon).toBeCloseTo(CITY.home.longitude, 1)
-
-  // Aiming at something on the diagram is aiming at something on the
-  // map: the lines fold back and the flight starts once they are down.
-  // A second pass through the diagram – cheaper than the boot this had
-  // as a test of its own – and "Follow" on the card a dot opens.
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
-  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
-    timeout: 30_000,
-  })
-  await expect
-    .poll(() => diagram.locator('circle[data-vehicle]').count(), { timeout: 20_000 })
-    .toBeGreaterThan(0)
-  await diagram.locator('circle[data-vehicle]').first().click()
-  await expect(page.getByTestId('vehicle-card')).toBeVisible()
-  await page.getByRole('button', { name: 'Follow' }).click()
-
-  // The map is back, the URL says so, and the camera is down at the vehicle
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
-  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
-  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
-  await expect
-    .poll(async () => (await cameraPose(page)).height, { timeout: 30_000 })
-    .toBeLessThan(500)
 })
 
 /**
@@ -386,6 +363,47 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
     'aria-selected',
     'true',
   )
+})
+
+/**
+ * Aiming at something on the diagram is aiming at something on the map:
+ * the lines fold back and the flight starts once they are down.
+ *
+ * A boot of its own on purpose: as a second pass through the diagram at
+ * the end of the first test it cost 56 s more on CI than this boot does
+ * – the morph from the home view, with every vehicle moving, is the
+ * expensive part, not the scene.
+ */
+test('following a vehicle from the diagram brings the map back', async ({ page }) => {
+  test.setTimeout(240_000)
+
+  await page.goto(`/?offline=1&time=08:30${VIEW}`)
+  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await expect
+    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+
+  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  const diagram = page.getByTestId('linear-view')
+  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
+    timeout: 30_000,
+  })
+
+  // A dot on a row, then "Follow" on the card it opens
+  await expect
+    .poll(() => diagram.locator('circle[data-vehicle]').count(), { timeout: 20_000 })
+    .toBeGreaterThan(0)
+  await diagram.locator('circle[data-vehicle]').first().click()
+  await expect(page.getByTestId('vehicle-card')).toBeVisible()
+  await page.getByRole('button', { name: 'Follow' }).click()
+
+  // The map is back, the URL says so, and the camera is down at the vehicle
+  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
+  await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
+  expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
+  await expect
+    .poll(async () => (await cameraPose(page)).height, { timeout: 30_000 })
+    .toBeLessThan(500)
 })
 
 test('a shared link opens straight into the diagram', async ({ page }) => {
