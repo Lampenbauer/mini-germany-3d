@@ -3076,6 +3076,7 @@ export default function App() {
         {!linear && !cardOpen && (
           <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end">
             <WeatherPopover
+              interfaceHidden={interfaceHidden}
               weatherMode={weatherMode}
               onWeatherModeChange={handleWeatherMode}
               liveWeatherAvailable={liveWeatherAvailable}
@@ -3201,6 +3202,7 @@ export default function App() {
               in, and the map is what they are set for. */}
           <div className={RAIL_BOX}>
             <LayersPopover
+              interfaceHidden={interfaceHidden}
               showRoutes={showRoutes}
               onToggleRoutes={handleToggleRoutes}
               showStops={showStops}
@@ -3279,6 +3281,7 @@ export default function App() {
                 goes with the map and not with the diagram. */}
             {!linear && (
               <PhotoModePopover
+                interfaceHidden={interfaceHidden}
                 settings={photo}
                 onChange={handlePhotoChange}
                 triggerClassName={GROUPED_CONTROL}

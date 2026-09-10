@@ -433,6 +433,22 @@ describe('App (UI shell)', () => {
     expect(screen.getByRole('switch', { name: 'Show stops' })).toBeInTheDocument()
   })
 
+  it('closes an open popover when H takes the interface away, and leaves it closed after', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
+    expect(screen.getByRole('switch', { name: 'Show routes' })).toBeInTheDocument()
+    // Radix portals the popover to the body, outside the wrapper H hides –
+    // it has to close on its own, or it stands over a bare map
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.queryByRole('switch', { name: 'Show routes' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'h', code: 'KeyH' })
+    expect(screen.queryByRole('switch', { name: 'Show routes' })).not.toBeInTheDocument()
+    // And the same for a dialog going up over it
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
+    fireEvent.keyDown(window, { key: '?' })
+    expect(screen.queryByRole('switch', { name: 'Show routes' })).not.toBeInTheDocument()
+  })
+
   it('takes the whole interface away on H and brings it back', () => {
     render(<App />)
     const overlay = screen.getByTestId('ui-overlay')

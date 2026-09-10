@@ -21,6 +21,7 @@ function layers(overrides: Partial<LayersPopoverProps> = {}) {
   const onFlyToWebcam = vi.fn()
   const onToggleRoutes = vi.fn()
   const props: LayersPopoverProps = {
+    interfaceHidden: false,
     showRoutes: true,
     onToggleRoutes,
     showStops: true,

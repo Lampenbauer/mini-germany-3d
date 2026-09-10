@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useEffect, useState } from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { cn } from '@/lib/utils'
 
@@ -35,3 +36,19 @@ function PopoverContent({
 }
 
 export { Popover, PopoverTrigger, PopoverContent }
+
+/**
+ * The open state of a popover that goes away with the interface. Radix
+ * portals a popover's content to the body, so the wrapper that H hides
+ * (see the ui-overlay in App.tsx) takes the trigger away and leaves the
+ * content standing over a bare map. A popover in this app is therefore
+ * controlled through this hook and closes the moment the interface is
+ * hidden – by H, or by a dialog going up.
+ */
+export function usePopoverOpen(interfaceHidden: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (interfaceHidden) setOpen(false)
+  }, [interfaceHidden])
+  return [open, setOpen]
+}

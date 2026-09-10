@@ -25,7 +25,7 @@
 
 import { Cloudy, CloudRain, CloudSun, Sun, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger, usePopoverOpen } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { t, type MessageKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -40,6 +40,8 @@ const WEATHER_CHOICES: { mode: WeatherMode; icon: LucideIcon; label: MessageKey 
 ]
 
 export interface WeatherPopoverProps {
+  /** The interface is hidden (H, a dialog): the popover closes with it. */
+  interfaceHidden: boolean
   weatherMode: WeatherMode
   onWeatherModeChange: (mode: WeatherMode) => void
   /**
@@ -68,8 +70,9 @@ export function WeatherPopover(props: WeatherPopoverProps) {
       ? t('weather.title')
       : `${t('weather.title')}, ${t('weather.temperature', { degrees: Math.round(props.temperatureC!) })}`
 
+  const [open, setOpen] = usePopoverOpen(props.interfaceHidden)
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="secondary"

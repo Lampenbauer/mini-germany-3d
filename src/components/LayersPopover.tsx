@@ -15,7 +15,7 @@
 import { memo } from 'react'
 import { Camera, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger, usePopoverOpen } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -28,6 +28,8 @@ export interface WebcamChoice {
 }
 
 export interface LayersPopoverProps {
+  /** The interface is hidden (H, a dialog): the popover closes with it. */
+  interfaceHidden: boolean
   showRoutes: boolean
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
@@ -112,8 +114,9 @@ const WebcamsRow = memo(function WebcamsRow(props: {
 })
 
 export function LayersPopover(props: LayersPopoverProps) {
+  const [open, setOpen] = usePopoverOpen(props.interfaceHidden)
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>

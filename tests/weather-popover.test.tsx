@@ -19,6 +19,7 @@ function weather(overrides: Partial<WeatherPopoverProps> = {}) {
   const onWeatherModeChange = vi.fn()
   const onToggleClouds = vi.fn()
   const props: WeatherPopoverProps = {
+    interfaceHidden: false,
     weatherMode: 'live',
     onWeatherModeChange,
     liveWeatherAvailable: true,
@@ -96,6 +97,7 @@ describe('the weather popover', () => {
   it('carries the temperature beside the icon, and nothing when there is none', () => {
     const { rerender } = render(
       <WeatherPopover
+        interfaceHidden={false}
         weatherMode="live"
         onWeatherModeChange={vi.fn()}
         liveWeatherAvailable
@@ -109,6 +111,7 @@ describe('the weather popover', () => {
 
     rerender(
       <WeatherPopover
+        interfaceHidden={false}
         weatherMode="live"
         onWeatherModeChange={vi.fn()}
         liveWeatherAvailable

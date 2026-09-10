@@ -19,7 +19,7 @@ afterEach(() => {
 
 function photo(settings: PhotoSettings = DEFAULT_PHOTO_SETTINGS) {
   const onChange = vi.fn()
-  render(<PhotoModePopover settings={settings} onChange={onChange} />)
+  render(<PhotoModePopover interfaceHidden={false} settings={settings} onChange={onChange} />)
   return { onChange }
 }
 

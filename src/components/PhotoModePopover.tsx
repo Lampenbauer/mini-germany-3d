@@ -20,7 +20,7 @@
 import { useId, type ReactNode } from 'react'
 import { Aperture, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger, usePopoverOpen } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -39,6 +39,8 @@ import {
 import { cn } from '@/lib/utils'
 
 export interface PhotoModePopoverProps {
+  /** The interface is hidden (H, a dialog): the popover closes with it. */
+  interfaceHidden: boolean
   settings: PhotoSettings
   onChange: (settings: PhotoSettings) => void
   /** Extra classes for the trigger – the camera block styles its buttons as one group. */
@@ -121,8 +123,9 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
   const setTiltShift = <K extends keyof TiltShiftSettings>(key: K, value: TiltShiftSettings[K]) =>
     props.onChange({ ...settings, tiltShift: { ...settings.tiltShift, [key]: value } })
 
+  const [open, setOpen] = usePopoverOpen(props.interfaceHidden)
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
