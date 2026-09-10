@@ -75,6 +75,23 @@ const CHASE_BREAK_RANGE_RATIO = 0.01
 
 export class FollowCamera {
   private offset: HeadingPitchRange | null = null
+  /**
+   * The pose the camera reported right after our own lookAt – the
+   * reference every later reading is held against, so that only what the
+   * user did counts as input.
+   *
+   * It is NOT the same as `offset`: lookAt does not hand back the pitch it
+   * was given. It places the camera by the local vertical at the SUBJECT,
+   * while camera.pitch measures against the vertical where the camera
+   * itself stands, and over the chase range the earth curves between the
+   * two – 0.0012° at 140 m, always in the same direction. Adopting
+   * camera.pitch as the new offset therefore added that much every frame,
+   * and the camera climbed about 0.035°/s for as long as the follow
+   * lasted (measured 2026-09-10, and reproduced with a standing subject:
+   * ask lookAt for -16.0000°, read back -16.0012°, ask for that, read
+   * -16.0024°…).
+   */
+  private applied: { heading: number; pitch: number; range: number } | null = null
   private chase = false
   /**
    * Whether this instance currently owns the camera. Everything below
@@ -111,6 +128,7 @@ export class FollowCamera {
    */
   engage(target: FollowTarget | null): void {
     this.offset = null
+    this.applied = null
     this.chase = true
     this.engaged = true
     if (target) {
@@ -151,6 +169,7 @@ export class FollowCamera {
   /** Stop following and give the camera back to the user. */
   release(): void {
     this.offset = null
+    this.applied = null
     this.chase = false
     this.engaged = false
     // Also abort a still-running approach flight (e.g. "Stop following"
@@ -182,43 +201,58 @@ export class FollowCamera {
         CesiumMath.toRadians(FOLLOW_PITCH_DEG),
         this.followRange,
       )
-    } else if (this.chase) {
-      // Chase: any camera pose that deviates from what the chase applied
-      // last frame must come from the user (drag/zoom between our ticks) –
-      // hand control over to manual orbit for the rest of this follow.
-      const headingMoved =
-        Math.abs(CesiumMath.negativePiToPi(camera.heading - this.offset.heading)) >
-        CHASE_BREAK_ANGLE
-      const pitchMoved = Math.abs(camera.pitch - this.offset.pitch) > CHASE_BREAK_ANGLE
-      const rangeMoved =
-        Math.abs(Cartesian3.magnitude(camera.position) - this.offset.range) >
-        this.offset.range * CHASE_BREAK_RANGE_RATIO
-      if (headingMoved || pitchMoved) {
-        this.chase = false
-        this.offset.heading = camera.heading
-        this.offset.pitch = camera.pitch
-        this.offset.range = Cartesian3.magnitude(camera.position)
-      } else {
-        // Zooming (range change only) does not break the chase: adopt the
-        // new distance and keep trailing the subject.
-        if (rangeMoved) {
-          this.offset.range = Cartesian3.magnitude(camera.position)
-        }
-        // Stay behind it: ease the heading toward the travel bearing (it
-        // jumps at path segment boundaries).
-        const turn = CesiumMath.negativePiToPi(
-          CesiumMath.toRadians(target.bearingDeg) - this.offset.heading,
-        )
-        this.offset.heading = CesiumMath.zeroToTwoPi(this.offset.heading + turn * FOLLOW_CHASE_EASE)
-      }
     } else {
-      // Adopt user orbit/zoom: in the lookAt reference frame heading/pitch
-      // are relative and the subject sits at the origin.
-      this.offset.heading = camera.heading
-      this.offset.pitch = camera.pitch
-      this.offset.range = Cartesian3.magnitude(camera.position)
+      // What the user did between our ticks: the camera's pose now against
+      // the one it reported after our own lookAt. Held against `applied`
+      // rather than against `offset`, because the two differ by the
+      // curvature term lookAt does not give back (see the field) – measure
+      // against what we asked for and a standing camera looks like a hand
+      // moving it, a hair further every frame.
+      const reference = this.applied
+      const cameraRange = Cartesian3.magnitude(camera.position)
+      const headingDelta = reference
+        ? CesiumMath.negativePiToPi(camera.heading - reference.heading)
+        : 0
+      const pitchDelta = reference ? camera.pitch - reference.pitch : 0
+      const rangeDelta = reference ? cameraRange - reference.range : 0
+      if (this.chase) {
+        // Rotating by hand hands the rest of this follow over to free
+        // orbit; zooming is adopted and the chase carries on.
+        const rotated =
+          Math.abs(headingDelta) > CHASE_BREAK_ANGLE || Math.abs(pitchDelta) > CHASE_BREAK_ANGLE
+        const zoomed = Math.abs(rangeDelta) > this.offset.range * CHASE_BREAK_RANGE_RATIO
+        if (rotated) {
+          this.chase = false
+          this.offset.heading = CesiumMath.zeroToTwoPi(this.offset.heading + headingDelta)
+          this.offset.pitch += pitchDelta
+          this.offset.range = cameraRange
+        } else {
+          if (zoomed) this.offset.range = cameraRange
+          // Stay behind it: ease the heading toward the travel bearing (it
+          // jumps at path segment boundaries).
+          const turn = CesiumMath.negativePiToPi(
+            CesiumMath.toRadians(target.bearingDeg) - this.offset.heading,
+          )
+          this.offset.heading = CesiumMath.zeroToTwoPi(
+            this.offset.heading + turn * FOLLOW_CHASE_EASE,
+          )
+        }
+      } else {
+        // Free orbit: the offset keeps whatever the user left it at, moved
+        // by exactly what the user moved since. A hand that stays still
+        // contributes zero – which is the whole point, see `applied`.
+        this.offset.heading = CesiumMath.zeroToTwoPi(this.offset.heading + headingDelta)
+        this.offset.pitch += pitchDelta
+        this.offset.range += rangeDelta
+      }
     }
     camera.lookAt(center, this.offset)
+    // What the camera makes of it, for the next tick to measure against.
+    this.applied = {
+      heading: camera.heading,
+      pitch: camera.pitch,
+      range: Cartesian3.magnitude(camera.position),
+    }
     // The camera moved with the subject – must reach the screen even when
     // the render pacing is otherwise idle.
     this.host.requestRender()

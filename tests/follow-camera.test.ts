@@ -115,3 +115,67 @@ describe('FollowCamera', () => {
     expect(h.calls.some((c) => c.name === 'lookAt')).toBe(true)
   })
 })
+
+/**
+ * The pitch drift: lookAt does not hand back the pitch it was given. It
+ * places the camera by the local vertical at the SUBJECT while
+ * camera.pitch measures against the vertical where the camera stands, and
+ * the earth curves between the two – a constant 0.0012° at the 140 m
+ * chase range, always the same way. update() used to read that back and
+ * re-apply it every frame, so a follow left in free orbit climbed about
+ * 0.035°/s for as long as it ran.
+ */
+describe('FollowCamera against the lookAt round trip', () => {
+  const CURVATURE_ERROR = CesiumMath.toRadians(0.0012)
+
+  /** A camera that answers lookAt the way Cesium really does. */
+  function drifting() {
+    const camera = {
+      position: new Cartesian3(140, 0, 0),
+      heading: CesiumMath.toRadians(90),
+      pitch: CesiumMath.toRadians(-16),
+      lookAt(_center: Cartesian3, offset: { heading: number; pitch: number; range: number }) {
+        camera.heading = offset.heading
+        camera.pitch = offset.pitch - CURVATURE_ERROR
+        camera.position = new Cartesian3(offset.range, 0, 0)
+      },
+      lookAtTransform: () => {},
+      flyToBoundingSphere: () => {},
+      cancelFlight: () => {},
+    }
+    const viewer = { camera } as unknown as Viewer
+    const cam = new FollowCamera(viewer, { requestRender: () => {}, noteCameraFlight: () => {} })
+    return { cam, camera }
+  }
+
+  it('leaves a hand-set pose where the hand left it', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000)
+    const h = drifting()
+    h.cam.engage(null)
+    h.cam.update(ROSTOCK)
+
+    // A drag: enough of a rotation to hand the chase over to free orbit
+    h.camera.heading += CesiumMath.toRadians(10)
+    h.camera.pitch += CesiumMath.toRadians(5)
+    h.cam.update(ROSTOCK)
+    const parked = h.camera.pitch
+
+    // …and then nobody touches anything for ten seconds of ticks
+    for (let i = 0; i < 300; i++) h.cam.update(ROSTOCK)
+
+    expect(CesiumMath.toDegrees(Math.abs(h.camera.pitch - parked))).toBeLessThan(0.001)
+  })
+
+  it('keeps chasing on its own – the round trip is not a hand', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000)
+    const h = drifting()
+    h.cam.engage(null)
+    for (let i = 0; i < 300; i++) h.cam.update(ROSTOCK)
+
+    // Still trailing: the heading eased onto the subject's bearing, and
+    // the pitch is the chase's own, not one that walked away from it.
+    expect(CesiumMath.toDegrees(h.camera.heading)).toBeCloseTo(ROSTOCK.bearingDeg, 3)
+    expect(CesiumMath.toDegrees(h.camera.pitch)).toBeCloseTo(-16 - 0.0012, 3)
+  })
+})
+

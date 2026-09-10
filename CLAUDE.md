@@ -519,6 +519,24 @@ Two lessons worth keeping:
   1.6 s to fill a close view, 48 takes under a second, and a pass of 48 costs
   about 9 ms.
 
+### `camera.lookAt` does not give back the pitch it was given
+
+It places the camera by the local vertical at the **subject**, while
+`camera.pitch` measures the view against the vertical where the **camera**
+stands, and the earth curves between the two: at the 140 m chase range that
+is a constant 0.0012°, always in the same direction. So a loop that reads the
+camera's pose and re-applies it — which is what `FollowCamera.update` did for
+a follow left in free orbit — adds that much every frame. Measured 2026-09-10:
+the camera climbed ~0.035°/s, minutes of following and it is looking down from
+above. Reproduced with a standing subject: ask for −16.0000°, read back
+−16.0012°, ask for that, read −16.0024°.
+
+The cure is to keep the offset as the authority and never adopt a reading as
+a value: `FollowCamera` remembers the pose the camera reported right after its
+own `lookAt` (`applied`) and moves the offset by the **difference** from it,
+so a hand that stays still contributes exactly zero. Anything else that steers
+this camera per frame has to hold its readings against the same reference.
+
 ### Tile LOD: check the memory ratchet first
 
 Cesium raises `memoryAdjustedScreenSpaceError` by 2 %/frame whenever selected
