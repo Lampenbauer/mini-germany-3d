@@ -50,7 +50,7 @@ import {
 } from '@/lib/i18n'
 import { formatServiceTime } from '@/lib/line-profile'
 import { formatSitePath, parseSitePath } from '@/lib/site-path'
-import { STATIC_PAGE_ID } from '@/lib/static-page'
+import { APP_CLASS, STATIC_PAGE_ID } from '@/lib/static-page'
 import { TRANSIT_MODES, type TransitMode } from '@/lib/transit-mode'
 
 /** Where the site is served – the canonical URLs and the sitemap name it in full. */
@@ -260,9 +260,12 @@ function factList(profile: CityProfile, lines: readonly PageLine[]): string {
  * throughout.
  */
 const PAGE_STYLE =
-  `html:has(#${STATIC_PAGE_ID}:not([hidden])),body:has(#${STATIC_PAGE_ID}:not([hidden])),` +
-  `body:has(#${STATIC_PAGE_ID}:not([hidden])) #root{height:auto;overflow:visible}` +
-  `body:has(#${STATIC_PAGE_ID}:not([hidden])){background:#09090b;margin:0}` +
+  // Under the app (see lib/static-page.ts) the page is not there at all
+  `html.${APP_CLASS} #${STATIC_PAGE_ID}{display:none}` +
+  `html:not(.${APP_CLASS}):has(#${STATIC_PAGE_ID}:not([hidden])),` +
+  `html:not(.${APP_CLASS}) body:has(#${STATIC_PAGE_ID}:not([hidden])),` +
+  `html:not(.${APP_CLASS}) body:has(#${STATIC_PAGE_ID}:not([hidden])) #root{height:auto;overflow:visible}` +
+  `html:not(.${APP_CLASS}) body:has(#${STATIC_PAGE_ID}:not([hidden])){background:#09090b;margin:0}` +
   `#${STATIC_PAGE_ID}{box-sizing:border-box;max-width:44rem;margin:0 auto;padding:2.5rem 1rem 4rem;` +
   `font:16px/1.55 Inter,system-ui,sans-serif;color:#e4e4e7}` +
   `#${STATIC_PAGE_ID}[hidden]{display:none}` +

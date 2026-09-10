@@ -12,6 +12,21 @@
     <link rel="preconnect" href="https://assets.ion.cesium.com" crossorigin />
     <link rel="preconnect" href="https://tile.googleapis.com" crossorigin />
     <!--
+      The page under the map (below) is for a reader without the app; with
+      the app on its way it must not show for the moment the bundle takes
+      to load. So: hidden before the body is parsed, and shown again on
+      load if main.tsx has not reported in – a bundle that failed to load
+      must not leave a blank page. The names are src/lib/static-page.ts's
+      (APP_CLASS, APP_STARTED_ATTRIBUTE).
+    -->
+    <script>
+      document.documentElement.classList.add('has-app')
+      addEventListener('load', function () {
+        if (!document.documentElement.hasAttribute('data-app-started'))
+          document.documentElement.classList.remove('has-app')
+      })
+    </script>
+    <!--
       Between the markers stands what the prerender plugin (vite.config.ts)
       writes per page – the title, the description, the canonical URL, the
       language alternates and the link previews – and, below, the page's

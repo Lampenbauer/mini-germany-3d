@@ -387,6 +387,9 @@ describe('App (UI shell)', () => {
     page.id = 'static-page'
     page.hidden = true
     document.body.append(page)
+    // As index.html's inline script and main.tsx leave the document
+    document.documentElement.classList.add('has-app')
+    document.documentElement.setAttribute('data-app-started', '')
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
     function Boom(): never {
       throw new Error('The browser does not support WebGL.')
@@ -401,9 +404,11 @@ describe('App (UI shell)', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('The browser does not support WebGL.')
       expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
       expect(page.hidden).toBe(false)
+      expect(document.documentElement.classList.contains('has-app')).toBe(false)
     } finally {
       quiet.mockRestore()
       page.remove()
+      document.documentElement.removeAttribute('data-app-started')
     }
   })
 

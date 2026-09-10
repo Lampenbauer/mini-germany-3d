@@ -367,7 +367,13 @@ else (facts the sources state, no simulation results, *stop positions*,
 "styling lives in the markup", because it has to read with the bundle
 missing, which is exactly the case it exists for; it also lifts the
 `overflow: hidden` that index.css puts on html, body and `#root` for the
-map, or the page would end at the fold. `main.tsx` hides it
+map, or the page would end at the fold. It is hidden before the body is
+parsed: an inline script in index.html's head puts `has-app` on the root
+element and the page's stylesheet hides it under that class – `main.tsx`
+alone was too late, the page flashed for the moment the bundle took to
+load (seen 2026-09-10). The same script takes the class off on `load`
+when `main.tsx` has not set `data-app-started`, so a bundle that fails to
+load still leaves the page. `main.tsx` then hides it for good
 (`showStaticPage(false)`) before the first render and
 [ErrorBoundary](src/components/ErrorBoundary.tsx) shows it again with a
 notice when the viewer throws – no WebGL, most likely; a white page said
