@@ -205,7 +205,16 @@ buttons.
 wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),
 `lineBadge`). A stop wears no plate at all: light slate text in a thin dark
 halo, its lines a shade dimmer ([StopsLayer](src/map/StopsLayer.ts),
-`stopNameImage`).
+`stopNameImage`), over a disc that lies *flat on the ground* – since
+2026-09-11 a hand-built instanced DrawCommand
+([StopDiscs](src/map/StopDiscs.ts)), because a billboard cannot lie flat
+and nothing else in Cesium draws a flat mark that moves with the height
+refinement and holds its screen size. It keeps the billboard's two habits:
+drawn over the tiles within 3 km (the near-plane trick Cesium's own
+billboard shader uses, log-depth varying included) and pickable by a
+"stop:" id (one pick colour per instance, `pickId: 'v_pickColor'`). Its
+GLSL compiles offline, so every e2e run proves it; the stop-card spec's
+real click goes through its pick colours.
 A ship wears a dark slate plate with white text
 ([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Bare text on land, a
 dark plate on water, traffic in colour: that is how the fleet is told from the

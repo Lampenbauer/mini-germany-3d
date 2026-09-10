@@ -3,9 +3,15 @@
  * line-driven visibility, the screen-space label declutter, and the
  * camera-dependent height refinement on the photo tiles.
  *
- * Split out of CesiumMap: this owns a closed set of state (the billboard
- * collection, one record per stop, the declutter bookkeeping) and reaches
- * back into the map only through the narrow StopsLayerHost below.
+ * The disc lies flat on the ground (StopDiscs, one instanced draw
+ * command for all of them); the name stands over it as a billboard. Both
+ * are written to from here – position, opacity, visibility – and nothing
+ * else touches either.
+ *
+ * Split out of CesiumMap: this owns a closed set of state (the discs, the
+ * names' billboard collection, one record per stop, the declutter
+ * bookkeeping) and reaches back into the map only through the narrow
+ * StopsLayerHost below.
  */
 
 import {
@@ -25,6 +31,7 @@ import {
 import type { PreparedNetwork } from '@/data/network-types'
 import { FRAMING_SCALE } from './camera-fov'
 import { isInTunnel } from '@/lib/tunnels'
+import { StopDiscs } from './StopDiscs'
 import {
   keepNonOverlappingLabels,
   type LabelMetrics,
@@ -67,12 +74,14 @@ export interface StopHeightSample {
 }
 
 interface StopEntityRecord {
-  /** Disc marker – a billboard in stopBillboards, added before all names. */
-  disc: Billboard
+  /** The stop's id – what a click on the disc reports, what the name's image is keyed by. */
+  id: string
+  /** The disc: this stop's instance in the discs primitive (see StopDiscs). */
+  disc: number
   /**
-   * Name – a billboard in stopBillboards, added after all discs. It carries
-   * no picture until the stop first comes within label range (see
-   * drawStopName); an imageless billboard draws nothing.
+   * Name – a billboard in the labels collection. It carries no picture
+   * until the stop first comes within label range (see drawStopName); an
+   * imageless billboard draws nothing.
    */
   label: Billboard
   /** The stop's name, for the day its plate is actually drawn. */
@@ -93,6 +102,19 @@ interface StopEntityRecord {
    * running line focus (see startLineFocus).
    */
   lineVisible: boolean
+  /**
+   * The composed visibility – a serving line shown, and the focused line
+   * among them while a focus runs – as written onto the disc and the
+   * name (applyStopVisibility). The declutter reads it and only ever
+   * writes `label.show`.
+   */
+  shown: boolean
+  /**
+   * Where the disc lies and the name stands: the stop, STOP_LIFT_M above
+   * the ground as last measured. What stopWorldPosition reports and the
+   * declutter projects.
+   */
+  discPosition: Cartesian3
   /** Platform lies on an underground section (drives the ghosting). */
   inTunnel: boolean
   lon: number
@@ -172,12 +194,12 @@ const STOP_DISC_RANGE = 20000 * FRAMING_SCALE
 /** Exported so the declutter test can stand its camera outside it. */
 export const STOP_LABEL_RANGE = 2000 * FRAMING_SCALE
 
-/** Rendered size of a stop disc in CSS px (fill + outline). */
-const STOP_DISC_SIZE = 10
-/** The disc wears the name's colours, so a stop reads as one mark: light
- *  ink in a dark halo, light disc in a dark ring. */
-const STOP_DISC_FILL = 'oklch(0.9842 0.0034 247.86)'
-const STOP_DISC_STROKE = 'oklch(0.3717 0.0392 257.29)'
+/**
+ * How far above the measured ground the disc lies and the name stands,
+ * in meters: clear of the tiles' own surface, which the disc would
+ * otherwise cut into wherever the mesh is a hair above the measurement.
+ */
+const STOP_LIFT_M = 0.5
 
 /** Font size of the stop names in CSS px. */
 const STOP_LABEL_FONT_SIZE = 10
@@ -186,7 +208,8 @@ const STOP_LABEL_LINES_FONT_SIZE = 9
 const STOP_LABEL_FONT_FAMILY = '"Inter Variable", system-ui, sans-serif'
 
 /*
- * The ink and its halo. A stop name is bare text, not a plate: the plate –
+ * The ink and its halo – the disc wears the same two, see StopDiscs. A
+ * stop name is bare text, not a plate: the plate –
  * white, then grey, then a pill – was the brightest thing over Google's
  * tiles whatever its colour and outshouted the line badges, which are what
  * the map is about. A vehicle is the news, a stop is the furniture. Bare
@@ -266,8 +289,10 @@ const nearestStops: (StopEntityRecord | null)[] = new Array(STOP_HEIGHT_BUDGET).
 const nearestDistances = new Float64Array(STOP_HEIGHT_BUDGET)
 
 export class StopsLayer {
-  /** Discs AND names in one collection (add order = overlap order). */
-  private stopBillboards: BillboardCollection | null = null
+  /** The discs, flat on the ground – one primitive for all of them. */
+  private discs: StopDiscs | null = null
+  /** The names, one billboard each. */
+  private labels: BillboardCollection | null = null
   private stopRecords: StopEntityRecord[] = []
   /** A stop changed (position, visibility) – the label declutter must rerun. */
   private stopLabelsDirty = true
@@ -293,10 +318,15 @@ export class StopsLayer {
 
   /** Takes every stop off the map (the map is moving on to another city). */
   clear(): void {
-    if (this.stopBillboards) {
-      // remove() destroys the collection and with it every billboard.
-      this.viewer.scene.primitives.remove(this.stopBillboards)
-      this.stopBillboards = null
+    // remove() destroys what it takes off: the discs' buffers and pick
+    // ids, the collection and with it every billboard.
+    if (this.discs) {
+      this.viewer.scene.primitives.remove(this.discs)
+      this.discs = null
+    }
+    if (this.labels) {
+      this.viewer.scene.primitives.remove(this.labels)
+      this.labels = null
     }
     this.stopRecords = []
     // The focus named a line of the city being left.
@@ -306,14 +336,13 @@ export class StopsLayer {
   }
 
   /**
-   * Current world position of a stop's disc (billboard height included),
-   * or null for an unknown id. E2E helper – lets a test click the real
-   * disc without hunting for it with scene.pick.
+   * Current world position of a stop's disc (its lift included), or null
+   * for an unknown id. E2E helper – lets a test click the real disc
+   * without hunting for it with scene.pick.
    */
   stopWorldPosition(stopId: string): Cartesian3 | null {
-    const wanted = `stop:${stopId}`
-    const record = this.stopRecords.find((r) => r.disc.id === wanted)
-    return record ? record.disc.position : null
+    const record = this.stopRecords.find((r) => r.id === stopId)
+    return record ? record.discPosition : null
   }
 
   /**
@@ -330,14 +359,27 @@ export class StopsLayer {
 
   private applyStopOpacity(record: StopEntityRecord): void {
     const alpha = tunnelOpacity(record.inTunnel, this.underground)
-    record.disc.color = Color.WHITE.withAlpha(alpha)
+    this.discs?.setAlpha(record.disc, alpha)
     record.label.color = Color.WHITE.withAlpha(alpha)
   }
 
   setVisible(visible: boolean): void {
-    if (this.stopBillboards) this.stopBillboards.show = visible
+    if (this.discs) this.discs.show = visible
+    if (this.labels) this.labels.show = visible
     this.stopLabelsDirty = true
     this.host.requestRender()
+  }
+
+  /**
+   * Puts a stop on the ground as measured: disc and name move together,
+   * and the declutter reruns for the name.
+   */
+  private placeStop(record: StopEntityRecord, groundHeight: number): void {
+    const lifted = Cartesian3.fromDegrees(record.lon, record.lat, groundHeight + STOP_LIFT_M)
+    record.discPosition = lifted
+    this.discs?.setPosition(record.disc, lifted)
+    record.label.position = lifted
+    this.stopLabelsDirty = true
   }
 
   /**
@@ -372,25 +414,12 @@ export class StopsLayer {
           // Most detailed measurement available – mark as final so the
           // camera-dependent sampling in resolveHeights() leaves it alone.
           stop.sampledFrom = 0
-          const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
-          stop.disc.position = lifted
-          stop.label.position = lifted
-          this.stopLabelsDirty = true
+          this.placeStop(stop, height)
         },
       }))
   }
 
   add(network: PreparedNetwork): void {
-    // One shared billboard collection for discs AND names, rendered
-    // purely translucent – see stopBillboards for why the add order inside
-    // a single collection is the only reliable overlap order. The names
-    // are pre-rendered to canvases (like the tram badges); Cesium's Label
-    // primitives would live in their own collection again and lose the
-    // ordering guarantee.
-    const billboards = new BillboardCollection({ blendOption: BlendOption.TRANSLUCENT })
-    this.viewer.scene.primitives.add(billboards)
-    this.stopBillboards = billboards
-
     const unique: {
       id: string
       name: string
@@ -435,31 +464,28 @@ export class StopsLayer {
     }
 
     const positions = unique.map((stop) =>
-      Cartesian3.fromDegrees(stop.lon, stop.lat, this.host.defaultGroundHeight + 0.5),
+      Cartesian3.fromDegrees(stop.lon, stop.lat, this.host.defaultGroundHeight + STOP_LIFT_M),
     )
 
-    // First pass: all discs (one shared image via a fixed imageId).
-    // In environments without a 2D canvas (jsdom) the billboards simply
-    // carry no image – nothing renders there anyway.
-    const discImage = this.stopDiscImage()
-    const discs = unique.map((stop, i) => {
-      const disc = billboards.add({
-        id: `stop:${stop.id}`,
-        position: positions[i],
-        width: STOP_DISC_SIZE,
-        height: STOP_DISC_SIZE,
-        distanceDisplayCondition: new DistanceDisplayCondition(0, STOP_DISC_RANGE),
-        disableDepthTestDistance: 3000,
-      })
-      if (discImage) disc.setImage('mrt:stop-disc', discImage)
-      return disc
-    })
+    // The discs: one primitive, one instance per stop, flat on the ground
+    // (see StopDiscs) – on the scene before the names, which stand over
+    // them and are a billboard each.
+    const discs = new StopDiscs(
+      unique.map((stop, i) => ({ id: stop.id, position: positions[i] })),
+      { maxDistance: STOP_DISC_RANGE },
+    )
+    this.viewer.scene.primitives.add(discs)
+    this.discs = discs
+    // The names are pre-rendered to canvases (like the tram badges), so
+    // they are billboards rather than Cesium's Label primitives; the
+    // plates are claimed here and stay empty until the stop is close
+    // enough to be named (see STOP_NAME_BUDGET).
+    const labels = new BillboardCollection({ blendOption: BlendOption.TRANSLUCENT })
+    this.viewer.scene.primitives.add(labels)
+    this.labels = labels
 
-    // Second pass: every name after every disc – the add ORDER is what
-    // keeps names over discs, so the plates are claimed here even though
-    // they stay empty until the stop is close enough (see STOP_NAME_BUDGET).
     unique.forEach((stop, i) => {
-      const label = billboards.add({
+      const label = labels.add({
         id: `stop:${stop.id}`,
         position: positions[i],
         horizontalOrigin: HorizontalOrigin.CENTER,
@@ -469,7 +495,8 @@ export class StopsLayer {
         disableDepthTestDistance: 3000,
       })
       const record: StopEntityRecord = {
-        disc: discs[i],
+        id: stop.id,
+        disc: i,
         label,
         name: stop.name,
         named: false,
@@ -479,6 +506,8 @@ export class StopsLayer {
         labelHalfWidth: (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
         lines: stop.lines,
         lineVisible: true,
+        shown: true,
+        discPosition: positions[i],
         inTunnel: stop.inTunnel,
         lon: stop.lon,
         lat: stop.lat,
@@ -490,8 +519,8 @@ export class StopsLayer {
       this.stopRecords.push(record)
       // The underground view is the reader's and outlives the city switch,
       // so the stops that arrive take it as it stands. Every other layer
-      // reads the flag as it draws; these two billboards carry it in a
-      // colour written once, which left a city entered from below wearing
+      // reads the flag as it draws; the disc and the name carry it in an
+      // opacity written once, which left a city entered from below wearing
       // its surface stops solid over the tunnels.
       this.applyStopOpacity(record)
     })
@@ -528,18 +557,19 @@ export class StopsLayer {
   }
 
   /**
-   * Writes the composed visibility of every stop onto its billboards: at
-   * least one serving line shown, and the focused line among them while a
-   * focus runs. `disc.show` carries the composed state on its own – the
-   * declutter reads it and only ever writes `label.show`.
+   * Writes the composed visibility of every stop onto its disc and its
+   * name: at least one serving line shown, and the focused line among
+   * them while a focus runs. `record.shown` carries the composed state –
+   * the declutter reads it and only ever writes `label.show`.
    */
   private applyStopVisibility(): void {
     const focus = this.lineFocus?.lineId
     let changed = false
     for (const record of this.stopRecords) {
       const visible = record.lineVisible && (focus === undefined || record.lines.includes(focus))
-      if (visible === record.disc.show) continue
-      record.disc.show = visible
+      if (visible === record.shown) continue
+      record.shown = visible
+      this.discs?.setShown(record.disc, visible)
       // Re-shown labels start visible; the declutter prunes overlaps on
       // its next pass (stopLabelsDirty below).
       record.label.show = visible
@@ -562,32 +592,10 @@ export class StopsLayer {
     record.named = true
     const image = this.stopNameImage(record.name, record.lines)
     if (!image) return
-    record.label.setImage(`mrt:stop-name:${record.disc.id}`, image.canvas)
+    record.label.setImage(`mrt:stop-name:${record.id}`, image.canvas)
     record.label.width = image.width
     record.label.height = image.height
     record.labelHalfWidth = image.width / 2
-  }
-
-  /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
-  private stopDiscImage(): HTMLCanvasElement | undefined {
-    if (typeof document === 'undefined') return undefined
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return undefined
-    const ratio = this.host.pixelRatio
-    const size = Math.round(STOP_DISC_SIZE * ratio)
-    canvas.width = size
-    canvas.height = size
-    const center = size / 2
-    ctx.beginPath()
-    // Stroke is centered on the arc – pull the radius in by half of it
-    ctx.arc(center, center, center - ratio, 0, 2 * Math.PI)
-    ctx.fillStyle = STOP_DISC_FILL
-    ctx.fill()
-    ctx.lineWidth = 2 * ratio
-    ctx.strokeStyle = STOP_DISC_STROKE
-    ctx.stroke()
-    return canvas
   }
 
   /**
@@ -652,7 +660,7 @@ export class StopsLayer {
    * changed (stopLabelsDirty) – an idle scene pays nothing.
    */
   private declutterLabels(): void {
-    if (!this.stopBillboards || !this.stopBillboards.show || this.stopRecords.length === 0) return
+    if (!this.labels || !this.labels.show || this.stopRecords.length === 0) return
     const camera = this.viewer.camera
     const obstaclesVersion = this.host.obstaclesVersion?.() ?? 0
     if (
@@ -673,14 +681,14 @@ export class StopsLayer {
     // label is off screen either way, its show flag does not matter.
     const candidates: { record: StopEntityRecord; distance: number; x: number; y: number }[] = []
     for (const record of this.stopRecords) {
-      // disc.show is the composed visibility (line filter and focus): a
-      // stop that is off the map has no name to place either.
-      if (!record.disc.show) continue
+      // record.shown is the composed visibility (line filter and focus):
+      // a stop that is off the map has no name to place either.
+      if (!record.shown) continue
       const distance = Cartesian3.distance(cameraPosition, record.position)
       if (distance > STOP_LABEL_RANGE) continue
       const windowPosition = SceneTransforms.worldToWindowCoordinates(
         scene,
-        record.disc.position,
+        record.discPosition,
         windowScratch,
       )
       if (!windowPosition) continue
@@ -780,10 +788,7 @@ export class StopsLayer {
         continue
       }
       stop.sampledFrom = nearestDistances[i]
-      const lifted = Cartesian3.fromDegrees(stop.lon, stop.lat, height + 0.5)
-      stop.disc.position = lifted
-      stop.label.position = lifted
-      this.stopLabelsDirty = true
+      this.placeStop(stop, height)
       this.host.requestRender()
     }
   }

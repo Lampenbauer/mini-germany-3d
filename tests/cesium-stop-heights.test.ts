@@ -58,7 +58,7 @@ function harness(stops = [STOP]) {
     },
     /** Height currently applied to a stop's primitives. */
     heightOf: (index = 0) =>
-      Cartographic.fromCartesian(h.disc(index).position as Cartesian3).height,
+      Cartographic.fromCartesian(h.disc(index).position).height,
   }
 }
 

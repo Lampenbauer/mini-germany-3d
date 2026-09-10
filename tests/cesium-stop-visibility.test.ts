@@ -19,14 +19,14 @@ describe('line-driven stop visibility', () => {
     const { layer, disc, label } = stopsHarness(stops)
 
     layer.setVisibleLines(new Set(['5']))
-    expect(disc(0).show).toBe(false)
-    expect(disc(1).show).toBe(true)
-    expect(disc(2).show).toBe(true)
+    expect(disc(0).shown).toBe(false)
+    expect(disc(1).shown).toBe(true)
+    expect(disc(2).shown).toBe(true)
     // The label follows its disc – a hidden stop shows no name either
     expect(label(0).show).toBe(false)
 
     layer.setVisibleLines(new Set(['1', '5']))
-    expect(disc(0).show).toBe(true)
+    expect(disc(0).shown).toBe(true)
     expect(label(0).show).toBe(true)
   })
 
@@ -45,7 +45,7 @@ describe('line-driven stop visibility', () => {
     const { layer, disc } = stopsHarness(stops)
 
     layer.setVisibleLines(new Set())
-    expect([disc(0).show, disc(1).show, disc(2).show]).toEqual([false, false, false])
+    expect([disc(0).shown, disc(1).shown, disc(2).shown]).toEqual([false, false, false])
   })
 })
 
@@ -79,9 +79,9 @@ describe('line focus on the stops', () => {
 
   it('leaves the stops of every other line off the map while the pulse runs', () => {
     const { layer, disc, label } = focused()
-    expect(disc(0).show).toBe(true)
-    expect(disc(1).show).toBe(true)
-    expect(disc(2).show).toBe(false)
+    expect(disc(0).shown).toBe(true)
+    expect(disc(1).shown).toBe(true)
+    expect(disc(2).shown).toBe(false)
     // The name goes with its disc, as under the line filter
     expect(label(2).show).toBe(false)
 
@@ -98,11 +98,11 @@ describe('line focus on the stops', () => {
     // Still inside the window – one millisecond short of the end
     clockMs += ROUTE_PULSE_DURATION_MS - 1
     layer.update()
-    expect(disc(2).show).toBe(false)
+    expect(disc(2).shown).toBe(false)
 
     clockMs += 1
     layer.update()
-    expect(disc(2).show).toBe(true)
+    expect(disc(2).shown).toBe(true)
   })
 
   it('never shows a stop the line filter has taken off', () => {
@@ -115,11 +115,11 @@ describe('line focus on the stops', () => {
     layer.startLineFocus('5', ROUTE_PULSE_DURATION_MS)
 
     // Shared with the focused line and shown by the filter – on the map
-    expect(disc(1).show).toBe(true)
+    expect(disc(1).shown).toBe(true)
     // Focused line, but switched off in the panel – stays off
-    expect(disc(2).show).toBe(false)
+    expect(disc(2).shown).toBe(false)
     // Shown by the filter, but not on the focused line – steps aside
-    expect(disc(0).show).toBe(false)
+    expect(disc(0).shown).toBe(false)
   })
 })
 
@@ -135,20 +135,20 @@ describe('underground view on the stops', () => {
     const { layer, disc, label } = stopsHarness(stops)
 
     layer.setUnderground(true)
-    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
+    expect(disc(0).alpha).toBeCloseTo(0.2, 5)
     expect(label(0).color.alpha).toBeCloseTo(0.2, 5)
-    expect(disc(1).color.alpha).toBeCloseTo(1, 5)
+    expect(disc(1).alpha).toBeCloseTo(1, 5)
     expect(label(1).color.alpha).toBeCloseTo(1, 5)
 
     layer.setUnderground(false)
-    expect(disc(0).color.alpha).toBeCloseTo(1, 5)
-    expect(disc(1).color.alpha).toBeCloseTo(0.2, 5)
+    expect(disc(0).alpha).toBeCloseTo(1, 5)
+    expect(disc(1).alpha).toBeCloseTo(0.2, 5)
   })
 
   it('ghosts the surface stops of the city that arrives', () => {
     const { layer, disc } = stopsHarness(stops)
     layer.setUnderground(true)
-    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
+    expect(disc(0).alpha).toBeCloseTo(0.2, 5)
 
     // A city switch below ground: clearCity() takes these stops off and the
     // next city's go up while the reader is still down there. The view is
@@ -156,7 +156,7 @@ describe('underground view on the stops', () => {
     layer.clear()
     layer.add(networkOf([{ id: 'next', name: 'Nächste', lon: 10.7, lat: 53.87, lines: ['1'] }]))
 
-    expect(disc(0).color.alpha).toBeCloseTo(0.2, 5)
+    expect(disc(0).alpha).toBeCloseTo(0.2, 5)
   })
 
   it('counts a stop as underground when any serving line runs below', () => {
@@ -166,6 +166,76 @@ describe('underground view on the stops', () => {
     ]
     const { layer, disc } = stopsHarness(shared)
     layer.setUnderground(true)
-    expect(disc(0).color.alpha).toBeCloseTo(1, 5)
+    expect(disc(0).alpha).toBeCloseTo(1, 5)
+  })
+})
+
+describe('the discs primitive', () => {
+  const stops = [
+    { id: 'a', name: 'A', lon: 12.1, lat: 54.0, lines: ['1'] },
+    { id: 'b', name: 'B', lon: 12.11, lat: 54.0, lines: ['1'], dist: 100, tunnels: [[50, 150]] as [number, number][] },
+  ]
+
+  it('packs each stop as position high and low, then the alpha the shader draws with', () => {
+    const { discs, disc } = stopsHarness(stops)
+    const data = discs().instances
+    expect(data).toHaveLength(2 * 8)
+    // High plus low is the position again, to the float32 the shader adds
+    // them in – a few millimetres at the low part's magnitude
+    const position = disc(0).position
+    expect(data[0] + data[3]).toBeCloseTo(position.x, 2)
+    expect(data[1] + data[4]).toBeCloseTo(position.y, 2)
+    expect(data[2] + data[5]).toBeCloseTo(position.z, 2)
+    expect(Math.abs(data[3])).toBeLessThan(65536)
+    expect(data[6]).toBe(1)
+  })
+
+  it('writes zero alpha for a hidden stop and keeps its own opacity for when it returns', () => {
+    const { layer, discs } = stopsHarness(stops)
+    const alphaOf = (index: number) => discs().instances[index * 8 + 6]
+    layer.setUnderground(true)
+    expect(alphaOf(0)).toBeCloseTo(0.2, 5)
+    expect(alphaOf(1)).toBe(1)
+    layer.setVisibleLines(new Set())
+    expect(alphaOf(0)).toBe(0)
+    expect(alphaOf(1)).toBe(0)
+    layer.setVisibleLines(new Set(['1']))
+    expect(alphaOf(0)).toBeCloseTo(0.2, 5)
+    expect(alphaOf(1)).toBe(1)
+  })
+
+  it('draws in the render and the pick pass, never offscreen, and not without instancing', () => {
+    const frame = (
+      discs: ReturnType<typeof stopsHarness>['discs'],
+      passes: { render: boolean; pick?: boolean; offscreen?: boolean },
+      instancedArrays = true,
+    ) => {
+      const commandList: unknown[] = []
+      discs().update({
+        context: {
+          webgl2: true,
+          instancedArrays,
+          createPickId: () => {
+            throw new Error('GL needed')
+          },
+        },
+        commandList: commandList as never,
+        passes,
+      })
+      return commandList
+    }
+    const { discs } = stopsHarness(stops)
+    // The offscreen passes (clampToHeight, ray picks) get nothing
+    expect(frame(discs, { render: false, pick: true, offscreen: true })).toHaveLength(0)
+    expect(frame(discs, { render: false })).toHaveLength(0)
+    // The render and pick passes reach for the context – which is where
+    // this harness ends: the resources need a GL context to build
+    expect(() => frame(discs, { render: true })).toThrow('GL needed')
+    expect(() => frame(discs, { render: false, pick: true })).toThrow('GL needed')
+    // A context without instancing is refused before any GL work, and
+    // stays refused: the layer does not ask again every frame
+    const without = stopsHarness(stops).discs
+    expect(frame(without, { render: true }, false)).toHaveLength(0)
+    expect(frame(without, { render: true })).toHaveLength(0)
   })
 })

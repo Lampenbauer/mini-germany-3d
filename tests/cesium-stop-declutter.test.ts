@@ -86,8 +86,8 @@ describe('stop label declutter on the layer', () => {
     layer.update()
 
     expect([label(0).show, label(1).show].filter(Boolean)).toHaveLength(1)
-    expect(disc(0).show).toBe(true)
-    expect(disc(1).show).toBe(true)
+    expect(disc(0).shown).toBe(true)
+    expect(disc(1).shown).toBe(true)
   })
 
   it('skips stops beyond the label display range entirely', () => {

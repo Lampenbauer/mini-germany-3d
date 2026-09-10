@@ -70,8 +70,9 @@ test.describe('on one scene', () => {
   test('a real click on a stop disc opens the card', async () => {
     test.setTimeout(240_000)
 
-    // The one test that exercises the actual pick path (scene.pick on a
-    // billboard) instead of the test API. The home view has hundreds of
+    // The one test that exercises the actual pick path (scene.pick on the
+    // disc primitive's own pick colours, see StopDiscs) instead of the
+    // test API. The home view has hundreds of
     // stops in frame – find one comfortably inside the viewport, clear of
     // the control panel on the left and the buttons on the right, and
     // standing on its own: a hub puts its platforms' discs within a few

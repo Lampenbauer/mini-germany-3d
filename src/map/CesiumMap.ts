@@ -1172,9 +1172,10 @@ export class CesiumMap {
   /**
    * Selectable object under a screen position, or null. Vehicle body
    * primitives return their instance id as a string, the number label an
-   * Entity – both carry the "vehicle:" prefix. Stop discs and names
-   * are billboards whose id is the "stop:"-prefixed stop id, and AIS hulls
-   * and their name labels the "vessel:"-prefixed MMSI.
+   * Entity – both carry the "vehicle:" prefix. A stop's disc answers with
+   * its pick id's object and its name with the billboard, both carrying
+   * the "stop:"-prefixed stop id (see StopDiscs); AIS hulls and their name
+   * labels carry the "vessel:"-prefixed MMSI.
    */
   private pickTarget(
     position: Cartesian2,

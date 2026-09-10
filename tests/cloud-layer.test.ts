@@ -64,7 +64,13 @@ function layerHarness(
   }
   const layer = new CloudLayer(viewer, host, rostock, options.enabled ?? true)
   const frameState = (): FrameState => ({
-    context: { webgl2: true },
+    context: {
+      webgl2: true,
+      instancedArrays: true,
+      createPickId: () => {
+        throw new Error('no GL context in this test')
+      },
+    },
     commandList: [],
     passes: { render: true },
   })

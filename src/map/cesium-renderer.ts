@@ -1,10 +1,11 @@
 /**
  * Cesium's renderer classes, typed.
  *
- * The volumetric clouds (see CloudLayer) draw with a DrawCommand of their
- * own, the way Cesium's own primitives do: a vertex array, a shader
- * program, a render state and a 3D texture, handed to the scene through
- * a primitive's update(frameState). All of that is exported by the
+ * The volumetric clouds (see CloudLayer) and the stop discs (StopDiscs)
+ * draw with a DrawCommand of their own, the way Cesium's own primitives
+ * do: a vertex array, a shader program, a render state, a texture or an
+ * instance buffer, handed to the scene through a primitive's
+ * update(frameState). All of that is exported by the
  * `cesium` package and stable enough that Cesium's own Sandcastle
  * examples build on it – but it is marked @private and left out of the
  * type declarations. This module is the one place that knows the shapes
@@ -13,12 +14,51 @@
  */
 
 import * as Cesium from 'cesium'
-import type { BoundingSphere, Geometry, Matrix4, PixelDatatype, PixelFormat } from 'cesium'
+import type {
+  BoundingSphere,
+  Color,
+  ComponentDatatype,
+  Geometry,
+  Matrix4,
+  PixelDatatype,
+  PixelFormat,
+} from 'cesium'
 
 /** The GL context of a scene (scene.context, private). */
 export interface Context {
   /** True on a WebGL 2 context – 3D textures need one. */
   webgl2: boolean
+  /** Instanced drawing – WebGL 2, or the ANGLE extension on WebGL 1. */
+  instancedArrays: boolean
+  /**
+   * A colour for the pick pass and the object scene.pick returns for
+   * it. Destroy it with what it stands for.
+   */
+  createPickId(object: unknown): PickId
+}
+
+export interface PickId {
+  readonly color: Color
+  destroy(): void
+}
+
+/** A vertex buffer (Buffer, private). */
+export interface Buffer {
+  copyFromArrayView(view: ArrayBufferView, offsetInBytes: number): void
+  destroy(): void
+}
+
+/** One attribute of a hand-built VertexArray. */
+export interface VertexArrayAttribute {
+  index: number
+  vertexBuffer: Buffer
+  componentsPerAttribute: number
+  componentDatatype: ComponentDatatype
+  normalize?: boolean
+  offsetInBytes?: number
+  strideInBytes?: number
+  /** 1 steps the attribute once per instance rather than per vertex. */
+  instanceDivisor?: number
 }
 
 export interface Sampler {
@@ -58,8 +98,12 @@ export interface DrawCommand {
 export interface FrameState {
   context: Context
   commandList: DrawCommand[]
-  /** Which pass this update serves – a cloud draws in the render pass only. */
-  passes: { render: boolean }
+  /**
+   * Which pass this update serves – a cloud draws in the render pass
+   * only, a disc in the render and the pick pass, neither in the
+   * offscreen ones (the ray picks and clampToHeight).
+   */
+  passes: { render: boolean; pick?: boolean; offscreen?: boolean }
 }
 
 interface RendererModule {
@@ -93,12 +137,17 @@ interface RendererModule {
   }) => Sampler
   TextureWrap: { REPEAT: number; CLAMP_TO_EDGE: number }
   VertexArray: {
+    new (options: { context: Context; attributes: VertexArrayAttribute[] }): VertexArray
     fromGeometry(options: {
       context: Context
       geometry: Geometry
       attributeLocations: Record<string, number>
     }): VertexArray
   }
+  Buffer: {
+    createVertexBuffer(options: { context: Context; typedArray: ArrayBufferView; usage: number }): Buffer
+  }
+  BufferUsage: { STATIC_DRAW: number; DYNAMIC_DRAW: number }
   ShaderProgram: {
     fromCache(options: {
       context: Context
@@ -120,6 +169,14 @@ interface RendererModule {
     uniformMap: Record<string, () => unknown>
     renderState: RenderState
     pass: number
+    /** Vertices per draw – set it where the vertex array is instanced. */
+    count?: number
+    instanceCount?: number
+    /**
+     * A GLSL expression for the pick colour; with one set, the scene
+     * derives a pick shader that writes it in place of the fragment.
+     */
+    pickId?: string
   }) => DrawCommand
   Pass: { TRANSLUCENT: number }
 }

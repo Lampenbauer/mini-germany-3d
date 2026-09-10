@@ -1,6 +1,7 @@
 import { type BillboardCollection, Cartesian3, Matrix4, type Viewer } from 'cesium'
 import { vi } from 'vitest'
 import type { PreparedNetwork } from '@/data/network-types'
+import type { StopDiscs } from '@/map/StopDiscs'
 import { StopsLayer } from '@/map/StopsLayer'
 
 export interface FakeStopSpec {
@@ -42,9 +43,11 @@ export function networkOf(stops: FakeStopSpec[]): PreparedNetwork {
 }
 
 /**
- * A real StopsLayer on a fake viewer. Discs and name plates land in a real
- * BillboardCollection, so the tests read the layer's output the same way
- * the scene would.
+ * A real StopsLayer on a fake viewer. The discs land in a real StopDiscs
+ * primitive (its instance buffer, never a GL context – that is built on
+ * the first frame drawn, which no test draws) and the name plates in a
+ * real BillboardCollection, so the tests read the layer's output the same
+ * way the scene would.
  */
 export function stopsHarness(
   stops: FakeStopSpec[],
@@ -84,14 +87,16 @@ export function stopsHarness(
   })
   layer.add(networkOf(stops))
 
-  /** The collection the layer is filling right now – add() builds a new
-   *  one per city, so this follows a switch. */
+  // What the layer is filling right now – add() puts the discs on the
+  // scene and then the names' collection, a fresh pair per city, so
+  // these follow a switch.
+  const discs = () => primitives[primitives.length - 2] as StopDiscs
   const collection = () => primitives[primitives.length - 1] as BillboardCollection
   const count = stops.length
-  /** Disc billboard of the nth stop (discs are added before all names). */
-  const disc = (index: number) => collection().get(index)
-  /** Name plate of the nth stop (added after every disc). */
-  const label = (index: number) => collection().get(count + index)
+  /** The nth stop's disc as the shader will draw it. */
+  const disc = (index: number) => discs().stateOf(index)
+  /** Name plate of the nth stop. */
+  const label = (index: number) => collection().get(index)
 
-  return { layer, collection, disc, label, camera, sampleGroundHeight, requestRender, count }
+  return { layer, discs, collection, disc, label, camera, sampleGroundHeight, requestRender, count }
 }
