@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils'
 import { berlinDateKey } from '@/lib/clock'
 import type { TransitMode } from '@/data/network-types'
 import type { CityActivity } from '@/lib/city-profile'
-import { MODE_KEY, getLanguage, localizeCityName, t } from '@/lib/i18n'
+import { MODE_KEY, getLanguage, localizeCityName, sortCitiesByName, t } from '@/lib/i18n'
 import { TRANSIT_MODES } from '@/lib/transit-mode'
 
 export interface LineToggleInfo {
@@ -248,16 +248,8 @@ export function ControlPanel(props: ControlPanelProps) {
   }).replace(/\.$/, '')} ${shownDay.getFullYear()}`
 
   // The cities the picker lists, by name and in the language the interface
-  // speaks: Köln sorts under K and Cologne under C, München under M and
-  // Munich under M as well, so the order is computed here rather than
-  // written into src/cities/definitions.ts. A collator, not <, because
-  // sorting umlauts by code point puts Lübeck behind Wilhelmshaven.
-  const cityChoices = useMemo(() => {
-    const collator = new Intl.Collator(getLanguage() === 'de' ? 'de-DE' : 'en-GB')
-    return props.cities
-      .map((city) => ({ city, name: localizeCityName(city.slug, city.name) }))
-      .sort((a, b) => collator.compare(a.name, b.name))
-  }, [props.cities])
+  // speaks – the same order the welcome screen shows them in.
+  const cityChoices = useMemo(() => sortCitiesByName(props.cities), [props.cities])
 
   // Stable group arrays so the memoized LineGroups skip the clock re-renders
   const lineGroups = useMemo(() => {

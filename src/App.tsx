@@ -58,6 +58,7 @@ import { nextQuarterHeading, windAngleTo } from '@/lib/geo'
 import { getLanguage, localizeCityName, localizeLineName, t, type MessageKey } from '@/lib/i18n'
 import type { MapView } from '@/lib/map-view'
 import { AboutDialog } from '@/components/AboutDialog'
+import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { CreditsDialog } from '@/components/CreditsDialog'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
 import { buildInterchangeIndex } from '@/lib/interchange'
@@ -79,6 +80,7 @@ import {
   type WeatherMode,
 } from '@/lib/weather'
 import { WebcamsClient, type Webcam } from '@/lib/webcams'
+import { browserStorage, setWelcomeHidden, welcomeHidden, welcomeWanted } from '@/lib/welcome'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
@@ -118,6 +120,8 @@ export interface MrtTestApi {
   dataSource: string
   /** Slug of the city on the map. */
   city: () => string
+  /** Whether the welcome screen is up – asking, or lingering over the city loading behind it. */
+  welcomeOpen: () => boolean
   /** Whether the lines are drawn pulled straight instead of on the map. */
   linear: () => boolean
   setLinear: (linear: boolean) => void
@@ -340,11 +344,33 @@ const SHARED_VEHICLE_TIMEOUT_MS = 20_000
  */
 const SHARED_VESSEL_TIMEOUT_MS = 90_000
 
-/** Where the last visited city is remembered between sessions. */
+/**
+ * Where the last visited city is remembered between sessions. Nothing
+ * reads it since the welcome screen: the boot opens on the link's city or
+ * the default one (see initialCitySlug), and the screen asks rather than
+ * guesses. Still written, so the wish to open on it again is one read
+ * away.
+ */
 const CITY_STORAGE_KEY = 'mg3d.city'
 
 /** A schedule that says nothing – lets the line card compute a profile without one. */
 const EMPTY_SCHEDULE: ScheduleJson = {}
+
+/**
+ * How long the welcome screen stands after the pick, at least: the city
+ * loads behind it in that time – its data, routes, stops, vehicles, the
+ * first ships – so the map is a populated one when the screen goes, not
+ * an empty one filling up. Longer where the data takes longer, up to
+ * WELCOME_LINGER_MAX_MS, after which the screen goes whatever came.
+ */
+const WELCOME_LINGER_MS = 2000
+const WELCOME_LINGER_MAX_MS = 10_000
+
+/**
+ * The welcome screen's life: up and asking, up with a spinner on the
+ * card picked while the city loads behind it, gone.
+ */
+type WelcomePhase = 'open' | 'loading' | 'closed'
 
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
@@ -374,16 +400,6 @@ function readUrlOptions(): UrlOptions {
   }
 }
 
-/** The city remembered from the last visit, if this browser kept one. */
-function rememberedCity(): string | null {
-  try {
-    const slug = window.localStorage.getItem(CITY_STORAGE_KEY)
-    return isCitySlug(slug) ? slug : null
-  } catch {
-    return null
-  }
-}
-
 function rememberCity(slug: string): void {
   try {
     window.localStorage.setItem(CITY_STORAGE_KEY, slug)
@@ -393,14 +409,17 @@ function rememberCity(slug: string): void {
 }
 
 /**
- * The city the session opens on: a link says so (#city=…), else the city
- * of the last visit, else the default. An unknown slug in the link is
- * ignored rather than refused – the rest of the link may still be good.
+ * The city the session opens on: a link says so (#city=…), else the
+ * default. Not the city of the last visit: on a plain visit the welcome
+ * screen asks, and once the reader has turned it off the app opens on
+ * the default city, as they were told it would. An unknown slug in the
+ * link is ignored rather than refused – the rest of the link may still
+ * be good.
  */
 function initialCitySlug(): string {
   const fromHash = parseUiStateHash(window.location.hash).city
   if (fromHash && isCitySlug(fromHash)) return fromHash
-  return rememberedCity() ?? DEFAULT_CITY_SLUG
+  return DEFAULT_CITY_SLUG
 }
 
 /**
@@ -650,6 +669,39 @@ export default function App() {
   /** Cesium's credits, opened from the "Data attribution" link it draws. */
   const [creditsOpen, setCreditsOpen] = useState(false)
   /**
+   * The welcome screen, the front door on a plain visit (see
+   * lib/welcome.ts for when). While it is open the map is built and the
+   * world loads behind it, but no city session runs – no data, no
+   * vehicles, no stops, no pollers (the session effect waits for it) –
+   * and no hash is written, or a reload would carry a city and walk past
+   * the door. The pick starts the session at once and keeps the screen
+   * up a little longer (WELCOME_LINGER_MS, see the effect below), so
+   * what the screen uncovers is a city already there. The ref is for
+   * the viewer effect's closures: the hash writer and the shortcuts.
+   * What the boot read is read once: the screen's own state is its own
+   * until the pick.
+   */
+  const [welcomeBoot] = useState(() => {
+    const storage = browserStorage()
+    return {
+      open: welcomeWanted(window.location.search, window.location.hash, storage),
+      hidden: welcomeHidden(storage),
+    }
+  })
+  const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>(welcomeBoot.open ? 'open' : 'closed')
+  const welcomePhaseRef = useRef(welcomePhase)
+  /** When the city was picked – the linger counts from here. */
+  const welcomePickedAtRef = useRef(0)
+  /** Whether the screen is up, asking or loading. */
+  const welcomeShown = welcomePhase !== 'closed'
+  /**
+   * Whether it is still asking – the one phase the city session waits
+   * out. A boolean of its own so the session effect, which depends on
+   * it, is not run again when the screen merely goes from loading to
+   * closed: that would take the city down and put it up again.
+   */
+  const welcomeAsking = welcomePhase === 'open'
+  /**
    * A dialog is something to read, and it reads better over a bare map: for
    * as long as one is up the interface goes away exactly as H takes it, and
    * closing gives back whatever was there before.
@@ -665,7 +717,10 @@ export default function App() {
    * The dialogs themselves are untouched by this: Radix portals them to the
    * body, so only their JSX sits inside the overlay below, never their DOM.
    */
-  const interfaceHidden = uiHidden || aboutOpen || creditsOpen
+  // The welcome screen covers everything, so nothing under it is laid
+  // out or updated either – behind it the interface is not just unseen,
+  // it has no city to show yet.
+  const interfaceHidden = uiHidden || aboutOpen || creditsOpen || welcomeShown
   /** Lends Cesium's own credit list to the dialog while it is open. */
   const borrowCreditList = useCallback((host: HTMLElement | null) => {
     mapRef.current?.borrowCreditList(host)
@@ -881,6 +936,49 @@ export default function App() {
     setCitySlug(slug)
   }, [])
 
+  /**
+   * The welcome screen's choice: its checkbox is kept (or dropped), the
+   * card picked gets its spinner, and the city session starts behind the
+   * screen – with a jump, not a flight, since nothing is on the map yet
+   * to fly away from. The map was built wearing the default city, so
+   * picking that one starts the session where the camera already
+   * stands. The screen itself stays up for the linger (see below). One
+   * pick only: the cards are disabled from here, and a second click that
+   * slips through changes nothing.
+   */
+  const handleWelcomePick = useCallback((slug: string, hideNextTime: boolean) => {
+    if (welcomePhaseRef.current !== 'open' || !isCitySlug(slug)) return
+    setWelcomeHidden(browserStorage(), hideNextTime)
+    welcomePickedAtRef.current = performance.now()
+    welcomePhaseRef.current = 'loading'
+    setWelcomePhase('loading')
+    if (slug !== citySlugRef.current) {
+      cityTransitionRef.current = 'jump'
+      setCitySlug(slug)
+    }
+  }, [])
+
+  /**
+   * The linger: the screen goes once the city's data is in and at least
+   * WELCOME_LINGER_MS have passed since the pick – whichever is later –
+   * so the routes, stops and the first vehicles are up before the map is
+   * uncovered. A city that will not load (the ceiling) uncovers the map
+   * anyway rather than holding the reader in front of a spinner.
+   */
+  useEffect(() => {
+    if (welcomePhase !== 'loading') return
+    const elapsed = performance.now() - welcomePickedAtRef.current
+    const wait =
+      cityData !== null
+        ? Math.max(0, WELCOME_LINGER_MS - elapsed)
+        : Math.max(0, WELCOME_LINGER_MAX_MS - elapsed)
+    const timer = window.setTimeout(() => {
+      welcomePhaseRef.current = 'closed'
+      setWelcomePhase('closed')
+    }, wait)
+    return () => window.clearTimeout(timer)
+  }, [welcomePhase, cityData])
+
   // The viewer: map, clock, render loop, URL persistence, test API. Built
   // once for the life of the app – the cities come and go on it (see the
   // city session effect below).
@@ -950,6 +1048,11 @@ export default function App() {
       hashTimeout = 0
       const m = mapRef.current
       if (!m) return
+      // Nothing is on the map behind the welcome screen, and a hash
+      // written now would name a city the reader never picked – and skip
+      // the screen on the next reload (see lib/welcome.ts). Once picked,
+      // the city is theirs and the hash may say so.
+      if (welcomePhaseRef.current === 'open') return
       lastHashWriteAt = performance.now()
       // While a vehicle is selected the URL carries ONLY its trip id – a
       // shared link then re-selects and follows the vehicle, no camera
@@ -1540,6 +1643,7 @@ export default function App() {
       stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
       dataSource: '',
       city: () => citySlugRef.current,
+      welcomeOpen: () => welcomePhaseRef.current !== 'closed',
       setCity: selectCity,
       linear: () => linearRef.current,
       setLinear: (want: boolean) => selectViewRef.current(want ? 'linear' : 'surface'),
@@ -1634,6 +1738,12 @@ export default function App() {
     const map = mapRef.current
     const clock = clockRef.current
     if (!map || !clock) return
+    // Behind the welcome screen the map stays bare: the world loads, the
+    // city waits for the pick. Nothing was started, so there is nothing
+    // to clean up until then. The pick starts the session while the
+    // screen still stands (its 'loading' phase), which is the point of
+    // that phase – see the linger effect above.
+    if (welcomeAsking) return
     const sessionCity = cityBySlug(citySlug) ?? CITIES[0]
     citySlugRef.current = sessionCity.slug
     const transition = cityTransitionRef.current
@@ -1947,7 +2057,7 @@ export default function App() {
       mapRef.current?.setFollow(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [citySlug])
+  }, [citySlug, welcomeAsking])
 
   /**
    * Whether the map draws the network itself. It stops the moment a morph
@@ -2779,6 +2889,8 @@ export default function App() {
       // would flicker rather than toggle.
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (event.repeat) return
+      // The welcome screen has no map behind it for a key to act on
+      if (welcomePhaseRef.current !== 'closed') return
       // key, not code: the shortcut is the character as the reader sees it
       // on the keycap. On Dvorak the physical KeyH carries a D, and hiding
       // the interface on D would be a surprise nobody asked for.
@@ -2865,6 +2977,18 @@ export default function App() {
           hides all of them at once without unmounting any: the panel keeps
           whether it was collapsed, an open card stays open, and the time
           field keeps what was picked in it. */}
+      {/* The front door: a city to choose before anything of one is on
+          the map. Outside the wrapper below on purpose – it is not
+          interface over the map but what hides the interface, and Radix
+          portals it to the body either way (see WelcomeScreen). */}
+      <WelcomeScreen
+        open={welcomeShown}
+        picked={welcomePhase === 'loading' ? citySlug : null}
+        cities={CITY_CHOICES}
+        hideNextTime={welcomeBoot.hidden}
+        onPick={handleWelcomePick}
+      />
+
       <div className={cn('contents', interfaceHidden && 'hidden')} data-testid="ui-overlay">
         {/* The framing guides from the photo popover – thirds, the way a
             phone camera draws them. Inside this wrapper on purpose: they

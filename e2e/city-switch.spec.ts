@@ -35,7 +35,7 @@ const inside = (view: { lat: number; lon: number }, box: typeof KIEL) =>
 
 test('the picker flies from Rostock to Kiel', async ({ page }) => {
   test.setTimeout(300_000)
-  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}`)
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,
@@ -83,7 +83,7 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
 
 test('a link naming the city opens it', async ({ page }) => {
   test.setTimeout(240_000)
-  await page.goto(`/?offline=1&time=08:30&paused=1#${CHEAP}&city=kiel`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}&city=kiel`)
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.city() === 'kiel',
     undefined,

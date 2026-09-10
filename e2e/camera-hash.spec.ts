@@ -30,7 +30,7 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   test.setTimeout(300_000)
   const hash = () => page.evaluate(() => window.location.hash)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto('/?offline=1&welcome=0&time=08:30&paused=1')
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -142,7 +142,7 @@ test('pose, layers and the miniature look are written, restored, kept through a 
 test('a selected vehicle is shared and restored via the URL', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto('/?offline=1&time=08:30&paused=1')
+  await page.goto('/?offline=1&welcome=0&time=08:30&paused=1')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,

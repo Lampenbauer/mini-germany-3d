@@ -44,7 +44,7 @@ test('a link from far away lands at the fence, and dragging and zooming out both
   // Munich, 2000 km up – outside the fence in every component, so the
   // camera has to end up in its south-western corner at the ceiling.
   await page.goto(
-    `/?offline=1&time=08:30&paused=1#${CHEAP}&lat=48.137&lon=11.575&height=2000000&heading=0&pitch=-60`,
+    `/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}&lat=48.137&lon=11.575&height=2000000&heading=0&pitch=-60`,
   )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,

@@ -13,6 +13,8 @@ declare global {
     __stopRaf?: boolean
     __mrt?: {
       ready: boolean
+      /** Whether the welcome screen is up – no city session runs behind it. */
+      welcomeOpen: () => boolean
       vehicleCount: () => number
       visibleVehicleCount: () => number
       vehicles: () => {

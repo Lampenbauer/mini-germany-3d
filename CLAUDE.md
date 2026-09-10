@@ -168,6 +168,29 @@ tight: 320 px hold the date, a 96 px time field and the "Now" button, and
 "28. Mär 2026" wants about 91 px of the remainder. Measure before adding
 anything to that row – the failure is a truncated date, which no test catches.
 
+**The welcome screen is a door, not a dialog over the map.** On a plain
+visit ([src/lib/welcome.ts](src/lib/welcome.ts) decides) the city chooser
+covers the screen and *no city session runs behind it*: the viewer is
+built and the world loads, but the session effect in `App.tsx` waits for
+the pick, the hash writer stays silent (a hash written there would name a
+city nobody picked and walk past the door on the next reload) and the
+shortcuts are inert. The pick is a `'jump'`, never a flight – there is
+nothing on the map to fly from – and it starts the session *while the
+screen still stands*: the screen has an `open`, a `loading` and a `closed`
+phase (`WelcomePhase`), the session waits only for `open` to end, and the
+screen goes once the city's data is in and `WELCOME_LINGER_MS` have
+passed, whichever is later (a ceiling of `WELCOME_LINGER_MAX_MS` uncovers
+a city that will not load). The session effect depends on a boolean
+derived from the phase, not the phase itself, or the step from loading to
+closed would tear the city down and put it up again. A link that names a place skips the door,
+`?welcome=0` skips it for one visit (every test boots this way – a new
+e2e spec or App test needs it), `?welcome=1` forces it. The last visited
+city (`mg3d.city`) is still written but no longer read: with the screen
+turned off the app opens on the default city, as its checkbox says. On
+the green the cards' hover is a white wash (`hover:bg-white/12`), the one
+exception to the `--accent` rule besides the About hero's close button,
+for the same reason: a black wash sinks into the green.
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,

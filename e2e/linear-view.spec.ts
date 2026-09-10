@@ -73,7 +73,7 @@ function cameraPose(page: import('@playwright/test').Page) {
 test('the lines pull straight and the map comes back', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30${VIEW}`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   // Vehicles have to be running, otherwise the dots prove nothing
   await expect.poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), {
@@ -179,7 +179,7 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30#lat=54.0880&lon=12.1330&height=6000&heading=0&pitch=-50`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30#lat=54.0880&lon=12.1330&height=6000&heading=0&pitch=-50`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
@@ -264,7 +264,7 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
   // them the boot flight is still writing the hash for its own reasons,
   // and a press that writes nothing looks like a press that works.
   await page.goto(
-    `/?offline=1&time=08:30&paused=1#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
+    `/?offline=1&welcome=0&time=08:30&paused=1#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
   )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   await expect
@@ -310,7 +310,7 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
 test('a shared link opens on the reading it names', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30#stops=0&labels=0&view=underground`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30#stops=0&labels=0&view=underground`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
     'aria-selected',
@@ -328,7 +328,7 @@ test('a shared link opens on the reading it names', async ({ page }) => {
 test('the underground tab is reachable from the diagram', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30${VIEW}`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
 
   await page.getByRole('tab', { name: 'Line diagram' }).click()
@@ -377,7 +377,7 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
 test('following a vehicle from the diagram brings the map back', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30${VIEW}`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
   await expect
     .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
@@ -409,7 +409,7 @@ test('following a vehicle from the diagram brings the map back', async ({ page }
 test('a shared link opens straight into the diagram', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&time=08:30#stops=0&labels=0&view=linear`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30#stops=0&labels=0&view=linear`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
 
   await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 30_000 }).toBe(true)

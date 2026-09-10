@@ -22,7 +22,7 @@ const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto(
-    '/?offline=1&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
+    '/?offline=1&welcome=0&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
   )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,

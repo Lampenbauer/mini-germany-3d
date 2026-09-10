@@ -147,6 +147,15 @@ const en = {
   'city.name.cologne': 'Cologne',
   'city.name.hanover': 'Hanover',
   'city.name.munich': 'Munich',
+  // The welcome screen (the city chooser on a plain visit, see lib/welcome.ts)
+  'welcome.eyebrow': 'Mini Germany 3D',
+  'welcome.title': 'Which city would you like to see?',
+  'welcome.lead':
+    'Trains weaving between buildings, ferries crossing the harbour, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic model of the city.',
+  'welcome.invitation': 'Pick a city, follow a train, and take a look around.',
+  'welcome.cities': 'Cities',
+  'welcome.open': 'Open {name}',
+  'welcome.skip': 'Don’t show this welcome screen on your next visit',
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
@@ -280,7 +289,7 @@ const en = {
   'about.storyTab': 'The project',
   'about.detailsTab': 'Good to know',
   'about.projectTitle': 'The city, seen from above.',
-  'about.project': 'Mini Germany 3D brings a different view of the city to your browser: trains weaving between buildings, ferries crossing the harbour, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic 3D model.',
+  'about.project': 'Mini Germany 3D brings a different view of the city to your browser: trains weaving between buildings, ships crossing the harbour, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic 3D model.',
   'about.projectRealism': 'Nothing here is made up: what runs on the map runs in reality too, on the same route and at the same time. A line that pauses for the weekend pauses here as well.',
   'about.invitation': 'Pick a city, follow a train, and take a look around. I’m glad you’re here.',
   'about.whoTitle': 'Hello world 👋',
@@ -447,6 +456,14 @@ const de: Record<MessageKey, string> = {
   'city.name.cologne': 'Köln',
   'city.name.hanover': 'Hannover',
   'city.name.munich': 'München',
+  'welcome.eyebrow': 'Mini Germany 3D',
+  'welcome.title': 'Welche Stadt möchtest du sehen?',
+  'welcome.lead':
+    'Bahnen zwischen Häusern, Schiffe im Hafen und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches Modell der Stadt.',
+  'welcome.invitation': 'Such dir eine Stadt aus, folge einer Bahn und schau dich um.',
+  'welcome.cities': 'Städte',
+  'welcome.open': '{name} öffnen',
+  'welcome.skip': 'Diese Willkommensansicht bei deinem nächsten Besuch nicht mehr anzeigen',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',
@@ -568,7 +585,7 @@ const de: Record<MessageKey, string> = {
   'about.storyTab': 'Das Projekt',
   'about.detailsTab': 'Gut zu wissen',
   'about.projectTitle': 'Die Stadt, von oben gesehen.',
-  'about.project': 'Mini Germany 3D holt einen anderen Blick auf die Stadt in deinen Browser: Bahnen zwischen Häusern, Fähren im Hafen und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches 3D-Modell.',
+  'about.project': 'Mini Germany 3D holt einen anderen Blick auf die Stadt in deinen Browser: Bahnen zwischen Häusern, Schiffe im Hafen und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches 3D-Modell.',
   'about.projectRealism': 'Nichts davon ist ausgedacht: Was auf der Karte fährt, fährt auch in Wirklichkeit, auf derselben Strecke und zur selben Zeit. Eine Linie, die am Wochenende pausiert, pausiert auch hier.',
   'about.invitation': 'Such dir eine Stadt aus, folge einer Bahn und schau dich um. Schön, dass du da bist.',
   'about.whoTitle': 'Hallo Welt 👋',
@@ -677,6 +694,23 @@ export function localizeLineName(name: string): string {
 export function localizeCityName(slug: string, name: string): string {
   const key = `city.name.${slug}`
   return key in en ? t(key as MessageKey) : name
+}
+
+/**
+ * Cities by name in the language the interface speaks: Köln sorts under
+ * K and Cologne under C, München under M and Munich under M as well, so
+ * the order is computed here rather than written into
+ * src/cities/definitions.ts. A collator, not <, because sorting umlauts
+ * by code point puts Lübeck behind Wilhelmshaven. The panel's picker and
+ * the welcome screen list the same order.
+ */
+export function sortCitiesByName<T extends { slug: string; name: string }>(
+  cities: readonly T[],
+): { city: T; name: string }[] {
+  const collator = new Intl.Collator(lang === 'de' ? 'de-DE' : 'en-GB')
+  return cities
+    .map((city) => ({ city, name: localizeCityName(city.slug, city.name) }))
+    .sort((a, b) => collator.compare(a.name, b.name))
 }
 
 /** Label key per transit mode – shared by the line panel and the vehicle card. */

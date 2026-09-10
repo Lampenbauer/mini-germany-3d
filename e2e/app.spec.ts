@@ -34,7 +34,7 @@ test.beforeAll(async ({ browser }) => {
   // tilt-shift.spec.ts). Nothing here is measured off the screen, and the
   // one route assertion below reads the entities' colours, which a hidden
   // polyline carries just the same.
-  await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
+  await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,

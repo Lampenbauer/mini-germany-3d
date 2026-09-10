@@ -33,7 +33,7 @@ let page: Page
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
-  await page.goto('/?offline=1&time=08:30&paused=1#routes=0&labels=0')
+  await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0&labels=0')
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
 })
 

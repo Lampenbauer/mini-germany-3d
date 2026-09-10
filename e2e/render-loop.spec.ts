@@ -64,7 +64,7 @@ test('the realtime feed reaches the simulation, which keeps running when request
     },
   )
 
-  await page.goto('/?offline=1&rt=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
+  await page.goto('/?offline=1&welcome=0&rt=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
   await page.waitForFunction(
     () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
     undefined,

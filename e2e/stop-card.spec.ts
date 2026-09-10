@@ -55,7 +55,7 @@ test.describe('on one scene', () => {
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage()
-    await page.goto('/?offline=1&time=08:30&paused=1#routes=0')
+    await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0')
     await page.waitForFunction(
       () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
       undefined,
@@ -205,7 +205,7 @@ test('a shared stop link restores the card and flies to the stop', async ({ page
   // once just to read an id back out of it cost a second full startup.
   const stopId = sharedStopId()
 
-  await page.goto(`/?offline=1&time=08:30&paused=1#routes=0&stop=${encodeURIComponent(stopId)}`)
+  await page.goto(`/?offline=1&welcome=0&time=08:30&paused=1#routes=0&stop=${encodeURIComponent(stopId)}`)
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
     timeout: 120_000,
   })

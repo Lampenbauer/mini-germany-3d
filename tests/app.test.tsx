@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * How often the map was sent back to the city's home view. Hoisted with
@@ -16,6 +16,9 @@ const mockCameraHomeCalls = vi.hoisted(() => ({ count: 0 }))
  */
 const mockCamera = vi.hoisted(() => ({ orientations: 0, tiltShift: false, pitch: -38 }))
 
+/** How each city move was asked for – a flight from the picker, a jump from a link or the welcome screen. */
+const mockMoves = vi.hoisted(() => ({ transitions: [] as string[] }))
+
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
   class CesiumMap {
@@ -30,8 +33,9 @@ vi.mock('@/map/CesiumMap', () => {
     get currentCity() {
       return this.city
     }
-    setCity(city: unknown, _transition?: unknown, onArrive?: () => void) {
+    setCity(city: unknown, transition?: unknown, onArrive?: () => void) {
       this.city = city
+      mockMoves.transitions.push(String(transition))
       // No flight here, so the camera is over the new city at once – the
       // app waits for this before it puts the new city's data up.
       onArrive?.()
@@ -124,9 +128,18 @@ import { loadRostockNetwork } from './cities'
 import { berlinDateKey, berlinSecondsOfDay } from '@/lib/clock'
 import { setLanguage } from '@/lib/i18n'
 
+// The welcome screen stands between a plain visit and the map (see
+// lib/welcome.ts); every test but its own opens the app past it, the way
+// the E2E suite does.
+beforeEach(() => {
+  window.history.replaceState(null, '', '/?welcome=0')
+})
+
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   setLanguage('en')
+  mockMoves.transitions.length = 0
   mockCamera.orientations = 0
   mockCamera.tiltShift = false
   mockCamera.pitch = -38
@@ -271,6 +284,71 @@ describe('App (UI shell)', () => {
     // the clear one such a session opens on
     expect(window.location.hash).toContain('weather=clear')
     expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
+  })
+
+  it('asks for a city on a plain visit, keeps the map bare behind the door and jumps there', async () => {
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    // Cesium is up, nothing of a city is: no session, no data, no hash
+    expect(screen.getByTestId('cesium-container')).toBeInTheDocument()
+    expect(window.__mrt!.welcomeOpen()).toBe(true)
+    expect(window.__mrt!.ready).toBe(false)
+    expect(window.__mrt!.vehicleCount()).toBe(0)
+    expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
+    expect(window.location.hash).toBe('')
+    // Neither do the shortcuts reach the map behind it
+    fireEvent.keyDown(window, { key: 'r', code: 'KeyR' })
+    expect(mockCameraHomeCalls.count).toBe(0)
+
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Kiel' }))
+    // The screen stands, with a spinner on the card, while the city
+    // starts behind it – a jump, not a flight, there was nothing on the
+    // map to fly from – and its data comes in
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    expect(screen.getByTestId('welcome-spinner')).toBeInTheDocument()
+    expect(window.__mrt!.welcomeOpen()).toBe(true)
+    expect(mockMoves.transitions).toEqual(['jump'])
+    expect(window.__mrt!.city()).toBe('kiel')
+    await vi.waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    // Two seconds after the pick, and not before, the screen goes
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
+    expect(window.__mrt!.welcomeOpen()).toBe(false)
+    expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
+    expect(window.location.hash).toContain('city=kiel')
+    // The box was left unticked: the door stays for the next visit
+    expect(window.localStorage.getItem('mg3d.welcome')).toBeNull()
+  })
+
+  it('stays away once asked to, and opens on the default city then, not the last one', async () => {
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Don’t show this welcome screen on your next visit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Kiel' }))
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(window.localStorage.getItem('mg3d.welcome')).toBe('hidden')
+    expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
+    cleanup()
+
+    // The next plain visit
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
+    expect(window.__mrt!.welcomeOpen()).toBe(false)
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    // A link still says where to go, door or no door
+    cleanup()
+    window.localStorage.removeItem('mg3d.welcome')
+    window.history.replaceState(null, '', '/#city=kiel')
+    render(<App />)
+    expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
+    expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Kiel 3D')
   })
 
   it('sets the simulation time via the time input and restores real time', () => {
