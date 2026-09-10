@@ -1,7 +1,7 @@
 import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { CardHead, EyebrowDot, LineChip, Stat } from '@/components/card-parts'
+import { CARD_SHELL, CardHead, EyebrowDot, LineChip, Stat } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import { NetworkIllustration } from '@/components/NetworkIllustration'
 import { MODE_KEY, t } from '@/lib/i18n'
@@ -62,7 +62,7 @@ export function CityCard({
   const minutes = (seconds: number) => Math.round(seconds / 60)
   return (
     <Card
-      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
+      className={CARD_SHELL}
       data-testid="city-card"
     >
       <CardHead

@@ -2,7 +2,7 @@ import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { CardHead, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
+import { CARD_SHELL, CardHead, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
 import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
@@ -95,7 +95,7 @@ export function StopCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
+      className={CARD_SHELL}
       data-testid="stop-card"
     >
       <CardHead

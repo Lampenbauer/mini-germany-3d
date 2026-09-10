@@ -3,7 +3,7 @@ import { ArrowRight, Crosshair } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { CardHead, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
+import { CARD_SHELL, CardHead, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
@@ -132,19 +132,26 @@ export function VehicleCard({
     : []
 
   // Bring the vehicle marker into view when a (new) vehicle is selected –
-  // the list keeps the user's scroll position afterwards.
+  // the list keeps the user's scroll position afterwards. The list's own
+  // viewport is scrolled, not the marker brought into view: scrollIntoView
+  // scrolls every scrollable ancestor too, and on a phone the card itself
+  // is one (CARD_SHELL) – it went to the marker and took its head along.
   const listRef = useRef<HTMLOListElement | null>(null)
   useEffect(() => {
-    listRef.current
-      ?.querySelector('[data-vehicle-position]')
-      ?.scrollIntoView?.({ block: 'center' })
+    const marker = listRef.current?.querySelector<HTMLElement>('[data-vehicle-position]')
+    const viewport = marker?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
+    if (!marker || !viewport) return
+    const markerRect = marker.getBoundingClientRect()
+    const viewportRect = viewport.getBoundingClientRect()
+    viewport.scrollTop +=
+      markerRect.top - viewportRect.top - viewport.clientHeight / 2 + markerRect.height / 2
   }, [vehicle.id])
 
   const ModeIcon = MODE_ICON[vehicle.mode]
   const ink = headInk(vehicle.color)
   return (
     <Card
-      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
+      className={CARD_SHELL}
       data-testid="vehicle-card"
     >
       {/* The line's colour as the head, the way the vehicle wears it on

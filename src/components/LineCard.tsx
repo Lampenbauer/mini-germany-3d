@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { CardHead, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
+import { CARD_SHELL, CardHead, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import { formatDelay } from '@/components/VehicleCard'
 import { MODE_KEY, t } from '@/lib/i18n'
@@ -81,7 +81,7 @@ export function LineCard({
 
   return (
     <Card
-      className="pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl"
+      className={CARD_SHELL}
       data-testid="line-card"
     >
       <CardHead

@@ -52,6 +52,7 @@ import {
   type RenderProfile,
 } from '@/lib/render-profile'
 import { formatSitePath, parseSitePath } from '@/lib/site-path'
+import { narrowViewport } from '@/lib/viewport'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
@@ -474,6 +475,17 @@ const GROUPED_CONTROL =
  * its own border, and a lone button styled by hand ended up narrower than
  * the group above it.
  */
+/**
+ * Where a card stands: the upper right, beside the map, on a desktop –
+ * and on a phone (under Tailwind's sm, 640 px) a sheet across the foot
+ * of the screen, where a thumb reaches it and the map stays in view
+ * above. The panel takes the same place there and gives way while a
+ * card is up (see the panel's wrapper below), and bottom-9 clears the
+ * Cesium credit line the way bottom-8 does for the rail.
+ */
+const CARD_SLOT =
+  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
+
 const RAIL_BOX =
   'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-xl'
 
@@ -2556,6 +2568,10 @@ export default function App() {
         return
       }
       if (next === 'linear') {
+        // The diagram lays its rows out for a wide screen and is not
+        // offered on a phone (see VIEW_TABS); a link that asks for it
+        // there gets the map.
+        if (narrowViewport()) return
         // A diagram of the network has no above and below to stand in
         setUndergroundView(false)
         enterLinear()
@@ -3061,7 +3077,17 @@ export default function App() {
           onOpenChange={setCreditsOpen}
           borrow={borrowCreditList}
         />
-        <div ref={panelRef} className="pointer-events-none absolute left-4 top-4 z-10">
+        {/* The panel: the upper left on a desktop; on a phone the same
+            sheet at the foot of the screen a card takes (CARD_SLOT) – and
+            it leaves while one is up, since a phone has room for one
+            sheet, and the card is the one the reader just asked for. */}
+        <div
+          ref={panelRef}
+          className={cn(
+            'pointer-events-none absolute left-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9',
+            cardOpen && 'max-sm:hidden',
+          )}
+        >
           <ControlPanel
             city={{
               slug: city.slug,
@@ -3100,7 +3126,9 @@ export default function App() {
             of the tree, so it is gone for a pointer and for a screen reader
             alike, not merely faded out of sight. */}
         {!linear && !cardOpen && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end">
+          // On a phone the upper right is the rail's, so the weather takes
+          // the upper left the panel left free.
+          <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end max-sm:right-auto max-sm:left-3">
             <WeatherPopover
               interfaceHidden={interfaceHidden}
               weatherMode={weatherMode}
@@ -3114,7 +3142,7 @@ export default function App() {
         )}
 
         {cityCard && cityProfile && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <div className={CARD_SLOT}>
             <CityCard
               profile={cityProfile}
               activity={cityActivity}
@@ -3127,7 +3155,7 @@ export default function App() {
         )}
 
         {lineCard && selectedLine && lineProfile && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <div className={CARD_SLOT}>
             <LineCard
               profile={lineProfile}
               activity={lineActivity}
@@ -3141,7 +3169,7 @@ export default function App() {
         )}
 
         {vesselCard && selectedVessel && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <div className={CARD_SLOT}>
             <VesselCard
               vessel={selectedVessel}
               nowMs={Date.now()}
@@ -3153,7 +3181,7 @@ export default function App() {
         )}
 
         {stopCard && selectedStop && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <div className={CARD_SLOT}>
             <StopCard
               stop={selectedStop}
               departures={stopDepartures}
@@ -3168,7 +3196,7 @@ export default function App() {
         )}
 
         {vehicleCard && selected && (
-          <div className="pointer-events-none absolute right-4 top-4 z-10">
+          <div className={CARD_SLOT}>
             <VehicleCard
               vehicle={selected}
               tripProgress={tripProgress}
@@ -3195,11 +3223,14 @@ export default function App() {
           // focus by default, and arrowing across this group would fly
           // the camera twice on the way to the tab actually wanted.
           activationMode="manual"
-          className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2"
+          // On a phone the foot of the screen is the sheet's, so the
+          // readings go to the top, between the weather and the rail.
+          className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto"
         >
           <TabsList aria-label={t('view.readings')} className="pointer-events-auto">
             {VIEW_TABS.map(({ value, labelKey, Icon }) => (
-              <TabsTrigger key={value} value={value}>
+              // The diagram stays a desktop reading (see lib/viewport.ts)
+              <TabsTrigger key={value} value={value} className={cn(value === 'linear' && 'max-sm:hidden')}>
                 <Icon aria-hidden />
                 {/* Named at every width, spelled out only where the three
                     of them fit beside the panel. Centred at the foot of the
@@ -3219,7 +3250,10 @@ export default function App() {
             2D/3D, camera reset, and full screen last. All of it belongs to
             the map, so the diagram keeps only full screen, which is the
             window's. */}
-        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-3">
+        {/* On a phone the column stands at the top instead, clear of the
+            sheet at the foot; the boxes close up a little so the three of
+            them end above where the sheet opens to. */}
+        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-3 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto max-sm:gap-2">
           {/* What is drawn on the map, above the block that aims the camera
               at it: routes, stops, the names, the webcams. Its own button
               rather than a fifth in the group below – that group is the
@@ -3306,11 +3340,13 @@ export default function App() {
                 look – is a camera on the map, not a command to it, so it
                 goes with the map and not with the diagram. */}
             {!linear && (
+              // A lens, an exposure and a miniature blur are a desktop's
+              // pleasures: on a phone the button leaves (see lib/viewport.ts)
               <PhotoModePopover
                 interfaceHidden={interfaceHidden}
                 settings={photo}
                 onChange={handlePhotoChange}
-                triggerClassName={GROUPED_CONTROL}
+                triggerClassName={cn(GROUPED_CONTROL, 'max-sm:hidden')}
               />
             )}
             {/* Full screen is the window's, not the camera's – it stays */}
@@ -3320,7 +3356,8 @@ export default function App() {
                   <Button
                     variant="secondary"
                     size="icon"
-                    className={GROUPED_CONTROL}
+                    // A phone's browser is its own full screen
+                    className={cn(GROUPED_CONTROL, 'max-sm:hidden')}
                     aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
                     aria-pressed={fullscreen}
                     onClick={handleToggleFullscreen}

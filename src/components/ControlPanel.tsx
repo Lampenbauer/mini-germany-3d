@@ -21,6 +21,7 @@ import { MODE_ICON } from '@/components/mode-icon'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { narrowViewport } from '@/lib/viewport'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -232,7 +233,10 @@ const LineGroup = memo(function LineGroup(props: {
 })
 
 export function ControlPanel(props: ControlPanelProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  // On a phone the panel is a sheet at the foot of the screen (see
+  // App.tsx) and opens folded: unfolded it would cover the map it stands
+  // on, and the map is what a visitor came for. Read once, when made.
+  const [collapsed, setCollapsed] = useState(narrowViewport)
   const [cityOpen, setCityOpen] = useState(false)
   /**
    * The time field is uncontrolled – the native picker owns its value. "Now"
@@ -301,7 +305,9 @@ export function ControlPanel(props: ControlPanelProps) {
     // time-lapse and the layer switches stay put however long the list gets.
     <Card
       className={cn(
-        'pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-card/85 backdrop-blur-xl shadow-[0_8px_28px_oklch(0_0_0_/_0.35)]',
+        // On a phone it is as wide as the sheet's slot and at most a good
+        // half of the screen high, so the map keeps the upper half.
+        'pointer-events-auto flex w-80 max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-card/85 backdrop-blur-xl shadow-[0_8px_28px_oklch(0_0_0_/_0.35)] max-sm:w-auto max-sm:max-h-[55dvh]',
         // Folded away, the panel is head and clock and nothing else: green
         // all through, edge included, rather than a green head sitting on a
         // stub of card. Unfolded it keeps the card's own quiet border.

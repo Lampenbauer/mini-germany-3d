@@ -193,6 +193,33 @@ the green the cards' hover is a white wash (`hover:bg-white/12`), the one
 exception to the `--accent` rule besides the About hero's close button,
 for the same reason: a black wash sinks into the green.
 
+**A phone gets one sheet, at the foot of the screen.** Under Tailwind's
+`sm` (640 px) the panel's wrapper and the five card slots (`CARD_SLOT` in
+[src/App.tsx](src/App.tsx)) share one place, `inset-x-3 bottom-9`, and the
+panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
+has room for one sheet, and the card is the one the reader asked for. The
+panel opens folded there (`narrowViewport()` in
+[src/lib/viewport.ts](src/lib/viewport.ts), read once – a phone does not
+become a desktop mid-session) and unfolds to `55dvh`; a card is `60dvh`
+and scrolls as a whole (`CARD_SHELL` in
+[card-parts.tsx](src/components/card-parts.tsx)). Two traps found on
+2026-09-10 while building it: the card's children must not shrink
+(`max-sm:[&>*]:shrink-0`) – the head clips its illustration with
+`overflow-hidden`, which lets a flex column shrink it to its eyebrow, and
+the title went first; and nothing inside a card may call
+`scrollIntoView`, which scrolls every scrollable ancestor – the vehicle
+card's stop list took the card's head off screen with it, so it scrolls
+its own viewport now. The weather moves to the upper left, the readings
+to the top centre, the rail to the upper right with `gap-2`, so its three
+boxes end above where the sheet opens. The line diagram, the photo mode
+and full screen are not offered (`max-sm:hidden`), and `selectView`
+refuses `'linear'` on a narrow viewport, so a link cannot open it either.
+`e2e/mobile-layout.spec.ts` pins all of it at 393×852 with touch. Not
+done, on purpose: a phone held sideways is 640 px and more and gets the
+desktop layout; safe-area insets; the diagram itself. The rendering side
+is the mobile tier of the render profile (see "Rendering and
+performance").
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,

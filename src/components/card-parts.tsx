@@ -22,6 +22,19 @@ import { cn } from '@/lib/utils'
  * stop's lines). `behind` is drawn first and absolutely – the city card's
  * illustration – inside the head's own stacking context.
  */
+/**
+ * The shell every card wears: glass over the map, 400 px wide beside it
+ * on a desktop; on a phone as wide as the sheet's slot at the foot of
+ * the screen (CARD_SLOT in App.tsx), at most a good half of the screen
+ * high, and scrolling inside where its content runs past that.
+ */
+export const CARD_SHELL =
+  'pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl ' +
+  // Scrolling as a whole, so nothing inside may give way to make it fit:
+  // the head clips its illustration (overflow-hidden), which lets a flex
+  // column shrink it to its eyebrow – the title went first, on a phone.
+  'max-sm:w-auto max-sm:max-h-[60dvh] max-sm:overflow-y-auto max-sm:[&>*]:shrink-0'
+
 export function CardHead(props: {
   /** Ground and ink – `bg-brand`, `bg-slate-800 text-slate-50`, or a `style`. */
   className?: string
