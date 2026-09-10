@@ -125,7 +125,6 @@ describe('layer and pause state in the hash', () => {
   it('appends only deviations from the defaults', () => {
     expect(
       formatUiStateHash({
-        city: null,
       view: 'surface',
       weather: null,
         routesHidden: false,
@@ -139,7 +138,6 @@ describe('layer and pause state in the hash', () => {
     ).toBe('')
     expect(
       formatUiStateHash({
-        city: null,
       view: 'surface',
       weather: null,
         routesHidden: true,
@@ -153,9 +151,8 @@ describe('layer and pause state in the hash', () => {
     ).toBe(`&routes=0&stops=0&labels=0${tiltDeviation}&paused=1`)
   })
 
-  it('names the city first, whichever city it is', () => {
+  it('carries no city – the path does (lib/site-path.ts)', () => {
     const state: HashUiState = {
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: false,
@@ -167,19 +164,16 @@ describe('layer and pause state in the hash', () => {
       paused: false,
     }
     expect(formatUiStateHash(state)).toBe('')
-    expect(formatUiStateHash({ ...state, city: 'kiel', routesHidden: true })).toBe(
-      '&city=kiel&routes=0',
-    )
-    // The default city is written out too – the app hands it in like any
-    // other, so a link always says which city it is of
-    expect(formatUiStateHash({ ...state, city: 'rostock' })).toBe('&city=rostock')
-    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=kiel').city).toBe('kiel')
-    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800').city).toBeNull()
+    expect(formatUiStateHash({ ...state, routesHidden: true })).toBe('&routes=0')
+    // A stray city= in a hash is simply not a reading
+    expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=kiel&routes=0')).toEqual({
+      ...state,
+      routesHidden: true,
+    })
   })
 
   it('names the sky, and reads back only a sky it knows', () => {
     const state: HashUiState = {
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: false,
@@ -204,7 +198,6 @@ describe('layer and pause state in the hash', () => {
 
   it('carries whichever reading is on screen, and names the map by omission', () => {
     const state: HashUiState = {
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: false,
@@ -228,7 +221,6 @@ describe('layer and pause state in the hash', () => {
 
   it('round-trips alongside both hash forms', () => {
     const suffix = formatUiStateHash({
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: true,
@@ -243,7 +235,6 @@ describe('layer and pause state in the hash', () => {
     const withVehicle = formatVehicleHash('1-0-500') + suffix
     for (const hash of [withCamera, withVehicle]) {
       expect(parseUiStateHash(hash)).toEqual({
-        city: null,
       view: 'surface',
       weather: null,
         routesHidden: true,
@@ -262,7 +253,6 @@ describe('layer and pause state in the hash', () => {
 
   it('defaults everything when absent', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100')).toEqual({
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: false,
@@ -280,7 +270,6 @@ describe('layer and pause state in the hash', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100&clouds=1').clouds).toBe(true)
     expect(parseUiStateHash('#lat=54&lon=12&height=100&clouds=0').clouds).toBe(false)
     const flipped: HashUiState = {
-      city: null,
       view: 'surface',
       weather: null,
       routesHidden: false,

@@ -50,26 +50,30 @@ function door(overrides: Partial<WelcomeScreenProps> = {}) {
 
 describe('when the welcome screen opens', () => {
   it('opens on a plain visit and stays away once the reader asked it to', () => {
-    expect(welcomeWanted('', '', memoryStorage())).toBe(true)
-    expect(welcomeWanted('', '', memoryStorage({ [WELCOME_STORAGE_KEY]: 'hidden' }))).toBe(false)
+    expect(welcomeWanted('/', '', '', memoryStorage())).toBe(true)
+    expect(welcomeWanted('/', '', '', memoryStorage({ [WELCOME_STORAGE_KEY]: 'hidden' }))).toBe(false)
     // No storage to ask (private mode): the door opens every time
-    expect(welcomeWanted('', '', null)).toBe(true)
+    expect(welcomeWanted('/', '', '', null)).toBe(true)
   })
 
   it('stays away for a link that says where to go', () => {
     const storage = memoryStorage()
-    expect(welcomeWanted('', '#city=kiel&weather=clear', storage)).toBe(false)
-    expect(welcomeWanted('', '#lat=54.08&lon=12.13&height=3000&heading=0&pitch=-40', storage)).toBe(false)
-    expect(welcomeWanted('', '#vehicle=1-0-510', storage)).toBe(false)
-    expect(welcomeWanted('', '#vessel=211222520', storage)).toBe(false)
-    expect(welcomeWanted('', '#stop=n123', storage)).toBe(false)
+    expect(welcomeWanted('/kiel/', '', '#weather=clear', storage)).toBe(false)
+    expect(welcomeWanted('/', '', '#lat=54.08&lon=12.13&height=3000&heading=0&pitch=-40', storage)).toBe(false)
+    expect(welcomeWanted('/', '', '#vehicle=1-0-510', storage)).toBe(false)
+    expect(welcomeWanted('/', '', '#vessel=211222520', storage)).toBe(false)
+    expect(welcomeWanted('/', '', '#stop=n123', storage)).toBe(false)
     // A preference alone names no place
-    expect(welcomeWanted('', '#routes=0', storage)).toBe(true)
+    expect(welcomeWanted('/', '', '#routes=0', storage)).toBe(true)
+    // The city is in the path since 2026-09-10; the language alone is no place
+    expect(welcomeWanted('/kiel/', '', '', storage)).toBe(false)
+    expect(welcomeWanted('/en/kiel/', '', '#routes=0', storage)).toBe(false)
+    expect(welcomeWanted('/en/', '', '', storage)).toBe(true)
   })
 
   it('is forced either way from the URL', () => {
-    expect(welcomeWanted('?welcome=0', '', memoryStorage())).toBe(false)
-    expect(welcomeWanted('?offline=1&welcome=1', '#city=kiel', memoryStorage({ [WELCOME_STORAGE_KEY]: 'hidden' }))).toBe(true)
+    expect(welcomeWanted('/', '?welcome=0', '', memoryStorage())).toBe(false)
+    expect(welcomeWanted('/kiel/', '?offline=1&welcome=1', '', memoryStorage({ [WELCOME_STORAGE_KEY]: 'hidden' }))).toBe(true)
   })
 
   it('keeps the wish and drops it again', () => {

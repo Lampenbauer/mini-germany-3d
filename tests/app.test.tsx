@@ -124,6 +124,7 @@ vi.mock('@/map/CesiumMap', () => {
 })
 
 import App from '@/App'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { loadRostockNetwork } from './cities'
 import { berlinDateKey, berlinSecondsOfDay } from '@/lib/clock'
 import { setLanguage } from '@/lib/i18n'
@@ -145,7 +146,7 @@ afterEach(() => {
   mockCamera.pitch = -38
   window.__mrt = undefined
   window.localStorage.clear()
-  window.history.replaceState(null, '', window.location.pathname)
+  window.history.replaceState(null, '', '/')
 })
 
 describe('App (UI shell)', () => {
@@ -278,10 +279,13 @@ describe('App (UI shell)', () => {
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
     expect(window.__mrt!.lineIds()).toContain('F1')
     expect(window.__mrt!.lineIds()).not.toContain('FG')
-    expect(window.location.hash).toContain('city=kiel')
-    // Every hash names its city, the default one included, and the sky
-    // the session shows – under Vitest there is none to poll, so it is
-    // the clear one such a session opens on
+    // Every URL names its city in the path, the default one included, in
+    // the language the interface speaks (English here – see lib/site-path.ts)
+    expect(window.location.pathname).toBe('/en/kiel/')
+    expect(window.location.search).toBe('?welcome=0')
+    expect(window.location.hash).not.toContain('city=')
+    // The sky the session shows rides in the hash – under Vitest there is
+    // none to poll, so it is the clear one such a session opens on
     expect(window.location.hash).toContain('weather=clear')
     expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
   })
@@ -297,6 +301,7 @@ describe('App (UI shell)', () => {
     expect(window.__mrt!.vehicleCount()).toBe(0)
     expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
     expect(window.location.hash).toBe('')
+    expect(window.location.pathname).toBe('/')
     // Neither do the shortcuts reach the map behind it
     fireEvent.keyDown(window, { key: 'r', code: 'KeyR' })
     expect(mockCameraHomeCalls.count).toBe(0)
@@ -320,7 +325,7 @@ describe('App (UI shell)', () => {
     expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
     expect(window.__mrt!.welcomeOpen()).toBe(false)
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
-    expect(window.location.hash).toContain('city=kiel')
+    expect(window.location.pathname).toBe('/en/kiel/')
     // The box was left unticked: the door stays for the next visit
     expect(window.localStorage.getItem('mg3d.welcome')).toBeNull()
   })
@@ -342,13 +347,49 @@ describe('App (UI shell)', () => {
     expect(window.__mrt!.welcomeOpen()).toBe(false)
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
     await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    // A link still says where to go, door or no door
+    // A link still says where to go, door or no door – in its path
     cleanup()
     window.localStorage.removeItem('mg3d.welcome')
-    window.history.replaceState(null, '', '/#city=kiel')
+    window.history.replaceState(null, '', '/kiel/')
     render(<App />)
     expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Kiel 3D')
+  })
+
+  it('writes the German path when the interface speaks German, and keeps the boot options', async () => {
+    setLanguage('de')
+    window.history.replaceState(null, '', '/en/kiel/?welcome=0&offline=1')
+    render(<App />)
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(window.__mrt!.city()).toBe('kiel')
+    // The German page has no language prefix (lib/site-path.ts)
+    expect(window.location.pathname).toBe('/kiel/')
+    expect(window.location.search).toBe('?welcome=0&offline=1')
+  })
+
+  it('shows the static page again and says why when the app cannot start', () => {
+    const page = document.createElement('div')
+    page.id = 'static-page'
+    page.hidden = true
+    document.body.append(page)
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    function Boom(): never {
+      throw new Error('The browser does not support WebGL.')
+    }
+    try {
+      render(
+        <ErrorBoundary>
+          <Boom />
+        </ErrorBoundary>,
+      )
+      expect(screen.getByRole('alert')).toHaveTextContent('The map could not start.')
+      expect(screen.getByRole('alert')).toHaveTextContent('The browser does not support WebGL.')
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+      expect(page.hidden).toBe(false)
+    } finally {
+      quiet.mockRestore()
+      page.remove()
+    }
   })
 
   it('sets the simulation time via the time input and restores real time', () => {

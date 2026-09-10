@@ -1,4 +1,10 @@
 # Mini Germany 3D – Apache configuration (all-inkl shared hosting)
+#
+# Every city is a directory of its own (/berlin/, /en/berlin/ – see
+# src/lib/site-path.ts) with the index.html the build wrote into it, so
+# no rewrite is needed for them: Apache serves the directory's index and
+# turns /berlin into /berlin/ itself (DirectorySlash). A path that is no
+# city is a real 404, which is what a crawler should get.
 
 # /api/realtime → PHP endpoint (filtered GTFS-Realtime feed)
 <IfModule mod_rewrite.c>

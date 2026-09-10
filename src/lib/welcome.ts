@@ -4,10 +4,11 @@
  * – goes up for this visit, and the one preference it keeps.
  *
  * It opens on a plain visit and stays away for a link that already says
- * where to go. Every hash the app writes names its city, and a hash with
- * a place in it – a city, a camera pose, a vehicle, a ship, a stop – is
- * a link someone shared or a session reloaded; whoever opens it wants
- * what it points at, not a question first. The checkbox on the screen
+ * where to go. Every URL the app writes names its city in the path
+ * (`/kiel/`, see site-path.ts), and a URL with a place in it – a city
+ * in the path, a camera pose, a vehicle, a ship, a stop – is a link
+ * someone shared or a session reloaded; whoever
+ * opens it wants what it points at, not a question first. The checkbox on the screen
  * turns it off for good in this browser (WELCOME_STORAGE_KEY); the app
  * then opens straight on the default city. `?welcome=1` brings the
  * screen back regardless, `?welcome=0` keeps it away for one visit –
@@ -18,7 +19,8 @@
  * comes in as an argument for the same reason.
  */
 
-import { parseCameraHash, parseStopHash, parseUiStateHash, parseVehicleHash, parseVesselHash } from './camera-hash'
+import { parseCameraHash, parseStopHash, parseVehicleHash, parseVesselHash } from './camera-hash'
+import { parseSitePath } from './site-path'
 
 /** Where the wish not to see the screen again is kept. */
 export const WELCOME_STORAGE_KEY = 'mg3d.welcome'
@@ -38,10 +40,10 @@ export function browserStorage(): WelcomeStorage | null {
   }
 }
 
-/** Whether a hash points somewhere – a city, a pose or a thing to select. */
-function hashNamesPlace(hash: string): boolean {
+/** Whether a URL points somewhere – a city, a pose or a thing to select. */
+function urlNamesPlace(pathname: string, hash: string): boolean {
   return (
-    parseUiStateHash(hash).city !== null ||
+    parseSitePath(pathname).city !== null ||
     parseCameraHash(hash) !== null ||
     parseVehicleHash(hash) !== null ||
     parseVesselHash(hash) !== null ||
@@ -69,15 +71,20 @@ export function setWelcomeHidden(storage: WelcomeStorage | null, hidden: boolean
 }
 
 /**
- * Whether the welcome screen opens for this visit, from the URL's search
- * and hash and what the browser kept: `?welcome=0` never, `?welcome=1`
- * always, a link that names a place no, and otherwise unless the reader
- * asked not to see it again.
+ * Whether the welcome screen opens for this visit, from the URL's path,
+ * search and hash and what the browser kept: `?welcome=0` never,
+ * `?welcome=1` always, a link that names a place no, and otherwise
+ * unless the reader asked not to see it again.
  */
-export function welcomeWanted(search: string, hash: string, storage: WelcomeStorage | null): boolean {
+export function welcomeWanted(
+  pathname: string,
+  search: string,
+  hash: string,
+  storage: WelcomeStorage | null,
+): boolean {
   const asked = new URLSearchParams(search).get('welcome')
   if (asked === '0') return false
   if (asked === '1') return true
-  if (hashNamesPlace(hash)) return false
+  if (urlNamesPlace(pathname, hash)) return false
   return !welcomeHidden(storage)
 }

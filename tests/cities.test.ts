@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CITIES, DEFAULT_CITY_SLUG, cityBySlug, isCitySlug } from '@/cities/definitions'
+import { RESERVED_PATH_SEGMENTS, formatSitePath, parseSitePath } from '@/lib/site-path'
 import { haversineMeters } from '@/lib/geo'
 import {
   boundingBoxCenter,
@@ -124,6 +125,17 @@ const limitsFiles = import.meta.glob<{ ring: LonLatRing }>('../src/cities/*/limi
 })
 
 describe('the cities this build knows', () => {
+  it('keeps every slug off the paths the site serves other things at', () => {
+    // A city is served at /<slug>/ (lib/site-path.ts), next to /api/,
+    // /assets/, /en/ and the rest – a slug that took one of those would
+    // shadow it, and the path parser must read every slug back whole
+    for (const city of CITIES) {
+      expect(RESERVED_PATH_SEGMENTS).not.toContain(city.slug)
+      expect(parseSitePath(formatSitePath('de', city.slug))).toEqual({ lang: null, city: city.slug })
+      expect(parseSitePath(formatSitePath('en', city.slug))).toEqual({ lang: 'en', city: city.slug })
+    }
+  })
+
   it('has the default city and unique slugs', () => {
     expect(isCitySlug(DEFAULT_CITY_SLUG)).toBe(true)
     expect(cityBySlug(DEFAULT_CITY_SLUG)?.slug).toBe(DEFAULT_CITY_SLUG)

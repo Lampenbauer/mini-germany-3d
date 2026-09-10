@@ -39,11 +39,11 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   // along in the hash.
   await expect
     .poll(hash, { timeout: 5000 })
-    // The city and the sky ride in every hash; offline there is no live
-    // weather to poll, so the sky is the clear one such a session opens on
-    .toMatch(
-      /^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&city=rostock&weather=clear&paused=1$/,
-    )
+    // The sky rides in every hash; offline there is no live weather to
+    // poll, so the sky is the clear one such a session opens on. The city
+    // is the path's (lib/site-path.ts)
+    .toMatch(/^#lat=[\d.]+&lon=[\d.]+&height=\d+&heading=\d+&pitch=-?\d+&weather=clear&paused=1$/)
+  expect(await page.evaluate(() => window.location.pathname)).toBe('/en/rostock/')
 
   // The layer switches live in the popover on the map's control rail;
   // off is the deviation, so off is what gets written
@@ -157,7 +157,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   })
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 10_000 })
-    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&city=rostock&weather=clear&paused=1`)
+    .toBe(`#vehicle=${encodeURIComponent(vehicleId)}&weather=clear&paused=1`)
   const sharedUrl = await page.evaluate(() => window.location.href)
 
   // Fresh app boot from the shared link (about:blank tears down the first

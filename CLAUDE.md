@@ -86,8 +86,10 @@ moved, and follow it into:
 
 Worked example: adding a city means `definitions.ts`, the README intro *and*
 Cities section *and* attribution list, `city.name.<slug>` in both i18n
-tables, and a new `tests/<slug>.test.ts` — five places, one of which
-compiles fine while being wrong.
+tables, a new `tests/<slug>.test.ts`, and a run of
+`scripts/build-og-images.mjs` for its link-preview picture — six places,
+one of which compiles fine while being wrong (the picture is the one a
+test catches: `tests/site-pages.test.ts` wants one per page).
 
 **Commits land on `main`.** `git checkout -b`, `git switch -c` and
 `git checkout -- .` are denied by the permission policy here, so the working
@@ -172,7 +174,7 @@ anything to that row – the failure is a truncated date, which no test catches.
 visit ([src/lib/welcome.ts](src/lib/welcome.ts) decides) the city chooser
 covers the screen and *no city session runs behind it*: the viewer is
 built and the world loads, but the session effect in `App.tsx` waits for
-the pick, the hash writer stays silent (a hash written there would name a
+the pick, the URL writer stays silent (a path written there would name a
 city nobody picked and walk past the door on the next reload) and the
 shortcuts are inert. The pick is a `'jump'`, never a flight – there is
 nothing on the map to fly from – and it starts the session *while the
@@ -296,6 +298,66 @@ without a scene.
 The vehicle badges need none of it: they are canvas billboards, which *do*
 occlude one another, and a line number is small enough that a pile of them
 still reads. Keep all three plates opaque either way.
+
+---
+
+## URLs and the pages under the map
+
+**The city is the path, the rest is the hash.** `/berlin/` is Berlin,
+`/en/berlin/` Berlin in English, `/` and `/en/` the front door
+([src/lib/site-path.ts](src/lib/site-path.ts)). Until 2026-09-10 the city
+was `#city=berlin` – one URL to Google for every city, and a shared link's
+preview was the site's. That form is gone without a trace: there were no
+links out there to keep alive, so nothing reads it, `HashUiState` has no
+city field, and it must not get one back. The path carries the language the interface
+speaks (`getLanguage()` at write time), so a link opens the way it was
+seen; `?lang=` wins over the `/en/` prefix for one visit and the next
+write moves the path. The welcome screen decides on the path too
+(`welcomeWanted` takes the pathname first). An edited path is a page
+load; only the hash is applied live (`applyHash`), and a hash naming no
+city keeps the city on screen rather than jumping to the default. A slug
+must never be one of `RESERVED_PATH_SEGMENTS` (`en`, `api`, `assets`,
+`cesium`, `models`, `og`) – `tests/cities.test.ts` pins it, and the
+parser names no city for them.
+
+**Every page is built twice: once by the app, once by the build.** The
+prerender plugin in [vite.config.ts](vite.config.ts) runs
+[src/lib/site-pages.ts](src/lib/site-pages.ts) through Vite's module
+runner – the module speaks the app's `@/` aliases and loads a city the
+way the app does, which the config's own tsconfig cannot resolve, hence
+the local `SitePagesModule` type there – and writes `dist/<slug>/index.html`
+and `dist/en/<slug>/index.html` for every city plus the two front doors
+and `sitemap.xml`; in dev the same page goes into the index.html served
+for the path, so what a crawler would see is a reload away. A page is the
+built index.html with its `lang`, the tags between the `<!-- page:head -->`
+markers and the content between the `<!-- page:body -->` markers replaced;
+the markers stay, so the built root file takes each city in turn, and
+`applyPage` throws when they are gone – a build without the pages must
+not pass quietly. The content is what the city card states and nothing
+else (facts the sources state, no simulation results, *stop positions*,
+*line kilometres*), in the interface's own words from both i18n tables
+(the `page.*` keys). It carries its own `<style>` – the one exception to
+"styling lives in the markup", because it has to read with the bundle
+missing, which is exactly the case it exists for; it also lifts the
+`overflow: hidden` that index.css puts on html, body and `#root` for the
+map, or the page would end at the fold. `main.tsx` hides it
+(`showStaticPage(false)`) before the first render and
+[ErrorBoundary](src/components/ErrorBoundary.tsx) shows it again with a
+notice when the viewer throws – no WebGL, most likely; a white page said
+nothing before. Googlebot renders without WebGL, so that fallback is
+exactly what Google reads. `e2e/static-page.spec.ts` proves both in a
+Chromium started with `--disable-3d-apis`: the page a reader without
+scripts gets, and the notice over it when the viewer cannot be built.
+Measured 2026-09-10: every city loaded and profiled in under a second,
+~200 MB of heap, in `closeBundle`.
+
+**The link previews are committed, not built.** `scripts/build-og-images.mjs`
+draws `public/og/<slug>.png` with sharp – two per city where the German
+and English names differ (`ogImagePath` in site-pages.ts is the one rule,
+the script follows it) and one for the front door – because the picture
+carries text and text rendering depends on the fonts of the machine that
+draws it; the CI runner's would differ from a local run. A new city needs
+a run of the script; `tests/site-pages.test.ts` fails otherwise.
 
 ---
 
@@ -454,7 +516,7 @@ before the first request), then `gl.beginQuery(ext.TIME_ELAPSED_EXT)` /
 `viewer.resolutionScale`, the `mrt_tilt_shift` stage in
 `scene.postProcessStages`. `viewer.shadows` must be overridden via
 `defineProperty` — `applyShadowState` re-sets it every tick. City comes from the
-hash (`#city=berlin`). The dev build inflates React (jsxDEV).
+path (`/berlin/`). The dev build inflates React (jsxDEV).
 
 Baseline 2026-09-05 (M5 Pro, 1600×1000 CSS at DPR 2, SSE 6 CSS px, real Google
 tiles). MSAA was still 4 then, which is what the "MSAA 4" column costs — the app

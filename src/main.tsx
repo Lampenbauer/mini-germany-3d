@@ -6,7 +6,18 @@ import '@fontsource-variable/inter'
 import '@/index.css'
 import { createRoot } from 'react-dom/client'
 import App from '@/App'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { showStaticPage } from '@/lib/static-page'
 
 console.info(`[MiniGermany3D] Build ${__BUILD_ID__}`)
 
-createRoot(document.getElementById('root')!).render(<App />)
+// The page under the map is for whoever gets no map (lib/static-page.ts);
+// from here on the app is the page – unless it fails, and then the
+// boundary shows the page again.
+showStaticPage(false)
+
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>,
+)

@@ -19,6 +19,9 @@ import { isWeatherMode, type WeatherMode } from '@/lib/weather'
  * any id, but whether she is still in the harbour an hour later is not up
  * to us. The restore waits for her and gives up silently, the way the
  * vehicle restore does for a trip that is not running.
+ *
+ * The city is not in the hash: it is the path (`/kiel/`, see
+ * lib/site-path.ts), where a crawler and a link preview can see it.
  */
 
 export interface CameraView {
@@ -105,24 +108,15 @@ export function parseStopHash(hash: string): string | null {
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the city, the Routes/Stops/Labels layer toggles, the sky, the webcams
- * and the clouds, the miniature look and the pause state. Apart from the
- * city and the sky – which every link names, so that it opens on the one
- * it was copied from – only deviations from the defaults (all layers on,
- * the miniature look at config.camera.miniatureDefault, clock running)
- * appear in the URL, so default sessions keep short hashes.
+ * the Routes/Stops/Labels layer toggles, the sky, the webcams and the
+ * clouds, the miniature look and the pause state. Apart from the sky –
+ * which every link names, so that it opens on the one it was copied from
+ * – only deviations from the defaults (all layers on, the miniature look
+ * at config.camera.miniatureDefault, clock running) appear in the URL,
+ * so default sessions keep short hashes. The city the rest refers to is
+ * the path's (lib/site-path.ts).
  */
 export interface HashUiState {
-  /**
-   * City slug – every city, the default one included, so the address bar
-   * always names the city on screen and a link copied from it carries
-   * that name onward. Written first so a shared link reads
-   * "#city=kiel&lat=…": the city is what the rest refers to, since
-   * vehicle and stop ids are only meaningful inside it. Null only where a
-   * hash names no city, which the app reads as the default.
-   */
-  city: string | null
-  /** The lines pulled straight instead of drawn on the map (see LinearView). */
   /**
    * Which reading of the network is on screen. The surface is the plain
    * map, so it is what an absent `view=` means and never written out.
@@ -161,7 +155,6 @@ export function formatUiStateHash(state: HashUiState): string {
   const clouds =
     state.clouds === config.weather.clouds3dDefault ? '' : state.clouds ? '&clouds=1' : '&clouds=0'
   return (
-    (state.city ? `&city=${encodeURIComponent(state.city)}` : '') +
     (state.view === 'surface' ? '' : `&view=${state.view}`) +
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
@@ -179,11 +172,7 @@ export function parseUiStateHash(hash: string): HashUiState {
   const params = new URLSearchParams(raw)
   const tilt = params.get('tiltshift')
   const clouds = params.get('clouds')
-  const city = params.get('city')
   return {
-    // Whether the slug names a city this build knows is the caller's
-    // business – the hash module only carries it.
-    city: city && city.length <= 64 ? city : null,
     // An unknown or missing reading is the map itself
     view: isMapView(params.get('view')) ? (params.get('view') as MapView) : 'surface',
     routesHidden: params.get('routes') === '0',

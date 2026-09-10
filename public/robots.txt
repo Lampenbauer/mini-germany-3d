@@ -1,0 +1,6 @@
+# Mini Germany 3D – every page may be indexed; the JSON endpoints are the app's, not pages.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://minigermany3d.lampenbauer.com/sitemap.xml

@@ -45,6 +45,7 @@ import {
   parseVehicleHash,
   parseVesselHash,
 } from '@/lib/camera-hash'
+import { formatSitePath, parseSitePath } from '@/lib/site-path'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { isInTunnel } from '@/lib/tunnels'
@@ -409,16 +410,16 @@ function rememberCity(slug: string): void {
 }
 
 /**
- * The city the session opens on: a link says so (#city=…), else the
- * default. Not the city of the last visit: on a plain visit the welcome
- * screen asks, and once the reader has turned it off the app opens on
- * the default city, as they were told it would. An unknown slug in the
- * link is ignored rather than refused – the rest of the link may still
- * be good.
+ * The city the session opens on: the path says so (/kiel/, see
+ * lib/site-path.ts), else the default. Not the city of the last visit:
+ * on a plain visit the welcome screen asks, and once the reader has
+ * turned it off the app opens on the default city, as they were told it
+ * would. An unknown slug in the path is ignored rather than refused –
+ * the rest of the link may still be good.
  */
 function initialCitySlug(): string {
-  const fromHash = parseUiStateHash(window.location.hash).city
-  if (fromHash && isCitySlug(fromHash)) return fromHash
+  const fromPath = parseSitePath(window.location.pathname).city
+  if (fromPath && isCitySlug(fromPath)) return fromPath
   return DEFAULT_CITY_SLUG
 }
 
@@ -674,18 +675,23 @@ export default function App() {
    * lib/welcome.ts for when). While it is open the map is built and the
    * world loads behind it, but no city session runs – no data, no
    * vehicles, no stops, no pollers (the session effect waits for it) –
-   * and no hash is written, or a reload would carry a city and walk past
+   * and no URL is written, or a reload would carry a city and walk past
    * the door. The pick starts the session at once and keeps the screen
    * up a little longer (WELCOME_LINGER_MS, see the effect below), so
    * what the screen uncovers is a city already there. The ref is for
-   * the viewer effect's closures: the hash writer and the shortcuts.
+   * the viewer effect's closures: the URL writer and the shortcuts.
    * What the boot read is read once: the screen's own state is its own
    * until the pick.
    */
   const [welcomeBoot] = useState(() => {
     const storage = browserStorage()
     return {
-      open: welcomeWanted(window.location.search, window.location.hash, storage),
+      open: welcomeWanted(
+        window.location.pathname,
+        window.location.search,
+        window.location.hash,
+        storage,
+      ),
       hidden: welcomeHidden(storage),
     }
   })
@@ -1041,7 +1047,9 @@ export default function App() {
     // shortly after the pose settles; during sustained motion (flights,
     // chase cam) at most one write per HASH_MAX_WAIT_MS lands. replaceState
     // keeps the browser history clean. An idle map costs nothing – there is
-    // no polling timer.
+    // no polling timer. The city and the language go into the path, the
+    // rest into the hash (see lib/site-path.ts and lib/camera-hash.ts);
+    // the search string is left as it came, it holds the boot options.
     let hashTimeout = 0
     let lastHashWriteAt = -Infinity
     const writeHash = () => {
@@ -1058,7 +1066,7 @@ export default function App() {
       // While a vehicle is selected the URL carries ONLY its trip id – a
       // shared link then re-selects and follows the vehicle, no camera
       // pose needed. Without a selection the camera pose is the URL state.
-      // The city, layer toggles and pause ride along in either form.
+      // The layer toggles and pause ride along in either form.
       const hash =
         (selectedIdRef.current
           ? formatVehicleHash(selectedIdRef.current)
@@ -1068,7 +1076,6 @@ export default function App() {
               ? formatStopHash(selectedStopIdRef.current)
               : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
-          city: citySlugRef.current,
           view: currentViewRef.current(),
           routesHidden: !showRoutesRef.current,
           stopsHidden: !showStopsRef.current,
@@ -1079,8 +1086,13 @@ export default function App() {
           tiltShift: photoRef.current.tiltShift.enabled,
           paused: pausedRef.current,
         })
-      if (hash !== window.location.hash) {
-        window.history.replaceState(null, '', hash)
+      // Every session's city, the default one included, so the address
+      // bar always names the city on screen and a link copied from it
+      // carries that name onward – in the language the interface speaks,
+      // so the link opens the way it was seen.
+      const path = formatSitePath(getLanguage(), citySlugRef.current)
+      if (hash !== window.location.hash || path !== window.location.pathname) {
+        window.history.replaceState(null, '', path + window.location.search + hash)
       }
     }
     const scheduleHashWrite = (settled: boolean) => {
@@ -1209,16 +1221,8 @@ export default function App() {
       // Any of the three, the same way the tabs pick them
       if (ui.view !== currentViewRef.current()) selectViewRef.current(ui.view)
 
-      // Another city: the rest of the hash – a pose, a vehicle, a stop –
-      // refers to it, so the city session applies it once that city is
-      // on the map (see applyHashSelection there). An unknown slug means
-      // the default city, as it does at boot.
-      const wantedCity = ui.city && isCitySlug(ui.city) ? ui.city : DEFAULT_CITY_SLUG
-      if (wantedCity !== citySlugRef.current) {
-        cityTransitionRef.current = 'jump'
-        setCitySlug(wantedCity)
-        return
-      }
+      // The city is the path's, and an edited path is a page load, not a
+      // hash change – so everything below refers to the city on screen.
 
       // A selection outranks a camera pose, the same order writeHash
       // builds the hash in – so a hash carrying neither clears both.

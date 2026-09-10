@@ -38,7 +38,7 @@ test('asks for a city, keeps the map bare behind the door and jumps there', asyn
   expect(await page.evaluate(() => window.__mrt!.ready)).toBe(true)
   expect(await page.evaluate(() => window.__mrt!.vehicleCount())).toBeGreaterThan(0)
   expect(await page.evaluate(() => window.__mrt!.city())).toBe('kiel')
-  expect(await page.evaluate(() => window.location.hash)).toContain('city=kiel')
+  expect(await page.evaluate(() => window.location.pathname)).toBe('/en/kiel/')
   expect(await page.evaluate(() => window.localStorage.getItem('mg3d.welcome'))).toBeNull()
 })
 

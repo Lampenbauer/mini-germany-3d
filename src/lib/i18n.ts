@@ -5,6 +5,7 @@
  * no library needed.
  */
 
+import { parseSitePath } from './site-path.ts'
 import type { TransitMode } from './transit-mode'
 
 export type Lang = 'en' | 'de'
@@ -328,6 +329,32 @@ const en = {
   'keys.speed': 'Time-lapse faster, slower',
   'keys.dismiss': 'Close the card, stop following',
   'keys.help': 'This dialog',
+  // The static pages under the map (lib/site-pages.ts): what a crawler
+  // and a reader without WebGL get, one page per city and language.
+  'page.description':
+    'Public transport in German cities, live on a photorealistic 3D map: the real lines, the real stops and today’s timetable.',
+  'page.citySummary': 'The network in {name}: {summary}.',
+  'page.cityDescription':
+    '{summary} Live on a photorealistic 3D map, with the real stops and today’s timetable.',
+  'page.line.tram': 'tram line',
+  'page.line.subway': 'subway line',
+  'page.line.train': 'S-Bahn line',
+  'page.line.bus': 'bus line',
+  'page.line.ferry': 'ferry line',
+  'page.lines.tram': 'tram lines',
+  'page.lines.subway': 'subway lines',
+  'page.lines.train': 'S-Bahn lines',
+  'page.lines.bus': 'bus lines',
+  'page.lines.ferry': 'ferry lines',
+  'page.needsWebgl': 'The map itself needs a browser with JavaScript and WebGL.',
+  'page.theLines': 'The lines',
+  'page.otherCities': 'More cities',
+  'page.allCities': 'All cities',
+  'page.otherLanguage': 'Diese Seite auf Deutsch',
+  'page.failed': 'The map could not start.',
+  'page.failedHint':
+    'It needs a browser with WebGL and enough graphics memory. Try another browser, or this one with hardware acceleration switched on. What the map would show is written out below.',
+  'page.retry': 'Try again',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -622,14 +649,43 @@ const de: Record<MessageKey, string> = {
   'keys.speed': 'Zeitraffer schneller, langsamer',
   'keys.dismiss': 'Karte schließen, Verfolgung beenden',
   'keys.help': 'Dieses Fenster',
+  'page.description':
+    'Der Nahverkehr deutscher Städte live auf einer fotorealistischen 3D-Karte: die echten Linien, die echten Haltestellen und der Fahrplan von heute.',
+  'page.citySummary': 'Das Netz in {name}: {summary}.',
+  'page.cityDescription':
+    '{summary} Live auf einer fotorealistischen 3D-Karte, mit den echten Haltestellen und dem Fahrplan von heute.',
+  'page.line.tram': 'Straßenbahnlinie',
+  'page.line.subway': 'U-Bahn-Linie',
+  'page.line.train': 'S-Bahn-Linie',
+  'page.line.bus': 'Buslinie',
+  'page.line.ferry': 'Fährlinie',
+  'page.lines.tram': 'Straßenbahnlinien',
+  'page.lines.subway': 'U-Bahn-Linien',
+  'page.lines.train': 'S-Bahn-Linien',
+  'page.lines.bus': 'Buslinien',
+  'page.lines.ferry': 'Fährlinien',
+  'page.needsWebgl': 'Die Karte selbst braucht einen Browser mit JavaScript und WebGL.',
+  'page.theLines': 'Die Linien',
+  'page.otherCities': 'Weitere Städte',
+  'page.allCities': 'Alle Städte',
+  'page.otherLanguage': 'This page in English',
+  'page.failed': 'Die Karte konnte nicht starten.',
+  'page.failedHint':
+    'Sie braucht einen Browser mit WebGL und genug Grafikspeicher. Versuch es mit einem anderen Browser oder mit eingeschalteter Hardwarebeschleunigung. Was die Karte zeigen würde, steht darunter.',
+  'page.retry': 'Noch einmal versuchen',
 }
 
 const MESSAGES: Record<Lang, Record<MessageKey, string>> = { en, de }
 
 /**
- * Picks the UI language: an explicit ?lang= override wins, otherwise the
- * first entry in the browser's preference list that matches a supported
- * language decides (so "fr, de" gives German, "en-US, de" stays English).
+ * Picks the UI language: an explicit ?lang= override wins, then the path
+ * – a page under /en/ is the English one (see lib/site-path.ts) –
+ * otherwise the first entry in the browser's preference list that
+ * matches a supported language decides (so "fr, de" gives German,
+ * "en-US, de" stays English). A bare path says nothing: the German
+ * pages have no prefix, but a reader whose browser prefers English
+ * gets the English interface on them, and the URL the app then writes
+ * carries /en/ so a link they share opens the way they saw it.
  */
 export function detectLanguage(
   urlLang: string | null,
@@ -647,7 +703,8 @@ export function detectLanguage(
 let lang: Lang = detectLanguage(
   typeof window === 'undefined'
     ? null
-    : new URLSearchParams(window.location.search).get('lang'),
+    : (new URLSearchParams(window.location.search).get('lang') ??
+        parseSitePath(window.location.pathname).lang),
   typeof navigator === 'undefined'
     ? []
     : navigator.languages?.length

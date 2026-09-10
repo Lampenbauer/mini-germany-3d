@@ -1,11 +1,19 @@
 /// <reference types="vitest/config" />
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings'
-import { defineConfig, loadEnv, type Plugin } from 'vite'
+import {
+  createServer,
+  createServerModuleRunner,
+  defineConfig,
+  loadEnv,
+  type DevEnvironment,
+  type Plugin,
+} from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
 import { containsLonLat } from './src/lib/city'
@@ -317,8 +325,109 @@ function webcamsPlugin(): Plugin {
   }
 }
 
+/** A page as src/lib/site-pages.ts describes it – what the plugin needs of it. */
+interface StaticPage {
+  /** Where it is served: `/`, `/en/`, `/kiel/`, `/en/kiel/`. */
+  path: string
+}
+
+/**
+ * What src/lib/site-pages.ts exports, as far as the plugin uses it.
+ * Typed here rather than imported: that module speaks the app's `@/`
+ * aliases and loads the cities the way the app does, which the config's
+ * own tsconfig does not resolve – so it runs through Vite's module
+ * runner, where the aliases hold.
+ */
+interface SitePagesModule {
+  allPages(): Promise<StaticPage[]>
+  pageFor(pathname: string): Promise<StaticPage | null>
+  applyPage(html: string, page: StaticPage): string
+  sitemap(pages: readonly StaticPage[]): string
+}
+
+/**
+ * The pages under the map: after the build, an index.html per city and
+ * language – `/berlin/`, `/en/berlin/`, and the front door at `/` and
+ * `/en/` – each the built index.html with the page's title, description
+ * and link previews in its head and the city as plain HTML under the
+ * app's root (see src/lib/site-pages.ts for what, src/lib/site-path.ts
+ * for where), plus the sitemap. In dev the same page goes into the
+ * index.html served for the path, so what a crawler would see is a
+ * reload away.
+ *
+ * Both run src/lib/site-pages.ts through Vite's module runner – the dev
+ * server's own SSR environment, or one made for the build's last step
+ * and closed after it. Measured 2026-09-10: every city's data loaded and
+ * profiled in under a second, ~200 MB of heap.
+ */
+function prerenderPlugin(): Plugin {
+  let root = ''
+  let outDir = ''
+  let isBuild = false
+  let devPages: Promise<SitePagesModule> | null = null
+
+  const load = (environment: DevEnvironment): Promise<SitePagesModule> =>
+    createServerModuleRunner(environment).import('/src/lib/site-pages.ts') as Promise<SitePagesModule>
+
+  return {
+    name: 'prerender',
+    configResolved(config) {
+      root = config.root
+      outDir = resolve(config.root, config.build.outDir)
+      isBuild = config.command === 'build'
+    },
+    configureServer(server) {
+      devPages = load(server.environments.ssr)
+    },
+    transformIndexHtml: {
+      order: 'pre',
+      async handler(html, ctx) {
+        // The build's pages are written in closeBundle, from the built file
+        if (!ctx.server || !devPages) return html
+        const pages = await devPages
+        const page = await pages.pageFor(new URL(ctx.originalUrl ?? '/', 'http://localhost').pathname)
+        return page ? pages.applyPage(html, page) : html
+      },
+    },
+    async closeBundle() {
+      if (!isBuild) return
+      // No config file: the app's plugins have nothing to do here, and
+      // the alias is all the module graph needs.
+      const server = await createServer({
+        root,
+        configFile: false,
+        appType: 'custom',
+        logLevel: 'error',
+        resolve: { alias: { '@': join(root, 'src') } },
+        server: { middlewareMode: true, hmr: false, watch: null },
+        optimizeDeps: { noDiscovery: true, include: [] },
+      })
+      try {
+        const pages = await load(server.environments.ssr)
+        const html = readFileSync(join(outDir, 'index.html'), 'utf8')
+        const all = await pages.allPages()
+        for (const page of all) {
+          mkdirSync(join(outDir, page.path), { recursive: true })
+          writeFileSync(join(outDir, page.path, 'index.html'), pages.applyPage(html, page))
+        }
+        writeFileSync(join(outDir, 'sitemap.xml'), pages.sitemap(all))
+        console.info(`prerendered ${all.length} pages and the sitemap into ${outDir}`)
+      } finally {
+        await server.close()
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), gtfsRealtimeFilterPlugin(), aisLivePlugin(), webcamsPlugin()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    gtfsRealtimeFilterPlugin(),
+    aisLivePlugin(),
+    webcamsPlugin(),
+    prerenderPlugin(),
+  ],
   define: {
     CESIUM_BASE_URL: JSON.stringify('/cesium'),
     __BUILD_ID__: JSON.stringify(new Date().toISOString()),

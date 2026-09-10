@@ -29,7 +29,8 @@ pipeline (see [Cities](#cities)).
 
 | Feature | Details |
 |---------|---------|
-| Several cities, one map | Every city is a definition (`src/cities/<slug>/city.json`) plus generated data next to it. The caret beside the panel title switches; the old city's routes, stops, lamps and vehicles are taken down, the camera flies to the next city's home view with the leash lifted, and the new city's data comes in as a lazy chunk of its own. `#city=<slug>` in the URL names the city a link opens on |
+| Several cities, one map | Every city is a definition (`src/cities/<slug>/city.json`) plus generated data next to it. The caret beside the panel title switches; the old city's routes, stops, lamps and vehicles are taken down, the camera flies to the next city's home view with the leash lifted, and the new city's data comes in as a lazy chunk of its own. `/<slug>/` is the city's own address – a link opens on the city its path names |
+| A page per city | Every city has an address of its own – `/berlin/`, `/en/berlin/` in English, `/` and `/en/` for the front door (`src/lib/site-path.ts`) – and the build writes an `index.html` into each: the app, and under its root the city as plain HTML – its facts as the city card states them, its lines, the links to the other cities – with title, description, canonical URL, language alternates and link preview in the head (`src/lib/site-pages.ts`, the prerender plugin in `vite.config.ts`, the pictures in `public/og/`). For a crawler, for the preview of a shared link, and for a browser without WebGL: the app hides the page as it starts and the error boundary shows it again with a notice when the viewer cannot be built (`src/components/ErrorBoundary.tsx`). `public/robots.txt` and the built `sitemap.xml` point the crawlers at the pages |
 | Welcome screen | The front door on a plain visit: a full-screen chooser in the map's green with a card per city (its name, its modes, a ship where ships sail – a ferry line or the live AIS harbour), while Cesium and the world load behind it and nothing of any city does – no data, no vehicles, no stops, no pollers, no URL written. The pick puts the camera straight on the city's home view, a jump rather than a flight, and starts its session at once, while the screen stands two seconds longer with a spinner on the card – longer if the data takes longer – so what it uncovers is a city already drawn, not one filling up. A checkbox turns the screen off for good in that browser; the app then opens on Rostock. A link that says where to go – a city, a camera pose, a vehicle, a ship or a stop in the hash – walks past the door; `?welcome=1` opens it regardless and `?welcome=0` skips it for one visit (`src/lib/welcome.ts`) |
 | Cesium map with Google 3D Tiles | `createGooglePhotorealistic3DTileset` via Cesium ion, falls back to a wireframe globe when unreachable (the tests run on that offline mode, `?offline=1`) |
 | Vehicles as low-poly consists on real routes | Procedural glTF models after the real fleets, picked per city and line – Rostock's five-section Vossloh 6N2 tram (32 m), three-car Talent 2 S-Bahn (57 m), 12 m buses and its two Warnow ferries as their real double-enders; Kiel's Förde ferries sail as the same double-enders, sized per line; Berlin's U-Bahn (BR H) and S-Bahn (BR 481) run as six-section third-rail consists – each with glazing, grey roofs, pantographs or bridges. Muted livery with a hint of the line color, schedule-based simulation (see [Data](#data--gtfs--gtfs-realtime--osm)) |
@@ -86,7 +87,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 - **Cities:** The caret beside the panel title lists every city this build
   knows; picking one takes the current city off the map, flies the camera to
   the new city's home view and puts that city's lines up. The URL follows
-  (`#…&city=kiel`; the default city Rostock needs no name), and the last
+  (`/kiel/`, or `/en/kiel/` when the interface speaks English), and the last
   city visited is remembered by the browser for the next session.
 - **About the map:** `?`, or the question mark below the map controls,
   opens the About dialog – where the map comes from, what it is not (no
@@ -236,10 +237,11 @@ VITE_CESIUM_ION_TOKEN=your-token
   re-selects it: a vehicle and a ship are picked up and followed, a stop opens
   its board. The ship is the one whose link can go stale – her MMSI is as stable
   as any id, but whether she is still in the harbour an hour later is not; the
-  restore waits a minute and a half for her and then gives up quietly. The city,
-  the Routes/Stops layer toggles, the miniature look and the pause state ride along
-  as `city=kiel`, `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they
-  deviate from the defaults (Rostock, layers on, miniature look off, clock running).
+  restore waits a minute and a half for her and then gives up quietly. The
+  Routes/Stops layer toggles, the miniature look and the pause state ride along
+  as `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they deviate from
+  the defaults (layers on, miniature look off, clock running); the city is the
+  path's (`/kiel/`), where a crawler and a link preview can see it.
 
 ### Useful URL parameters
 
@@ -250,14 +252,15 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?time=08:30` | Set the simulation time (Europe/Berlin) |
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
-| `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it) |
+| `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it; a path under `/en/` counts as English) |
 | `?lamps=0` | Disable the night-time street lighting |
 | `?webcams=0` | Leave the live webcam pictures out |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, shown only near real time) |
 | `?ais=0` | Open with the live AIS ships switched off – the "AIS ships" switch at the end of the traffic list turns them back on |
 | `?welcome=0` / `?welcome=1` | Skip the welcome screen for this visit (the tests boot this way), or open it even though the browser was asked not to show it again – which is also how the choice is taken back, by unticking the box |
-| `#city=kiel` | The city to open on (the default city needs none; unknown slugs fall back to it) |
+| `/kiel/` | The city to open on – its own address (`/` is the front door; an unknown slug falls back to the default city) |
+| `/en/kiel/` | The same in English: the path carries the language the interface speaks, and the app keeps it there – a shared link opens the way it was seen (`?lang=` still wins for one visit) |
 | `#lat=…&lon=…&height=…` | Saved camera pose (maintained automatically) |
 | `#vehicle=…` | Shared vehicle selection – opens with the vehicle selected and followed |
 | `#vessel=…` | Shared ship selection by MMSI – opens with the ship selected and followed, if she is still reported |
@@ -356,6 +359,7 @@ npm run data:simplify -- --city kiel
 npm run data:heights -- --city kiel
 npm run data:lamps -- --city kiel
 npm run data:gtfs -- --city kiel
+node scripts/build-og-images.mjs             # the link-preview picture → public/og/kiel.png (committed)
 ```
 
 …then list it in `src/cities/definitions.ts`. Without `--city` every script
@@ -705,7 +709,8 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    sits in the workflow in the clear.
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
-   build, and E2E tests. Only then are `dist/`, `api/realtime.php`,
+   build, and E2E tests. Only then are `dist/` (an `index.html` per city and
+   language plus the sitemap, see "A page per city" above), `api/realtime.php`,
    `api/ais.php`, `api/webcams.php` (with its key written from the
    `WINDY_KEY` repository secret, kept from the web by `.htaccess`) and
    every city's `api/cities/<slug>/city.json` and
@@ -784,7 +789,11 @@ src/
 │   ├── clock.ts            # Simulation clock (time-lapse, pause, Europe/Berlin)
 │   ├── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
 │   ├── tunnels.ts          # Tunnel meter-ranges → path pieces / mirroring
-│   ├── camera-hash.ts      # Camera pose, selection and city ↔ URL hash
+│   ├── camera-hash.ts      # Camera pose, selection and switches ↔ URL hash
+│   ├── site-path.ts        # Where a page stands: /<slug>/ per city, /en/ for English
+│   ├── site-pages.ts       # What a page shows without the map: the city as plain HTML,
+│   │                       # the head's tags, the sitemap (rendered by the prerender plugin)
+│   ├── static-page.ts      # The static page's id; hidden as the app starts, shown when it fails
 │   ├── welcome.ts          # Whether the welcome screen opens, and the wish not to see it again
 │   ├── realtime.ts         # GTFS-RT client (polls /api/realtime?city=…)
 │   └── rt-extract.ts       # Shared realtime feed → delay-map extraction
@@ -802,7 +811,8 @@ src/
 │                           # the routes and the vehicles on them
 ├── components/             # shadcn-style UI (WelcomeScreen, ControlPanel with the city
 │                           # picker, the layers/photo/weather popovers of the map's
-│                           # control rail, cards, ui/*)
+│                           # control rail, cards, ui/*, the ErrorBoundary for a viewer
+│                           # that cannot start)
 └── App.tsx                 # Viewer effect (once) + city session effect (per city),
                             # render loop pacing, test API (window.__mrt)
 
@@ -817,6 +827,7 @@ scripts/
 ├── build-terrain-patch.mjs   # a city's own terrain tiles where Mapterhorn has holes (one-off, by hand)
 ├── fetch-street-lamps.mjs    # OSM street lamps + terrain heights (npm run data:lamps)
 ├── build-vehicle-models.mjs  # procedural low-poly vehicle GLBs  (npm run models:build)
+├── build-og-images.mjs       # link-preview pictures → public/og (by hand, committed)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 ├── test-ais-parity.mjs       # parity test Node vs. api/ais.php, incl. the city boxes
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)

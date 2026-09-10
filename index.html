@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="de" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link
@@ -11,14 +11,25 @@
     <link rel="preconnect" href="https://api.cesium.com" crossorigin />
     <link rel="preconnect" href="https://assets.ion.cesium.com" crossorigin />
     <link rel="preconnect" href="https://tile.googleapis.com" crossorigin />
+    <!--
+      Between the markers stands what the prerender plugin (vite.config.ts)
+      writes per page – the title, the description, the canonical URL, the
+      language alternates and the link previews – and, below, the page's
+      own content for a reader without the map (src/lib/site-pages.ts).
+      What is here is the front door's, for a build without the plugin.
+    -->
+    <!-- page:head -->
+    <title>Mini Germany 3D</title>
     <meta
       name="description"
-      content="Mini Germany 3D – der Nahverkehr deutscher Städte live auf einer photorealistischen 3D-Karte."
+      content="Der Nahverkehr deutscher Städte live auf einer fotorealistischen 3D-Karte: die echten Linien, die echten Haltestellen und der Fahrplan von heute."
     />
-    <title>Mini Germany 3D</title>
+    <!-- /page:head -->
   </head>
   <body>
     <div id="root"></div>
+    <!-- page:body -->
+    <!-- /page:body -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
