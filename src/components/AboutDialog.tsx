@@ -99,6 +99,10 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
         // renders it itself, which is why it is reached by selector.
         className={cn(
           'h-[min(740px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-2xl bg-card p-0 shadow-2xl sm:max-w-170',
+          // On a phone the dialog is the screen: edge to edge, no frame,
+          // no corner – a window inside a window of that size is only a
+          // border around less room.
+          'max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-screen max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0',
           '[&>button:last-child]:z-1 [&>button:last-child]:text-[oklch(0.9698_0.0091_161.35)] [&>button:last-child:hover]:bg-white/12',
         )}
         onOpenAutoFocus={() => {
@@ -158,7 +162,8 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
           >
             <TabsTrigger value="story" className={TAB}>{t('about.storyTab')}</TabsTrigger>
             <TabsTrigger value="details" className={TAB}>{t('about.detailsTab')}</TabsTrigger>
-            <TabsTrigger value="keyboard" className={TAB}>
+            {/* A phone has no keyboard to explain (see lib/viewport.ts) */}
+            <TabsTrigger value="keyboard" className={cn(TAB, 'max-sm:hidden')}>
               <Keyboard aria-hidden className="size-3.5" />{t('keys.title')}
             </TabsTrigger>
           </TabsList>

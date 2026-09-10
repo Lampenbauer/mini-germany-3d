@@ -67,6 +67,25 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   await expect(card).toBeHidden()
   await expect(panel).toBeVisible()
 
+  // The weather keeps its corner while a card is up
+  await page.evaluate(() => window.__mrt!.selectVehicle(window.__mrt!.vehicles()[0].id))
+  await expect(page.getByRole('button', { name: /^Weather/ })).toBeVisible()
+  await page.evaluate(() => window.__mrt!.selectVehicle(null))
+
+  // The About dialog is the whole screen, without the keyboard tab
+  await page.getByRole('button', { name: 'About this project' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const dialogBox = (await dialog.boundingBox())!
+  expect(dialogBox.x).toBe(0)
+  expect(dialogBox.y).toBe(0)
+  expect(dialogBox.width).toBe(393)
+  expect(dialogBox.height).toBe(852)
+  await expect(dialog.getByRole('tab', { name: 'Keyboard' })).toBeHidden()
+  await expect(dialog.getByRole('tab', { name: 'The project' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
   // A link asking for the diagram gets the map
   await page.evaluate(() => window.__mrt!.setLinear(true))
   expect(await page.evaluate(() => window.__mrt!.linear())).toBe(false)

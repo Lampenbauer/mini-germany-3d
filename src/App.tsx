@@ -477,14 +477,16 @@ const GROUPED_CONTROL =
  */
 /**
  * Where a card stands: the upper right, beside the map, on a desktop –
- * and on a phone (under Tailwind's sm, 640 px) a sheet across the foot
- * of the screen, where a thumb reaches it and the map stays in view
- * above. The panel takes the same place there and gives way while a
- * card is up (see the panel's wrapper below), and bottom-9 clears the
- * Cesium credit line the way bottom-8 does for the rail.
+ * under the weather button, which keeps that corner while a card is
+ * up (top-16 is its 1rem + h-9 + a 0.75rem gap) – and on a phone (under
+ * Tailwind's sm, 640 px) a sheet across the foot of the screen, where a
+ * thumb reaches it and the map stays in view above. The panel takes the
+ * same place there and gives way while a card is up (see the panel's
+ * wrapper below), and bottom-9 clears the Cesium credit line the way
+ * bottom-8 does for the rail.
  */
 const CARD_SLOT =
-  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
+  'pointer-events-none absolute right-4 top-16 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
 
 const RAIL_BOX =
   'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-xl'
@@ -3121,11 +3123,10 @@ export default function App() {
 
         {/* The weather is the map's dress rather than a command about it,
             so it sits in the opposite corner from the camera controls, out
-            of the way of both. That corner is the cards', though, whenever one
-            of them is up – and it leaves rather than hides under: taken out
-            of the tree, so it is gone for a pointer and for a screen reader
-            alike, not merely faded out of sight. */}
-        {!linear && !cardOpen && (
+            of the way of both. A card opens under it (CARD_SLOT) rather
+            than in its place: the sky is picked with a card up as much as
+            without one. Only the diagram, which has no sky, takes it away. */}
+        {!linear && (
           // On a phone the upper right is the rail's, so the weather takes
           // the upper left the panel left free.
           <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end max-sm:right-auto max-sm:left-3">

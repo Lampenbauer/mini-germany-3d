@@ -265,18 +265,18 @@ test('selecting a vehicle opens the info card', async () => {
     card.getByTestId('vehicle-trip-stops').getByRole('button').first(),
   ).toHaveAttribute('title', 'Fly to this stop')
 
-  // The card and the scene button want the same corner, and the card is
-  // the one that came for a reason. The button leaves rather than hides
-  // under it: gone from the tree, so toHaveCount(0) rather than a look at
-  // its opacity – a faded button is still there for a pointer and for a
-  // screen reader.
-  await expect(page.getByRole('button', { name: 'Weather' })).toHaveCount(0)
+  // The weather keeps its corner while the card is up: the card opens
+  // under it (CARD_SLOT in App.tsx), so the sky can be picked with a card
+  // open as well as without one, and the two never overlap.
+  const weather = page.getByRole('button', { name: 'Weather' })
+  await expect(weather).toBeVisible()
+  const weatherBox = (await weather.boundingBox())!
+  const cardBox = (await card.boundingBox())!
+  expect(cardBox.y).toBeGreaterThanOrEqual(weatherBox.y + weatherBox.height)
 
   await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
-
-  // ... and the corner is the button's own again once the card is gone
-  await expect(page.getByRole('button', { name: 'Weather' })).toBeVisible()
+  await expect(weather).toBeVisible()
 })
 
 test('night services keep running after midnight, daytime service resumes in the morning', async () => {
