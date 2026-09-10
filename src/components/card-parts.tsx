@@ -159,7 +159,7 @@ export function Stat(props: {
   className?: string
 }) {
   return (
-    <div className={cn('flex min-w-0 flex-col gap-0.5 rounded-lg bg-muted/40 py-2', props.className)}>
+    <div className={cn('flex min-w-0 flex-col py-1', props.className)}>
       <SectionLabel>{props.label}</SectionLabel>
       <span data-testid={props.testId}>
         <span

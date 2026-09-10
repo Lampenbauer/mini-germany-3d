@@ -2,7 +2,7 @@ import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { CardHead, EyebrowDot, LineChip, SectionLabel } from '@/components/card-parts'
+import { CardHead, LineChip, SectionLabel } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
@@ -70,20 +70,17 @@ export function StopCard({
       data-testid="stop-card"
     >
       <CardHead
-        className="bg-brand"
         eyebrow={
           <>
-            <EyebrowDot />
             {t('stop.eyebrow')}
             {stop.inTunnel && (
-              <span className="font-normal text-brand-light/70">
+              <span className="font-normal">
                 {' · '}
                 <span>{t('stop.underground')}</span>
               </span>
             )}
           </>
         }
-        eyebrowClassName="text-brand-light"
         title={<span className="text-pretty">{stop.name}</span>}
         titleClassName="text-xl"
         closeLabel={t('stop.close')}

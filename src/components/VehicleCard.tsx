@@ -171,7 +171,7 @@ export function VehicleCard({
             </span>
           </>
         }
-        titleClassName="items-start text-xl"
+        titleClassName="items-center text-xl"
         lead={
           <>
             <span data-testid="vehicle-status">{statusText(vehicle)}</span>
