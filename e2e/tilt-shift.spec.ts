@@ -33,7 +33,13 @@ let page: Page
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
-  await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0&labels=0')
+  // A pose of the spec's own rather than the city's home view: the
+  // reading below is a ratio of detail between two strips of the frame,
+  // and it moved when the home view was raised from 5800 to 7400 m
+  // (2026-09-10). This is the camera the home view stood at before.
+  await page.goto(
+    '/?offline=1&welcome=0&time=08:30&paused=1#lat=54.022550&lon=12.116191&height=5800&heading=0&pitch=-40&routes=0&labels=0',
+  )
   await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
 })
 
