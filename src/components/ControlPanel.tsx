@@ -10,6 +10,7 @@ import {
   Ship,
   TimerReset,
   TramFront,
+  type LucideIcon,
 } from 'lucide-react'
 import { ArrowsFromLineIcon, ArrowsToLineIcon } from '@/components/ArrowsToLineIcon'
 import { CaretDownIcon } from '@/components/CaretDownIcon'
@@ -27,7 +28,7 @@ import { cn } from '@/lib/utils'
 import { berlinDateKey } from '@/lib/clock'
 import type { TransitMode } from '@/data/network-types'
 import type { CityActivity } from '@/lib/city-profile'
-import { MODE_KEY, getLanguage, localizeCityName, sortCitiesByName, t } from '@/lib/i18n'
+import { MODE_KEY, getLanguage, localizeCityName, sortCitiesByName, t, type MessageKey } from '@/lib/i18n'
 import { TRANSIT_MODES } from '@/lib/transit-mode'
 
 export interface LineToggleInfo {
@@ -40,12 +41,38 @@ export interface LineToggleInfo {
   visible: boolean
 }
 
-/** A city as the picker lists it. */
+/** A city as the picker and the welcome screen list it. */
 export interface CityChoice {
   slug: string
   name: string
   /** Transit modes the city's network has – shown as icons in the list. */
   modes: readonly TransitMode[]
+  /**
+   * Whether ships sail here at all – scheduled ferries or the live AIS
+   * fleet. The list's ship icon stands for both: Lübeck runs no ferry
+   * line and has a harbour full of AIS traffic, and the icon says so.
+   */
+  ships: boolean
+}
+
+/** One icon in a city's row, with the word it stands for. */
+export interface CityChoiceIcon {
+  key: string
+  Icon: LucideIcon
+  labelKey: MessageKey
+}
+
+/**
+ * The icons a city wears in a list: one per transit mode, and one ship
+ * for ships in general, last. The ferry mode's own glyph is that same
+ * ship, so it folds into the one icon rather than standing beside it.
+ */
+export function cityChoiceIcons(city: CityChoice): CityChoiceIcon[] {
+  const icons: CityChoiceIcon[] = city.modes
+    .filter((mode) => mode !== 'ferry')
+    .map((mode) => ({ key: mode, Icon: MODE_ICON[mode], labelKey: MODE_KEY[mode] }))
+  if (city.ships) icons.push({ key: 'ships', Icon: MODE_ICON.ferry, labelKey: 'city.ships' })
+  return icons
 }
 
 export interface ControlPanelProps {
@@ -356,10 +383,9 @@ export function ControlPanel(props: ControlPanelProps) {
                         >
                           <span className="min-w-0 flex-1 truncate">{name}</span>
                           <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
-                            {city.modes.map((mode) => {
-                              const Icon = MODE_ICON[mode]
-                              return <Icon key={mode} className="size-3.5" aria-hidden />
-                            })}
+                            {cityChoiceIcons(city).map(({ key, Icon }) => (
+                              <Icon key={key} className="size-3.5" aria-hidden />
+                            ))}
                           </span>
                           {current ? (
                             <Check className="size-4 shrink-0 text-primary" aria-hidden />

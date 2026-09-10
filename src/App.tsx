@@ -486,6 +486,7 @@ const CITY_CHOICES: readonly CityChoice[] = CITIES.map((city) => ({
   slug: city.slug,
   name: city.name,
   modes: city.network.modes,
+  ships: city.ais.enabled || city.network.modes.includes('ferry'),
 }))
 
 export default function App() {
@@ -3036,7 +3037,12 @@ export default function App() {
         />
         <div ref={panelRef} className="pointer-events-none absolute left-4 top-4 z-10">
           <ControlPanel
-            city={{ slug: city.slug, name: city.name, modes: city.network.modes }}
+            city={{
+              slug: city.slug,
+              name: city.name,
+              modes: city.network.modes,
+              ships: city.ais.enabled || city.network.modes.includes('ferry'),
+            }}
             cities={CITY_CHOICES}
             cityLoading={cityData === null}
             onSelectCity={selectCity}

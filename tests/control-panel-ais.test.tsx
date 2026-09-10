@@ -20,8 +20,8 @@ afterEach(() => {
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onToggleAisVessels = vi.fn()
   const props: ControlPanelProps = {
-    city: { slug: 'rostock', name: 'Rostock', modes: ['ferry'] },
-    cities: [{ slug: 'rostock', name: 'Rostock', modes: ['ferry'] }],
+    city: { slug: 'rostock', name: 'Rostock', modes: ['ferry'], ships: true },
+    cities: [{ slug: 'rostock', name: 'Rostock', modes: ['ferry'], ships: true }],
     cityLoading: false,
     onSelectCity: vi.fn(),
     clockText: '12:00:00',

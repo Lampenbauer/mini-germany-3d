@@ -3,9 +3,8 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { NetworkIllustration } from '@/components/NetworkIllustration'
-import { MODE_ICON } from '@/components/mode-icon'
-import type { CityChoice } from '@/components/ControlPanel'
-import { MODE_KEY, sortCitiesByName, t } from '@/lib/i18n'
+import { cityChoiceIcons, type CityChoice } from '@/components/ControlPanel'
+import { sortCitiesByName, t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 /**
@@ -136,12 +135,13 @@ export function WelcomeScreen(props: WelcomeScreenProps) {
                         {name}
                       </span>
                       <span className={cn('mt-4 flex items-center gap-1.5', INK_MUTED, 'max-sm:mt-3')}>
-                        {city.modes.map((mode) => {
-                          const Icon = MODE_ICON[mode]
-                          return <Icon key={mode} className="size-4" aria-hidden />
-                        })}
+                        {cityChoiceIcons(city).map(({ key, Icon }) => (
+                          <Icon key={key} className="size-4" aria-hidden />
+                        ))}
                         {/* What the icons say, for whoever cannot see them */}
-                        <span className="sr-only">{city.modes.map((mode) => t(MODE_KEY[mode])).join(', ')}</span>
+                        <span className="sr-only">
+                          {cityChoiceIcons(city).map(({ labelKey }) => t(labelKey)).join(', ')}
+                        </span>
                         {picked ? (
                           /* The arrow's place, so nothing shifts when it turns */
                           <Loader2 aria-hidden data-testid="welcome-spinner" className="ml-auto size-4 animate-spin" />

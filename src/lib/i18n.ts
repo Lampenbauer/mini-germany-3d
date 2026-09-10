@@ -140,6 +140,8 @@ const en = {
   'city.switchTo': 'Switch to {name}',
   'city.current': 'Shown now',
   'city.loading': 'Loading {name} …',
+  // The ship icon in the city lists: ferries and the live AIS fleet alike
+  'city.ships': 'Ships',
   // City names: the definitions carry the English name (the slug is
   // English too – src/cities/munich/), the German UI shows the German one.
   // Rostock, Kiel, Hamburg and Berlin read the same in both languages
@@ -453,6 +455,7 @@ const de: Record<MessageKey, string> = {
   'city.switchTo': 'Nach {name} wechseln',
   'city.current': 'Gerade zu sehen',
   'city.loading': '{name} wird geladen …',
+  'city.ships': 'Schiffe',
   'city.name.cologne': 'Köln',
   'city.name.hanover': 'Hannover',
   'city.name.munich': 'München',

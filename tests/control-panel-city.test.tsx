@@ -17,11 +17,11 @@ afterEach(() => {
   setLanguage('en')
 })
 
-const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'] }
-const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'] }
-const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'] }
-const COLOGNE: CityChoice = { slug: 'cologne', name: 'Cologne', modes: ['tram', 'train', 'bus'] }
-const LUEBECK: CityChoice = { slug: 'lubeck', name: 'Lübeck', modes: ['bus'] }
+const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'], ships: true }
+const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'], ships: true }
+const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'], ships: false }
+const COLOGNE: CityChoice = { slug: 'cologne', name: 'Cologne', modes: ['tram', 'train', 'bus'], ships: true }
+const LUEBECK: CityChoice = { slug: 'lubeck', name: 'Lübeck', modes: ['bus'], ships: true }
 
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onSelectCity = vi.fn()

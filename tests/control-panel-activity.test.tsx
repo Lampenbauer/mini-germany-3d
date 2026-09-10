@@ -34,8 +34,8 @@ const line = (id: string, mode: LineToggleInfo['mode']): LineToggleInfo => ({
 function panel(overrides: Partial<ControlPanelProps> = {}) {
   const onShowCityFacts = vi.fn()
   const props: ControlPanelProps = {
-    city: { slug: 'rostock', name: 'Rostock', modes: ['tram', 'bus', 'ferry'] },
-    cities: [{ slug: 'rostock', name: 'Rostock', modes: ['tram', 'bus', 'ferry'] }],
+    city: { slug: 'rostock', name: 'Rostock', modes: ['tram', 'bus', 'ferry'], ships: true },
+    cities: [{ slug: 'rostock', name: 'Rostock', modes: ['tram', 'bus', 'ferry'], ships: true }],
     cityLoading: false,
     onSelectCity: vi.fn(),
     clockText: '12:00:00',

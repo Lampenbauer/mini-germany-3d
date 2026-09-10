@@ -17,11 +17,11 @@ afterEach(() => {
   setLanguage('en')
 })
 
-const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'] }
-const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'] }
-const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'] }
-const COLOGNE: CityChoice = { slug: 'cologne', name: 'Cologne', modes: ['tram', 'train', 'bus'] }
-const LUEBECK: CityChoice = { slug: 'lubeck', name: 'Lübeck', modes: ['bus'] }
+const ROSTOCK: CityChoice = { slug: 'rostock', name: 'Rostock', modes: ['tram', 'ferry'], ships: true }
+const KIEL: CityChoice = { slug: 'kiel', name: 'Kiel', modes: ['bus', 'ferry'], ships: true }
+const MUNICH: CityChoice = { slug: 'munich', name: 'Munich', modes: ['tram', 'subway', 'train', 'bus'], ships: false }
+const COLOGNE: CityChoice = { slug: 'cologne', name: 'Cologne', modes: ['tram', 'train', 'bus'], ships: true }
+const LUEBECK: CityChoice = { slug: 'lubeck', name: 'Lübeck', modes: ['bus'], ships: true }
 
 /** A storage that remembers, the way localStorage does. */
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -101,7 +101,11 @@ describe('the welcome screen', () => {
     const list = screen.getByRole('list', { name: 'Cities' })
     const names = within(list).getAllByRole('button').map((button) => button.getAttribute('aria-label'))
     expect(names).toEqual(['Open Cologne', 'Open Kiel', 'Open Lübeck', 'Open Munich', 'Open Rostock'])
-    expect(within(list).getByRole('button', { name: 'Open Rostock' })).toHaveTextContent('Tram, Ferry')
+    // One ship for ships in general: Rostock's ferry line and Lübeck's
+    // AIS harbour wear the same icon, Munich none
+    expect(within(list).getByRole('button', { name: 'Open Rostock' })).toHaveTextContent('Tram, Ships')
+    expect(within(list).getByRole('button', { name: 'Open Lübeck' })).toHaveTextContent('Bus, Ships')
+    expect(within(list).getByRole('button', { name: 'Open Munich' })).not.toHaveTextContent('Ships')
   })
 
   it('sorts Köln under K in German', () => {
