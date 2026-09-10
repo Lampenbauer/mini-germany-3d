@@ -38,10 +38,12 @@ import {
   formatStopHash,
   formatUiStateHash,
   formatVehicleHash,
+  formatVesselHash,
   parseCameraHash,
   parseStopHash,
   parseUiStateHash,
   parseVehicleHash,
+  parseVesselHash,
 } from '@/lib/camera-hash'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
@@ -330,6 +332,13 @@ const LINEAR_MAP_WARMUP_FRAMES = 120
 
 /** How long a shared vehicle (#vehicle=…) is waited for before the link is given up on. */
 const SHARED_VEHICLE_TIMEOUT_MS = 20_000
+/**
+ * The same for a ship (#vessel=…), but longer: a trip is in the very first
+ * snapshot the simulation makes, while a ship has to be reported – the AIS
+ * poller's first answer can be a listen window away, and a ship on a
+ * 60-second grid another minute behind that.
+ */
+const SHARED_VESSEL_TIMEOUT_MS = 90_000
 
 /** Where the last visited city is remembered between sessions. */
 const CITY_STORAGE_KEY = 'mg3d.city'
@@ -573,6 +582,14 @@ export default function App() {
   const pendingSharedVehicleRef = useRef<string | null>(null)
   const sharedVehicleDeadlineRef = useRef(0)
   /**
+   * A ship shared via the URL (#vessel=…), restored as soon as the AIS
+   * poller reports her. Same mechanism as the vehicle above, with a longer
+   * fuse – and it may well expire: whether she is still in the harbour is
+   * not the link's to decide.
+   */
+  const pendingSharedVesselRef = useRef<number | null>(null)
+  const sharedVesselDeadlineRef = useRef(0)
+  /**
    * The sky in force: precipitation in mm and cloud cover in percent.
    * forced = not the live weather but a value set on purpose (a picked
    * sky, or the test API), which skips the near-real-time gate.
@@ -803,9 +820,11 @@ export default function App() {
   }, [])
 
   /**
-   * Ship selection (click on a hull or its name label). Ships carry no
-   * hash state – they are not reproducible the way a stop or a scheduled
-   * trip is, since which ships are in the harbor depends on the minute.
+   * Ship selection (click on a hull or its name label, or a #vessel= link).
+   * Her MMSI goes into the URL like a trip id or a stop id does, and a
+   * reload picks her up again and chases her – with the caveat the other
+   * two do not have: which ships are in the harbour depends on the minute,
+   * so the restore is allowed to find nothing (see pendingSharedVesselRef).
    */
   const selectVessel = useCallback(
     (mmsi: number | null) => {
@@ -817,6 +836,8 @@ export default function App() {
         }
       }
       selectedMmsiRef.current = mmsi
+      mapRef.current?.setSelectedVessel(mmsi)
+      writeHashRef.current()
       if (mmsi !== null) setSelectedLineId(null)
       if (mmsi === null) {
         setSelectedVessel(null)
@@ -937,9 +958,11 @@ export default function App() {
       const hash =
         (selectedIdRef.current
           ? formatVehicleHash(selectedIdRef.current)
-          : selectedStopIdRef.current
-            ? formatStopHash(selectedStopIdRef.current)
-            : formatCameraHash(m.getCameraView())) +
+          : selectedMmsiRef.current !== null
+            ? formatVesselHash(selectedMmsiRef.current)
+            : selectedStopIdRef.current
+              ? formatStopHash(selectedStopIdRef.current)
+              : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
           city: citySlugRef.current,
           view: currentViewRef.current(),
@@ -1104,6 +1127,14 @@ export default function App() {
         return
       }
       pendingSharedVehicleRef.current = null
+      const mmsi = parseVesselHash(hash)
+      if (mmsi !== null) {
+        // The fleet may not carry her yet – or at all any more.
+        pendingSharedVesselRef.current = mmsi
+        sharedVesselDeadlineRef.current = performance.now() + SHARED_VESSEL_TIMEOUT_MS
+        return
+      }
+      pendingSharedVesselRef.current = null
       const stopId = parseStopHash(hash)
       const stop = stopId ? stopInfoByIdRef.current.get(stopId) : undefined
       if (stop) {
@@ -1112,6 +1143,7 @@ export default function App() {
         return
       }
       if (selectedIdRef.current) selectVehicle(null)
+      if (selectedMmsiRef.current !== null) selectVessel(null)
       if (selectedStopIdRef.current) selectStop(null)
       const view = parseCameraHash(hash)
       // Instant, like the boot restore – an edited pose is a jump to it,
@@ -1311,6 +1343,25 @@ export default function App() {
                 pendingSharedVehicleRef.current = null
               } else if (now > sharedVehicleDeadlineRef.current) {
                 pendingSharedVehicleRef.current = null
+              }
+            }
+
+            // The same for a ship, and after syncVessels above for the same
+            // reason. She is looked for in the fleet the layer was just
+            // handed rather than in its records: a hull out of view is
+            // reported all the same, and the chase brings the camera to her.
+            const pendingSharedVessel = pendingSharedVesselRef.current
+            if (pendingSharedVessel !== null) {
+              if (aisDrawn && map.hasVessel(pendingSharedVessel)) {
+                selectVessel(pendingSharedVessel)
+                if (!linearRef.current) {
+                  followingRef.current = true
+                  setFollowing(true)
+                  map.setFollowVessel(pendingSharedVessel)
+                }
+                pendingSharedVesselRef.current = null
+              } else if (now > sharedVesselDeadlineRef.current) {
+                pendingSharedVesselRef.current = null
               }
             }
 
@@ -1592,7 +1643,12 @@ export default function App() {
     // What the URL asked for, read before anything here writes to it.
     const bootHash = window.location.hash
     const sharedVehicle = transition === 'jump' ? parseVehicleHash(bootHash) : null
-    const sharedStopId = transition === 'jump' && !sharedVehicle ? parseStopHash(bootHash) : null
+    const sharedVessel =
+      transition === 'jump' && !sharedVehicle ? parseVesselHash(bootHash) : null
+    const sharedStopId =
+      transition === 'jump' && !sharedVehicle && sharedVessel === null
+        ? parseStopHash(bootHash)
+        : null
 
     /**
      * The map changes hands mid-flight, not at either end of it (see
@@ -1625,8 +1681,9 @@ export default function App() {
     else handOver()
     // A link's or an edited hash's pose belongs to this city: put the
     // camera there before the first frame rather than after the data.
-    // A vehicle or stop link carries no pose – those wait for the data.
-    if (transition === 'jump' && !sharedVehicle && !sharedStopId) {
+    // A vehicle, ship or stop link carries no pose – those wait for what
+    // they are about.
+    if (transition === 'jump' && !sharedVehicle && sharedVessel === null && !sharedStopId) {
       const view = parseCameraHash(bootHash)
       if (view) map.setView(view)
     }
@@ -1637,7 +1694,7 @@ export default function App() {
     // that with the camera pose, and the restore writes it back itself. A
     // camera that never moves after boot fires no change event, so the
     // first write cannot wait for one.
-    if (!sharedVehicle && !sharedStopId) writeHashRef.current()
+    if (!sharedVehicle && sharedVessel === null && !sharedStopId) writeHashRef.current()
 
     let realtimeClient: RealtimeClient | null = null
     let aisClient: AisClient | null = null
@@ -1779,6 +1836,11 @@ export default function App() {
       if (sharedVehicle) {
         pendingSharedVehicleRef.current = sharedVehicle
         sharedVehicleDeadlineRef.current = performance.now() + SHARED_VEHICLE_TIMEOUT_MS
+      } else if (sharedVessel !== null) {
+        // Waits for the AIS poller the way the vehicle waits for the
+        // simulation – with the longer fuse, and prepared to find nothing.
+        pendingSharedVesselRef.current = sharedVessel
+        sharedVesselDeadlineRef.current = performance.now() + SHARED_VESSEL_TIMEOUT_MS
       } else if (sharedStopId) {
         // The memo of this render is stale: the data landed just now
         const stop = findStop(data.network, sharedStopId)
@@ -1834,6 +1896,7 @@ export default function App() {
       setCityData(null)
       setWebcams([])
       pendingSharedVehicleRef.current = null
+      pendingSharedVesselRef.current = null
       // What the map draws of this city – the simulation behind its
       // vehicles, the ships, the routes and stops – is handed to the
       // flight rather than dropped: it stays up until the flight to the

@@ -23,6 +23,7 @@ import {
   Cartesian3,
   Cartographic,
   Color,
+  ColorBlendMode,
   ColorGeometryInstanceAttribute,
   ConstantPositionProperty,
   ConstantProperty,
@@ -319,6 +320,10 @@ function vesselStyle(typeCode: number): { color: string; height: number } {
 interface VesselRecord {
   /** Archetype the body was chosen by – a late type code swaps the hull. */
   archetype: string
+  /** Picked in the app – her hull lights up (see setSelected). */
+  highlighted: boolean
+  /** The box placeholder's own colour, to mix the highlight into. */
+  hullColor: Color
   /** Placeholder box until the glTF hull is in (null afterwards). */
   primitive: Primitive | null
   /** glTF hull; null while loading (the box stands in) or after a failure. */
@@ -389,6 +394,18 @@ const positionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll(0, 0, 0)
 const scaleScratch = new Cartesian3()
 
+/**
+ * The picked ship lights up the way the picked tram does: her hull washed
+ * toward white and rimmed in it. The numbers are the vehicles' own – the
+ * 0.25 blend of MODEL_TINT_AMOUNT, their 2.5 px silhouette, and the 0.45
+ * the box fallback lerps by – so picking a hull and picking a tram read as
+ * the same act. A ship carries no line colour to brighten, so the blend
+ * goes to white itself rather than to a lighter livery.
+ */
+const HIGHLIGHT_BLEND = 0.25
+const HIGHLIGHT_SILHOUETTE_PX = 2.5
+const HIGHLIGHT_BOX_MIX = 0.45
+
 /** Night-time window glow, identical language to the vehicle fleet. */
 const WINDOW_GLOW_COLOR = 'vec3(1.0, 0.83, 0.52)'
 const WINDOW_GLOW_LUMINANCE_CUTOFF = '0.075'
@@ -403,6 +420,8 @@ export class VesselLayer {
   private labelsVisible = true
   /** "Zoom to line" keeps the names off until this instant (startLineFocus). */
   private lineFocusUntil = 0
+  /** MMSI of the picked ship, null when nothing is picked. */
+  private selectedMmsi: number | null = null
   /** MMSI the camera is chasing, null when free. */
   private followMmsi: number | null = null
   private readonly followCamera: FollowCamera
@@ -844,6 +863,74 @@ export class VesselLayer {
     return this.vessels.has(mmsi)
   }
 
+  /**
+   * The picked ship lights up, the one before her goes dark (null = none).
+   * The twin of VehicleLayer.setSelected, and it keeps the MMSI rather
+   * than only the record: a link restored from the URL picks a ship the
+   * fleet has not reported yet, and she lights up when she arrives (see
+   * createVessel), as does a hull that is still loading (attachModel).
+   */
+  setSelected(mmsi: number | null): void {
+    if (mmsi === this.selectedMmsi) return
+    const before = this.selectedMmsi === null ? undefined : this.vessels.get(this.selectedMmsi)
+    if (before) {
+      before.highlighted = false
+      this.applyVesselAppearance(before, this.selectedMmsi as number)
+    }
+    this.selectedMmsi = mmsi
+    if (mmsi !== null) {
+      const record = this.vessels.get(mmsi)
+      if (record) {
+        record.highlighted = true
+        this.applyVesselAppearance(record, mmsi)
+      }
+    }
+    this.host.requestRender()
+  }
+
+  /** MMSI of the picked ship, null when nothing is picked. */
+  get selectedVesselMmsi(): number | null {
+    return this.selectedMmsi
+  }
+
+  /**
+   * Writes a ship's highlight onto whichever body she is wearing: the
+   * glTF hull washed toward white and rimmed in it, or – while the hull
+   * is still loading – the placeholder box lerped the same way the land
+   * fleet's boxes are. A primitive that has not been rendered yet has no
+   * attributes to write; it is built with the highlight already in its
+   * instance colour, so there is nothing to retry.
+   */
+  private applyVesselAppearance(record: VesselRecord, mmsi: number): void {
+    if (record.model) {
+      record.model.colorBlendMode = ColorBlendMode.MIX
+      record.model.color = Color.WHITE
+      record.model.colorBlendAmount = record.highlighted ? HIGHLIGHT_BLEND : 0
+      record.model.silhouetteColor = Color.WHITE
+      record.model.silhouetteSize = record.highlighted ? HIGHLIGHT_SILHOUETTE_PX : 0
+    }
+    if (record.primitive) {
+      try {
+        const attributes = record.primitive.getGeometryInstanceAttributes(`vessel:${mmsi}`)
+        if (attributes) {
+          attributes.color = ColorGeometryInstanceAttribute.toValue(
+            this.hullTint(record),
+            attributes.color,
+          )
+        }
+      } catch {
+        // Not rendered yet – the box was built in this colour anyway.
+      }
+    }
+  }
+
+  /** The box's colour as it should be drawn right now. */
+  private hullTint(record: VesselRecord): Color {
+    return record.highlighted
+      ? Color.lerp(record.hullColor, Color.WHITE, HIGHLIGHT_BOX_MIX, new Color())
+      : record.hullColor
+  }
+
   /** Ship names off – the fleet's half of the Labels layer toggle. */
   setLabelsVisible(visible: boolean): void {
     if (visible === this.labelsVisible) return
@@ -900,7 +987,14 @@ export class VesselLayer {
       position,
       new HeadingPitchRoll(CesiumMath.toRadians(sample.bearingDeg - 90), 0, 0),
     )
-    const color = Color.fromCssColorString(style.color)
+    const hullColor = Color.fromCssColorString(style.color)
+    // Already the picked ship – restored from a link before she was ever
+    // reported, or her box rebuilt at a size that arrived late. She is
+    // built lit rather than lighting up a tick afterwards.
+    const highlighted = this.selectedMmsi === vessel.mmsi
+    const color = highlighted
+      ? Color.lerp(hullColor, Color.WHITE, HIGHLIGHT_BOX_MIX, new Color())
+      : hullColor
     const primitive = new Primitive({
       geometryInstances: new GeometryInstance({
         geometry: BoxGeometry.fromDimensions({
@@ -939,6 +1033,8 @@ export class VesselLayer {
 
     const record: VesselRecord = {
       archetype,
+      highlighted,
+      hullColor,
       // Primitive CLONES the modelMatrix passed in – reference its own
       // instance so the in-place updates in sync() actually move the box.
       primitive,
@@ -1007,6 +1103,9 @@ export class VesselLayer {
       record.primitive = null
     }
     record.model = model
+    // The hull replaces the box she was picked on, so it takes the
+    // highlight with it (see setSelected).
+    this.applyVesselAppearance(record, mmsi)
     this.clampExclusionsStale = true
     // fromGltfAsync clones the matrix – rebind so the in-place scale
     // composition in sync() reaches the model.

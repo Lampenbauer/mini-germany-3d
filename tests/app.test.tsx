@@ -48,6 +48,7 @@ vi.mock('@/map/CesiumMap', () => {
     setCloudsEnabled() {}
     flyToStop() {}
     setFollowVessel() {}
+    setSelectedVessel() {}
     syncWebcams() {}
     setWebcamsVisible() {}
     flyToWebcam() {}

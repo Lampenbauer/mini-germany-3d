@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatCameraHash,
-  formatUiStateHash,
   formatStopHash,
+  formatUiStateHash,
   formatVehicleHash,
+  formatVesselHash,
   parseCameraHash,
-  parseUiStateHash,
   parseStopHash,
+  parseUiStateHash,
   parseVehicleHash,
+  parseVesselHash,
   type HashUiState,
 } from '@/lib/camera-hash'
 import { config } from '@/config'
@@ -82,6 +84,33 @@ describe('vehicle selection in the hash', () => {
     expect(parseVehicleHash('')).toBeNull()
     expect(parseVehicleHash('#vehicle=')).toBeNull()
     expect(parseVehicleHash(`#vehicle=${'x'.repeat(200)}`)).toBeNull()
+  })
+})
+
+describe('ship selection in the hash', () => {
+  const view = { latitude: 54.0901, longitude: 12.1405, height: 800, heading: 61, pitch: -57 }
+
+  it('holds ONLY the MMSI and round-trips it', () => {
+    const hash = formatVesselHash(211222290)
+    expect(hash).toBe('#vessel=211222290')
+    expect(parseVesselHash(hash)).toBe(211222290)
+    expect(parseCameraHash(hash)).toBeNull()
+    expect(parseVehicleHash(hash)).toBeNull()
+  })
+
+  it('camera and vehicle hashes carry no ship', () => {
+    expect(formatCameraHash(view)).not.toContain('vessel=')
+    expect(parseVesselHash(formatCameraHash(view))).toBeNull()
+    expect(parseVesselHash(formatVehicleHash('1-0-500'))).toBeNull()
+  })
+
+  it('takes nine digits at most and nothing that is not one', () => {
+    expect(parseVesselHash('#vessel=')).toBeNull()
+    expect(parseVesselHash('#vessel=0')).toBeNull()
+    expect(parseVesselHash('#vessel=1234567890')).toBeNull()
+    expect(parseVesselHash('#vessel=21122229a')).toBeNull()
+    expect(parseVesselHash('#vessel=-211222290')).toBeNull()
+    expect(parseVesselHash('#vessel=999999999')).toBe(999999999)
   })
 })
 

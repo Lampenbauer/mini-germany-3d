@@ -203,6 +203,15 @@ was the brightest thing over Google's tiles and outshouted the line badges. A
 vehicle is the news, a stop is the furniture; if the stop names ever draw the
 eye before the badges do, that is the bug. Do not give them a plate back.
 
+**A picked thing lights up the same way, whatever it is.** The selected
+vehicle's body is washed toward white and rimmed in a 2.5 px silhouette
+(`applyVehicleAppearance`), and since 2026-09-10 the selected ship's hull is
+too (`VesselLayer.setSelected`, `applyVesselAppearance` – the constants there
+are the vehicles' own, borrowed by name). A ship carries no line colour to
+brighten, so her blend goes to white itself; everything else is shared. If a
+third kind of thing ever becomes selectable, it takes the same two marks
+rather than inventing a third.
+
 **"Zoom to line" clears the stage, and every layer that draws on it has to
 join.** `CesiumMap.focusLine` pulses the line's route for
 `ROUTE_PULSE_DURATION_MS` and takes everything else off for exactly that span:
@@ -592,6 +601,15 @@ levels above the docroot (see the header comments in
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
 `ais.simulatedByMmsi` (Rostock FG/FW, Kiel F1/F2, Hamburg 18× HADAG).
+
+**A ship is shareable (`#vessel=<mmsi>`, since 2026-09-10) but not
+reproducible.** The MMSI is as stable an id as a trip id, yet whether she is
+still in the harbour is the harbour's business, so the restore is the
+vehicle's mechanism with a longer fuse — `SHARED_VESSEL_TIMEOUT_MS` is 90 s
+against the vehicle's 20 s, because a trip is in the very first snapshot the
+simulation makes while a ship waits for the poller's first answer and then for
+her own next fix. It expires silently, and it must stay that way: a link that
+opened an empty card would be worse than one that opens the harbour.
 
 **Ships are clamped to the tiles, and the clamps are rationed.** Until
 2026-09-08 every ship sat on sea level plus the calibrated offset, which put

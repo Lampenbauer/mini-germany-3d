@@ -370,6 +370,66 @@ describe('VesselLayer', () => {
    * "Zoom to line" clears the stage: the ship names step aside for the
    * route pulse like the other lines' vehicle badges, and the hulls stay.
    */
+  /**
+   * The picked ship lights up like the picked tram: her hull washed toward
+   * white and rimmed in it (VesselLayer.setSelected). The glTF hulls never
+   * load in Node, so the box placeholder stands in for the model here – and
+   * the model's own fields are written on a stand-in of their own.
+   */
+  describe('the selected ship', () => {
+    /** RGBA the box was built with, straight off its geometry instance. */
+    const boxColor = (h: ReturnType<typeof harness>, mmsi: number) => {
+      const record = h.record(mmsi) as unknown as {
+        primitive: { geometryInstances: { attributes: { color: { value: Uint8Array } } } }
+      }
+      return Array.from(record.primitive.geometryInstances.attributes.color.value)
+    }
+
+    it('builds a ship who is already picked with a lit hull', () => {
+      const plain = harness()
+      plain.layer.sync([vessel()], NOW)
+
+      const lit = harness()
+      // Picked before she was ever reported – the #vessel= link's case
+      lit.layer.setSelected(211222290)
+      lit.layer.sync([vessel()], NOW)
+
+      const before = boxColor(plain, 211222290)
+      const after = boxColor(lit, 211222290)
+      expect(after).not.toEqual(before)
+      // Washed toward white: every channel lighter, alpha untouched
+      for (let i = 0; i < 3; i++) expect(after[i]).toBeGreaterThan(before[i])
+      expect(after[3]).toBe(before[3])
+      expect(lit.layer.selectedVesselMmsi).toBe(211222290)
+    })
+
+    it('leaves the rest of the fleet alone', () => {
+      const h = harness()
+      h.layer.setSelected(211222290)
+      h.layer.sync([vessel(), vessel({ mmsi: 211333440, name: 'AURORA' })], NOW)
+      const plain = harness()
+      plain.layer.sync([vessel({ mmsi: 211333440, name: 'AURORA' })], NOW)
+      expect(boxColor(h, 211333440)).toEqual(boxColor(plain, 211333440))
+    })
+
+    it('writes the wash and the rim onto the hull, and takes both back', () => {
+      const h = harness()
+      h.layer.sync([vessel()], NOW)
+      // Stand-in for the glTF hull, which never loads in Node
+      const model = { colorBlendMode: 0, color: null, colorBlendAmount: 0, silhouetteColor: null, silhouetteSize: 0 }
+      ;(h.record(211222290) as unknown as { model: unknown }).model = model
+
+      h.layer.setSelected(211222290)
+      expect(model.colorBlendAmount).toBeGreaterThan(0)
+      expect(model.silhouetteSize).toBeGreaterThan(0)
+
+      h.layer.setSelected(null)
+      expect(model.colorBlendAmount).toBe(0)
+      expect(model.silhouetteSize).toBe(0)
+      expect(h.layer.selectedVesselMmsi).toBeNull()
+    })
+  })
+
   describe('line focus on the ship names', () => {
     /** The layer reads performance.now(); the ships' own clock is nowMs. */
     let clockMs = 0

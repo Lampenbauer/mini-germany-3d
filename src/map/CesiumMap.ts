@@ -2099,6 +2099,11 @@ export class CesiumMap {
     this.vehicleLayer.setSelected(id)
   }
 
+  /** The picked ship lights up, like the picked vehicle (null = none). */
+  setSelectedVessel(mmsi: number | null): void {
+    this.vesselLayer.setSelected(mmsi)
+  }
+
   setFollow(id: string | null): void {
     // One camera between the two layers, so every change of mind has to
     // release the other one – including a release, which is where this

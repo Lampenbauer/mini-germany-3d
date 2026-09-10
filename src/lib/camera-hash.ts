@@ -3,15 +3,22 @@ import { isMapView, type MapView } from '@/lib/map-view'
 import { isWeatherMode, type WeatherMode } from '@/lib/weather'
 
 /**
- * Persists the view in the URL hash in one of three forms:
+ * Persists the view in the URL hash in one of four forms:
  *   camera pose  #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
  *   vehicle      #vehicle=1-0-500
+ *   ship         #vessel=211222290
  *   stop         #stop=osm-241200227
  * While a selection is up, ONLY its id is in the URL – trip ids are
  * deterministic across reloads (see simTripId), stop ids are the stable
- * network ids – and opening such a link re-selects it (a vehicle is then
- * followed, a stop flown to), so no camera pose is needed. Without a
- * selection the camera pose makes the view shareable.
+ * network ids, an MMSI is the ship herself – and opening such a link
+ * re-selects it (a vehicle and a ship are then followed, a stop flown to),
+ * so no camera pose is needed. Without a selection the camera pose makes
+ * the view shareable.
+ *
+ * The ship is the one whose link can go stale: her MMSI is as stable as
+ * any id, but whether she is still in the harbour an hour later is not up
+ * to us. The restore waits for her and gives up silently, the way the
+ * vehicle restore does for a trip that is not running.
  */
 
 export interface CameraView {
@@ -56,6 +63,25 @@ export function formatCameraHash(view: CameraView): string {
 /** Hash for a selected vehicle – the trip id is the whole shared state. */
 export function formatVehicleHash(vehicleId: string): string {
   return `#vehicle=${encodeURIComponent(vehicleId)}`
+}
+
+/** Hash for a selected ship – her MMSI is the whole shared state. */
+export function formatVesselHash(mmsi: number): string {
+  return `#vessel=${mmsi}`
+}
+
+/**
+ * MMSI of the ship selection carried in the hash, or null. An MMSI is nine
+ * digits at most; anything else is not one, and a ship that is no longer
+ * in the harbour is simply never found by the restore.
+ */
+export function parseVesselHash(hash: string): number | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!raw) return null
+  const vessel = new URLSearchParams(raw).get('vessel')
+  if (!vessel || !/^[0-9]{1,9}$/.test(vessel)) return null
+  const mmsi = Number(vessel)
+  return mmsi > 0 ? mmsi : null
 }
 
 /**
