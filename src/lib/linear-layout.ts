@@ -91,14 +91,16 @@ export interface LinearLayoutOptions {
 const DEFAULTS = {
   // A name set at 60° over a hundred pixels long rises about ninety, so
   // the rows stand far enough apart that a label never reaches the line
-  // above it.
-  rowHeight: 108,
+  // above it – and a little further than that, so the rows read as rows
+  // rather than as a stack; 108 was tight enough that neighbours' names
+  // ran into each other's badge.
+  rowHeight: 150,
   paddingLeft: 40,
   paddingRight: 32,
   paddingTop: 150,
   // Enough that the last row scrolls clear of the view tabs standing at
   // the foot of the map, rather than ending underneath them.
-  paddingBottom: 104,
+  paddingBottom: 120,
   minLabelGapPx: 20,
 }
 

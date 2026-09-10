@@ -98,7 +98,7 @@ describe('buildLinearLayout', () => {
   it('stacks the rows and grows the diagram past the window', () => {
     const lines = Array.from({ length: 20 }, (_, i) => line(`L${i}`, 5000, [0, 5000]))
     const layout = buildLinearLayout(lines, { width: 1040 })
-    expect(layout.rows[1].y - layout.rows[0].y).toBe(108)
+    expect(layout.rows[1].y - layout.rows[0].y).toBe(150)
     expect(layout.height).toBeGreaterThan(2000)
   })
 
@@ -125,7 +125,7 @@ describe('buildLinearLayout', () => {
   it('handles an empty network and a network of zero length', () => {
     const empty = buildLinearLayout([], { width: 1040 })
     expect(empty.rows).toEqual([])
-    expect(empty.height).toBe(254)
+    expect(empty.height).toBe(270)
     const degenerate = buildLinearLayout([line('A', 0, [0])], { width: 1040 })
     expect(degenerate.rows[0].x1).toBe(degenerate.rows[0].x0)
   })
