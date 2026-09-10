@@ -220,6 +220,30 @@ desktop layout; safe-area insets; the diagram itself. The rendering side
 is the mobile tier of the render profile (see "Rendering and
 performance").
 
+**The camera path is the wall clock's, and it is flown by hand.**
+[src/lib/camera-path.ts](src/lib/camera-path.ts) is pure – keyframes
+(the URL's pose tuple), a duration, a pace; `viewAlongPath` says where
+the camera is at `t`, headings turn the short way round, the segments
+share the time equally, the pace eases in and out unless asked not to,
+and the hash form (`path=…&dur=…`, `&ease=linear` for the deviation)
+rides beside the pose hash. `CesiumMap.playCameraPath` sets the pose per
+frame from `performance.now()` in `scene.preUpdate` – not Cesium's
+`flyTo`, which arcs long flights upwards, eases on its own terms and can
+neither be scrubbed nor stopped – and keeps `flyingUntil` so the loop
+renders at full rate. It gives way to anything else that wants the
+camera: a drag (`lastInteractionAt` past the start), a follow, another
+flight, the next city; `onEnd(false)` says so, `onEnd(true)` marks the
+end reached. Two things learnt building it (2026-09-10): the hash writer
+waits for Cesium's `moveEnd`, which needs frames after the motion, and
+after a flight set per frame the loop draws none until its heartbeat –
+so the app writes the pose itself when a flight ends or a keyframe is
+reached; and the test API reads `playing`/`progress` in the same task as
+the click, so those refs are written with the state, not mirrored on
+render. `?play=1` flies the hash's path once the city is ready, once.
+The popover lists two keyframes; the model is a list, so a third is an
+interface change only. `e2e/camera-path.spec.ts` flies one and reads the
+end pose back from the hash.
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,

@@ -1,7 +1,25 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PhotoModePopover } from '@/components/PhotoModePopover'
+import { PhotoModePopover, type CameraPathControls } from '@/components/PhotoModePopover'
+
+/** The camera path section's props, inert – these tests are about the knobs (see camera-path.test.ts for the path). */
+const cameraPathStub: CameraPathControls = {
+  start: null,
+  end: null,
+  durationS: 20,
+  ease: 'linear',
+  playing: false,
+  progress: 0,
+  onSetKeyframe: () => {},
+  onGoTo: () => {},
+  onDurationChange: () => {},
+  onEaseChange: () => {},
+  onPlay: () => {},
+  onStop: () => {},
+  onScrub: () => {},
+  onClear: () => {},
+}
 import { config } from '@/config'
 import { setLanguage } from '@/lib/i18n'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
@@ -19,7 +37,7 @@ afterEach(() => {
 
 function photo(settings: PhotoSettings = DEFAULT_PHOTO_SETTINGS) {
   const onChange = vi.fn()
-  render(<PhotoModePopover interfaceHidden={false} settings={settings} onChange={onChange} />)
+  render(<PhotoModePopover cameraPath={cameraPathStub} interfaceHidden={false} settings={settings} onChange={onChange} />)
   return { onChange }
 }
 

@@ -11,10 +11,21 @@ function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimiti
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+/**
+ * How close to the window's edges a popover may come, in px. Radix
+ * flips and shifts a popover to keep it inside the window; this keeps
+ * it a step short of the edge as well, so a tall one (the photo mode's
+ * knobs) never touches the top or bottom and a wide one never sits
+ * against a side. A scroll area inside a popover budgets for it – see
+ * the photo popover's ceiling.
+ */
+export const POPOVER_EDGE_PADDING = 16
+
 function PopoverContent({
   className,
   align = 'end',
   sideOffset = 8,
+  collisionPadding = POPOVER_EDGE_PADDING,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -23,6 +34,7 @@ function PopoverContent({
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           // Same glass as the map controls it opens from: the panels over
           // the map are translucent cards, not opaque dialogs.

@@ -1,6 +1,20 @@
 
 
 declare global {
+  /** A camera pose as the URL carries it (see src/lib/camera-hash.ts). */
+  interface CameraViewLike {
+    longitude: number
+    latitude: number
+    height: number
+    heading: number
+    pitch: number
+  }
+  /** A camera path as src/lib/camera-path.ts describes it. */
+  interface CameraPathLike {
+    keyframes: CameraViewLike[]
+    durationS: number
+    ease: 'linear' | 'smooth'
+  }
   /** One frame as the linear-view probe sees it (see linear-view.spec.ts). */
   interface LinearProbeFrame {
     drawnByMap: number
@@ -65,6 +79,11 @@ declare global {
       shadowMap: () => { enabled: boolean; allocated: boolean; size: number }
       /** The device tier and the numbers the map draws with (see src/lib/render-profile.ts). */
       renderProfile: () => { tier: 'desktop' | 'mobile'; shadowMapSize: number }
+      /** The camera path (src/lib/camera-path.ts): what is set, whether it is flown, how far along. */
+      cameraPath: () => { path: CameraPathLike | null; playing: boolean; progress: number }
+      setCameraPath: (path: CameraPathLike | null) => void
+      playCameraPath: () => void
+      stopCameraPath: () => void
       /** The miniature effect: on, how much the pose carries, passes compiled. */
       tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
       /** The volumetric clouds: cover, threshold, whether drawn, drift. */

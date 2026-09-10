@@ -11,7 +11,7 @@ import {
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { LayersPopover, type WebcamChoice } from '@/components/LayersPopover'
 import { CompassIcon } from '@/components/CompassIcon'
-import { PhotoModePopover } from '@/components/PhotoModePopover'
+import { PhotoModePopover, type CameraPathControls } from '@/components/PhotoModePopover'
 import { WeatherPopover } from '@/components/WeatherPopover'
 import { CityCard } from '@/components/CityCard'
 import { LineCard } from '@/components/LineCard'
@@ -44,7 +44,17 @@ import {
   parseUiStateHash,
   parseVehicleHash,
   parseVesselHash,
+  type CameraView,
 } from '@/lib/camera-hash'
+import {
+  DEFAULT_DURATION_S,
+  DEFAULT_EASE,
+  formatCameraPathHash,
+  isFlyable,
+  parseCameraPathHash,
+  type CameraPath,
+  type CameraPathEase,
+} from '@/lib/camera-path'
 import {
   detectDeviceTier,
   readDevice,
@@ -211,6 +221,11 @@ export interface MrtTestApi {
   shadowMap: () => { enabled: boolean; allocated: boolean; size: number }
   /** The device tier and the numbers the map draws with (see lib/render-profile.ts). */
   renderProfile: () => RenderProfile
+  /** The camera path (lib/camera-path.ts): what is set, whether it is being flown, how far along. */
+  cameraPath: () => { path: CameraPath | null; playing: boolean; progress: number }
+  setCameraPath: (path: CameraPath | null) => void
+  playCameraPath: () => void
+  stopCameraPath: () => void
 }
 
 declare global {
@@ -242,6 +257,38 @@ interface UrlOptions {
   maxRainDrops: number | undefined
   /** The device tier forced by ?tier=mobile / ?tier=desktop; null reads the device. */
   tier: string | null
+  /** ?play=1: fly the camera path the hash carries once the city is up. */
+  play: boolean
+}
+
+/**
+ * The camera path as the photo popover builds it (see lib/camera-path.ts):
+ * two keyframes that stand apart until both are set, the time between
+ * them and the pace. Only with both set is there a path to fly.
+ */
+interface CameraPathDraft {
+  start: CameraView | null
+  end: CameraView | null
+  durationS: number
+  ease: CameraPathEase
+}
+
+function draftToPath(draft: CameraPathDraft): CameraPath | null {
+  return draft.start && draft.end
+    ? { keyframes: [draft.start, draft.end], durationS: draft.durationS, ease: draft.ease }
+    : null
+}
+
+/** A path's first and last keyframe as the draft – a hash may carry more, the popover shows two. */
+function draftFromPath(path: CameraPath | null): CameraPathDraft {
+  return path
+    ? {
+        start: path.keyframes[0],
+        end: path.keyframes[path.keyframes.length - 1],
+        durationS: path.durationS,
+        ease: path.ease,
+      }
+    : { start: null, end: null, durationS: DEFAULT_DURATION_S, ease: DEFAULT_EASE }
 }
 
 /** Delay of the URL update after the camera settled (moveEnd) in ms. */
@@ -410,6 +457,7 @@ function readUrlOptions(): UrlOptions {
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
     tier: params.get('tier'),
+    play: params.get('play') === '1',
   }
 }
 
@@ -688,6 +736,39 @@ export default function App() {
    * on/off travels in the URL; the rest is the session's.
    */
   const [photo, setPhoto] = useState<PhotoSettings>(DEFAULT_PHOTO_SETTINGS)
+  /**
+   * The camera path (lib/camera-path.ts), set from the photo popover and
+   * carried in the hash – a link brings its own. Whether it is being
+   * flown and how far along are the map's to say (see the handlers
+   * below); the refs are for the hash writer and the test API, which
+   * live in the viewer effect's closures.
+   */
+  const [cameraPathDraft, setCameraPathDraft] = useState<CameraPathDraft>(() =>
+    draftFromPath(parseCameraPathHash(window.location.hash)),
+  )
+  const [cameraPathPlaying, setCameraPathPlayingState] = useState(false)
+  const [cameraPathProgress, setCameraPathProgressState] = useState(0)
+  const cameraPath = useMemo(() => draftToPath(cameraPathDraft), [cameraPathDraft])
+  const cameraPathRef = useRef(cameraPath)
+  cameraPathRef.current = cameraPath
+  const cameraPathDraftRef = useRef(cameraPathDraft)
+  cameraPathDraftRef.current = cameraPathDraft
+  // Written with the state, not mirrored from it on render: the test API
+  // reads these in the same task as the click that changed them
+  const cameraPathPlayingRef = useRef(false)
+  const cameraPathProgressRef = useRef(0)
+  const setCameraPathPlaying = useCallback((playing: boolean) => {
+    cameraPathPlayingRef.current = playing
+    setCameraPathPlayingState(playing)
+  }, [])
+  const setCameraPathProgress = useCallback((progress: number) => {
+    cameraPathProgressRef.current = progress
+    setCameraPathProgressState(progress)
+  }, [])
+  const playCameraPathRef = useRef<() => void>(() => {})
+  const stopCameraPathRef = useRef<() => void>(() => {})
+  /** ?play=1 flies the path once, for the city the link opened on. */
+  const autoPlayedRef = useRef(false)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   /**
    * Air temperature over the city in °C, straight from the weather client
@@ -1119,7 +1200,9 @@ export default function App() {
           clouds: showCloudsRef.current,
           tiltShift: photoRef.current.tiltShift.enabled,
           paused: pausedRef.current,
-        })
+        }) +
+        // The camera path rides along in either form (lib/camera-path.ts)
+        formatCameraPathHash(cameraPathRef.current)
       // Every session's city, the default one included, so the address
       // bar always names the city on screen and a link copied from it
       // carries that name onward – in the language the interface speaks,
@@ -1255,6 +1338,11 @@ export default function App() {
       }
       // Any of the three, the same way the tabs pick them
       if (ui.view !== currentViewRef.current()) selectViewRef.current(ui.view)
+      // The camera path, where the hash's differs from the one set
+      const hashPath = parseCameraPathHash(hash)
+      if (formatCameraPathHash(hashPath) !== formatCameraPathHash(cameraPathRef.current)) {
+        setCameraPathDraft(draftFromPath(hashPath))
+      }
 
       // The city is the path's, and an edited path is a page load, not a
       // hash change – so everything below refers to the city on screen.
@@ -1700,6 +1788,14 @@ export default function App() {
       tileMemory: () => map.getTileMemoryInfo(),
       shadowMap: () => map.getShadowMapInfo(),
       renderProfile: () => renderProfile,
+      cameraPath: () => ({
+        path: cameraPathRef.current,
+        playing: cameraPathPlayingRef.current,
+        progress: cameraPathProgressRef.current,
+      }),
+      setCameraPath: (path) => setCameraPathDraft(draftFromPath(path)),
+      playCameraPath: () => playCameraPathRef.current(),
+      stopCameraPath: () => stopCameraPathRef.current(),
       anyVehicleInView: () => lastAnyVehicleInView,
       streetLamps: () => map.getStreetLampInfo(),
       renderRate: () => {
@@ -2024,6 +2120,12 @@ export default function App() {
       if (api) {
         api.dataSource = data.network.meta.source
         api.ready = true
+      }
+      // ?play=1: a link that brings its own camera path flies it once the
+      // city is up – once, for the city it opened on (lib/camera-path.ts)
+      if (urlOpts.play && !autoPlayedRef.current && isFlyable(cameraPathRef.current)) {
+        autoPlayedRef.current = true
+        playCameraPathRef.current()
       }
     }
     start().catch((error) => {
@@ -2485,6 +2587,118 @@ export default function App() {
     if (next) leaveLinearFor(chase)
     else chase()
   }, [leaveLinearFor])
+
+  /**
+   * The camera path (lib/camera-path.ts) as the photo popover drives it.
+   * Flying it, or standing on one of its keyframes, lets go of a follow
+   * – a camera cannot chase a tram and dolly at once – and of the
+   * diagram, which has no camera to move. The map drops the path itself
+   * for a drag, a follow or the next city (see CesiumMap.playCameraPath)
+   * and says so through onEnd, which is how the play button knows.
+   *
+   * Each of these writes the hash itself once the camera stands: the
+   * writer otherwise waits for Cesium's moveEnd, which needs frames after
+   * the motion – and after a flight set per frame the loop draws none
+   * until its heartbeat, so the pose the link would carry was a moment
+   * of the flight, not its end.
+   */
+  const releaseFollowForPath = useCallback(() => {
+    if (followingRef.current) handleToggleFollow()
+  }, [handleToggleFollow])
+  const handleSetCameraKeyframe = useCallback((which: 'start' | 'end') => {
+    const view = mapRef.current?.getCameraView()
+    if (!view) return
+    setCameraPathDraft((draft) => ({ ...draft, [which]: view }))
+  }, [])
+  const handleGoToCameraKeyframe = useCallback(
+    (which: 'start' | 'end') => {
+      const view = cameraPathDraftRef.current[which]
+      const map = mapRef.current
+      if (!view || !map) return
+      map.stopCameraPath()
+      releaseFollowForPath()
+      leaveLinearFor(() => {
+        map.setView(view)
+        writeHashRef.current()
+      })
+      setCameraPathProgress(which === 'start' ? 0 : 1)
+    },
+    [leaveLinearFor, releaseFollowForPath],
+  )
+  const handlePlayCameraPath = useCallback(() => {
+    const path = cameraPathRef.current
+    const map = mapRef.current
+    if (!map || !isFlyable(path)) return
+    releaseFollowForPath()
+    leaveLinearFor(() => {
+      // The slider follows at 2 % steps – fifty renders a flight, not one a frame
+      let reported = -1
+      map.playCameraPath(path, {
+        onProgress: (t) => {
+          if (t >= reported + 0.02 || t >= 1) {
+            reported = t
+            setCameraPathProgress(t)
+          }
+        },
+        onEnd: () => {
+          setCameraPathPlaying(false)
+          writeHashRef.current()
+        },
+      })
+      setCameraPathPlaying(true)
+    })
+  }, [leaveLinearFor, releaseFollowForPath])
+  const handleStopCameraPath = useCallback(() => {
+    mapRef.current?.stopCameraPath()
+    setCameraPathPlaying(false)
+  }, [])
+  const handleScrubCameraPath = useCallback(
+    (t: number) => {
+      const path = cameraPathRef.current
+      const map = mapRef.current
+      if (!map || !isFlyable(path)) return
+      releaseFollowForPath()
+      leaveLinearFor(() => {
+        map.scrubCameraPath(path, t)
+        writeHashRef.current()
+      })
+      setCameraPathPlaying(false)
+      setCameraPathProgress(t)
+    },
+    [leaveLinearFor, releaseFollowForPath],
+  )
+  const handleCameraPathDuration = useCallback((durationS: number) => {
+    setCameraPathDraft((draft) => ({ ...draft, durationS }))
+  }, [])
+  const handleCameraPathEase = useCallback((ease: CameraPathEase) => {
+    setCameraPathDraft((draft) => ({ ...draft, ease }))
+  }, [])
+  const handleClearCameraPath = useCallback(() => {
+    mapRef.current?.stopCameraPath()
+    setCameraPathPlaying(false)
+    setCameraPathProgress(0)
+    setCameraPathDraft((draft) => ({ ...draft, start: null, end: null }))
+  }, [])
+  playCameraPathRef.current = handlePlayCameraPath
+  stopCameraPathRef.current = handleStopCameraPath
+  // A path set or cleared is a change to the URL that no camera event
+  // announces, so the hash is written here
+  useEffect(() => {
+    writeHashRef.current()
+  }, [cameraPath])
+  const cameraPathControls: CameraPathControls = {
+    ...cameraPathDraft,
+    playing: cameraPathPlaying,
+    progress: cameraPathProgress,
+    onSetKeyframe: handleSetCameraKeyframe,
+    onGoTo: handleGoToCameraKeyframe,
+    onDurationChange: handleCameraPathDuration,
+    onEaseChange: handleCameraPathEase,
+    onPlay: handlePlayCameraPath,
+    onStop: handleStopCameraPath,
+    onScrub: handleScrubCameraPath,
+    onClear: handleClearCameraPath,
+  }
 
   const handleResetCamera = useCallback(() => {
     if (followingRef.current) {
@@ -3347,6 +3561,7 @@ export default function App() {
                 interfaceHidden={interfaceHidden}
                 settings={photo}
                 onChange={handlePhotoChange}
+                cameraPath={cameraPathControls}
                 triggerClassName={cn(GROUPED_CONTROL, 'max-sm:hidden')}
               />
             )}

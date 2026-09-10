@@ -43,6 +43,7 @@ import {
 import { config } from '@/config'
 import { boundingBoxCenter, type BoundingBox, type City } from '@/lib/city'
 import { renderProfileFor, type RenderProfile } from '@/lib/render-profile'
+import { viewAlongPath, type CameraPath } from '@/lib/camera-path'
 import type { PhotoSettings } from '@/lib/photo-settings'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
@@ -785,6 +786,18 @@ export class CesiumMap {
   /** A camera animation (flyTo) is running until this point in time. */
   private flyingUntil = 0
   /**
+   * The camera path being flown (see lib/camera-path.ts): started on
+   * the wall clock, advanced per frame in tickCameraPath, and dropped by
+   * anything else that wants the camera – a drag, a follow, another
+   * flight, the next city.
+   */
+  private cameraPathPlayback: {
+    path: CameraPath
+    startedAt: number
+    onProgress?: (t: number) => void
+    onEnd?: (finished: boolean) => void
+  } | null = null
+  /**
    * A one-off scene change (selection, visibility toggle, stop height,
    * resize, …) needs a frame. Consumed by the app's render loop – outside
    * the interaction/animation/tile-loading states the app only renders on
@@ -1080,7 +1093,10 @@ export class CesiumMap {
       opts.city.boundingBox,
       config.cameraLimits.maxHeightMeters,
     )
-    scene.preUpdate.addEventListener(() => this.enforceCameraLimits())
+    scene.preUpdate.addEventListener(() => {
+      this.tickCameraPath()
+      this.enforceCameraLimits()
+    })
     scene.postRender.addEventListener(() => {
       if (!this.commandPurgePending || this.destroyed) return
       this.commandPurgePending = false
@@ -1483,6 +1499,8 @@ export class CesiumMap {
    * city switch never hands over at all – that switch does it instead.
    */
   setCity(city: City, transition: 'jump' | 'fly', onHandover?: () => void): void {
+    // A path was flown over the city being left
+    this.stopCameraPath()
     // A handover still pending belongs to a flight this one supersedes
     if (this.handoverTimer !== null) {
       window.clearTimeout(this.handoverTimer)
@@ -1622,6 +1640,7 @@ export class CesiumMap {
   }
 
   setCameraHome(animate = true): void {
+    this.stopCameraPath()
     const { heading, pitch } = this.city.home
     const orientation = {
       heading: CesiumMath.toRadians(heading),
@@ -2128,6 +2147,8 @@ export class CesiumMap {
     // release the other one – including a release, which is where this
     // used to go wrong: clearing the vehicle follow left a still-engaged
     // ship chase behind, and the next tick threw the camera into orbit.
+    // A camera path is a third claim on it and gives way to a follow.
+    if (id !== null) this.stopCameraPath()
     this.vesselLayer.setFollow(null)
     this.vehicleLayer.setFollow(id)
   }
@@ -2138,6 +2159,7 @@ export class CesiumMap {
    * see setFollow above for why "either way" matters.
    */
   setFollowVessel(mmsi: number | null): void {
+    if (mmsi !== null) this.stopCameraPath()
     this.vehicleLayer.setFollow(null)
     this.vesselLayer.setFollow(mmsi)
   }
@@ -2679,6 +2701,86 @@ export class CesiumMap {
       height: carto.height,
       heading: CesiumMath.toDegrees(camera.heading),
       pitch: CesiumMath.toDegrees(camera.pitch),
+    }
+  }
+
+  /**
+   * Flies a camera path (lib/camera-path.ts) from its first keyframe:
+   * the pose is set per frame from the wall clock, so the simulation's
+   * pause and time-lapse have no say, and the render loop runs at full
+   * rate for the duration (flyingUntil). `onProgress` gets the way's
+   * fraction each frame; `onEnd` runs once, with `true` when the end is
+   * reached and `false` when the path is dropped for something else – a
+   * drag, a follow, another flight, the next city (see stopCameraPath).
+   */
+  playCameraPath(
+    path: CameraPath,
+    callbacks: { onProgress?: (t: number) => void; onEnd?: (finished: boolean) => void } = {},
+  ): void {
+    this.stopCameraPath()
+    // A follow parks the camera in the followed thing's frame; the path
+    // wants the world's
+    this.vehicleLayer.setFollow(null)
+    this.vesselLayer.setFollow(null)
+    this.cameraPathPlayback = { path, startedAt: performance.now(), ...callbacks }
+    this.flyingUntil = this.cameraPathPlayback.startedAt + path.durationS * 1000 + 200
+    this.applyCameraPathView(0)
+  }
+
+  /** Drops the path being flown, if any; the camera stays where it is. */
+  stopCameraPath(): void {
+    const playback = this.cameraPathPlayback
+    if (!playback) return
+    this.cameraPathPlayback = null
+    this.flyingUntil = 0
+    this.requestRender()
+    playback.onEnd?.(false)
+  }
+
+  isPlayingCameraPath(): boolean {
+    return this.cameraPathPlayback !== null
+  }
+
+  /** Puts the camera `t` of the way (0..1) along a path without flying it – the scrub slider. */
+  scrubCameraPath(path: CameraPath, t: number): void {
+    this.stopCameraPath()
+    this.vehicleLayer.setFollow(null)
+    this.vesselLayer.setFollow(null)
+    this.setView(viewAlongPath(path, t))
+  }
+
+  private applyCameraPathView(t: number): void {
+    const playback = this.cameraPathPlayback
+    if (!playback) return
+    const view = viewAlongPath(playback.path, t)
+    this.viewer.camera.setView({
+      destination: Cartesian3.fromDegrees(view.longitude, view.latitude, view.height),
+      orientation: {
+        heading: CesiumMath.toRadians(view.heading),
+        pitch: CesiumMath.toRadians(view.pitch),
+        roll: 0,
+      },
+    })
+    this.requestRender()
+    playback.onProgress?.(t)
+  }
+
+  /** Per frame (scene.preUpdate): the path's next pose, or its end. */
+  private tickCameraPath(): void {
+    const playback = this.cameraPathPlayback
+    if (!playback) return
+    const now = performance.now()
+    // A hand on the camera – a drag, a wheel, a touch – takes the path off
+    if (this.lastInteractionAt > playback.startedAt) {
+      this.stopCameraPath()
+      return
+    }
+    const t = Math.min(1, (now - playback.startedAt) / (playback.path.durationS * 1000))
+    this.applyCameraPathView(t)
+    if (t >= 1) {
+      this.cameraPathPlayback = null
+      this.flyingUntil = 0
+      playback.onEnd?.(true)
     }
   }
 
