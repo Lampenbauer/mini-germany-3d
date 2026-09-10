@@ -54,6 +54,7 @@ function renderCard(props: Partial<React.ComponentProps<typeof StopCard>> = {}) 
       simSeconds={SIM_SECONDS}
       interchange={interchange}
       onSelectVehicle={() => {}}
+      onSelectLine={() => {}}
       onFlyTo={() => {}}
       onClose={() => {}}
       {...props}
@@ -131,6 +132,15 @@ describe('StopCard', () => {
     expect(nearby).toHaveTextContent('1')
     expect(nearby.textContent).not.toContain('3')
     expect(nearby.textContent).not.toContain('6')
+  })
+
+  it('makes every line on the card a link to it – the ones calling here and the nearby ones', () => {
+    const onSelectLine = vi.fn()
+    renderCard({ onSelectLine })
+    fireEvent.click(screen.getByRole('button', { name: 'Fly to 1' }))
+    expect(onSelectLine).toHaveBeenLastCalledWith('1')
+    fireEvent.click(screen.getByRole('button', { name: 'Fly to 3' }))
+    expect(onSelectLine).toHaveBeenLastCalledWith('3')
   })
 
   it('marks an underground platform', () => {

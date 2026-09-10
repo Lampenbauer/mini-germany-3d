@@ -3133,6 +3133,7 @@ export default function App() {
               simSeconds={simSeconds}
               interchange={interchangeByStop.get(selectedStop.id) ?? []}
               onSelectVehicle={handleSelectDeparture}
+              onSelectLine={handleFocusLine}
               onFlyTo={handleFlyToStop}
               onClose={() => selectStop(null)}
             />

@@ -2,10 +2,10 @@ import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { CardHead, LineChip, SectionLabel } from '@/components/card-parts'
+import { CardHead, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
+import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
-import type { InterchangeOption } from '@/lib/interchange'
 import { t } from '@/lib/i18n'
 import { formatArrival, formatDelay, minutesUntil } from './VehicleCard'
 
@@ -32,9 +32,37 @@ export interface StopCardProps {
   interchange: InterchangeOption[]
   /** Click on a departure whose vehicle is on the map. */
   onSelectVehicle: (tripId: string) => void
+  /**
+   * Click on one of the lines, calling here or a short walk away – does
+   * what clicking that line in the panel does: zooms to it and opens its
+   * card, the way the vehicle card's interchange chips do.
+   */
+  onSelectLine: (lineId: string) => void
   /** Camera flight to the stop. */
   onFlyTo: (stop: StopInfo) => void
   onClose: () => void
+}
+
+/**
+ * A line on the card as a link to it: the same chip-shaped button as the
+ * vehicle card's interchange row. Every line on this card is one – the
+ * lines calling here in the head and the ones a short walk away below –
+ * because a line named on a stop is a line to go and look at.
+ */
+function LineLink(props: { line: InterchangeOption; onSelect: (lineId: string) => void }) {
+  const { line } = props
+  return (
+    <button
+      type="button"
+      className={`${lineChipClass()} cursor-pointer transition-opacity hover:opacity-80`}
+      style={{ backgroundColor: line.color }}
+      aria-label={t('lines.flyTo', { name: line.id })}
+      title={t('lines.flyTo', { name: line.id })}
+      onClick={() => props.onSelect(line.id)}
+    >
+      {line.id}
+    </button>
+  )
 }
 
 /** "in 3 min", "now" under a minute. */
@@ -55,6 +83,7 @@ export function StopCard({
   simSeconds,
   interchange,
   onSelectVehicle,
+  onSelectLine,
   onFlyTo,
   onClose,
 }: StopCardProps) {
@@ -88,7 +117,7 @@ export function StopCard({
       >
         <span className="mt-3 flex flex-wrap gap-1" data-testid="stop-lines">
           {stop.lines.map((line) => (
-            <LineChip key={line.id} id={line.id} color={line.color} />
+            <LineLink key={line.id} line={line} onSelect={onSelectLine} />
           ))}
         </span>
       </CardHead>
@@ -164,7 +193,7 @@ export function StopCard({
             <SectionLabel>{t('stop.nearby')}</SectionLabel>
             <div className="flex flex-wrap gap-1" data-testid="stop-nearby">
               {nearby.map((line) => (
-                <LineChip key={line.id} id={line.id} color={line.color} />
+                <LineLink key={line.id} line={line} onSelect={onSelectLine} />
               ))}
             </div>
           </div>
