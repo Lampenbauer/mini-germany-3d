@@ -1,6 +1,6 @@
 import { Cartesian2, Cartesian3, Matrix4, SceneTransforms } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { STOP_LABEL_RANGE } from '@/map/StopsLayer'
+import { STOP_LABEL_RANGE, STOP_NAME_BUDGET, type StopsLayer } from '@/map/StopsLayer'
 import { keepNonOverlappingLabels } from '@/map/screen-rects'
 import { stopsHarness } from './stops-test-harness'
 
@@ -13,6 +13,12 @@ import { stopsHarness } from './stops-test-harness'
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+/** Projects every disc to the same spot, so the labels collide. */
+const projectAllTo = (x: number, y: number) =>
+  vi
+    .spyOn(SceneTransforms, 'worldToWindowCoordinates')
+    .mockImplementation((_scene, _position, result) => Cartesian2.fromElements(x, y, result))
 
 describe('keepNonOverlappingLabels', () => {
   /*
@@ -73,12 +79,6 @@ describe('stop label declutter on the layer', () => {
     { id: 'b', name: 'Zweite', lon: 12.1005, lat: 54.09, lines: ['1'] },
   ]
 
-  /** Projects every disc to the same spot, so the two labels collide. */
-  const projectAllTo = (x: number, y: number) =>
-    vi
-      .spyOn(SceneTransforms, 'worldToWindowCoordinates')
-      .mockImplementation((_scene, _position, result) => Cartesian2.fromElements(x, y, result))
-
   it('hides one of two colliding labels but leaves both discs alone', () => {
     projectAllTo(400, 300)
     const { layer, disc, label } = stopsHarness(stops)
@@ -134,5 +134,55 @@ describe('stop label declutter on the layer', () => {
     layer.update()
     // Hidden stops are skipped, so the pass ran but projected nothing new
     expect(project.mock.calls.length).toBe(afterFirst)
+  })
+})
+
+/**
+ * Stop names are drawn when their stop first comes close enough to show
+ * one, not when the city goes up: Berlin's 2682 of them cost ~300 ms in the
+ * single frame of the city handover, where none of them could be seen (the
+ * camera is 85 km up by then). Node has no 2D canvas, so what these read is
+ * the bookkeeping – which stops the layer has drawn a name for.
+ */
+describe('stop names are drawn on approach', () => {
+  const named = (layer: StopsLayer): boolean[] =>
+    (layer as unknown as { stopRecords: { named: boolean }[] }).stopRecords.map((r) => r.named)
+
+  /** More stops than one pass may draw, all within label range. */
+  const crowd = Array.from({ length: STOP_NAME_BUDGET + 5 }, (_, i) => ({
+    id: `s${i}`,
+    name: `Haltestelle ${i}`,
+    lon: 12.1 + i * 0.0001,
+    lat: 54.09,
+    lines: ['1'],
+  }))
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('draws none of them when the city goes up', () => {
+    const { layer } = stopsHarness(crowd)
+    expect(named(layer).some(Boolean)).toBe(false)
+  })
+
+  it('draws a budget per pass, nearest first, and asks for the next frame', () => {
+    projectAllTo(400, 300)
+    const { layer, requestRender } = stopsHarness(crowd)
+    requestRender.mockClear()
+
+    layer.update()
+    expect(named(layer).filter(Boolean)).toHaveLength(STOP_NAME_BUDGET)
+    // The rest are still owed, so the pass books itself a rerun
+    expect(requestRender).toHaveBeenCalled()
+
+    layer.update()
+    expect(named(layer).every(Boolean)).toBe(true)
+  })
+
+  it('leaves a stop beyond the label range unnamed', () => {
+    projectAllTo(400, 300)
+    // The camera stands above the range, so nothing is close enough
+    const { layer } = stopsHarness(crowd, { cameraHeight: STOP_LABEL_RANGE * 2 })
+    layer.update()
+    expect(named(layer).some(Boolean)).toBe(false)
   })
 })

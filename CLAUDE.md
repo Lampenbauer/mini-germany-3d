@@ -490,6 +490,35 @@ Consequences to keep in mind:
   changes it live (values 1, 2, 4, 8; the setter silently clamps to the driver's
   `gl.MAX_SAMPLES` and the multisample path is gated on `> 1`).
 
+### The city handover is one frame – nothing may pile up in it
+
+The map changes hands halfway through the flight to the next city
+(`CITY_HANDOVER_FRACTION`), and everything the new city puts up lands in the
+single `scene.render()` after it. Measured 2026-09-10, headed Chromium on the
+real GPU, production build, `?offline=1`, Munich → Berlin: the worst frame gap
+was **398 ms** where a quiet frame is 19 ms — the freeze you can see mid-flight.
+
+The ablation, each by skipping one call and measuring again: routes 0 ms
+(`addRoutes` makes no difference), the fleet 0 ms (a budget of 60 new vehicles
+per tick changed 398 to 370), the badges 28 ms for all 69 of them, and
+**`addStops` 324 ms** — of which 300 ms were the 2682 stop-name canvases and
+their atlas upload. Not the JSON: Berlin's three files parse in 12 ms, before
+the handover. So the name plates are drawn on approach now
+(`STOP_NAME_BUDGET`), which took the handover to **75 ms**.
+
+Two lessons worth keeping:
+
+- **Measure this headed.** Headless SwiftShader made `toDataURL` cost 33 ms a
+  badge (2.3 s in total) and sent the first investigation after the badges;
+  on the real GPU the same call is 0.41 ms. Canvas readback is exactly what
+  software rendering distorts.
+- **`StopsLayer.update()` rides the simulation tick, not the frame** (it is
+  called from `CesiumMap.syncVehicles`), and that tick is 500 ms while the
+  clock is paused with nothing in view. A per-pass budget therefore has to be
+  large enough to converge at 2 Hz, not just at 30 Hz — 24 names a pass took
+  1.6 s to fill a close view, 48 takes under a second, and a pass of 48 costs
+  about 9 ms.
+
 ### Tile LOD: check the memory ratchet first
 
 Cesium raises `memoryAdjustedScreenSpaceError` by 2 %/frame whenever selected

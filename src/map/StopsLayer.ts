@@ -69,11 +69,20 @@ export interface StopHeightSample {
 interface StopEntityRecord {
   /** Disc marker – a billboard in stopBillboards, added before all names. */
   disc: Billboard
-  /** Name – a billboard in stopBillboards, added after all discs. */
+  /**
+   * Name – a billboard in stopBillboards, added after all discs. It carries
+   * no picture until the stop first comes within label range (see
+   * drawStopName); an imageless billboard draws nothing.
+   */
   label: Billboard
+  /** The stop's name, for the day its plate is actually drawn. */
+  name: string
+  /** Whether the name canvas has been drawn onto the label billboard. */
+  named: boolean
   /**
    * Half the rendered name width in CSS px – the screen-space
-   * rectangle for the label declutter.
+   * rectangle for the label declutter. An estimate until the name is
+   * drawn, the measured half-width afterwards.
    */
   labelHalfWidth: number
   /** Ids of all lines serving this stop (stops are shared across lines). */
@@ -118,6 +127,27 @@ const STOP_RESAMPLE_RATIO = 0.7
 
 /** Stop heights measured per pass (one ray intersection each). */
 const STOP_HEIGHT_BUDGET = 4
+
+/**
+ * Name plates drawn per declutter pass. A city's stop names used to be
+ * drawn all at once when the city went up – Berlin's 2682 of them cost
+ * ~300 ms of canvas work and one texture atlas upload, and that landed in
+ * the single frame of the city handover, halfway through the flight, where
+ * it was the whole of the freeze (measured 2026-09-10: 398 ms with the
+ * names, 74 ms without). None of them can be seen at that moment: the
+ * camera is some 85 km up and a name is drawn within STOP_LABEL_RANGE, so
+ * the work was not merely badly timed but pointless. A name is drawn now
+ * when its stop first comes close enough to have one, a few per pass like
+ * the heights beside it, and the atlas ends up holding what was actually
+ * looked at rather than every stop in the city.
+ *
+ * Large enough to converge at the slowest tick the app has: `update()` rides
+ * the simulation tick (see CesiumMap.syncVehicles), which is 500 ms while the
+ * clock is paused with nothing in view, so a close view full of stops fills
+ * in under a second at 48 a pass and took 1.6 s at 24. A pass of 48 costs
+ * about 9 ms. Exported for the test that pins the budget.
+ */
+export const STOP_NAME_BUDGET = 48
 
 /**
  * Minimum spacing between two sampling passes in ms. Deliberately wall-clock
@@ -425,15 +455,13 @@ export class StopsLayer {
       return disc
     })
 
-    // Second pass: every name after every disc
+    // Second pass: every name after every disc – the add ORDER is what
+    // keeps names over discs, so the plates are claimed here even though
+    // they stay empty until the stop is close enough (see STOP_NAME_BUDGET).
     unique.forEach((stop, i) => {
-      const image = this.stopNameImage(stop.name, stop.lines)
       const label = billboards.add({
         id: `stop:${stop.id}`,
         position: positions[i],
-        image: image?.canvas,
-        width: image?.width,
-        height: image?.height,
         horizontalOrigin: HorizontalOrigin.CENTER,
         verticalOrigin: VerticalOrigin.BOTTOM,
         pixelOffset: new Cartesian2(0, STOP_LABEL_OFFSET_Y),
@@ -443,9 +471,12 @@ export class StopsLayer {
       const record: StopEntityRecord = {
         disc: discs[i],
         label,
-        labelHalfWidth: image
-          ? image.width / 2
-          : (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
+        name: stop.name,
+        named: false,
+        // Guessed from the text until the plate is drawn – which is all
+        // there ever is where no canvas exists (Node, jsdom), and what the
+        // declutter then places by.
+        labelHalfWidth: (stop.name.length + stop.lines.join(', ').length + 3) * 3.5,
         lines: stop.lines,
         lineVisible: true,
         inTunnel: stop.inTunnel,
@@ -518,6 +549,23 @@ export class StopsLayer {
       this.stopLabelsDirty = true
       this.host.requestRender()
     }
+  }
+
+  /**
+   * Draws a stop's name onto its plate – the canvas work `add` used to do
+   * for every stop in the city at once. Keyed by stop id so the atlas holds
+   * one region per name however often this is reached, and marked done even
+   * where no canvas exists at all (Node, jsdom), so a nameless environment
+   * does not spend its budget on the same stop every pass.
+   */
+  private drawStopName(record: StopEntityRecord): void {
+    record.named = true
+    const image = this.stopNameImage(record.name, record.lines)
+    if (!image) return
+    record.label.setImage(`mrt:stop-name:${record.disc.id}`, image.canvas)
+    record.label.width = image.width
+    record.label.height = image.height
+    record.labelHalfWidth = image.width / 2
   }
 
   /** Disc image shared by all stops, drawn at the drawing-buffer ratio. */
@@ -640,18 +688,41 @@ export class StopsLayer {
     }
     candidates.sort((a, b) => a.distance - b.distance)
 
+    // Nearest first, so a budget that runs out runs out on the stops
+    // furthest away. A name still undrawn is left out of the declutter
+    // entirely rather than claiming space with its estimated width, and
+    // the pass is marked for a rerun so the rest follow a frame later.
+    let nameBudget = STOP_NAME_BUDGET
+    let namesPending = false
+    const placeable: typeof candidates = []
+    for (const candidate of candidates) {
+      if (!candidate.record.named) {
+        if (nameBudget === 0) {
+          namesPending = true
+          continue
+        }
+        nameBudget--
+        this.drawStopName(candidate.record)
+      }
+      placeable.push(candidate)
+    }
+    if (namesPending) this.stopLabelsDirty = true
+
     const visible = keepNonOverlappingLabels(
-      candidates.map((c) => ({ x: c.x, y: c.y, halfWidth: c.record.labelHalfWidth })),
+      placeable.map((c) => ({ x: c.x, y: c.y, halfWidth: c.record.labelHalfWidth })),
       STOP_LABEL_METRICS,
       this.host.obstacles?.() ?? [],
     )
     let changed = false
-    candidates.forEach((candidate, i) => {
+    placeable.forEach((candidate, i) => {
       if (candidate.record.label.show === visible[i]) return
       candidate.record.label.show = visible[i]
       changed = true
     })
-    if (changed) this.host.requestRender()
+    // A drawn name is a new picture in the atlas, so the frame it was drawn
+    // in has to be repainted whether or not a show flag moved; and while
+    // names are still pending, the next frame is what draws them.
+    if (changed || namesPending || nameBudget < STOP_NAME_BUDGET) this.host.requestRender()
   }
 
   /**
