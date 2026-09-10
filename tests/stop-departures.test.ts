@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { prepareNetwork } from '@/data/network'
 import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
+import { loadRostockNetwork } from './cities'
 import { testNetworkJson } from './fixtures'
 
 /**
@@ -92,8 +93,10 @@ describe('upcomingDepartures', () => {
 })
 
 describe('upcomingDepartures on the real network', () => {
-  it('fills a rush-hour board at a real interchange', async () => {
-    const { loadRostockNetwork } = await import('./cities')
+  it('fills a rush-hour board at a real interchange', () => {
+    // Imported at the top, not here: the city's network.json is parsed
+    // on import, and inside the test that parse counted against its five
+    // seconds – which a loaded two-core CI runner once exceeded.
     const network = loadRostockNetwork()
     const sim = new Simulation(network, new SimClock())
     // Any stop served by at least two tram lines
