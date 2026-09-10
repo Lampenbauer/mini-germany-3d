@@ -51,14 +51,14 @@ permissions:
 
 env:
   # Cesium Ion token of the deployed site. Restricted to
-  # minigermany3d.lampenbauer.com in the Ion dashboard, so it is useless
+  # minigermany3d.com in the Ion dashboard, so it is useless
   # anywhere else and does not need to be a secret – it ships inside the
   # browser bundle regardless. Every build uses it, including the ones
   # that never leave CI: builds of one source tree have to be byte-equal
   # for a later run to reuse one (see "Identify the source tree"), and a
   # second token would break that. A build downloaded and served from
   # somewhere other than that domain falls back to the wireframe globe.
-  ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjJtX1JWREI3a3ZiRUxpQnoiLCJqdGkiOiIyNTExMGU2Yi03ZmRkLTQ4ZGQtYjZjOS03YWZjNGNkMTE5MGEiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIEdlcm1hbnkgM0QiLCJpYXQiOjE3ODg1MDIzNTd9.O0HsQ5TN4oJw6SH6cV2Mahso81FIkuP03_bay239s8Q
+  ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlhQN3BHeHU1cE5FUGxsSnYiLCJqdGkiOiIyNTExMGU2Yi03ZmRkLTQ4ZGQtYjZjOS03YWZjNGNkMTE5MGEiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIEdlcm1hbnkgM0QiLCJpYXQiOjE3ODkwNTcwODl9.WCStuvJT4BrUy9_nvfL9RtaSuk-yvWE9xjmGOS3IoWg
 
 jobs:
   # A restore re-deploys an artifact that already passed all of this on
@@ -460,7 +460,7 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
-          echo "✅ Deployed to https://minigermany3d.lampenbauer.com"
+          echo "✅ Deployed to https://minigermany3d.com"
 
       # A preview stands on the live site until someone takes it down, and
       # the only way down is deploying main. Say so where the run is read.
@@ -471,7 +471,7 @@ jobs:
             {
               echo "### ⚠️ A preview is live"
               echo
-              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minigermany3d.lampenbauer.com> —"
+              echo "**\`$GITHUB_REF_NAME\`** now stands on <https://minigermany3d.com> —"
               echo "for every visitor, not just for you."
               echo
               echo "It stays there until production is restored. To do that, run this"
@@ -481,7 +481,7 @@ jobs:
           else
             echo "### ✅ Production is live" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "\`main\` ($GITHUB_SHA) is on <https://minigermany3d.lampenbauer.com>." >> "$GITHUB_STEP_SUMMARY"
+            echo "\`main\` ($GITHUB_SHA) is on <https://minigermany3d.com>." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Undo button for a preview: takes the artifact of the last successful
@@ -557,7 +557,7 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
-          echo "✅ Restored to https://minigermany3d.lampenbauer.com"
+          echo "✅ Restored to https://minigermany3d.com"
 
       - name: Note what is live now
         if: success()
@@ -569,7 +569,7 @@ jobs:
             echo "### ✅ Production restored"
             echo
             echo "The main build \`$RESTORED_SHA\` (built $BUILT_AT) is back on"
-            echo "<https://minigermany3d.lampenbauer.com>."
+            echo "<https://minigermany3d.com>."
             echo
             echo "No rebuild and no test run – this is the same artifact that passed"
             echo "the full suite when that commit was pushed."

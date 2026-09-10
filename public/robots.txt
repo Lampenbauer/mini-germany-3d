@@ -3,4 +3,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://minigermany3d.lampenbauer.com/sitemap.xml
+Sitemap: https://minigermany3d.com/sitemap.xml

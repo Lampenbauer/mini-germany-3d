@@ -93,7 +93,7 @@ async function draw(file, eyebrow, title) {
 }
 
 mkdirSync(OUT_DIR, { recursive: true })
-await draw('home.png', 'minigermany3d.lampenbauer.com', 'Mini Germany 3D')
+await draw('home.png', 'minigermany3d.com', 'Mini Germany 3D')
 for (const city of CITIES) {
   const names = {}
   for (const lang of ['de', 'en']) {

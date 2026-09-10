@@ -74,7 +74,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 
 > Ion tokens are client-side, publishable tokens – they inevitably end up in the
 > browser bundle. That is exactly why the deployed site is built with a token
-> restricted to `minigermany3d.lampenbauer.com` in the
+> restricted to `minigermany3d.com` in the
 > [Cesium ion dashboard](https://ion.cesium.com/tokens), which makes it useless
 > anywhere else; it sits in `.github/workflows/ci.yml` and every CI build uses it,
 > so that two builds of the same source tree are byte-equal and interchangeable
@@ -699,7 +699,7 @@ tick; until a ship is first seen it rides the calibrated sea-level surface.
 
 `.github/workflows/ci.yml` tests and builds the app and then uploads it via
 rsync/SSH to the all-inkl webhosting (Apache + PHP) at
-`https://minigermany3d.lampenbauer.com`:
+`https://minigermany3d.com`:
 
 1. **One-time setup:** Create four secrets in the repository settings
    (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH

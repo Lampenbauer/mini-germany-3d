@@ -54,7 +54,7 @@ import { STATIC_PAGE_ID } from '@/lib/static-page'
 import { TRANSIT_MODES, type TransitMode } from '@/lib/transit-mode'
 
 /** Where the site is served – the canonical URLs and the sitemap name it in full. */
-export const SITE_ORIGIN = 'https://minigermany3d.lampenbauer.com'
+export const SITE_ORIGIN = 'https://minigermany3d.com'
 
 /** The two languages every page comes in; German first, it is the bare path's. */
 export const PAGE_LANGS: readonly Lang[] = ['de', 'en']
