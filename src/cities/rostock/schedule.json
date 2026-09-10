@@ -1,8 +1,8 @@
 {
   "meta": {
     "source": "gtfs",
-    "serviceDate": "20260909",
-    "serviceCount": 31,
+    "serviceDate": "20260910",
+    "serviceCount": 32,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
     "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. Skipped 1 trips without a clear direction. No GTFS departures for line(s) 2 – they stay off the map (not running that day)."
   },
@@ -13982,7 +13982,8 @@
           68580,
           72180,
           75780,
-          79380
+          79380,
+          82980
         ],
         "tripIds": [
           "1843078",
@@ -14001,7 +14002,8 @@
           "586019",
           "1073141",
           "308684",
-          "1261661"
+          "1261661",
+          "1494817"
         ]
       },
       "1": {
@@ -14022,7 +14024,8 @@
           63540,
           67140,
           70380,
-          73980
+          73980,
+          77580
         ],
         "tripIds": [
           "639730",
@@ -14041,7 +14044,8 @@
           "953713",
           "585978",
           "804236",
-          "1115799"
+          "1115799",
+          "919571"
         ]
       }
     },
@@ -14946,8 +14950,6 @@
           41400,
           43200,
           45000,
-          46800,
-          48600,
           50400,
           51600,
           52800,
@@ -14987,8 +14989,6 @@
           "1721861",
           "1423103",
           "290046",
-          "792443",
-          "507475",
           "645517",
           "578965",
           "1697602",
@@ -15030,8 +15030,6 @@
           42000,
           43800,
           45600,
-          47400,
-          49200,
           51000,
           52200,
           53400,
@@ -15071,8 +15069,6 @@
           "19744",
           "853977",
           "1632083",
-          "518703",
-          "200836",
           "309053",
           "1205775",
           "128644",
