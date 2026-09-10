@@ -45,6 +45,12 @@ import {
   parseVehicleHash,
   parseVesselHash,
 } from '@/lib/camera-hash'
+import {
+  detectDeviceTier,
+  readDevice,
+  renderProfileFor,
+  type RenderProfile,
+} from '@/lib/render-profile'
 import { formatSitePath, parseSitePath } from '@/lib/site-path'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
@@ -201,7 +207,9 @@ export interface MrtTestApi {
     effectiveSse: number
   } | null
   /** The sun shadow map: switched on, and whether its texture is currently allocated. */
-  shadowMap: () => { enabled: boolean; allocated: boolean }
+  shadowMap: () => { enabled: boolean; allocated: boolean; size: number }
+  /** The device tier and the numbers the map draws with (see lib/render-profile.ts). */
+  renderProfile: () => RenderProfile
 }
 
 declare global {
@@ -231,6 +239,8 @@ interface UrlOptions {
   maximumScreenSpaceError: number | undefined
   /** Cap on the rain drop pool (?drops=50) – keeps the E2E rain test cheap. */
   maxRainDrops: number | undefined
+  /** The device tier forced by ?tier=mobile / ?tier=desktop; null reads the device. */
+  tier: string | null
 }
 
 /** Delay of the URL update after the camera settled (moveEnd) in ms. */
@@ -398,6 +408,7 @@ function readUrlOptions(): UrlOptions {
     webcams: params.get('webcams') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
+    tier: params.get('tier'),
   }
 }
 
@@ -498,6 +509,15 @@ export default function App() {
    * component, because the refs and the state below seed themselves from it.
    */
   const [urlOpts] = useState(readUrlOptions)
+  /**
+   * What this device can afford to draw (lib/render-profile.ts), read
+   * once: the map is built with it, and the numbers do not change while
+   * it stands.
+   */
+  const [renderProfile] = useState(() => {
+    const device = readDevice()
+    return renderProfileFor(detectDeviceTier(device, urlOpts.tier), device.deviceMemoryGb)
+  })
   /**
    * The city on the map, by slug. Changing it ends the current city
    * session (the effect below tears its layers and pollers down) and
@@ -1120,6 +1140,7 @@ export default function App() {
     const map = new CesiumMap(container, {
       city: cityBySlug(citySlugRef.current) ?? CITIES[0],
       offline: urlOpts.offline,
+      renderProfile,
       // The map is built wearing the look the URL asked for (or the
       // default), so no swap has to run before the first frame.
       tiltShift: photoRef.current.tiltShift.enabled,
@@ -1664,6 +1685,7 @@ export default function App() {
         lineId === undefined ? map.getBridgeDeckInfo() : map.getBridgeDeckDetails(lineId),
       tileMemory: () => map.getTileMemoryInfo(),
       shadowMap: () => map.getShadowMapInfo(),
+      renderProfile: () => renderProfile,
       anyVehicleInView: () => lastAnyVehicleInView,
       streetLamps: () => map.getStreetLampInfo(),
       renderRate: () => {

@@ -571,10 +571,26 @@ Consequences to keep in mind:
 - Shadows are gated by projected caster size (`SHADOW_MIN_CASTER_PX = 2` CSS px),
   and the sky atmosphere is hidden while the horizon is out of the frustum
   (Cesium draws it every frame with no frustum test otherwise).
-- `SHADOW_MAP_SIZE` is **8192** (a 16384² texture, ~1 GB — Cesium packs the 4
-  cascades 2×2). The user deliberately raised this back from 4096 for the shadow
-  edge. **Do not propose lowering it again**; the 256 MB / ~2.5 ms it saves are
-  known and were weighed.
+- The desktop's shadow cascade is **8192** (a 16384² texture, ~1 GB — Cesium
+  packs the 4 cascades 2×2). The user deliberately raised this back from 4096
+  for the shadow edge. **Do not propose lowering it again**; the 256 MB /
+  ~2.5 ms it saves are known and were weighed. It lives in the desktop
+  profile now (below), which is the only place the number is.
+- **Every rendering number above is the desktop profile's.** Since
+  2026-09-10 the map draws from a `RenderProfile`
+  ([src/lib/render-profile.ts](src/lib/render-profile.ts)) handed in by
+  `App.tsx`: two tiers, `desktop` with every number as measured here and
+  `mobile` – a touch screen whose shorter side is under 900 CSS px, or
+  any device reporting 2 GB or less – with a 2048 cascade (64 MB), no
+  MSAA, a pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
+  384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
+  instead of 3.5 and a 600-drop rain pool. `?tier=` forces either;
+  `__mrt.renderProfile()` and `__mrt.shadowMap().size` show what is in
+  force. The mobile numbers are a first cut, chosen for memory (a
+  mid-range phone gives a tab well under a gigabyte) rather than
+  measured frame by frame – measure on a phone before tuning them, with
+  `renderPacing()` and `tileMemory()`, the same way the desktop's were.
+  A new rendering knob goes into the profile, not beside it.
 - **MSAA is 2×** since 2026-09-08 (`msaaSamples` in the `Viewer` options), down
   from Cesium's default of 4. It was the most expensive item in a frame — 11.7 of
   the home view's 19 GPU ms — and the sampling rate is spent almost entirely on

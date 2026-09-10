@@ -17,7 +17,7 @@ const mockCameraHomeCalls = vi.hoisted(() => ({ count: 0 }))
 const mockCamera = vi.hoisted(() => ({ orientations: 0, tiltShift: false, pitch: -38 }))
 
 /** How each city move was asked for – a flight from the picker, a jump from a link or the welcome screen. */
-const mockMoves = vi.hoisted(() => ({ transitions: [] as string[] }))
+const mockMoves = vi.hoisted(() => ({ transitions: [] as string[], renderProfile: undefined as unknown }))
 
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
@@ -25,9 +25,10 @@ vi.mock('@/map/CesiumMap', () => {
     city: unknown
     constructor(
       _container: HTMLElement,
-      opts: { city: unknown; onTilesetStatus?: (s: string) => void },
+      opts: { city: unknown; renderProfile?: unknown; onTilesetStatus?: (s: string) => void },
     ) {
       this.city = opts.city
+      mockMoves.renderProfile = opts.renderProfile
       opts.onTilesetStatus?.('offline')
     }
     get currentCity() {
@@ -365,6 +366,20 @@ describe('App (UI shell)', () => {
     // The German page has no language prefix (lib/site-path.ts)
     expect(window.location.pathname).toBe('/kiel/')
     expect(window.location.search).toBe('?welcome=0&offline=1')
+  })
+
+  it('builds the map with the device tier the URL forces', async () => {
+    // jsdom reads as a desktop (no touch points); ?tier=mobile overrides the reading
+    window.history.replaceState(null, '', '/kiel/?welcome=0&tier=mobile')
+    render(<App />)
+    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(window.__mrt!.renderProfile().tier).toBe('mobile')
+    expect(mockMoves.renderProfile).toBe(window.__mrt!.renderProfile())
+    cleanup()
+    window.history.replaceState(null, '', '/kiel/?welcome=0')
+    render(<App />)
+    expect(window.__mrt!.renderProfile().tier).toBe('desktop')
+    expect(window.__mrt!.renderProfile().shadowMapSize).toBe(8192)
   })
 
   it('shows the static page again and says why when the app cannot start', () => {

@@ -109,6 +109,12 @@ export interface VehicleLayerHost {
   /** 0..1 day→night ramp – the cabin glow fades in along it. */
   readonly nightFactor: number
   readonly pixelRatio: number
+  /**
+   * How far out a body is drawn, in metres at the reference lens –
+   * the device's profile (lib/render-profile.ts); the desktop's number
+   * (VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE) where the host says nothing.
+   */
+  readonly vehicleBodyRangeM?: number
   readonly offline: boolean
   /** Fixed ground height for the deterministic tests, if set. */
   readonly fixedGroundHeight: number | undefined
@@ -859,7 +865,8 @@ export class VehicleLayer {
     const focusedLine = this.focusedLine()
     const framingScale = cameraFramingScale(camera)
     const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * framingScale
-    const bodyRange = VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE * framingScale
+    const bodyRange =
+      (this.host.vehicleBodyRangeM ?? VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE) * framingScale
     // Webcam pictures on screen – a badge that would sit on one steps aside
     const obstacles = this.host.obstacles?.() ?? []
     // On-screen motion since the last rendered frame (see screen-motion.ts):

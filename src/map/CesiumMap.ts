@@ -42,6 +42,7 @@ import {
 } from 'cesium'
 import { config } from '@/config'
 import { boundingBoxCenter, type BoundingBox, type City } from '@/lib/city'
+import { renderProfileFor, type RenderProfile } from '@/lib/render-profile'
 import type { PhotoSettings } from '@/lib/photo-settings'
 import { CameraLens, cameraFramingScale } from './CameraLens'
 import { FRAMING_SCALE } from './camera-fov'
@@ -104,6 +105,13 @@ export interface CesiumMapOptions {
    * software renderer; a small pool exercises the same paths far cheaper.
    */
   maxRainDrops?: number
+  /**
+   * What the device can afford to draw (see lib/render-profile.ts): the
+   * shadow map, the multisampling, the pixel-ratio cap, the tile budget
+   * and how far out a vehicle body is drawn. Default: the desktop
+   * profile, the numbers the map was tuned with.
+   */
+  renderProfile?: RenderProfile
   /**
    * Whether the miniature look is on from the first frame; default
    * config.camera.miniatureDefault. A restored URL hash passes its own
@@ -259,21 +267,23 @@ const SHADOW_SUN_MIN = 0.05
  * SHADOW_MAP_SIZE is spread over that extent – raising the distance
  * without the pixels to go with it is what makes the edge stair-step.
  *
- * It is the size of ONE cascade. Cesium's sun shadow has four of them
- * and packs them 2×2 into a single texture, so the texture it allocates
- * is twice this on each side (ShadowMap.js, resize): 8192 here is a
- * 16384² depth texture – a gigabyte of GPU memory and the largest
- * texture most GPUs allow (Cesium halves the size where one allows
- * less). The maintainer's choice, for the edge. The alternative, 4096,
- * would be an 8192² texture of 256 MB and ~2.5 ms less per frame while
- * shadows are on (measured 2026-09-05), at half the texels per meter of
- * shadow. Since the shadowed volume ends where a caster stops spanning a
- * couple of pixels (applyShadowState), the cascades spend these texels
- * on a short range, and the edge is finer than it was at the map's old
- * 8.8 km reach.
+ * The size is the profile's (RenderProfile.shadowMapSize) and is that
+ * of ONE cascade. Cesium's sun shadow has four of them and packs them
+ * 2×2 into a single texture, so the texture it allocates is twice this
+ * on each side (ShadowMap.js, resize): the desktop's 8192 is a 16384²
+ * depth texture – a gigabyte of GPU memory and the largest texture most
+ * GPUs allow (Cesium halves the size where one allows less). The
+ * maintainer's choice, for the edge. The alternative, 4096, would be an
+ * 8192² texture of 256 MB and ~2.5 ms less per frame while shadows are
+ * on (measured 2026-09-05), at half the texels per meter of shadow.
+ * Since the shadowed volume ends where a caster stops spanning a couple
+ * of pixels (applyShadowState), the cascades spend these texels on a
+ * short range, and the edge is finer than it was at the map's old
+ * 8.8 km reach. The mobile profile draws at 2048 – 64 MB – because a
+ * phone has no gigabyte to give and a screen small enough that the
+ * coarser edge reads.
  */
 const SHADOW_DARKNESS = 0.52
-const SHADOW_MAP_SIZE = 8192
 const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
 
 /**
@@ -306,7 +316,7 @@ const FALLBACK_VESSEL_WIDTH_M = 10
 /**
  * Shadows off for this long and the shadow map's texture is released
  * (see releaseShadowMap). Cesium allocates it on the first shadowed frame
- * and frees it only with the scene: at SHADOW_MAP_SIZE, the four cascades
+ * and frees it only with the scene: at the desktop's size, the four cascades
  * packed 2×2, that is a 16384² depth texture – 1 GB by Cesium's count,
  * ~1.5 GB by the OS's (measured 2026-09-07) – sitting in the GPU process
  * for the rest of the session after one visit to the streets. Re-creating
@@ -317,7 +327,9 @@ const SHADOW_MAP_RELEASE_MS = 5000
 
 /**
  * How many tiles the tileset's tree may hold before a fresh copy takes
- * its place (see replaceTileset). Cesium unloads tile CONTENT to stay
+ * its place (see replaceTileset) – the profile's tileTreeLimit, 300 000
+ * on the desktop, a third of that on a phone with its smaller heap. The
+ * desktop's number and where it comes from: Cesium unloads tile CONTENT to stay
  * inside cacheBytes, but never the tree itself: an external tileset,
  * once fetched, keeps its subtree of Cesium3DTile objects for the life
  * of the tileset, and Google's globe is stitched from hundreds of
@@ -337,7 +349,6 @@ const SHADOW_MAP_RELEASE_MS = 5000
  * reloaded each time, two tilesets traversing per frame in between. So:
  * generous, and only ever acted on at rest (see tendTileset).
  */
-const TILE_TREE_LIMIT = 300_000
 
 /**
  * How long after a city flight lands the old tileset stays up while the
@@ -667,6 +678,8 @@ function purgeStaleCommands(scene: Scene): void {
 export class CesiumMap {
   readonly viewer: Viewer
   private readonly opts: CesiumMapOptions
+  /** The numbers this map draws with (see lib/render-profile.ts). */
+  private readonly profile: RenderProfile
 
   /** Time-of-day shader of the Google tiles (null offline/fallback). */
   private tileShader: CustomShader | null = null
@@ -803,6 +816,9 @@ export class CesiumMap {
   constructor(container: HTMLElement, opts: CesiumMapOptions) {
     this.opts = opts
     this.city = opts.city
+    this.profile =
+      opts.renderProfile ??
+      renderProfileFor('desktop', (navigator as { deviceMemory?: number }).deviceMemory)
     // Offline (ellipsoid): ground is exactly at 0 m
     this.defaultGroundHeight =
       opts.fixedGroundHeight ?? (opts.offline ? 0 : this.groundFirstGuess(opts.city))
@@ -830,8 +846,9 @@ export class CesiumMap {
       // differs in 17 % of the pixels, 4× against 2× in only 14 %, nearly
       // all of that the edges of the route polylines. The second sample is
       // what turns a staircase into a line; the third and fourth refine an
-      // edge that already reads as straight.
-      msaaSamples: 2,
+      // edge that already reads as straight. A phone draws at 1: its
+      // fill rate is the scarce thing there (see lib/render-profile.ts).
+      msaaSamples: this.profile.msaaSamples,
       // Render at native device resolution: Cesium's default is CSS-pixel
       // resolution, which leaves labels and edges visibly pixelated on
       // Retina/HiDPI displays.
@@ -849,10 +866,11 @@ export class CesiumMap {
       shadows: false,
     })
 
-    // Cap the effective pixel ratio at 2×: beyond that the extra sharpness
-    // is invisible but the fill-rate cost keeps growing quadratically.
+    // Cap the effective pixel ratio (2× on the desktop, 1.5× on a phone):
+    // beyond that the extra sharpness is invisible but the fill-rate cost
+    // keeps growing quadratically.
     const pixelRatio = window.devicePixelRatio || 1
-    this.effectivePixelRatio = Math.min(pixelRatio, 2)
+    this.effectivePixelRatio = Math.min(pixelRatio, this.profile.maxPixelRatio)
     this.viewer.resolutionScale = this.effectivePixelRatio / pixelRatio
 
     // Debug/test access to the viewer (e.g. for E2E tests)
@@ -867,7 +885,7 @@ export class CesiumMap {
     this.weather = new WeatherOverlay(
       this.viewer,
       () => this.requestRender(),
-      opts.maxRainDrops,
+      opts.maxRainDrops ?? this.profile.maxRainDrops,
       // Rain falls from the clouds: no drop above their base, whether or
       // not the clouds themselves are drawn
       () => this.defaultGroundHeight + CLOUD_BASE_M,
@@ -944,6 +962,7 @@ export class CesiumMap {
       get pixelRatio() {
         return map.effectivePixelRatio
       },
+      vehicleBodyRangeM: this.profile.vehicleBodyRangeM,
       offline: opts.offline === true,
       fixedGroundHeight: opts.fixedGroundHeight,
       noteCameraFlight: (durationMs) => {
@@ -1011,7 +1030,7 @@ export class CesiumMap {
     const shadowMap = scene.shadowMap
     shadowMap.darkness = SHADOW_DARKNESS
     shadowMap.softShadows = false
-    shadowMap.size = SHADOW_MAP_SIZE
+    shadowMap.size = this.profile.shadowMapSize
     shadowMap.maximumDistance = SHADOW_MAX_DISTANCE
 
     // The lens: narrow while the miniature look is on, plain while it is
@@ -1220,10 +1239,9 @@ export class CesiumMap {
     // at tilted views – tuned via the ?sse= override to 6 CSS px, the
     // value where the middle distance reads as sharp. A tilted city
     // view then needs roughly 1.1 GB of tile memory, still inside the
-    // cache budget below.
-    const TILE_SSE_CSS_PX = 6
+    // cache budget below. A phone takes the profile's coarser budget.
     tileset.maximumScreenSpaceError =
-      this.opts.maximumScreenSpaceError ?? TILE_SSE_CSS_PX * this.effectivePixelRatio
+      this.opts.maximumScreenSpaceError ?? this.profile.tileSseCssPx * this.effectivePixelRatio
     // Cesium's dynamic SSE (on by default) additionally relaxes the error
     // budget for tiles far from a tilted camera by up to
     // dynamicScreenSpaceErrorFactor pixels – and because the "street
@@ -1239,12 +1257,11 @@ export class CesiumMap {
     // (memoryAdjustedScreenSpaceError) until the view fits – silently
     // overriding every SSE setting above and leaving distant tiles far
     // coarser than configured, no matter how the knobs are tuned. Give
-    // the photorealistic tileset a budget that matches its appetite,
-    // scaled down for low-memory devices (navigator.deviceMemory is in
-    // GB and Chrome-only, capped at 8; elsewhere assume mid-range).
-    const deviceMemoryGb = (navigator as { deviceMemory?: number }).deviceMemory ?? 4
-    tileset.cacheBytes = (deviceMemoryGb >= 8 ? 2048 : 1024) * 1024 * 1024
-    tileset.maximumCacheOverflowBytes = 1024 * 1024 * 1024
+    // the photorealistic tileset a budget that matches its appetite –
+    // the profile's, scaled down for low-memory devices and again for a
+    // phone (see lib/render-profile.ts).
+    tileset.cacheBytes = this.profile.tileCacheMb * 1024 * 1024
+    tileset.maximumCacheOverflowBytes = this.profile.tileOverflowMb * 1024 * 1024
     // Day/night ambience following the simulated time (see setSceneTime).
     // One shader for every tileset this map ever holds: the two overcast
     // uniforms are driven by the weather overlay, which pushes its current
@@ -1434,7 +1451,7 @@ export class CesiumMap {
     if (
       now >= this.treeRebuildAllowedAt &&
       !this.cameraBusy(now) &&
-      tileStatistics(current).numberOfTilesTotal > TILE_TREE_LIMIT
+      tileStatistics(current).numberOfTilesTotal > this.profile.tileTreeLimit
     ) {
       // No deadline: it takes over when it is ready, or not at all
       this.replaceTileset(Number.POSITIVE_INFINITY, 'tree')
@@ -2088,11 +2105,12 @@ export class CesiumMap {
     this.requestRender()
   }
 
-  /** Debug/tests: whether the sun shadow map is on and whether its texture exists. */
-  getShadowMapInfo(): { enabled: boolean; allocated: boolean } {
+  /** Debug/tests: whether the sun shadow map is on, whether its texture exists, and its cascade size. */
+  getShadowMapInfo(): { enabled: boolean; allocated: boolean; size: number } {
     return {
       enabled: this.viewer.shadows,
       allocated: shadowMapAllocated(this.viewer.scene.shadowMap),
+      size: this.viewer.scene.shadowMap.size,
     }
   }
 
