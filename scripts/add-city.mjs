@@ -220,7 +220,7 @@ async function main() {
     cityBounds,
     paddingMeters: padding,
     boundingBox,
-    home: { longitude: center.longitude, latitude: center.latitude, height: 5800, heading: 0, pitch: -40 },
+    home: { longitude: center.longitude, latitude: center.latitude, height: 7400, heading: 0, pitch: -40 },
     weather: center,
     network: {
       modes: ['tram', 'subway', 'train', 'bus', 'ferry'],
