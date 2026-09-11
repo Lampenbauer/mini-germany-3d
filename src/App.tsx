@@ -809,6 +809,7 @@ export default function App() {
   }, [])
   const playCameraPathRef = useRef<() => void>(() => {})
   const stopCameraPathRef = useRef<() => void>(() => {})
+  const clearCameraPathRef = useRef<() => void>(() => {})
   /** ?play=1 flies the path once, for the city the link opened on. */
   const autoPlayedRef = useRef(false)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
@@ -2354,6 +2355,12 @@ export default function App() {
       // The chase goes at once whatever happens next: a camera hanging on
       // a tram cannot also fly to another city.
       mapRef.current?.setFollow(null)
+      // The camera path's keyframes are poses over the city that is
+      // leaving – a shot over Rostock says nothing in Kiel. Cleared the
+      // way the popover's own button clears it: keyframes and progress,
+      // not the seconds and the pace, which are the reader's settings.
+      // A link's path is safe: this runs only when a session ends.
+      clearCameraPathRef.current()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citySlug, welcomeAsking])
@@ -2838,6 +2845,7 @@ export default function App() {
   }, [])
   playCameraPathRef.current = handlePlayCameraPath
   stopCameraPathRef.current = handleStopCameraPath
+  clearCameraPathRef.current = handleClearCameraPath
   // A path set or cleared is a change to the URL that no camera event
   // announces, so the hash is written here
   useEffect(() => {

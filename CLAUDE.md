@@ -242,7 +242,11 @@ the click, so those refs are written with the state, not mirrored on
 render. `?play=1` flies the hash's path once the city is ready, once.
 The popover lists two keyframes; the model is a list, so a third is an
 interface change only. `e2e/camera-path.spec.ts` flies one and reads the
-end pose back from the hash.
+end pose back from the hash. A city switch drops the keyframes (the
+session cleanup in `App.tsx`, through `clearCameraPathRef` – the same
+clearing the popover's button does, seconds and pace kept): they are
+poses over the city that is leaving. A link's path is safe, the cleanup
+runs only when a session ends; `tests/app.test.tsx` pins both.
 
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs

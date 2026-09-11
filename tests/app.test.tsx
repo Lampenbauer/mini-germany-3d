@@ -119,6 +119,22 @@ vi.mock('@/map/CesiumMap', () => {
     hasVehicle() {
       return false
     }
+    // The render loop's pacing and the camera path, as the tick reaches
+    // them: a stub that lacks one of these throws out of the loop, which
+    // only logs it – and every tick after the throw is lost.
+    setPaceWholeView() {}
+    cloudMotionPxPerSecond() {
+      return 0
+    }
+    isChasing() {
+      return false
+    }
+    cameraMovedSinceRender() {
+      return false
+    }
+    playCameraPath() {}
+    stopCameraPath() {}
+    scrubCameraPath() {}
     destroy() {}
   }
   return { CesiumMap }
@@ -289,6 +305,30 @@ describe('App (UI shell)', () => {
     // none to poll, so it is the clear one such a session opens on
     expect(window.location.hash).toContain('weather=clear')
     expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
+  })
+
+  it('drops the camera path with the city it was shot over, keeping its seconds and pace', async () => {
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    window.__mg3d!.setCameraPath({
+      keyframes: [
+        { longitude: 12.1, latitude: 54.06, height: 3000, heading: 350, pitch: -40 },
+        { longitude: 12.14, latitude: 54.1, height: 1500, heading: 20, pitch: -30 },
+      ],
+      durationS: 12,
+      ease: 'linear',
+    })
+    await waitFor(() => expect(window.__mg3d!.cameraPath().path).not.toBeNull())
+    await waitFor(() => expect(window.location.hash).toContain('path='))
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    // The keyframes were poses over Rostock: gone, with the hash they rode in
+    expect(window.__mg3d!.cameraPath()).toMatchObject({ path: null, playing: false, progress: 0 })
+    await waitFor(() => expect(window.location.hash).not.toContain('path='))
+    // The seconds and the pace are settings, not places – they stay
+    // for the next shot
+    expect(screen.getByRole('button', { name: 'Photo mode' })).toBeInTheDocument()
   })
 
   it('asks for a city on a plain visit, keeps the map bare behind the door and jumps there', async () => {
