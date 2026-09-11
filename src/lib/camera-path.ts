@@ -38,7 +38,7 @@ export interface CameraPath {
 export const MAX_KEYFRAMES = 8
 export const MIN_DURATION_S = 1
 export const MAX_DURATION_S = 600
-export const DEFAULT_DURATION_S = 20
+export const DEFAULT_DURATION_S = 30
 /** The pace a path opens with; the hash names the other one only. */
 export const DEFAULT_EASE: CameraPathEase = 'smooth'
 
@@ -150,6 +150,17 @@ export function parseCameraPathHash(hash: string): CameraPath | null {
     ease: params.get('ease') === 'linear' ? 'linear' : DEFAULT_EASE,
   }
   return isFlyable(candidate) ? candidate : null
+}
+
+/**
+ * A moment on the timeline the way a player shows it – "0:00", "3:23",
+ * "10:05": whole seconds, the minutes unpadded. Used for the two ends of
+ * the bar's timeline, the position on the left and the length on the
+ * right.
+ */
+export function formatPathTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
 /**

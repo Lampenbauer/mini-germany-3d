@@ -1,25 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PhotoModePopover, type CameraPathControls } from '@/components/PhotoModePopover'
-
-/** The camera path section's props, inert – these tests are about the knobs (see camera-path.test.ts for the path). */
-const cameraPathStub: CameraPathControls = {
-  start: null,
-  end: null,
-  durationS: 20,
-  ease: 'linear',
-  playing: false,
-  progress: 0,
-  onSetKeyframe: () => {},
-  onGoTo: () => {},
-  onDurationChange: () => {},
-  onEaseChange: () => {},
-  onPlay: () => {},
-  onStop: () => {},
-  onScrub: () => {},
-  onClear: () => {},
-}
+import { PhotoModePopover } from '@/components/PhotoModePopover'
+import { CameraPathBar, type CameraPathControls } from '@/components/CameraPathBar'
 import { config } from '@/config'
 import { setLanguage } from '@/lib/i18n'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
@@ -35,10 +18,19 @@ afterEach(() => {
   setLanguage('en')
 })
 
-function photo(settings: PhotoSettings = DEFAULT_PHOTO_SETTINGS) {
+function photo(settings: PhotoSettings = DEFAULT_PHOTO_SETTINGS, cameraPathOpen = false) {
   const onChange = vi.fn()
-  render(<PhotoModePopover cameraPath={cameraPathStub} interfaceHidden={false} settings={settings} onChange={onChange} />)
-  return { onChange }
+  const onToggleCameraPath = vi.fn()
+  render(
+    <PhotoModePopover
+      interfaceHidden={false}
+      settings={settings}
+      onChange={onChange}
+      cameraPathOpen={cameraPathOpen}
+      onToggleCameraPath={onToggleCameraPath}
+    />,
+  )
+  return { onChange, onToggleCameraPath }
 }
 
 /** Opens the popover the way a viewer does – nothing inside exists before. */
@@ -57,11 +49,17 @@ const CAMERA_KNOBS = ['Focal length', 'Exposure', 'White balance', 'Contrast', '
 const MINIATURE_KNOBS = ['Blur', 'Sharp band', 'Feather', 'Focus line', 'Bokeh', 'Sharpening']
 
 describe('the photo mode popover', () => {
-  it('keeps its knobs behind the button until it is opened', () => {
+  it('keeps its knobs behind the button until it is opened, and folds them away on a click beside it', async () => {
     photo()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
     open()
     expect(screen.getAllByRole('slider').length).toBeGreaterThan(0)
+    // Radix arms its outside listener a tick after opening, and acts on
+    // the click that follows the pointer going down outside
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    fireEvent.pointerDown(document.body, { button: 0 })
+    fireEvent.click(document.body)
+    await waitFor(() => expect(screen.queryByRole('slider')).not.toBeInTheDocument())
   })
 
   it('offers the camera and picture knobs and the miniature switch', () => {
@@ -202,6 +200,26 @@ describe('the photo mode popover', () => {
     expect(screen.getByRole('button', { name: 'Photo mode' })).toHaveClass('bg-primary/90')
   })
 
+  it('ends with the button that opens the camera path bar, pressed while the bar is up', () => {
+    const { onToggleCameraPath } = photo()
+    open()
+    // The last control in the popover, after the miniature switch
+    const button = screen.getByRole('button', { name: 'Camera path', pressed: false })
+    const controls = screen.getAllByRole('button').concat(screen.getAllByRole('switch'))
+    const after = controls.filter(
+      (el) => el !== button && button.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(after).toHaveLength(0)
+    fireEvent.click(button)
+    expect(onToggleCameraPath).toHaveBeenCalledTimes(1)
+    // The bar itself is not in here – it stands over the map
+    expect(screen.queryByTestId('camera-path-bar')).not.toBeInTheDocument()
+    cleanup()
+    photo(DEFAULT_PHOTO_SETTINGS, true)
+    open()
+    expect(screen.getByRole('button', { name: 'Camera path', pressed: true })).toBeInTheDocument()
+  })
+
   it('translates into German', () => {
     setLanguage('de')
     photo(withTiltShift(DEFAULT_PHOTO_SETTINGS, true))
@@ -211,5 +229,110 @@ describe('the photo mode popover', () => {
     }
     expect(screen.getByRole('switch', { name: 'Miniatureffekt anzeigen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Auf Standardwerte zurücksetzen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kamerafahrt' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * The camera path bar: the dolly's controls as a strip over the foot of
+ * the map (see camera-path.test.ts for the path itself). In this file
+ * rather than one of its own because the two are one feature – the bar
+ * opens from the popover – and a jsdom file is dear on the runner.
+ */
+const START = { longitude: 12.1, latitude: 54.06, height: 3000, heading: 350, pitch: -40 }
+const END = { longitude: 12.14, latitude: 54.1, height: 1500, heading: 20, pitch: -30 }
+
+function bar(overrides: Partial<CameraPathControls> = {}) {
+  const handlers = {
+    onSetKeyframe: vi.fn(),
+    onGoTo: vi.fn(),
+    onDurationChange: vi.fn(),
+    onEaseChange: vi.fn(),
+    onPlay: vi.fn(),
+    onStop: vi.fn(),
+    onScrub: vi.fn(),
+    onClear: vi.fn(),
+    onClose: vi.fn(),
+  }
+  render(
+    <CameraPathBar
+      start={null}
+      end={null}
+      durationS={20}
+      ease="smooth"
+      playing={false}
+      progress={0}
+      {...handlers}
+      {...overrides}
+    />,
+  )
+  return handlers
+}
+
+describe('the camera path bar', () => {
+  it('lists both keyframes, unset until taken, and reports the buttons', () => {
+    const h = bar()
+    expect(screen.getByTestId('path-start')).toHaveTextContent('not set')
+    expect(screen.getByTestId('path-end')).toHaveTextContent('not set')
+    // Nothing to fly without keyframes, and nothing to go to: the pose
+    // is the way to it, and "not set" is no button
+    expect(screen.getByRole('button', { name: 'Play the camera path' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Camera to the start' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reset camera path' })).toBeDisabled()
+    // Radix marks a disabled thumb with data-disabled rather than aria-disabled
+    expect(screen.getByRole('slider', { name: 'Position on the path' })).toHaveAttribute('data-disabled')
+    fireEvent.click(screen.getByRole('button', { name: 'Set the start to the current view' }))
+    expect(h.onSetKeyframe).toHaveBeenCalledWith('start')
+    fireEvent.click(screen.getByRole('button', { name: 'Set the end to the current view' }))
+    expect(h.onSetKeyframe).toHaveBeenCalledWith('end')
+    fireEvent.click(screen.getByRole('button', { name: 'Close the camera path' }))
+    expect(h.onClose).toHaveBeenCalledTimes(1)
+    // The hint is the info mark's hidden text – not a line of its own, and
+    // not a button: the mark only has to take focus for the tooltip
+    const hint = screen.getByText(/Runs on the wall clock/)
+    expect(hint).toHaveClass('sr-only')
+    expect(hint.parentElement).toHaveAttribute('tabindex', '0')
+    expect(screen.queryByRole('button', { name: /Runs on the wall clock/ })).not.toBeInTheDocument()
+  })
+
+  it('shows where the keyframes stand and flies, stops and clears between them', () => {
+    const h = bar({ start: START, end: END })
+    expect(screen.getByTestId('path-start')).toHaveTextContent('54.0600° N 12.1000° E 3.0 km · 350° · −40°')
+    expect(screen.getByTestId('path-end')).toHaveTextContent('54.1000° N 12.1400° E 1.5 km · 20° · −30°')
+    // A click on the pose itself puts the camera on it
+    const goToEnd = screen.getByRole('button', { name: 'Camera to the end' })
+    expect(goToEnd).toBe(screen.getByTestId('path-end'))
+    fireEvent.click(goToEnd)
+    expect(h.onGoTo).toHaveBeenCalledWith('end')
+    fireEvent.click(screen.getByRole('button', { name: 'Play the camera path' }))
+    expect(h.onPlay).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset camera path' }))
+    expect(h.onClear).toHaveBeenCalledTimes(1)
+    // The timeline's ends: the position on the left, the length on the right
+    expect(screen.getByTestId('path-times')).toHaveTextContent('0:000:20')
+    cleanup()
+    const flying = bar({ start: START, end: END, playing: true, progress: 0.5, durationS: 90 })
+    expect(screen.getByTestId('path-times')).toHaveTextContent('0:451:30')
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the camera path' }))
+    expect(flying.onStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns the duration, the pace and the timeline', () => {
+    const h = bar({ start: START, end: END })
+    step('Duration', 'ArrowRight')
+    expect(h.onDurationChange).toHaveBeenCalledWith(21)
+    fireEvent.click(screen.getByRole('switch', { name: 'Ease in and out' }))
+    expect(h.onEaseChange).toHaveBeenCalledWith('linear')
+    step('Position on the path', 'ArrowRight')
+    expect(h.onScrub).toHaveBeenCalledWith(0.001)
+  })
+
+  it('translates into German', () => {
+    setLanguage('de')
+    bar()
+    expect(screen.getByRole('region', { name: 'Kamerafahrt' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start auf die aktuelle Ansicht setzen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kamerafahrt abspielen' })).toHaveTextContent('Kamera abspielen')
+    expect(screen.getByRole('button', { name: 'Kamerafahrt schließen' })).toBeInTheDocument()
   })
 })

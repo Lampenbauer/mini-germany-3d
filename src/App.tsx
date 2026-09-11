@@ -11,7 +11,8 @@ import {
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { LayersPopover, type WebcamChoice } from '@/components/LayersPopover'
 import { CompassIcon } from '@/components/CompassIcon'
-import { PhotoModePopover, type CameraPathControls } from '@/components/PhotoModePopover'
+import { PhotoModePopover } from '@/components/PhotoModePopover'
+import { CameraPathBar, type CameraPathControls } from '@/components/CameraPathBar'
 import { WeatherPopover } from '@/components/WeatherPopover'
 import { CityCard } from '@/components/CityCard'
 import { LineCard } from '@/components/LineCard'
@@ -858,6 +859,15 @@ export default function App() {
     draftFromPath(parseCameraPathHash(window.location.hash)),
   )
   const [cameraPathPlaying, setCameraPathPlayingState] = useState(false)
+  /**
+   * Whether the camera path bar stands over the foot of the map. Opened
+   * from the photo popover's last button, closed by its own X – and up
+   * from the start when the link carried a path, so a shared shot shows
+   * its keyframes without a search for them.
+   */
+  const [cameraPathOpen, setCameraPathOpen] = useState(
+    () => cameraPathDraft.start !== null || cameraPathDraft.end !== null,
+  )
   const [cameraPathProgress, setCameraPathProgressState] = useState(0)
   const cameraPath = useMemo(() => draftToPath(cameraPathDraft), [cameraPathDraft])
   const cameraPathRef = useRef(cameraPath)
@@ -2203,7 +2213,12 @@ export default function App() {
         playing: cameraPathPlayingRef.current,
         progress: cameraPathProgressRef.current,
       }),
-      setCameraPath: (path) => setCameraPathDraft(draftFromPath(path)),
+      // The API stands in for a link: a path put here opens with the bar
+      // up, as a link's does; null takes both away
+      setCameraPath: (path) => {
+        setCameraPathDraft(draftFromPath(path))
+        setCameraPathOpen(path !== null)
+      },
       playCameraPath: () => playCameraPathRef.current(),
       stopCameraPath: () => stopCameraPathRef.current(),
       anyVehicleInView: () => lastAnyVehicleInView,
@@ -3962,7 +3977,17 @@ export default function App() {
             actually wanted. On a phone the foot of the screen is the
             sheet's, so the readings go to the top, between the weather
             and the rail. */}
-        <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 flex flex-col -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto">
+        <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 flex flex-col items-center -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto">
+          {/* The camera path bar, a step above the readings: in their
+              wrapper, so the gap holds whatever height the group has.
+              Like the photo popover it opens from, it goes with the map
+              and not with the diagram, and a phone never gets it – the
+              button that opens it is not offered there. */}
+          {cameraPathOpen && !linear && (
+            <div className="mb-4 max-sm:hidden">
+              <CameraPathBar {...cameraPathControls} onClose={() => setCameraPathOpen(false)} />
+            </div>
+          )}
           <SegmentedControl
             value={mapView}
             onValueChange={(value) => selectView(value as MapView)}
@@ -4094,7 +4119,8 @@ export default function App() {
                 interfaceHidden={interfaceHidden}
                 settings={photo}
                 onChange={handlePhotoChange}
-                cameraPath={cameraPathControls}
+                cameraPathOpen={cameraPathOpen}
+                onToggleCameraPath={() => setCameraPathOpen((open) => !open)}
                 triggerClassName={cn(GROUPED_CONTROL, 'max-sm:hidden')}
               />
             )}

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 /**
  * The camera path (src/lib/camera-path.ts): two keyframes and a duration,
- * flown on the wall clock from the photo popover or from a link. The
+ * flown on the wall clock from the camera path bar or from a link. The
  * pose is read back from the hash the app writes once the camera
  * settles – the same numbers the keyframes are made of.
  */
@@ -49,9 +49,19 @@ test('flies from the start to the end on the wall clock, whatever the simulation
     .poll(() => page.evaluate(() => window.location.hash))
     .toContain('path=54.060000,12.100000,3000,350,-40;54.100000,12.140000,1500,20,-30&dur=3&ease=linear')
 
-  // The popover lists the keyframes and can put the camera on either
+  // A path from outside – a link, the test API here – opens with the bar
+  // up over the foot of the map; the button at the end of the photo
+  // popover takes it down and up again
+  const bar = page.getByTestId('camera-path-bar')
+  await expect(bar).toBeVisible()
   await page.getByRole('button', { name: 'Photo mode' }).click()
-  // Two lines in the popover; toHaveText folds the break into a space
+  await page.getByRole('button', { name: 'Camera path', pressed: true }).click()
+  await expect(bar).toBeHidden()
+  await page.getByRole('button', { name: 'Camera path', pressed: false }).click()
+  await expect(bar).toBeVisible()
+  await page.keyboard.press('Escape')
+  // The bar lists the keyframes and can put the camera on either.
+  // Two lines in the bar; toHaveText folds the break into a space
   await expect(page.getByTestId('path-start')).toHaveText('54.0600° N 12.1000° E 3.0 km · 350° · −40°')
   await expect(page.getByTestId('path-end')).toHaveText('54.1000° N 12.1400° E 1.5 km · 20° · −30°')
   const beforeStart = await page.evaluate(() => window.location.hash)
@@ -86,7 +96,6 @@ test('flies from the start to the end on the wall clock, whatever the simulation
   expect(await page.evaluate(() => window.__mg3d!.secondsOfDay())).toBe(secondsBefore)
 
   // A hand on the camera takes the flight off
-  await page.keyboard.press('Escape')
   await page.evaluate(() => window.__mg3d!.playCameraPath())
   expect(await page.evaluate(() => window.__mg3d!.cameraPath().playing)).toBe(true)
   await page.mouse.move(640, 400)

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { CameraView } from '@/lib/camera-hash'
 import {
+  DEFAULT_DURATION_S,
   describeKeyframe,
   easeProgress,
   formatCameraPathHash,
+  formatPathTime,
   headingDelta,
   interpolateView,
   isFlyable,
@@ -70,14 +72,23 @@ describe('a camera path', () => {
     expect(parseCameraPathHash('#path=54,12,3000,0,-40')).toBeNull()
     expect(parseCameraPathHash('#path=54,12,3000,0,-40;x,12,800,0,-30&dur=20')).toBeNull()
     expect(parseCameraPathHash('#path=54,12,3000,0,-40;54,12,800,0,-30&dur=9999')).toBeNull()
+    // No seconds and no pace named: the defaults stand in
     expect(parseCameraPathHash('#path=54,12,3000,0,-40;54,12,800,0,-30')).toMatchObject({
-      durationS: 20,
+      durationS: DEFAULT_DURATION_S,
       ease: 'smooth',
     })
     expect(parseCameraPathHash('#lat=54&lon=12&height=100')).toBeNull()
   })
 
-  it('describes a keyframe the way the popover lists it', () => {
+  it('writes a moment on the timeline the way a player does', () => {
+    expect(formatPathTime(0)).toBe('0:00')
+    expect(formatPathTime(7.9)).toBe('0:07')
+    expect(formatPathTime(203)).toBe('3:23')
+    expect(formatPathTime(605)).toBe('10:05')
+    expect(formatPathTime(-1)).toBe('0:00')
+  })
+
+  it('describes a keyframe the way the bar lists it', () => {
     expect(describeKeyframe(a)).toBe('54.0800° N 12.1000° E\n3.0 km · 350° · −40°')
     expect(describeKeyframe({ ...b, height: 800, heading: 360 })).toBe('54.1000° N 12.1400° E\n800 m · 0° · −30°')
   })

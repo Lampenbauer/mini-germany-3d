@@ -287,13 +287,33 @@ so the app writes the pose itself when a flight ends or a keyframe is
 reached; and the test API reads `playing`/`progress` in the same task as
 the click, so those refs are written with the state, not mirrored on
 render. `?play=1` flies the hash's path once the city is ready, once.
-The popover lists two keyframes; the model is a list, so a third is an
+The bar lists two keyframes; the model is a list, so a third is an
 interface change only. `e2e/camera-path.spec.ts` flies one and reads the
 end pose back from the hash. A city switch drops the keyframes (the
 session cleanup in `App.tsx`, through `clearCameraPathRef` – the same
-clearing the popover's button does, seconds and pace kept): they are
+clearing the bar's reset button does, seconds and pace kept): they are
 poses over the city that is leaving. A link's path is safe, the cleanup
 runs only when a session ends; `tests/app.test.tsx` pins both.
+
+The controls are a bar of their own since 2026-09-11
+([src/components/CameraPathBar.tsx](src/components/CameraPathBar.tsx)):
+a horizontal strip – the keyframes in one row with the seconds and the
+pace beside them, the timeline with play at its head under them, a
+click on a keyframe's coordinates puts the camera on it – centred a
+step (16 px) above the readings' radio group, as the first child of the
+group's wrapper so the gap holds whatever height the group has. It was
+a column at the end of the photo popover, which covered a good part of
+the frame a shot was being set up in; the popover's last button (after
+the miniature switch, `aria-pressed` while the bar is up) opens and
+closes it now, the bar's X closes it, and a path from outside – a link,
+the test API's `setCameraPath` – opens with it up. With the keyframes
+gone from the popover, a click beside it closes it again like every
+other popover (the `onInteractOutside` guard left with them). The bar
+goes with the map, not with the diagram, like the popover it opens
+from, and a phone never gets it. The play button lays both its faces in
+one grid cell so its width does not change with the word on it, and the
+timeline beside it stays put. `tests/photo-mode-popover.test.tsx` holds
+the bar's tests beside the popover's – one jsdom file for one feature.
 
 **The three readings at the foot of the map are a radio group, not
 tabs.** They were Radix `Tabs` until 2026-09-11, for the look and the
