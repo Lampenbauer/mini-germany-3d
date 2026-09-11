@@ -875,6 +875,18 @@ then check `__mg3d.lastLoopError()` and the console. Google tiles answer many
 requests with HTTP 429 under SwiftShader, so only coarse tiles load — enough to
 prove the shader compiles, not enough to judge the look.
 
+**The offline globe still has tiles, and a spec that waits for them has
+to mind its pose.** The grid imagery refines by the globe's screen-space
+error like any imagery, and a view along the water from a low camera
+(60 m up, pitch −10°) selects ~150 tiles – the CI runner's software
+renderer, which loads a handful per frame at a few frames a second, did
+not get them in within a minute, twice in a row (2026-09-11,
+`e2e/ship-effects.spec.ts`); the same scene looked at steeply from
+400 m needs 29 and straight down from 700 m 18. A spec that polls
+`renderPacing().tilesLoading` before comparing frames (the clouds, the
+ship effects) keeps the horizon out of the frame; measure with
+`scene.globe._surface._tilesToRender.length` before choosing a pose.
+
 ### `window.__mg3d`
 
 The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop

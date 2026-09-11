@@ -27,12 +27,20 @@ test.afterAll(async () => {
   await page.close()
 })
 
-/** Boots the map offline, paused at noon, at the pose given. */
+/**
+ * Boots the map offline, paused at noon, at the pose given, and waits for
+ * the globe's tiles: the pictures compared below must differ by the effect
+ * alone. Both poses look steeply down on purpose – the offline globe's
+ * grid tiles refine by the same screen-space error as any terrain, and a
+ * view along the water from a low camera took 154 of them, which the CI
+ * runner's software renderer did not get in within a minute (2026-09-11);
+ * from above, 20 to 30 do.
+ */
 async function boot(pose: string) {
   await page.goto(`/?offline=1&welcome=0&time=12:00&paused=1#${pose}&routes=0&stops=0&labels=0`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
-    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 60_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 120_000 })
     .toMatchObject({ interacting: false, tilesLoading: false })
 }
 
@@ -117,8 +125,9 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
 
-  // 220 m south-east of the ship, 60 m up, looking north-west across her
-  await boot('lat=54.0986&lon=12.1324&height=60&heading=315&pitch=-10')
+  // 220 m south-east of the ship, 380 m up, looking steeply north-west
+  // down across her: she lies broadside in the middle of the frame
+  await boot('lat=54.0986&lon=12.13238&height=380&heading=315&pitch=-60')
   expect(await page.evaluate(() => window.__mg3d!.funnelSmoke())).toMatchObject({
     drawn: 0,
     supported: true,
@@ -140,11 +149,12 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
   const smoking = await frame()
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
-  // The plume rises from the funnel aft of the bridge, at the left of the
-  // frame from this camera, into the sky above the hull; the hull herself
-  // – the right half of the frame – is the same in both pictures
-  const plume = { x0: 0.22, y0: 0.05, x1: 0.42, y1: 0.4 }
-  const hull = { x0: 0.5, y0: 0.25, x1: 0.9, y1: 0.6 }
+  // With no wind offline the plume trails dead aft: from the funnel aft
+  // of the bridge, at the left of the hull from this camera, out over the
+  // water beyond her stern; the forward two thirds of the hull herself
+  // are the same in both pictures
+  const plume = { x0: 0.2, y0: 0.28, x1: 0.38, y1: 0.4 }
+  const hull = { x0: 0.45, y0: 0.36, x1: 0.7, y1: 0.48 }
   expect(differingPixels(cold, smoking, plume)).toBeGreaterThan(150)
   expect(differingPixels(cold, smoking, hull)).toBeLessThan(50)
 
