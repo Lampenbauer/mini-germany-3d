@@ -98,6 +98,8 @@ declare global {
       }
       /** AIS backdrop vessels currently drawn. */
       aisVesselCount: () => number
+      /** The wakes: ribbon segments drawn for the AIS fleet and the ferries; null without the profile's knob. */
+      wake: () => { ships: number; ferries: number; supported: boolean } | null
       /** The ships' exhaust: plumes drawn, support, the plume's clock, the wind; null without the profile's knob. */
       funnelSmoke: () => {
         drawn: number

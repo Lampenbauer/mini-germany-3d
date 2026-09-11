@@ -3,6 +3,7 @@ import {
   AIS_ARCHIVE_HOUR_MS,
   AIS_ARCHIVE_TAIL_POLL_MS,
   AIS_REPLAY_EDGE_MS,
+  AIS_REPLAY_TRACK_LOOKBACK_MS,
   AisArchiveClient,
   AisArchiveWriter,
   AisReplay,
@@ -219,6 +220,8 @@ describe('AisReplay', () => {
     const t0 = NOW
     replay.add([
       statics(1, 'DENEB'),
+      fix(1, t0 - 400_000, 54.08, 12.08),
+      fix(1, t0 - 200_000, 54.09, 12.09),
       fix(1, t0, 54.1, 12.1),
       fix(1, t0 + 60_000, 54.11, 12.11),
       fix(1, t0 + 120_000, 54.12, 12.12),
@@ -232,10 +235,14 @@ describe('AisReplay', () => {
     expect(vessel.positionAt).toBe(t0 + 120_000)
     expect(vessel.lat).toBe(54.12)
     expect(vessel.navStatus).toBe(0)
-    // The track starts at the fix the layer samples (AIS_PLAYBACK_DELAY_MS
-    // behind) and ends at the last one – what the live state holds
-    expect(vessel.track.map((p) => p[0])).toEqual([t0 + 60_000, t0 + 120_000])
-    expect(at - AIS_PLAYBACK_DELAY_MS).toBeGreaterThan(t0 + 60_000)
+    // The track starts at the fix at or before AIS_REPLAY_TRACK_LOOKBACK_MS
+    // behind the instant the layer samples (AIS_PLAYBACK_DELAY_MS back) –
+    // the wake reads it there – and ends at the last fix; the fix before
+    // that one is not carried
+    const sampled = at - AIS_PLAYBACK_DELAY_MS
+    expect(sampled - AIS_REPLAY_TRACK_LOOKBACK_MS).toBeGreaterThan(t0 - 200_000)
+    expect(sampled - AIS_REPLAY_TRACK_LOOKBACK_MS).toBeLessThan(t0)
+    expect(vessel.track.map((p) => p[0])).toEqual([t0 - 200_000, t0, t0 + 60_000, t0 + 120_000])
     // Later, the moored fix is the last one and its status the current one
     const [later] = replay.vesselsAt(t0 + 500_000)
     expect(later.positionAt).toBe(t0 + 400_000)

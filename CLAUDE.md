@@ -641,7 +641,8 @@ Consequences to keep in mind:
   any device reporting 2 GB or less – with a 2048 cascade (64 MB), no
   MSAA, a pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
   384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
-  instead of 3.5, a 600-drop rain pool and no funnel smoke. `?tier=` forces either;
+  instead of 3.5, a 600-drop rain pool and no ship effects (smoke,
+  wakes). `?tier=` forces either;
   `__mg3d.renderProfile()` and `__mg3d.shadowMap().size` show what is in
   force. The mobile numbers are a first cut, chosen for memory (a
   mid-range phone gives a tab well under a gigabyte) rather than
@@ -681,10 +682,38 @@ hulls smoke is `VESSEL_MODELS[…].funnel` (five of thirteen; the
 shipyard's `mesh.funnel` is pinned against it in
 `tests/vessel-models.test.ts`), from `SMOKE_MIN_SOG_KN` over the ground,
 within `SMOKE_MAX_DISTANCE_M`. Offline the shader compiles and draws –
-`e2e/funnel-smoke.spec.ts` puts a ship on the map through
+`e2e/ship-effects.spec.ts` puts a ship on the map through
 `__mg3d.setAisVessels` and reads the plume off the canvas – and the
 primitive draws in the render pass only: no pick, and nothing in the
 offscreen passes, or a hull would be clamped onto its own smoke.
+
+The wake ([src/map/Wake.ts](src/map/Wake.ts), same day) is stateless
+in a different way: it is placed from the ship's **past**, not from a
+clock. For every age up to `WAKE_LIFE_S` (40 s, every 2 s) the layer
+asks where she was – `playbackSample` on the AIS track, the timetable
+through `Simulation.positionAt` for a scheduled ferry, which is why
+`CesiumMapOptions.vehiclePositionAt` exists – and lays ribbons: the
+wash from the trailing end of her hull at each pose (the end her
+motion leaves behind; her course over the ground against her heading
+is going astern and washes at the bow), the bow wave along the flanks
+of the leading end, the two Kelvin arms at tan 19.47° of the distance
+behind it. A turning ship leaves a curved wake, a stopped one keeps
+the wash she left (a still pose only breaks the ribbon), and the layer
+keeps reading the track for a wake's length after her last tick under
+way (`wakeUntilMs`; the ferries ask the timetable whether she moved a
+wake ago). First built as flat discs – it read as a string of pearls
+with rings, "zu billig", and was rebuilt as ribbons the same day; the
+look to match is the wakes Google's own water tiles carry. The ribbons
+lie in the water's tangent plane on the hull's clamped height, and
+their depth is written from a point pulled `WAKE_DEPTH_BIAS` (0.3 %)
+nearer the eye: Google's water is a mesh of baked waves a flat ribbon
+would sink into, and `polygonOffset` is useless under the logarithmic
+depth buffer (the depth is written from the fragment shader) – the
+bias is the one trick that keeps the foam over its water and still
+behind a quay. The replay's track window reaches
+`AIS_REPLAY_TRACK_LOOKBACK_MS` (90 s) behind the sampled instant for
+this. Two `Wake` primitives, one per fleet, because the two layers
+start and commit their sets at different moments of the tick.
 
 ### The city handover is one frame – nothing may pile up in it
 
@@ -810,9 +839,9 @@ The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
-`cloudState()`, `funnelSmoke()`, `tiltShiftState()`, `groundHeights()`,
-`aisReplay()`; `setAisVessels(list)` puts a fleet on the map where no
-poll runs (offline, the tests).
+`cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
+`groundHeights()`, `aisReplay()`; `setAisVessels(list)` puts a fleet on
+the map where no poll runs (offline, the tests).
 
 ---
 

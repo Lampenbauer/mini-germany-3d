@@ -15,7 +15,7 @@ import type { FrameState } from '@/map/cesium-renderer'
 /**
  * The exhaust plumes over the ships' funnels: what one instance packs,
  * how the plume's clock runs, and when the primitive draws at all. The
- * shaders themselves compile only on a GL context – e2e/funnel-smoke.spec.ts
+ * shaders themselves compile only on a GL context – e2e/ship-effects.spec.ts
  * proves them in the real renderer.
  */
 

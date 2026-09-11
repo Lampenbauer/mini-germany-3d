@@ -193,6 +193,8 @@ export interface Mg3dTestApi {
   cloudState: () => ReturnType<CesiumMap['cloudState']>
   /** What the ships' exhaust is doing (see map/FunnelSmoke.ts); null in a profile without it. */
   funnelSmoke: () => ReturnType<CesiumMap['funnelSmokeState']>
+  /** The foam patches drawn for the AIS fleet and the ferries (see map/Wake.ts); null in a profile without them. */
+  wake: () => ReturnType<CesiumMap['wakeState']>
   /**
    * Puts a fleet on the map as if the AIS poll had delivered it – for the
    * tests, which run offline where no poll exists. null takes it away
@@ -1291,6 +1293,8 @@ export default function App() {
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
       onSelectVessel: selectVessel,
+      // The ferries' wake is laid where the timetable had them (see Wake)
+      vehiclePositionAt: (id, secondsAgo) => simRef.current?.positionAt(id, secondsAgo) ?? null,
       // Windy's terms: a picture leads to its windy.com page
       onOpenWebcam: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
       onSelectStop: selectStop,
@@ -1915,6 +1919,7 @@ export default function App() {
       tiltShiftState: () => map.tiltShiftState(),
       cloudState: () => map.cloudState(),
       funnelSmoke: () => map.funnelSmokeState(),
+      wake: () => map.wakeState(),
       setAisVessels: (vessels: AisVessel[] | null) => {
         aisInjectedRef.current = vessels
         aisVesselsRef.current = vessels ?? []

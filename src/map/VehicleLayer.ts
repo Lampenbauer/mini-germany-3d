@@ -51,6 +51,7 @@ import type { VehicleSnapshot } from '@/engine/simulation'
 import { tunnelOpacity } from './tunnel-view'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
+import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
 
 /**
  * A rendered line badge, shared by every vehicle of that line (and delay).
@@ -124,6 +125,24 @@ export interface VehicleLayerHost {
   obstacles?: () => readonly ScreenRect[]
   /** Window position of a world point (CSS px), undefined behind the camera. */
   windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
+  /**
+   * The ferries' wakes, fed per tick from where the timetable had each
+   * ferry over the last WAKE_LIFE_S (see Wake, and vehiclePositionAt
+   * below). Absent where the render profile leaves the effect out.
+   */
+  readonly wake?: Wake
+  /** Where a vehicle was some seconds before the clock's moment (Simulation.positionAt). */
+  vehiclePositionAt?: (
+    id: string,
+    secondsAgo: number,
+  ) => { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null
+}
+
+/** A small stable number out of a trip id – the seed of its wake's foam pattern. */
+function hashId(id: string): number {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 977
+  return hash
 }
 
 interface VehicleRecord {
@@ -852,6 +871,12 @@ export class VehicleLayer {
     let anyVehicleInView = false
     let clampBudget = FERRY_CLAMP_BUDGET_PER_TICK
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
+    // The ferries' wakes are rebuilt every tick from the timetable's past
+    // (see Wake); the clock they fade on is the real one here
+    const wake = this.host.wake
+    const positionAt = this.host.vehiclePositionAt
+    const wakeNow = performance.now()
+    wake?.begin(wakeNow)
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
      * anyVehicleInView, which reaches out to the render range. The map's
@@ -989,6 +1014,31 @@ export class VehicleLayer {
             undefined,
             positionScratch,
           )
+        }
+      }
+
+      // A ferry's wake: her trailing end at every step back through the
+      // last WAKE_LIFE_S, where the timetable had her – laid while she
+      // moves and for that long after she stopped (the timetable says
+      // whether she was still under way a wake's length ago), so it
+      // fades at the pier she reached
+      if (snap.mode === 'ferry' && wake && positionAt && show && cameraDistance <= WAKE_MAX_DISTANCE_M) {
+        const underWay =
+          snap.status === 'moving' || positionAt(snap.id, WAKE_LIFE_S)?.status === 'moving'
+        if (underWay) {
+          const samples: WakeSample[] = [{ ageS: 0, lon: snap.lon, lat: snap.lat, bearingDeg: snap.bearing }]
+          for (let ageS = WAKE_STEP_S; ageS < WAKE_LIFE_S; ageS += WAKE_STEP_S) {
+            const past = positionAt(snap.id, ageS)
+            if (!past) break
+            samples.push({ ageS, lon: past.lon, lat: past.lat, bearingDeg: past.bearing })
+          }
+          wake.add(samples, {
+            lengthM: snap.vehicle.length,
+            beamM: snap.vehicle.width,
+            surfaceHeight: record.groundHeight,
+            seed: hashId(snap.id),
+          })
+          if (wake.fadeFrameDue && inView) this.host.requestRender()
         }
       }
 
@@ -1155,6 +1205,7 @@ export class VehicleLayer {
         this.host.requestRender()
       }
     }
+    wake?.commit()
 
     return { anyVehicleInView, nearestBodyMeters, maxScreenMotionPx, maxTickMotionPx }
   }

@@ -4,6 +4,7 @@ import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib
 import { FunnelSmoke } from '@/map/FunnelSmoke'
 import { ROUTE_PULSE_DURATION_MS } from '@/map/RoutesLayer'
 import { VesselLayer } from '@/map/VesselLayer'
+import { Wake } from '@/map/Wake'
 
 /**
  * AIS backdrop fleet: boxes in real ship dimensions that play back four
@@ -53,6 +54,7 @@ function harness({
   frustum = Intersect.INTERSECTING,
   clamp,
   smoke,
+  wake,
 }: {
   cameraLon?: number
   cameraHeight?: number
@@ -61,6 +63,8 @@ function harness({
   clamp?: { surface: (lon: number, lat: number) => number | undefined; generation: () => number }
   /** The exhaust plumes the layer feeds (see FunnelSmoke), where the profile has them. */
   smoke?: FunnelSmoke
+  /** The fleet's wakes (see Wake), where the profile has them. */
+  wake?: Wake
 } = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
@@ -103,6 +107,7 @@ function harness({
     waterSurfaceHeight: 37.75,
     noteCameraFlight: () => {},
     ...(smoke ? { funnelSmoke: smoke } : {}),
+    ...(wake ? { wake } : {}),
     ...(clamp
       ? {
           clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
@@ -416,6 +421,74 @@ describe('VesselLayer', () => {
       // …and the layer's own clock is the plume's: a rendered frame resets it
       h.layer.markRendered()
       expect(smoke.metersSinceRendered).toBe(0)
+    })
+  })
+
+  describe('the wake', () => {
+    const wakeHost = { sunDirection: null, overcast: 0 }
+    /** A 52 m coaster heading east at ~4 m/s along her track (see underWayTrack). */
+    const coaster = (overrides: Partial<AisVessel> = {}) =>
+      vessel({ sogKn: 8, cogDeg: 90, headingDeg: 90, track: underWayTrack(), ...overrides })
+
+    it('lays foam behind a ship under way, from her stern back along her track', () => {
+      const wake = new Wake(wakeHost)
+      const h = harness({ cameraHeight: 600, wake })
+      h.layer.sync([coaster()], NOW)
+      // The wash, the bow wave and the arms of a wake read off her track
+      expect(wake.drawn).toBeGreaterThan(20)
+      const centre = Cartographic.fromCartesian(
+        Matrix4.getTranslation(h.record(211222290)!.matrix, new Cartesian3()),
+      )
+      const fresh = Cartographic.fromCartesian(wake.segmentAt(0).from)
+      // Her stern, 26 m west of her centre, on the water she floats on
+      const westM = ((centre.longitude - fresh.longitude) * 180) / Math.PI * 111_320 * Math.cos(centre.latitude)
+      expect(westM).toBeGreaterThan(24)
+      expect(westM).toBeLessThan(28)
+      expect(fresh.height).toBeLessThan(centre.height)
+      // …and the wash runs on astern of it
+      const older = Cartographic.fromCartesian(wake.segmentAt(0).to)
+      expect(older.longitude).toBeLessThan(fresh.longitude)
+    })
+
+    it('leaves none for a ship at her berth, and none beyond the wake range', () => {
+      const wake = new Wake(wakeHost)
+      const h = harness({ cameraHeight: 600, wake })
+      h.layer.sync([vessel({ sogKn: 0, track: [] })], NOW)
+      expect(wake.drawn).toBe(0)
+      const far = harness({ cameraHeight: 6000, wake })
+      far.layer.sync([coaster()], NOW)
+      expect(wake.drawn).toBe(0)
+    })
+
+    it('keeps laying it for a while after she stops, so it fades where she left it', () => {
+      const wake = new Wake(wakeHost)
+      const h = harness({ cameraHeight: 600, wake })
+      // Her track: under way until thirty seconds past the rendered
+      // instant, standing at that point from then on
+      const track = underWayTrack()
+      const stopping = coaster({
+        track: [track[0], track[1], [track[1][0] + 60_000, track[1][1], track[1][2], 0, 90, 90]],
+      })
+      h.layer.sync([stopping], NOW + 10_000)
+      expect(wake.drawn).toBeGreaterThan(0)
+      // Ten seconds after she stopped: the wash she left is still laid
+      // (read off the track), without a bow wave or arms
+      const underWay = wake.drawn
+      h.layer.sync([stopping], NOW + 40_000)
+      expect(wake.drawn).toBeGreaterThan(0)
+      expect(wake.drawn).toBeLessThan(underWay)
+      // A wake's length after her last tick under way, no longer
+      h.layer.sync([stopping], NOW + 60_000)
+      expect(wake.drawn).toBe(0)
+    })
+
+    it('goes with the hulls underground', () => {
+      const wake = new Wake(wakeHost)
+      const h = harness({ cameraHeight: 600, wake })
+      h.layer.sync([coaster()], NOW)
+      expect(wake.drawn).toBeGreaterThan(0)
+      h.layer.setVisible(false)
+      expect(wake.drawn).toBe(0)
     })
   })
 

@@ -93,6 +93,27 @@ describe('Simulation with the Rostock network', () => {
   )
 })
 
+describe('where a vehicle was some seconds ago (positionAt)', () => {
+  it('answers with the timetable at the earlier instant, and null for a trip not active then', () => {
+    const clock = new SimClock()
+    clock.setSecondsOfDay(8.5 * 3600)
+    const sim = new Simulation(loadRostockNetwork(), clock)
+    const moving = sim.snapshots().find((s) => s.status === 'moving')!
+    const now = sim.positionAt(moving.id, 0)!
+    expect(now.lon).toBeCloseTo(moving.lon, 6)
+    expect(now.lat).toBeCloseTo(moving.lat, 6)
+    // Half a minute earlier she was somewhere else on her route – the
+    // same place the clock set back would put her
+    const earlier = sim.positionAt(moving.id, 30)!
+    expect(Math.hypot(earlier.lon - now.lon, earlier.lat - now.lat)).toBeGreaterThan(0)
+    clock.setSecondsOfDay(clock.secondsOfDay() - 30)
+    const then = sim.snapshots().find((s) => s.id === moving.id)!
+    expect(earlier.lon).toBeCloseTo(then.lon, 6)
+    expect(earlier.lat).toBeCloseTo(then.lat, 6)
+    expect(sim.positionAt('no-such-trip', 0)).toBeNull()
+  })
+})
+
 describe('trip progress (all stops + vehicle position)', () => {
   const network = loadRostockNetwork()
   const sim = new Simulation(network, new SimClock())

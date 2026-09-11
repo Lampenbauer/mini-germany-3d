@@ -1,8 +1,9 @@
-import { Cartesian3, Entity, Intersect, PrimitiveCollection, type Primitive, type Viewer } from 'cesium'
+import { Cartesian3, Cartographic, Entity, Intersect, PrimitiveCollection, type Primitive, type Viewer } from 'cesium'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import type { VehicleSnapshot } from '@/engine/simulation'
 import { VehicleLayer } from '@/map/VehicleLayer'
+import { WAKE_LIFE_S, WAKE_STEP_S, Wake } from '@/map/Wake'
 
 /**
  * The scheduled ferries float on the tiles' own water: clamped like the
@@ -48,7 +49,14 @@ function snapshot(id: string, mode: 'ferry' | 'tram', lon = 12.1): VehicleSnapsh
   }
 }
 
-function harness(surface: (lon: number, lat: number) => number | undefined) {
+function harness(
+  surface: (lon: number, lat: number) => number | undefined,
+  effects?: {
+    wake: Wake
+    /** Where the timetable had a vehicle some seconds ago (Simulation.positionAt). */
+    positionAt: (id: string, secondsAgo: number) => { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null
+  },
+) {
   const viewer = {
     scene: {
       primitives: {
@@ -91,6 +99,7 @@ function harness(surface: (lon: number, lat: number) => number | undefined) {
     offline: false,
     fixedGroundHeight: undefined,
     noteCameraFlight: () => {},
+    ...(effects ? { wake: effects.wake, vehiclePositionAt: effects.positionAt } : {}),
   })
   const visible = new Set(['FG', '1'])
   const groundOf = (id: string) =>
@@ -136,5 +145,56 @@ describe('ferries float on the tiles', () => {
     h.layer.sync(fleet, h.visible)
     expect(h.clamp).toHaveBeenCalledTimes(4)
     expect(h.groundOf('d')).toBe(37.9)
+  })
+})
+
+describe('the ferries’ wake', () => {
+  const wakeHost = { sunDirection: null, overcast: 0 }
+  /** Northbound at 4 m/s: where she was `secondsAgo` seconds before now. */
+  const northbound = (id: string, secondsAgo: number) =>
+    id === 'f'
+      ? { lon: 12.1, lat: 54.0 - (4 * secondsAgo) / 111_132, bearing: 0, status: 'moving' as const }
+      : null
+
+  it('is laid from where the timetable had her, behind her stern, on her water', () => {
+    const wake = new Wake(wakeHost)
+    const h = harness(() => 37.9, { wake, positionAt: northbound })
+    h.layer.sync([snapshot('f', 'ferry'), snapshot('t', 'tram')], h.visible)
+    // The wash, the bow wave and the arms – for the ferry alone, a tram leaves none
+    expect(wake.drawn).toBeGreaterThan(20)
+    const fresh = Cartographic.fromCartesian(wake.segmentAt(0).from)
+    // Her stern, half her length south of her centre, on the clamped water
+    const southM = ((54.0 * Math.PI) / 180 - fresh.latitude) * 111_132 / (Math.PI / 180)
+    expect(southM).toBeCloseTo(config.vehicles.ferry.length / 2, 0)
+    expect(fresh.height).toBeCloseTo(37.9, 0)
+  })
+
+  it('needs the timetable to read her past, and is left while she dwells with none behind her', () => {
+    const wake = new Wake(wakeHost)
+    const noPast = harness(() => 37.9, { wake, positionAt: () => null })
+    noPast.layer.sync([snapshot('f', 'ferry')], noPast.visible)
+    expect(wake.drawn).toBe(0)
+    // Dwelling now and a wake's length ago: nothing to lay
+    const dwelling = harness(() => 37.9, {
+      wake,
+      positionAt: () => ({ lon: 12.1, lat: 54.0, bearing: 0, status: 'dwell' as const }),
+    })
+    dwelling.layer.sync([{ ...snapshot('f', 'ferry'), status: 'dwell' }], dwelling.visible)
+    expect(wake.drawn).toBe(0)
+  })
+
+  it('fades at the pier she reached: still laid while the timetable had her moving a wake ago', () => {
+    const wake = new Wake(wakeHost)
+    // Moored now, under way until ten seconds ago
+    const arrived = (id: string, secondsAgo: number) =>
+      id === 'f' && secondsAgo > 10
+        ? { lon: 12.1, lat: 54.0 - (4 * (secondsAgo - 10)) / 111_132, bearing: 0, status: 'moving' as const }
+        : { lon: 12.1, lat: 54.0, bearing: 0, status: 'dwell' as const }
+    const h = harness(() => 37.9, { wake, positionAt: arrived })
+    h.layer.sync([{ ...snapshot('f', 'ferry'), status: 'dwell' }], h.visible)
+    // She stands now: no bow wave, no arms – only the wash she left, and
+    // only from the steps she was still under way
+    expect(wake.drawn).toBeGreaterThan(0)
+    expect(wake.drawn).toBeLessThan(WAKE_LIFE_S / WAKE_STEP_S - 2)
   })
 })

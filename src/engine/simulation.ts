@@ -297,6 +297,30 @@ export class Simulation {
     return departures.slice(0, limit)
   }
 
+  /**
+   * Where a vehicle was `secondsAgo` seconds before the clock's moment –
+   * the same timetable the snapshots come from, at an earlier instant,
+   * the trip's live delay applied alike. null for a trip not active
+   * then. The ferries' wake is laid along this (see map/Wake.ts).
+   */
+  positionAt(
+    tripId: string,
+    secondsAgo: number,
+  ): { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null {
+    const trip = this.tripById.get(tripId)
+    if (!trip) return null
+    const line = this.network.lineById.get(trip.lineId)
+    if (!line) return null
+    const delay = this.realtimeDelays.get(trip.id) ?? 0
+    const state = tripStateAt(
+      trip,
+      line.directions[trip.direction],
+      this.clock.secondsOfDay() - secondsAgo - delay,
+      this.terminalLinger,
+    )
+    return state ? { lon: state.lon, lat: state.lat, bearing: state.bearing, status: state.status } : null
+  }
+
   snapshotsAt(tSec: number): VehicleSnapshot[] {
     const snapshots: VehicleSnapshot[] = []
     for (const trip of this.trips) {

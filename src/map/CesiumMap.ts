@@ -51,6 +51,7 @@ import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './c
 import { ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { BridgeDecks } from './bridge-decks'
 import { FunnelSmoke } from './FunnelSmoke'
+import { Wake } from './Wake'
 import {
   CLOUD_BASE_M,
   CLOUD_SHADOW_FUNCTION_GLSL,
@@ -129,6 +130,15 @@ export interface CesiumMapOptions {
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
+  /**
+   * Where a scheduled vehicle was some seconds before the clock's moment
+   * (Simulation.positionAt) – the ferries' wake is laid along it. Optional:
+   * without it the ferries leave none.
+   */
+  vehiclePositionAt?: (
+    id: string,
+    secondsAgo: number,
+  ) => { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null
   /** A webcam picture was clicked: its windy.com page, which the terms want opened. */
   onOpenWebcam?: (url: string) => void
   /** Click on a stop disc or name (null = click on empty map). */
@@ -705,6 +715,9 @@ export class CesiumMap {
   private readonly clouds: CloudLayer
   /** Exhaust over the funnels of the ships under way; null in the mobile profile (see FunnelSmoke). */
   private readonly funnelSmoke: FunnelSmoke | null
+  /** The wakes of the AIS fleet and of the scheduled ferries, one primitive each; null in the mobile profile (see Wake). */
+  private readonly shipWake: Wake | null
+  private readonly ferryWake: Wake | null
   /** Unit sun direction in the earth-fixed frame (see updateNightFactor). */
   private sunDirection: Cartesian3 | null = null
   /** Exposure, white balance and picture grade (see PhotoGradeEffect). */
@@ -984,6 +997,12 @@ export class CesiumMap {
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
+      // The ferries' wake, from where the timetable had them (built
+      // below, after the vessel layer; read per tick, so the order is fine)
+      get wake() {
+        return map.ferryWake ?? undefined
+      },
+      vehiclePositionAt: opts.vehiclePositionAt,
     })
     this.stops = new StopsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -1000,23 +1019,29 @@ export class CesiumMap {
         return map.effectivePixelRatio
       },
     })
-    // The plumes over the ships' funnels, lit like the clouds. The layer
-    // feeds them per tick; a phone's profile leaves them out.
-    this.funnelSmoke = this.profile.funnelSmoke
-      ? new FunnelSmoke({
-          get sunDirection() {
-            return map.sunDirection
-          },
-          get overcast() {
-            return map.overcast
-          },
-        })
-      : null
-    if (this.funnelSmoke) this.viewer.scene.primitives.add(this.funnelSmoke)
+    // The plumes over the ships' funnels and the wakes behind them, lit
+    // like the clouds. The layers feed them per tick; a phone's profile
+    // leaves them out. Two wakes, one per fleet: each layer starts and
+    // commits its own set, and the two sync at different moments.
+    const effectHost = {
+      get sunDirection() {
+        return map.sunDirection
+      },
+      get overcast() {
+        return map.overcast
+      },
+    }
+    this.funnelSmoke = this.profile.shipEffects ? new FunnelSmoke(effectHost) : null
+    this.shipWake = this.profile.shipEffects ? new Wake(effectHost) : null
+    this.ferryWake = this.profile.shipEffects ? new Wake(effectHost) : null
+    for (const effect of [this.funnelSmoke, this.shipWake, this.ferryWake]) {
+      if (effect) this.viewer.scene.primitives.add(effect)
+    }
     this.vesselLayer = new VesselLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       obstacles: () => map.webcamsLayer.screenRects,
       funnelSmoke: this.funnelSmoke ?? undefined,
+      wake: this.shipWake ?? undefined,
       windowPosition: (position) => this.windowPosition(position),
       // Fallback water level: NHN 0 plus the calibrated offset plus a
       // lift that clears the tiles' wavy water mesh (see VesselLayer).
@@ -1946,6 +1971,16 @@ export class CesiumMap {
     return this.funnelSmoke?.state ?? null
   }
 
+  /** Debug/test: the foam patches drawn for the AIS fleet and the ferries (see Wake.state); null in a profile without them. */
+  wakeState(): { ships: number; ferries: number; supported: boolean } | null {
+    if (!this.shipWake || !this.ferryWake) return null
+    return {
+      ships: this.shipWake.drawn,
+      ferries: this.ferryWake.drawn,
+      supported: this.shipWake.state.supported && this.ferryWake.state.supported,
+    }
+  }
+
   /**
    * Per UI tick: carries the cloud drift forward on the simulated clock.
    * The layer asks for a frame itself once the drift shows on screen.
@@ -2617,6 +2652,8 @@ export class CesiumMap {
     // What this frame showed is the reference for the next one's motion
     this.vehicleLayer.markRendered()
     this.vesselLayer.markRendered()
+    this.shipWake?.markRendered()
+    this.ferryWake?.markRendered()
     this.clouds.markRendered()
     Matrix4.clone(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
   }
@@ -2940,6 +2977,8 @@ export class CesiumMap {
     this.weather.destroy()
     this.clouds.destroy()
     this.funnelSmoke?.destroy()
+    this.shipWake?.destroy()
+    this.ferryWake?.destroy()
     this.streetLamps.destroy()
     this.viewer.destroy()
   }

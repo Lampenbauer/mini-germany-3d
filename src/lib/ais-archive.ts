@@ -58,6 +58,12 @@ export const AIS_ARCHIVE_HOUR_MS = 3_600_000
  * the same moment – the margin only has to cover the tail poll below.
  */
 export const AIS_REPLAY_EDGE_MS = 60_000
+/**
+ * How far behind the sampled instant a replayed ship's track reaches:
+ * the wake reads her track WAKE_LIFE_S back from there (map/Wake.ts),
+ * and the fix before that can be a minute older still.
+ */
+export const AIS_REPLAY_TRACK_LOOKBACK_MS = 90_000
 /** How often the hour still being written is asked for its new lines. */
 export const AIS_ARCHIVE_TAIL_POLL_MS = 20_000
 /**
@@ -374,13 +380,14 @@ export class AisReplay {
   /**
    * The fleet as of `atMs`, in the shape the live poll delivers it: every
    * ship with a fix in the AIS_EXPIRE_MS before that moment, her position
-   * and kinematics those of that last fix, her track the fixes from the
-   * one the layer will sample (AIS_PLAYBACK_DELAY_MS behind) up to it –
-   * which is exactly what the live state holds at any moment. A ship
-   * whose first fix lies after `atMs` is not in the harbour yet.
+   * and kinematics those of that last fix, her track the fixes from
+   * AIS_REPLAY_TRACK_LOOKBACK_MS before the one the layer will sample
+   * (AIS_PLAYBACK_DELAY_MS behind) up to it – the live state holds ten
+   * minutes, the wake wants the minute before the sampled instant. A
+   * ship whose first fix lies after `atMs` is not in the harbour yet.
    */
   vesselsAt(atMs: number, exclude?: ReadonlySet<number>): AisVessel[] {
-    const renderMs = atMs - AIS_PLAYBACK_DELAY_MS
+    const renderMs = atMs - AIS_PLAYBACK_DELAY_MS - AIS_REPLAY_TRACK_LOOKBACK_MS
     const fleet: AisVessel[] = []
     for (const [mmsi, vessel] of this.vessels) {
       if (exclude?.has(mmsi)) continue

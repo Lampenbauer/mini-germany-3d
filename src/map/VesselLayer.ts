@@ -53,6 +53,7 @@ import {
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { FollowCamera } from '@/map/FollowCamera'
 import { SMOKE_MAX_DISTANCE_M, smokeIntensity, type FunnelSmoke } from './FunnelSmoke'
+import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
 
 export interface VesselLayerHost {
   requestRender(): void
@@ -88,6 +89,8 @@ export interface VesselLayerHost {
    * leaves them out – the layer then draws no smoke.
    */
   readonly funnelSmoke?: FunnelSmoke
+  /** The fleet's wakes, fed per tick from each ship's track (see Wake). Absent with the smoke. */
+  readonly wake?: Wake
 }
 
 /**
@@ -421,6 +424,12 @@ interface VesselRecord {
   clampLon: number
   clampLat: number
   clampedGeneration: number
+  /**
+   * Until when her wake is laid: WAKE_LIFE_S past the last tick she was
+   * under way, so a ship that stops leaves her wake to fade rather than
+   * losing it at once – and a ship at her berth costs no samples at all.
+   */
+  wakeUntilMs: number
 }
 
 /*
@@ -611,6 +620,8 @@ export class VesselLayer {
       smoke.advance(nowMs)
       smoke.begin()
     }
+    const wake = this.host.wake
+    wake?.begin(nowMs)
 
     let anyMovingVesselInView = false
     /**
@@ -771,6 +782,29 @@ export class VesselLayer {
         nearestHullMeters = distance
         nearestHullWidthM = vessel.widthM ?? DEFAULT_WIDTH
       }
+      // The wake: foam where her trailing end has been over the last
+      // WAKE_LIFE_S, read off her track at every step back – and for that
+      // long after she stopped, so it fades where she left it
+      if (wake && showBody && distance <= WAKE_MAX_DISTANCE_M) {
+        if (sample.underWay) record.wakeUntilMs = nowMs + WAKE_LIFE_S * 1000
+        if (nowMs < record.wakeUntilMs && vessel.track.length >= 2) {
+          const samples: WakeSample[] = []
+          for (let ageS = 0; ageS < WAKE_LIFE_S; ageS += WAKE_STEP_S) {
+            const past = playbackSample(vessel, renderMs - ageS * 1000)
+            samples.push({ ageS, lon: past.lon, lat: past.lat, bearingDeg: past.bearingDeg })
+          }
+          wake.add(samples, {
+            lengthM: vessel.lengthM ?? DEFAULT_LENGTH,
+            beamM: vessel.widthM ?? DEFAULT_WIDTH,
+            surfaceHeight: surface,
+            seed: vessel.mmsi % 977,
+          })
+          // A wake left standing fades on its own; a frame now and then shows it
+          if (wake.fadeFrameDue && this.isOnScreen(cullingVolume, record.displayPosition)) {
+            this.host.requestRender()
+          }
+        }
+      }
       // Exhaust: a hull with a funnel, under way over the ground, near
       // enough for a plume to be more than pixels. The plume starts at
       // the funnel top of the stretched hull and trails with the ship's
@@ -896,6 +930,7 @@ export class VesselLayer {
       }
     }
     smoke?.commit()
+    wake?.commit()
     return {
       anyMovingVesselInView,
       nearestHullMeters,
@@ -926,10 +961,12 @@ export class VesselLayer {
       }
       record.labelEntity.show = visible && this.labelsVisible && !this.namesAside()
     }
-    // The plumes go with the hulls; the next sync puts them back
-    if (!visible && this.host.funnelSmoke) {
-      this.host.funnelSmoke.begin()
-      this.host.funnelSmoke.commit()
+    // The plumes and the wakes go with the hulls; the next sync puts them back
+    if (!visible) {
+      this.host.funnelSmoke?.begin()
+      this.host.funnelSmoke?.commit()
+      this.host.wake?.begin(this.lastSyncMs)
+      this.host.wake?.commit()
     }
     this.host.requestRender()
   }
@@ -1163,6 +1200,7 @@ export class VesselLayer {
       clampLon: sample.lon,
       clampLat: sample.lat,
       clampedGeneration: -1,
+      wakeUntilMs: 0,
     }
     void this.attachModel(record, vessel.mmsi)
     return record

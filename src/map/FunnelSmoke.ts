@@ -25,7 +25,7 @@
  * A frame is asked for once the puffs have moved a visible step on
  * screen since the frame last drawn – the rule the ships and the clouds
  * follow (screen-motion.ts); the layer measures it at each smoking ship
- * it draws. Off in the mobile profile (RenderProfile.funnelSmoke).
+ * it draws. Off in the mobile profile (RenderProfile.shipEffects).
  *
  * Which ships smoke is the layer's call (VesselLayer): a hull with a
  * funnel in its model (VESSEL_MODELS[…].funnel – five of the thirteen
