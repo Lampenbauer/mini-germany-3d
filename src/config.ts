@@ -84,6 +84,9 @@ export const config = {
    * so does offline mode – neither has live traffic to reach. ?ais=0 is
    * softer: it opens with the fleet switched off, and the panel's "AIS
    * ships" switch turns it back on (see handleToggleAisVessels in App.tsx).
+   * The same endpoint serves the recording of the last three days
+   * (`&hour=…`, see lib/ais-archive.ts), replayed when the clock is set
+   * into the past.
    */
   ais: {
     url: (import.meta.env?.VITE_AIS_URL as string | undefined) ?? '/api/ais',

@@ -89,6 +89,7 @@ import {
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
+import { AisArchiveClient, aisReplayWanted, type AisArchiveHourStatus } from '@/lib/ais-archive'
 import type { AisVessel } from '@/lib/ais-extract'
 import {
   defaultWeatherMode,
@@ -127,8 +128,17 @@ export interface MrtTestApi {
   selectVehicle: (id: string | null) => void
   /** AIS backdrop vessels currently drawn (0 = layer off or no data yet). */
   aisVesselCount: () => number
+  /**
+   * Whether the ships are replayed from the recording, and which hours of
+   * it are held (see lib/ais-archive.ts) – the first stop for "the harbour
+   * is empty at 09:00".
+   */
+  aisReplay: () => { active: boolean; hours: AisArchiveHourStatus[]; fleet: number }
   selectStop: (id: string | null) => void
   selectedStopId: () => string | null
+  /** Ship selection by MMSI, as a click on a hull does it. */
+  selectVessel: (mmsi: number | null) => void
+  selectedMmsi: () => number | null
   /** Trip id of the current selection, null when nothing is selected. */
   selectedVehicleId: () => string | null
   /** Screen position of a vehicle in CSS px (null = off screen/unknown). */
@@ -642,6 +652,24 @@ export default function App() {
   /** The AIS poller of the city session, so the panel switch can stop and restart it. */
   const aisClientRef = useRef<AisClient | null>(null)
   /**
+   * The recording of the city's harbour – the ships as they were, for a
+   * clock set into the past (see lib/ais-archive.ts). Built with the
+   * poller; the render loop asks it for the fleet as of the simulated
+   * moment whenever that moment is far enough behind the real one.
+   */
+  const aisArchiveRef = useRef<AisArchiveClient | null>(null)
+  /**
+   * Whether the ships on the map are the recording's rather than the live
+   * poll's – decided by the render loop, read by the poll's callback (a
+   * live list must not close the card of a replayed ship) and by the
+   * card itself, which says so and measures its fix age on the simulated
+   * clock then.
+   */
+  const aisReplayRef = useRef(false)
+  const [aisReplay, setAisReplay] = useState(false)
+  /** How many ships the layer was last handed – the count the panel shows. */
+  const aisFleetCountRef = useRef(0)
+  /**
    * Panel switch for the AIS fleet, as the render loop reads it. Seeded
    * from ?ais=0 like the state it mirrors – a link that opens with the
    * ships off must not have the loop draw them anyway.
@@ -1025,7 +1053,13 @@ export default function App() {
         }
         return
       }
-      setSelectedVessel(aisVesselsRef.current.find((v) => v.mmsi === mmsi) ?? null)
+      // Her record comes from the fleet on the map: the recording's while
+      // the clock replays it, the live list otherwise
+      const fleet =
+        aisReplayRef.current && aisArchiveRef.current && clockRef.current
+          ? aisArchiveRef.current.vesselsAt(clockRef.current.now())
+          : aisVesselsRef.current
+      setSelectedVessel(fleet.find((v) => v.mmsi === mmsi) ?? null)
       if (followingRef.current) mapRef.current?.setFollowVessel(mmsi)
     },
     [selectVehicle],
@@ -1398,12 +1432,21 @@ export default function App() {
     // A real ship under way on screen paces ticks and rendering like a
     // tram in view does.
     let lastMovingVesselInView = false
-    // Pause freezes the whole picture, ships included: the AIS input and
-    // its clock hold at the moment of pausing, so the playback stands
+    // Pause freezes the whole picture, ships included: the live AIS input
+    // and its clock hold at the moment of pausing, so the playback stands
     // still and later polls cannot move a frozen world. Play unfreezes
-    // into live data (and snaps the sim clock to real time, see
-    // handleTogglePause) – the display ease glides everything over.
+    // into live data again – the display ease glides everything over.
+    // The replayed fleet needs none of this: its clock is the simulated
+    // one, which the pause holds by itself.
     let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
+    /**
+     * Which clock the ships are on. The recording replays a simulated
+     * moment behind the real one (aisReplayWanted); the present and the
+     * future are the live fleet. Decided only while the clock runs: a
+     * pause holds the picture as it was, whichever source drew it, and
+     * the real clock moving on underneath must not swap it out.
+     */
+    let aisReplaying = false
     /** Ships on the map right now – false before the first sync and while
         the panel switch is off, which is what tells the tick below that
         there is a fleet left to take down. */
@@ -1496,19 +1539,46 @@ export default function App() {
             // the vessel list with it, and a stale freeze would put the old
             // harbor back up. The upgrade below re-freezes on fresh data.
             if (wantAis && !aisDrawn) aisFrozen = null
-            if (clock.paused) {
-              // A pause that started before the first poll upgrades once
-              // when data lands – frozen, but not needlessly empty.
-              if (
-                aisFrozen === null ||
-                (aisFrozen.backdrop.length === 0 && aisVesselsRef.current.length > 0)
-              ) {
-                aisFrozen = { backdrop: aisVesselsRef.current, atMs: Date.now() }
-              }
-            } else {
-              aisFrozen = null
+            const aisArchive = aisArchiveRef.current
+            if (!clock.paused) {
+              aisReplaying = aisArchive !== null && aisReplayWanted(simMs, Date.now())
             }
-            const aisNow = aisFrozen?.atMs ?? Date.now()
+            if (aisReplaying !== aisReplayRef.current) {
+              aisReplayRef.current = aisReplaying
+              setAisReplay(aisReplaying)
+            }
+            let aisBackdrop: AisVessel[]
+            let aisNow: number
+            // The recording, as of the simulated moment: the client keeps
+            // the hours around it on hand – while the fleet is wanted at
+            // all – and the layer renders it the way it renders the live
+            // fleet, on the clock it is given. Until the hour of the moment
+            // has been answered for, the picture that is up stays up.
+            let replayed: AisVessel[] | null = null
+            if (aisReplaying && aisArchive) {
+              if (wantAis && !clock.paused) aisArchive.follow(simMs)
+              if (aisArchive.ready(simMs)) replayed = wantAis ? aisArchive.vesselsAt(simMs) : []
+            }
+            if (replayed !== null) {
+              aisBackdrop = replayed
+              aisNow = simMs
+              aisFrozen = null
+            } else {
+              if (clock.paused) {
+                // A pause that started before the first poll upgrades once
+                // when data lands – frozen, but not needlessly empty.
+                if (
+                  aisFrozen === null ||
+                  (aisFrozen.backdrop.length === 0 && aisVesselsRef.current.length > 0)
+                ) {
+                  aisFrozen = { backdrop: aisVesselsRef.current, atMs: Date.now() }
+                }
+              } else {
+                aisFrozen = null
+              }
+              aisBackdrop = aisFrozen?.backdrop ?? aisVesselsRef.current
+              aisNow = aisFrozen?.atMs ?? Date.now()
+            }
             // A map nobody can see is not worth moving the models on: the
             // first tick after the diagram closes syncs them, and that is
             // still before the frame that would show them.
@@ -1531,12 +1601,13 @@ export default function App() {
               maxTickMotionPx: number
             } | null = null
             if (wantAis) {
-              vesselInfo = map.syncVessels(aisFrozen?.backdrop ?? aisVesselsRef.current, aisNow)
+              vesselInfo = map.syncVessels(aisBackdrop, aisNow)
               aisDrawn = true
             } else if (aisDrawn) {
               map.syncVessels([], aisNow)
               aisDrawn = false
             }
+            aisFleetCountRef.current = wantAis ? aisBackdrop.length : 0
             // A diagram full of dots is vehicles in view, whatever the map is
             // drawing: the tick rate below is what moves them, and at the
             // 2 fps of an empty map they would step rather than run. It buys
@@ -1600,6 +1671,22 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
+              // A replayed ship's card follows the recording the way a live
+              // one follows the polls: her fix as of the simulated moment,
+              // and closed once the recording has no fix for her there –
+              // she has not arrived yet, or she left half an hour ago.
+              const replayedMmsi = replayed !== null ? selectedMmsiRef.current : null
+              if (replayedMmsi !== null) {
+                const fresh = aisBackdrop.find((v) => v.mmsi === replayedMmsi) ?? null
+                if (fresh === null) selectVessel(null)
+                else {
+                  setSelectedVessel((current) =>
+                    current?.mmsi === fresh.mmsi && current.positionAt === fresh.positionAt
+                      ? current
+                      : fresh,
+                  )
+                }
+              }
               // Whole seconds: every reader of this state counts minutes or
               // seconds, and the millisecond fraction only made the value
               // differ on every UI tick – four re-renders of the whole app
@@ -1749,6 +1836,11 @@ export default function App() {
         setPaused(p)
       },
       aisVesselCount: () => map.getVesselCount(),
+      aisReplay: () => ({
+        active: aisReplayRef.current,
+        hours: aisArchiveRef.current?.status() ?? [],
+        fleet: aisArchiveRef.current?.vesselsAt(clock.now()).length ?? 0,
+      }),
       setRealtimeDelays: (delays: Record<string, number>) => {
         simRef.current?.setRealtimeDelays(new Map(Object.entries(delays)))
       },
@@ -1767,6 +1859,8 @@ export default function App() {
       selectedVehicleId: () => selectedIdRef.current,
       selectStop,
       selectedStopId: () => selectedStopIdRef.current,
+      selectVessel,
+      selectedMmsi: () => selectedMmsiRef.current,
       vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
       dataSource: '',
@@ -1945,6 +2039,7 @@ export default function App() {
 
     let realtimeClient: RealtimeClient | null = null
     let aisClient: AisClient | null = null
+    let aisArchive: AisArchiveClient | null = null
     let weatherClient: WeatherClient | null = null
     let webcamsClient: WebcamsClient | null = null
 
@@ -2013,7 +2108,9 @@ export default function App() {
           aisVesselsRef.current = backdrop
           // An open ship card follows its ship's fixes; a ship that has left
           // the picture closes it rather than freezing at her last position.
-          const mmsi = selectedMmsiRef.current
+          // Unless the map is replaying the recording: the card is on a
+          // ship of the past then, and the render loop keeps it.
+          const mmsi = aisReplayRef.current ? null : selectedMmsiRef.current
           if (mmsi !== null) {
             const fresh = backdrop.find((v) => v.mmsi === mmsi) ?? null
             if (fresh === null) selectVessel(null)
@@ -2022,6 +2119,13 @@ export default function App() {
         })
         aisClientRef.current = aisClient
         if (showAisVesselsRef.current) aisClient.start(config.ais.pollIntervalMs)
+        // The recording of the same harbour, for a clock set into the past.
+        // Pull-driven from the render loop, so it costs nothing until the
+        // clock is; the same twins are left out of it.
+        aisArchive = new AisArchiveClient(cityApiUrl(config.ais.url, sessionCity.slug), {
+          exclude: new Set(Object.keys(simulated).map(Number)),
+        })
+        aisArchiveRef.current = aisArchive
       }
 
       // Rain overlay: live precipitation for the city (Open-Meteo).
@@ -2136,9 +2240,11 @@ export default function App() {
       cancelled = true
       realtimeClient?.stop()
       aisClient?.stop()
+      aisArchive?.stop()
       weatherClient?.stop()
       webcamsClient?.stop()
       aisClientRef.current = null
+      aisArchiveRef.current = null
       const api = apiRef.current
       if (api) {
         api.ready = false
@@ -2499,8 +2605,9 @@ export default function App() {
     setPaused((prev) => {
       const next = !prev
       // Play carries on from the simulated moment – a time set by hand
-      // survives a pause. "Now" is the way back to the real time; the AIS
-      // ships keep showing the real present regardless (see VesselLayer).
+      // survives a pause. "Now" is the way back to the real time. The AIS
+      // ships hold with the rest: the live ones frozen by the render loop,
+      // the replayed ones by the simulated clock they are on.
       clockRef.current?.setPaused(next)
       pausedRef.current = next
       writeHashRef.current()
@@ -3330,7 +3437,7 @@ export default function App() {
             showAisVessels={showAisVessels}
             onToggleAisVessels={handleToggleAisVessels}
             activity={cityActivity}
-            aisVesselCount={aisVesselsRef.current.length}
+            aisVesselCount={aisFleetCountRef.current}
             onShowCityFacts={handleShowCityFacts}
           />
         </div>
@@ -3387,7 +3494,9 @@ export default function App() {
           <div className={CARD_SLOT}>
             <VesselCard
               vessel={selectedVessel}
-              nowMs={Date.now()}
+              // A replayed ship's fix is as old as the simulated clock says
+              nowMs={aisReplay ? (clockRef.current?.now() ?? Date.now()) : Date.now()}
+              recorded={aisReplay}
               following={following}
               onToggleFollow={handleToggleFollow}
               onClose={() => selectVessel(null)}

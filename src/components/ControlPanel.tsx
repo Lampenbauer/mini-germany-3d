@@ -91,7 +91,7 @@ export interface ControlPanelProps {
   onTogglePause: () => void
   /** Set the simulation time to "HH:MM". */
   onSetTime: (hhmm: string) => void
-  /** Set the simulated calendar day, "YYYY-MM-DD" (today to a week ahead). */
+  /** Set the simulated calendar day, "YYYY-MM-DD" (two days back to a week ahead). */
   onSetDate: (dateKey: string) => void
   /** Reset the simulation time to the real clock. */
   onResetTime: () => void
@@ -136,6 +136,13 @@ const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
  * goes – should the live sky ever follow the simulated day.
  */
 const DATE_PICKER_DAYS_AHEAD = 7
+/**
+ * How far back: the two days whose harbour traffic the AIS archive still
+ * holds (AIS_ARCHIVE_KEEP_HOURS in lib/ais-archive.ts – three days, this
+ * one included). The timetable is the same on any day; the ships are
+ * what a day in the past has to show.
+ */
+const DATE_PICKER_DAYS_BACK = 2
 
 /** A "YYYY-MM-DD" day as the local-time Date the calendar shows it as. */
 function localDay(dateKey: string): Date {
@@ -251,21 +258,22 @@ export function ControlPanel(props: ControlPanelProps) {
   // pick, as shadcn's does.
   const [pickedDate, setPickedDate] = useState<Date | undefined>(undefined)
   const [dateOpen, setDateOpen] = useState(false)
-  // The picker's range: today to a week ahead, as calendar days in the
-  // timetable's zone. Re-read on every render – the panel renders once a
-  // second for the clock, so midnight moves the range on its own. The
+  // The picker's range: two days back to a week ahead, as calendar days in
+  // the timetable's zone. Re-read on every render – the panel renders once
+  // a second for the clock, so midnight moves the range on its own. The
   // calendar speaks local Dates; a Berlin day is handed to it as the local
   // day of the same name, and the day picked goes back by name too, so
   // the key that reaches the clock is the day on the calendar whatever
   // zone the browser is in.
-  const minDay = localDay(berlinDateKey(Date.now()))
+  const today = localDay(berlinDateKey(Date.now()))
+  const minDay = localDay(berlinDateKey(Date.now() - DATE_PICKER_DAYS_BACK * 86_400_000))
   const maxDay = localDay(berlinDateKey(Date.now() + DATE_PICKER_DAYS_AHEAD * 86_400_000))
   const calendarLocale = getLanguage() === 'de' ? de : enGB
   // The day the simulation stands on: the one picked, or today until one
   // is. The button carries it from the start rather than the word "Date" –
   // a select shows what is selected, and something is, whether or not the
   // viewer put it there.
-  const shownDay = pickedDate ?? minDay
+  const shownDay = pickedDate ?? today
   // That day on the button, in the one shape every language gets here:
   // "12. Sep 2026". A named month cannot be read the wrong way round,
   // which an all-numeric date can (08/09 is two different days on either

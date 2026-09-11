@@ -32,14 +32,26 @@ import {
  */
 export interface VesselCardProps {
   vessel: AisVessel
-  /** Wall clock the fix age is measured against. */
+  /** The clock the fix age is measured against – the wall clock, or the simulated one for a replayed ship. */
   nowMs: number
+  /**
+   * Whether the ship is replayed from the recording rather than live –
+   * the eyebrow says so, and the pulse that means "live" stays off.
+   */
+  recorded?: boolean
   following: boolean
   onToggleFollow: () => void
   onClose: () => void
 }
 
-export function VesselCard({ vessel, nowMs, following, onToggleFollow, onClose }: VesselCardProps) {
+export function VesselCard({
+  vessel,
+  nowMs,
+  recorded = false,
+  following,
+  onToggleFollow,
+  onClose,
+}: VesselCardProps) {
   const typeKey = vesselTypeKey(vessel.typeCode)
   const statusKey = navStatusKey(vessel.navStatus)
   const dimensions = formatDimensions(vessel)
@@ -57,9 +69,10 @@ export function VesselCard({ vessel, nowMs, following, onToggleFollow, onClose }
         eyebrow={
           <>
             {/* The pulse is the one animation on a card: it says "live"
-                where every other figure on the map is the timetable's. */}
-            <EyebrowDot className="animate-pulse" />
-            {t('vessel.live')}
+                where every other figure on the map is the timetable's –
+                and a replayed ship is not live, so hers stands still. */}
+            <EyebrowDot className={recorded ? undefined : 'animate-pulse'} />
+            {t(recorded ? 'vessel.recorded' : 'vessel.live')}
             <span className="font-normal text-slate-400">
               {' · '}
               {formatFixAge(vessel.positionAt, nowMs)}

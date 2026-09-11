@@ -427,9 +427,11 @@ describe('App (UI shell)', () => {
     expect(input).toHaveValue('')
   })
 
-  it('sets the simulated day from the calendar, within the week ahead, and Now brings it back', async () => {
+  it('sets the simulated day from the calendar, two days back to a week ahead, and Now brings it back', async () => {
     render(<App />)
-    const trigger = screen.getByRole('button', { name: 'Set simulation date (today to a week ahead)' })
+    const trigger = screen.getByRole('button', {
+      name: 'Set simulation date (two days back to a week ahead)',
+    })
     // The button opens on the day the simulation stands on – today, until
     // one is picked – in the one shape every language gets: "8. Sep 2026"
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -439,12 +441,15 @@ describe('App (UI shell)', () => {
     fireEvent.click(trigger)
     // react-day-picker's month is a grid; its day buttons carry data-day
     const calendar = await screen.findByRole('grid')
-    // The calendar's days: a week from today can be picked, the rest is disabled
+    // The calendar's days: the two days before today – the ones the AIS
+    // archive still holds – and a week from today can be picked, the rest
+    // is disabled
     const today = berlinDateKey(Date.now())
     const tomorrow = berlinDateKey(Date.now() + 86_400_000)
+    const twoDaysAgo = berlinDateKey(Date.now() - 2 * 86_400_000)
     const dayButtons = [...calendar.querySelectorAll<HTMLButtonElement>('button[data-day]')]
     const enabled = dayButtons.filter((b) => !b.disabled)
-    expect(enabled).toHaveLength(8)
+    expect(enabled).toHaveLength(10)
     const dayNumber = String(parseInt(tomorrow.slice(8), 10))
     const tomorrowButton = enabled.find((b) => b.textContent === dayNumber)!
     const secondsBefore = window.__mrt!.secondsOfDay()
@@ -455,6 +460,16 @@ describe('App (UI shell)', () => {
     // The trigger now names the day picked, and the calendar closed itself
     expect(trigger).toHaveTextContent(shortDay(tomorrow))
     expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+    // Back into the past: the day before yesterday is the earliest offered
+    fireEvent.click(trigger)
+    const reopened = await screen.findByRole('grid')
+    const earliest = [...reopened.querySelectorAll<HTMLButtonElement>('button[data-day]')].filter(
+      (b) => !b.disabled,
+    )[0]
+    expect(earliest.textContent).toBe(String(parseInt(twoDaysAgo.slice(8), 10)))
+    fireEvent.click(earliest)
+    expect(window.__mrt!.dateKey()).toBe(twoDaysAgo)
+    expect(trigger).toHaveTextContent(shortDay(twoDaysAgo))
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     expect(window.__mrt!.dateKey()).toBe(today)
     // … and gives the day up again with the clock, back to today

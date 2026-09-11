@@ -50,7 +50,7 @@ pipeline (see [Cities](#cities)).
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); a live compass, 2D/3D, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation, filtered per city (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
 | Weather | Open-Meteo precipitation, cloud cover and temperature for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the weather button. The live sky is shown only near real time (`?rain=0` opts out); the weather popover swaps it for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one |
-| Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen low-poly archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`). Each ship floats on the tiles' own water: its hull is clamped to Google's mesh with an offscreen pick, so inland – where the Main falls 15 m through Frankfurt in four lock steps and Berlin's Havel lies two metres under its Spree – a barge sits on the water rather than thirty metres beneath it. The picks are made only for ships on screen and only when the ship moved or the tiles under it refined; a fleet at rest costs nothing. Each ship carries her name on a dark slate plate – where the stops wear bare haloed text, so the fleet and the network are told apart at a glance – decluttered against each other and against the stops' own rule: in a crowded harbour the nearest ship keeps her name and the rest step aside. Clicking a hull or her name opens her card and lights her up – her hull washed toward white and rimmed in it, exactly as a picked vehicle is – and puts her MMSI in the URL, so a reload picks her up again and chases her |
+| Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen low-poly archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`). Each ship floats on the tiles' own water: its hull is clamped to Google's mesh with an offscreen pick, so inland – where the Main falls 15 m through Frankfurt in four lock steps and Berlin's Havel lies two metres under its Spree – a barge sits on the water rather than thirty metres beneath it. The picks are made only for ships on screen and only when the ship moved or the tiles under it refined; a fleet at rest costs nothing. Each ship carries her name on a dark slate plate – where the stops wear bare haloed text, so the fleet and the network are told apart at a glance – decluttered against each other and against the stops' own rule: in a crowded harbour the nearest ship keeps her name and the rest step aside. Clicking a hull or her name opens her card and lights her up – her hull washed toward white and rimmed in it, exactly as a picked vehicle is – and puts her MMSI in the URL, so a reload picks her up again and chases her. The harbour has a memory: every fix heard is kept for three days (`src/lib/ais-archive.ts`, written by the same endpoint that serves the live fleet), and a clock set into the past – a time this morning, one of the two days the calendar offers behind today – replays the ships as they were then, interpolated between their recorded fixes exactly as the live fleet is; her card then says "Recorded from AIS" and measures the fix age on the simulated clock. A clock set ahead leaves the ships live, and where nothing was recorded – before the archive began, an hour the keeper did not hear – the water stays empty rather than showing today's ships on yesterday's date |
 | Live webcams | Windy's webcams as pictures floating over the spot they look from: a world-sized billboard per camera, its longest side 150 m at the picture's own aspect ratio, its bottom edge 180 m above the ground, facing the viewer. Polled every ten minutes through a proxy that keeps the API key (`/api/webcams?city=…`); a click opens the camera's windy.com page and the credit line carries Windy's courtesy text. Stop names, vehicle badges and ship names that would sit on a picture step aside for it. The layers popover has a Webcams switch with the city's cameras listed under it – a click flies to the picture. `?webcams=0` leaves the layer out entirely |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover, Tabs) |
 | About the map | The question mark below the map controls (or `?`) opens a dialog that says what this is: where it comes from – [mini-tokyo-3d](https://minitokyo3d.com) put Tokyo's trains on a 3D map, [legible-cities](https://github.com/richc117/legible-cities) draws timetable animations out of open GTFS – and, above all, what it is not: not live vehicle tracking. The feeds carry the timetable and the delay, not the position, so every vehicle drives its scheduled trip with the GTFS-RT delay shifting it; only the AIS ships are where they really are. The dialog opens with Mario’s project story and inspirations; map details and keyboard shortcuts have their own tabs |
@@ -108,7 +108,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   button, switch or tab it stays the click, so the interface can still be
   worked without a mouse.
 - **Simulation time:** The panel's time field opens the native picker (e.g. jump to
-  rush hour); "Now" restores the real time. Time-lapse 1–120× and pause work at any
+  rush hour); "Now" restores the real time. The date button beside it opens a
+  calendar from two days back to a week ahead – the day changes the sun, and a
+  day in the past replays the recorded ships (see "Live harbour traffic"); the
+  timetable is the same service day throughout. Time-lapse 1–120× and pause work at any
   time – play carries on from the simulated moment, a time set by hand survives
   a pause – and the collapsed panel keeps showing the clock and the pause button.
   The scene lighting follows the simulated clock, so the time input doubles as a
@@ -691,6 +694,26 @@ scale); `api/ais.php` does the same in short listen windows on shared hosting
 and keeps one state file for all cities. `scripts/test-ais-parity.mjs` checks
 that both subscribe with exactly the boxes the city definitions carry.
 
+Both also **record** what they hear: one NDJSON file per city and UTC hour
+(`<slug>/2026-09-11T09.ndjson`), a line per fix `[mmsi, ms, lat, lon, sog,
+cog, heading, navStatus]` plus a line of static data whenever a ship's name,
+type, dimensions or draught change, and a snapshot of every ship alive at the
+top of each file so an hour can be read on its own. Three days are kept
+(`AIS_ARCHIVE_KEEP_HOURS`); older files go when a new hour opens.
+`/api/ais?city=<slug>&hour=2026-09-11T09` serves an hour back – `&from=<byte>`
+the tail of the one still being written, which the app polls every 20 s –
+with a closed hour marked cacheable and 404 where nothing was recorded. The
+writer is `src/lib/ais-archive.ts` (the dev middleware puts the files under
+the OS temp directory), the PHP twin lives in `api/ais.php` and writes above
+the docroot, and `scripts/test-ais-archive-parity.mjs` holds the two to the
+same output. Measured 2026-09-11 across the nine harbours: ~455 fixes a
+minute, ~36 MB a day raw, ~8 MB gzipped; the keeper's extra work per fix is
+an append. The app replays the recording whenever the simulated clock is
+more than a minute behind the real one (`aisReplayWanted`), asking for the
+hour of the moment and the hour ahead, and renders it the way it renders the
+live fleet – four minutes behind the clock it is on, so the two sources hand
+over without a jump at the edge.
+
 The ships take their height from the tiles: `scene.clampToHeight` under
 each hull, with the ships' own primitives excluded so a hull does not pick
 itself (`VesselLayer`). Sea level would do at the coast, but inland the
@@ -722,7 +745,11 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    `schedule.json` rsynced to the document root from the `KAS_TARGET_DIR`
    secret. PR checks, feature-branch pushes, and failed tests do not deploy. A
    manual run of the CI workflow on `main` also goes through all tests first,
-   which makes it suitable as a recovery deploy.
+   which makes it suitable as a recovery deploy. The rsync deletes what it
+   does not carry, which is why nothing the site writes at runtime lives
+   under the document root: the API keys sit two levels above it, and so
+   does the AIS archive `api/ais.php` records (`ais-archive/<slug>/`, created
+   on first use; the temp directory stands in when that cannot be written).
 3. **Trying a branch out on the real hosting:** Actions → CI → `Run workflow`,
    pick the branch, tick **`deploy_preview`**. It passes the same full test suite
    and then goes to the same place – there is only one document root, so the
@@ -801,7 +828,11 @@ src/
 │   ├── static-page.ts      # The static page's id; hidden as the app starts, shown when it fails
 │   ├── welcome.ts          # Whether the welcome screen opens, and the wish not to see it again
 │   ├── realtime.ts         # GTFS-RT client (polls /api/realtime?city=…)
-│   └── rt-extract.ts       # Shared realtime feed → delay-map extraction
+│   ├── rt-extract.ts       # Shared realtime feed → delay-map extraction
+│   ├── ais.ts              # AIS client (polls /api/ais?city=…)
+│   ├── ais-extract.ts      # Shared aisstream message → vessel state extraction, the playback sampler
+│   ├── ais-archive.ts      # The AIS recording: hour files, the writer, the replay, the client
+│   └── ais-archive-fs.ts   # …on disk, for the dev middleware and the parity script (Node only)
 ├── engine/simulation.ts    # Clock + timetable → vehicle snapshots per frame
 ├── map/CesiumMap.ts        # Viewer, Google 3D Tiles, the city's leash and home view,
 │                           # the flight between cities, follow/chase cam, day/night
@@ -835,6 +866,8 @@ scripts/
 ├── build-og-images.mjs       # link-preview pictures → public/og (by hand, committed)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 ├── test-ais-parity.mjs       # parity test Node vs. api/ais.php, incl. the city boxes
+├── test-ais-state.mjs        # api/ais.php completes a state file from before a field existed
+├── test-ais-archive-parity.mjs # parity test Node vs. api/ais.php for the AIS archive files
 └── copy-cesium-assets.mjs    # Cesium static files → public/cesium (postinstall)
 ```
 

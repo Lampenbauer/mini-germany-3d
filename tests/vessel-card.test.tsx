@@ -97,6 +97,23 @@ describe('VesselCard', () => {
     expect(screen.getByTestId('vessel-status')).toHaveTextContent('Moored')
   })
 
+  it('says live, with the pulse, for a ship from the poll', () => {
+    show(vessel())
+    expect(screen.getByText('Live from AIS')).toBeInTheDocument()
+    expect(document.querySelector('.animate-pulse')).not.toBeNull()
+  })
+
+  it('says recorded, without the pulse, for a ship replayed from the archive', () => {
+    // The pulse means "live" everywhere on the map – a replayed ship is
+    // a fact of the past, and her fix age is measured on the clock that
+    // replays her, not on the wall clock.
+    show(vessel({ positionAt: NOW - 120_000 }), { recorded: true, nowMs: NOW })
+    expect(screen.getByText('Recorded from AIS')).toBeInTheDocument()
+    expect(screen.queryByText('Live from AIS')).not.toBeInTheDocument()
+    expect(document.querySelector('.animate-pulse')).toBeNull()
+    expect(screen.getByText(/last update 2 min ago/)).toBeInTheDocument()
+  })
+
   it('offers the follow button and reports the click', () => {
     const { onToggleFollow } = show(vessel())
     fireEvent.click(screen.getByRole('button', { name: 'Follow vessel' }))

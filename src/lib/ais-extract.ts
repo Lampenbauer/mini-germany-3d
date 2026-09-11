@@ -10,7 +10,10 @@
  * delivers a ship under way only about every 60 s – extrapolating ahead
  * of the newest fix therefore stalled ships for minutes and teleported
  * them when the correction landed; with the delay, the next fix has
- * almost always arrived before the playback needs it.
+ * almost always arrived before the playback needs it. The track is
+ * pruned after ten minutes; what it drops, the archive keeps for three
+ * days (ais-archive.ts), and a clock set into the past plays that back
+ * the same way, the same delay behind the simulated moment.
  *
  * Used by the Vite dev middleware (vite.config.ts) and the unit tests;
  * in production server/api/ais.php does the same job in PHP – the parity
@@ -72,7 +75,9 @@ export const AIS_STATIC_KEEP_MS = 48 * 3600_000
  * that the harbor runs four minutes late – nobody watching the map can
  * tell, and the motion is what sells it. It has to stay well under
  * AIS_TRACK_KEEP_MS, or the playback would be reading points the state
- * has already pruned.
+ * has already pruned. The replay of the archive keeps the same delay
+ * behind the simulated clock, on purpose: it is what lets the two
+ * sources hand over without a jump (see ais-archive.ts).
  */
 export const AIS_PLAYBACK_DELAY_MS = 240_000
 /** Track points older than this are pruned from the state. */

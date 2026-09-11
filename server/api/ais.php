@@ -108,6 +108,15 @@ const MRT_AIS_STATIC_KEEP_MS = 48 * 3600_000;
 const MRT_AIS_TRACK_KEEP_MS = 10 * 60_000;
 /** Hard cap per vessel – a runaway-transmitter backstop. */
 const MRT_AIS_TRACK_MAX_POINTS = 40;
+/**
+ * The archive: every fix, kept for three days in one file per city and
+ * UTC hour, so the app can replay the harbour when its clock is set into
+ * the past – see src/lib/ais-archive.ts for the format and the reasons,
+ * and mrt_ais_archive_dir for where it lives. Mirror of
+ * AIS_ARCHIVE_KEEP_HOURS and AIS_ARCHIVE_SETTLE_MS there.
+ */
+const MRT_AIS_ARCHIVE_KEEP_HOURS = 72;
+const MRT_AIS_ARCHIVE_SETTLE_SECONDS = 60;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/ais-extract.ts
@@ -374,16 +383,195 @@ function mrt_ais_inside(array $box, $lat, $lon): bool
         && $lat >= $box['south'] && $lat <= $box['north'];
 }
 
+// ---------------------------------------------------------------------------
+// The archive – the PHP twin of the writer in src/lib/ais-archive.ts
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the archive lives: beside the API key two levels up, above the
+ * docroot – the deploy's rsync --delete never reaches there, and neither
+ * does the web – or, when that cannot be written, the temp directory the
+ * state file is in. Null when neither can be, which is logged once per
+ * request rather than failing the request: the live fleet does not
+ * depend on the recording.
+ */
+function mrt_ais_archive_dir(): ?string
+{
+    foreach ([__DIR__ . '/../../ais-archive', sys_get_temp_dir() . '/mrt-ais-archive'] as $dir) {
+        if (is_dir($dir) ? is_writable($dir) : @mkdir($dir, 0755, true)) return $dir;
+    }
+    error_log('ais.php: no writable directory for the AIS archive');
+    return null;
+}
+
+/** The hour file a moment belongs to, as its name: UTC "YYYY-MM-DDTHH". */
+function mrt_ais_archive_hour_key(int $ms): string
+{
+    return gmdate('Y-m-d\TH', intdiv($ms, 1000));
+}
+
+/** The start of a named hour in unix seconds, null for anything else. */
+function mrt_ais_archive_hour_start(string $key): ?int
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}$/', $key)) return null;
+    // The '!' resets what the format does not name to zero – without it
+    // the missing minutes and seconds would be the current ones.
+    $at = DateTimeImmutable::createFromFormat('!Y-m-d\TH', $key, new DateTimeZone('UTC'));
+    return $at === false ? null : $at->getTimestamp();
+}
+
+function mrt_ais_archive_file(string $dir, string $slug, string $hourKey): string
+{
+    return $dir . '/' . $slug . '/' . $hourKey . '.ndjson';
+}
+
+/** A vessel's static data as the archive keeps it – the fields no fix carries. */
+function mrt_ais_archive_static(array $vessel): array
+{
+    return [
+        'mmsi' => $vessel['mmsi'],
+        'name' => $vessel['name'],
+        'typeCode' => $vessel['typeCode'],
+        'lengthM' => $vessel['lengthM'],
+        'widthM' => $vessel['widthM'],
+        'draughtM' => $vessel['draughtM'],
+    ];
+}
+
+/**
+ * The vessel's last fix as a line: [mmsi, ms, lat, lon, sog, cog,
+ * heading, navStatus]. The track's last point is that fix as it was
+ * heard; the record's own fields stand in for a record without a track.
+ */
+function mrt_ais_archive_fix(array $vessel): array
+{
+    $track = $vessel['track'];
+    $last = $track === [] ? null : $track[count($track) - 1];
+    if ($last !== null && $last[0] === $vessel['positionAt']) {
+        return [$vessel['mmsi'], $last[0], $last[1], $last[2], $last[3], $last[4], $last[5], $vessel['navStatus']];
+    }
+    return [$vessel['mmsi'], $vessel['positionAt'], $vessel['lat'], $vessel['lon'],
+        $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg'], $vessel['navStatus']];
+}
+
+/**
+ * The lines an hour file opens with: every ship with a fresh position
+ * inside the box, sorted by MMSI, her static data and her last fix.
+ */
+function mrt_ais_archive_snapshot(array &$state, int $nowMs, array $box): string
+{
+    $text = '';
+    foreach (mrt_ais_vessels($state, $nowMs) as $vessel) {
+        if (!mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
+        $text .= json_encode(mrt_ais_archive_static($vessel)) . "\n"
+            . json_encode(mrt_ais_archive_fix($vessel)) . "\n";
+    }
+    return $text;
+}
+
+/** Deletes a city's hour files named before $oldestKept. */
+function mrt_ais_archive_prune(string $cityDir, string $oldestKept): void
+{
+    foreach (glob($cityDir . '/*.ndjson') ?: [] as $file) {
+        if (basename($file, '.ndjson') < $oldestKept) @unlink($file);
+    }
+}
+
+/**
+ * Folds one message into the state (mrt_ais_merge) and records what it
+ * changed: the fix it carried, and the static data when that is new. A
+ * city whose hour file does not exist yet gets the snapshot instead –
+ * taken after the merge, so it already holds this ship and this fix –
+ * and its files older than the retention go. Line for line the twin of
+ * AisArchiveWriter.record in src/lib/ais-archive.ts.
+ */
+function mrt_ais_archive_record(array &$state, array $raw, int $nowMs, array $cities, string $dir): void
+{
+    $mmsi = $raw['MetaData']['MMSI'] ?? null;
+    if (!is_int($mmsi) || $mmsi <= 0) return;
+    $before = $state[$mmsi] ?? null;
+    $beforePositionAt = $before['positionAt'] ?? 0;
+    $beforeStatic = $before === null ? null : json_encode(mrt_ais_archive_static($before));
+    mrt_ais_merge($state, $raw, $nowMs);
+    $vessel = $state[$mmsi] ?? null;
+    if ($vessel === null) return;
+
+    $lines = '';
+    if (json_encode(mrt_ais_archive_static($vessel)) !== $beforeStatic) {
+        $lines .= json_encode(mrt_ais_archive_static($vessel)) . "\n";
+    }
+    if ($vessel['positionAt'] !== $beforePositionAt) {
+        $lines .= json_encode(mrt_ais_archive_fix($vessel)) . "\n";
+    }
+    if ($lines === '') return;
+
+    $hourKey = mrt_ais_archive_hour_key($nowMs);
+    foreach ($cities as $slug => $box) {
+        if (!mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
+        $file = mrt_ais_archive_file($dir, $slug, $hourKey);
+        if (is_file($file)) {
+            @file_put_contents($file, $lines, FILE_APPEND | LOCK_EX);
+            continue;
+        }
+        $cityDir = dirname($file);
+        if (!is_dir($cityDir) && !@mkdir($cityDir, 0755, true)) continue;
+        mrt_ais_archive_prune(
+            $cityDir,
+            mrt_ais_archive_hour_key($nowMs - MRT_AIS_ARCHIVE_KEEP_HOURS * 3600_000)
+        );
+        @file_put_contents($file, mrt_ais_archive_snapshot($state, $nowMs, $box), FILE_APPEND | LOCK_EX);
+    }
+}
+
+/**
+ * Serves one hour file of one city (?hour=YYYY-MM-DDTHH), from the byte
+ * ?from= on – the app fetches the hour still being written for its tail
+ * every few seconds and would not want the whole file each time. A
+ * closed hour is complete and cacheable; an open one, and any tail,
+ * must not be cached. 404 where nothing was recorded, 416 for a start
+ * beyond the end (nothing new).
+ */
+function mrt_ais_archive_serve(?string $dir, string $slug, string $hourKey, int $from): void
+{
+    $hourStart = mrt_ais_archive_hour_start($hourKey);
+    $file = $dir === null || $hourStart === null ? null : mrt_ais_archive_file($dir, $slug, $hourKey);
+    if ($file === null || !is_file($file)) {
+        http_response_code(404);
+        echo json_encode(['error' => 'No recording for this hour']);
+        return;
+    }
+    $size = (int) filesize($file);
+    if ($from < 0 || $from > $size) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $size);
+        return;
+    }
+    $closed = ($hourStart + 3600 + MRT_AIS_ARCHIVE_SETTLE_SECONDS) * 1000 < mrt_now_ms();
+    header('Content-Type: application/x-ndjson');
+    header('Cache-Control: ' . ($closed && $from === 0 ? 'public, max-age=86400' : 'no-store'));
+    header('Content-Length: ' . ($size - $from));
+    // Exactly the bytes announced – the file may grow while they go out
+    $in = fopen($file, 'rb');
+    $out = fopen('php://output', 'wb');
+    if ($in !== false && $out !== false && $size > $from) {
+        stream_copy_to_stream($in, $out, $size - $from, $from);
+    }
+    if ($in !== false) fclose($in);
+    if ($out !== false) fclose($out);
+}
+
 /**
  * One listen window: connect, subscribe, merge everything heard into
- * $state. Failures are silent by design – the previous state stays.
+ * $state – through $record where given, which is how the archive is
+ * written. Failures are silent by design – the previous state stays.
  */
 function mrt_ais_listen(
     array &$state,
     string $apiKey,
     int $listenSeconds,
     ?callable $onFlush = null,
-    ?float $hardDeadline = null
+    ?float $hardDeadline = null,
+    ?callable $record = null
 ): bool {
     $bboxes = mrt_ais_bboxes();
     if ($bboxes === null) return false;
@@ -439,7 +627,11 @@ function mrt_ais_listen(
                         $message = json_decode($fragment, true);
                         $fragment = '';
                         if (is_array($message)) {
-                            mrt_ais_merge($state, $message, mrt_now_ms());
+                            if ($record !== null) {
+                                $record($state, $message, mrt_now_ms());
+                            } else {
+                                mrt_ais_merge($state, $message, mrt_now_ms());
+                            }
                             $heard = true;
                         }
                     }
@@ -575,6 +767,28 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-state') {
     exit(0);
 }
 
+// --- CLI self-test: the archive --------------------------------------------
+// Records a captured message file – entries of {atMs, message}, in order –
+// into an archive directory, as a listen window would. The parity script
+// scripts/test-ais-archive-parity.mjs runs the TypeScript writer over the
+// same entries and compares the files line by line.
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-archive') {
+    $file = $argv[2] ?? '';
+    $dir = $argv[3] ?? '';
+    if (!is_readable($file) || $dir === '' || !is_dir($dir)) {
+        fwrite(STDERR, "usage: php ais.php --selftest-archive timed-messages.json <archive-dir>\n");
+        exit(2);
+    }
+    $state = [];
+    $cities = mrt_ais_cities();
+    $entries = json_decode((string) file_get_contents($file), true);
+    foreach (is_array($entries) ? $entries : [] as $entry) {
+        if (!is_array($entry['message'] ?? null) || !is_int($entry['atMs'] ?? null)) continue;
+        mrt_ais_archive_record($state, $entry['message'], $entry['atMs'], $cities, $dir);
+    }
+    exit(0);
+}
+
 // --- CLI self-test ---------------------------------------------------------
 if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
     $file = $argv[2] ?? '';
@@ -604,6 +818,18 @@ if (!is_string($citySlug) || !isset($cities[$citySlug])) {
     exit;
 }
 $cityBox = $cities[$citySlug];
+
+// A recorded hour is served from the archive and needs no stream – see
+// mrt_ais_archive_serve; the browser reads it when its clock is in the past.
+if (isset($_GET['hour'])) {
+    mrt_ais_archive_serve(
+        mrt_ais_archive_dir(),
+        $citySlug,
+        is_string($_GET['hour']) ? $_GET['hour'] : '',
+        (int) ($_GET['from'] ?? 0)
+    );
+    exit;
+}
 
 $apiKey = mrt_ais_key();
 if ($apiKey === '') {
@@ -678,12 +904,21 @@ $flush = function (array $flushState) use ($stateFile, $windowStart): void {
     mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy
     mrt_ais_save($stateFile, $flushState, $windowStart);
 };
+// Every fix heard goes into the archive as well as into the state – one
+// writer at a time, which the lock above already guarantees.
+$archiveDir = mrt_ais_archive_dir();
+$record = $archiveDir === null
+    ? null
+    : function (array &$recordState, array $message, int $nowMs) use ($cities, $archiveDir): void {
+        mrt_ais_archive_record($recordState, $message, $nowMs, $cities, $archiveDir);
+    };
 $heard = mrt_ais_listen(
     $state,
     $apiKey,
     $listenSeconds,
     $flush,
-    $requestStart + MRT_AIS_WALL_BUDGET_SECONDS
+    $requestStart + MRT_AIS_WALL_BUDGET_SECONDS,
+    $record
 );
 if ($heard) {
     // A window that never even reached the stream keeps the old

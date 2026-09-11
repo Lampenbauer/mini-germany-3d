@@ -825,6 +825,39 @@ simulation makes while a ship waits for the poller's first answer and then for
 her own next fix. It expires silently, and it must stay that way: a link that
 opened an empty card would be worse than one that opens the harbour.
 
+**The harbour is recorded, and a clock set back replays it (since
+2026-09-11).** Every fix the keeper hears also goes into an archive – one
+NDJSON file per city and UTC hour, a snapshot of every ship alive at the
+top of each so an hour reads on its own, three days kept
+(`AIS_ARCHIVE_KEEP_HOURS`), the writer in
+[src/lib/ais-archive.ts](src/lib/ais-archive.ts) with its PHP twin in
+`ais.php` and `scripts/test-ais-archive-parity.mjs` holding the two to the
+same files. The app asks the same endpoint for `&hour=…` whenever the
+simulated clock is more than a minute behind the real one
+(`aisReplayWanted`), polls the open hour's tail (`&from=<byte>`) every
+20 s, and hands the layer the fleet as of the simulated moment with that
+moment as its clock. Decisions that should not be re-litigated: the
+replay renders `AIS_PLAYBACK_DELAY_MS` behind the *simulated* clock,
+exactly as the live fleet renders behind the real one – not for the data
+(the archive is complete) but because it is what makes the two sources
+meet without a jump, at the edge and after a pause; a clock set ahead is
+live (the user's choice), a pause holds whichever source drew the
+picture; where nothing was recorded – before the archive began, an hour
+the keeper missed, a day older than the retention – the water is empty,
+never today's ships on yesterday's date. The calendar in the panel offers
+the two days behind today for exactly this (`DATE_PICKER_DAYS_BACK`), the
+timetable being the same service day throughout. Two traps: the archive
+directory is **above the docroot** beside the API keys (`ais-archive/`),
+because the deploy's `rsync --delete` empties the docroot nightly – never
+put it, or anything else written at runtime, under `dist/`; and
+`src/lib/ais-archive-fs.ts` is Node-only and excluded from
+`tsconfig.app.json`, so a unit test cannot import it – the writer is
+tested against an in-memory store, the file store through the parity
+script. The first hours after a deploy are thin: the archive starts with
+the first window after it, and a moment before that is an empty harbour.
+`__mrt.aisReplay()` says whether the replay is on, which hours are held
+and how many ships the recording places at the simulated moment.
+
 **Ships are clamped to the tiles, and the clamps are rationed.** Until
 2026-09-08 every ship sat on sea level plus the calibrated offset, which put
 Frankfurt's fleet 87 m and Berlin's 31 m under the tiles (the Main is a
@@ -900,7 +933,8 @@ Real fix, if ever wanted: a surface model (DOM1) for bridge ranges in
 `data:heights`; it was weighed against this and deferred for needing one
 source per state.
 
-For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs` and
+For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs`,
+`scripts/test-ais-state.mjs`, `scripts/test-ais-archive-parity.mjs` and
 `scripts/test-php-parser.mjs` run in CI. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a
 model bug.

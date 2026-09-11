@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -15,7 +16,9 @@ import {
   type Plugin,
 } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
-import { aisStateVessels, mergeAisMessage, type AisState } from './src/lib/ais-extract'
+import { aisStateVessels, type AisState } from './src/lib/ais-extract'
+import { AisArchiveWriter, archiveHourIsOpen, isArchiveHourKey } from './src/lib/ais-archive'
+import { archiveFilePath, archiveFileStore } from './src/lib/ais-archive-fs'
 import { containsLonLat } from './src/lib/city'
 import { extractWebcams, windyNearby } from './src/lib/webcams-extract'
 import { CITIES, DEFAULT_CITY_SLUG, cityBySlug } from './src/cities/definitions'
@@ -138,6 +141,9 @@ function gtfsRealtimeFilterPlugin(): Plugin {
   }
 }
 
+/** Where the dev middleware records the AIS archive (see ais-archive.ts). */
+const AIS_ARCHIVE_DIR = join(tmpdir(), 'mrt-ais-archive')
+
 /**
  * Dev/preview middleware for /api/ais: holds ONE aisstream.io WebSocket
  * open (started lazily on the first request, reconnecting on drops),
@@ -147,7 +153,15 @@ function gtfsRealtimeFilterPlugin(): Plugin {
  * city asked for (?city=<slug>). In production api/ais.php does the same
  * job with short listen windows instead of a permanent socket – shared
  * hosting cannot keep one. Extraction logic is shared via
- * src/lib/ais-extract.ts and pinned by tests/ais-parity.test.ts.
+ * src/lib/ais-extract.ts and pinned by scripts/test-ais-parity.mjs.
+ *
+ * Every fix heard also goes into the archive under AIS_ARCHIVE_DIR – one
+ * file per city and hour, three days kept – and `?hour=YYYY-MM-DDTHH`
+ * (with `&from=<byte>` for the tail of the hour still being written)
+ * serves a recorded hour back, which is what the app replays when its
+ * clock is set into the past. The writer is src/lib/ais-archive.ts, the
+ * PHP twin does the same on the hosting; scripts/test-ais-archive-parity.mjs
+ * pins them to each other.
  *
  * Needs AISSTREAM_KEY (env or .env, not VITE_-prefixed – the key must
  * never reach the client bundle). Without it the endpoint answers 503 and
@@ -155,6 +169,10 @@ function gtfsRealtimeFilterPlugin(): Plugin {
  */
 function aisLivePlugin(): Plugin {
   const state: AisState = new Map()
+  const archive = new AisArchiveWriter(
+    archiveFileStore(AIS_ARCHIVE_DIR),
+    CITIES.filter((city) => city.ais.enabled).map(({ slug, boundingBox }) => ({ slug, box: boundingBox })),
+  )
   let apiKey = process.env.AISSTREAM_KEY ?? ''
   let started = false
 
@@ -177,7 +195,7 @@ function aisLivePlugin(): Plugin {
     ws.onmessage = async (event) => {
       const text = typeof event.data === 'string' ? event.data : await (event.data as Blob).text()
       try {
-        mergeAisMessage(state, JSON.parse(text), Date.now())
+        archive.record(state, JSON.parse(text), Date.now())
       } catch {
         // one malformed message must not kill the stream
       }
@@ -208,10 +226,50 @@ function aisLivePlugin(): Plugin {
       started = true
       connect()
     }
+    const params = new URL(req.url, 'http://localhost').searchParams
+    const hour = params.get('hour')
+    if (hour !== null) {
+      serveArchiveHour(res, city.slug, hour, Number(params.get('from') ?? 0))
+      return
+    }
     const now = Date.now()
     const box = city.boundingBox
     const vessels = aisStateVessels(state, now).filter((v) => containsLonLat(box, v.lon, v.lat))
     res.end(JSON.stringify({ timestamp: now, servedAt: now, vessels }))
+  }
+
+  /**
+   * One recorded hour from `from` on – 404 where nothing was recorded,
+   * 416 for a start beyond the end (nothing new). A closed hour is
+   * complete and cacheable; an open one, and any tail, is not. Mirror of
+   * mrt_ais_archive_serve in api/ais.php.
+   */
+  const serveArchiveHour = (res: ServerResponse, slug: string, hour: string, from: number): void => {
+    const file = isArchiveHourKey(hour) ? archiveFilePath(AIS_ARCHIVE_DIR, slug, hour) : null
+    if (file === null || !existsSync(file)) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'No recording for this hour' }))
+      return
+    }
+    const size = statSync(file).size
+    if (!Number.isInteger(from) || from < 0 || from > size) {
+      res.statusCode = 416
+      res.setHeader('Content-Range', `bytes */${size}`)
+      res.end()
+      return
+    }
+    res.setHeader('Content-Type', 'application/x-ndjson')
+    res.setHeader(
+      'Cache-Control',
+      !archiveHourIsOpen(hour, Date.now()) && from === 0 ? 'public, max-age=86400' : 'no-store',
+    )
+    res.setHeader('Content-Length', String(size - from))
+    if (size === from) {
+      res.end()
+      return
+    }
+    // Exactly the bytes announced – the file may grow while they go out
+    createReadStream(file, { start: from, end: size - 1 }).pipe(res)
   }
 
   return {

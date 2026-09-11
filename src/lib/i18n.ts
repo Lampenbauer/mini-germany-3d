@@ -18,7 +18,7 @@ const en = {
   'sim.pause': 'Pause simulation',
   'sim.resume': 'Resume simulation',
   'sim.setTime': 'Set simulation time',
-  'sim.setDate': 'Set simulation date (today to a week ahead)',
+  'sim.setDate': 'Set simulation date (two days back to a week ahead)',
   'sim.now': 'Now',
   'sim.timeLapse': 'Time-lapse',
   'layers.title': 'Layers',
@@ -89,7 +89,7 @@ const en = {
   'traffic.showAis': 'Show the AIS ships',
   'traffic.aisClockLabel': 'What the clock does to the ships',
   'traffic.aisClockNote':
-    'The ships sail in real time. Neither the time-lapse nor a simulation time you set moves them – only pausing holds them.',
+    'The ships sail in real time, and a clock set back – up to two days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
   'traffic.running': '{count} out now',
   'traffic.aisCount': '{count} ships',
   // City card (the network in numbers, behind the panel head's info button)
@@ -224,6 +224,7 @@ const en = {
   'vessel.notReported': 'not reported',
   'vessel.mmsi': 'MMSI',
   'vessel.live': 'Live from AIS',
+  'vessel.recorded': 'Recorded from AIS',
   'vessel.fixAge': 'last update {count} s ago',
   'vessel.fixAgeMin': 'last update {count} min ago',
   // AIS ship type groups (first digit of the type code)
@@ -320,7 +321,7 @@ const en = {
   'about.notTitle': 'Moving to the timetable',
   'about.notLive': 'The trains and buses follow their timetables, with reported delays taken into account. Their positions are calculated, rather than tracked by GPS. A train running three minutes late appears where it would have been three minutes earlier.',
   'about.shipsTitle': 'The harbour is live',
-  'about.notShips': 'Ships are the exception: their positions come from AIS transponders. When a ship sends an update, it moves on the map too.',
+  'about.notShips': 'Ships are the exception: their positions come from AIS transponders. When a ship sends an update, it moves on the map too – and the last three days of them are kept, so a clock set back replays the harbour as it was.',
   'about.exploreTitle': 'A place to explore',
   'about.notRouting': 'For your next connection, use your transport operator’s app. This map is here to let you look around and discover.',
   'about.notComplete': 'Larger cities show a selection of lines to keep things running smoothly, such as the Metro buses in Berlin and Munich.',
@@ -382,7 +383,7 @@ const de: Record<MessageKey, string> = {
   'sim.pause': 'Simulation pausieren',
   'sim.resume': 'Simulation fortsetzen',
   'sim.setTime': 'Simulationszeit einstellen',
-  'sim.setDate': 'Simulationsdatum wählen (heute bis in einer Woche)',
+  'sim.setDate': 'Simulationsdatum wählen (zwei Tage zurück bis in einer Woche)',
   'sim.now': 'Jetzt',
   'sim.timeLapse': 'Zeitraffer',
   'layers.title': 'Ebenen',
@@ -446,7 +447,7 @@ const de: Record<MessageKey, string> = {
   'traffic.showAis': 'AIS-Schiffe anzeigen',
   'traffic.aisClockLabel': 'Was die Uhr mit den Schiffen macht',
   'traffic.aisClockNote':
-    'Die Schiffe fahren in Echtzeit. Weder der Zeitraffer noch eine eingestellte Uhrzeit bewegt sie – nur die Pause hält sie an.',
+    'Die Schiffe fahren in Echtzeit, und eine zurückgestellte Uhr – bis zu zwei Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
   'traffic.running': '{count} unterwegs',
   'traffic.aisCount': '{count} Schiffe',
   // City card (the network in numbers, behind the panel head's info button)
@@ -572,6 +573,7 @@ const de: Record<MessageKey, string> = {
   'vessel.notReported': 'nicht gemeldet',
   'vessel.mmsi': 'MMSI',
   'vessel.live': 'Live per AIS',
+  'vessel.recorded': 'Aufgezeichnet per AIS',
   'vessel.fixAge': 'letzte Meldung vor {count} s',
   'vessel.fixAgeMin': 'letzte Meldung vor {count} min',
   // AIS ship type groups (first digit of the type code)
@@ -658,7 +660,7 @@ const de: Record<MessageKey, string> = {
   'about.notTitle': 'Unterwegs nach Fahrplan',
   'about.notLive': 'Bahnen und Busse folgen ihrem Fahrplan, gemeldete Verspätungen werden eingerechnet. Ihre Positionen sind berechnet, nicht per GPS gemessen. Eine Bahn mit drei Minuten Verspätung erscheint dort, wo sie drei Minuten früher gewesen wäre.',
   'about.shipsTitle': 'Im Hafen wird’s live',
-  'about.notShips': 'Schiffe sind die Ausnahme: Ihre Positionen stammen von AIS-Transpondern. Wenn ein Schiff ein Update sendet, bewegt es sich auch auf der Karte weiter.',
+  'about.notShips': 'Schiffe sind die Ausnahme: Ihre Positionen stammen von AIS-Transpondern. Wenn ein Schiff ein Update sendet, bewegt es sich auch auf der Karte weiter – und die letzten drei Tage davon bleiben erhalten, sodass eine zurückgestellte Uhr den Hafen zeigt, wie er war.',
   'about.exploreTitle': 'Platz zum Entdecken',
   'about.notRouting': 'Für deine nächste Verbindung nimm am besten die App deines Verkehrsbetriebs. Hier kannst du dich umschauen und auf Entdeckungstour gehen.',
   'about.notComplete': 'Damit alles flüssig läuft, zeigen größere Städte eine Auswahl an Linien, etwa die Metrobusse in Berlin und München.',

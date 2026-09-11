@@ -93,14 +93,17 @@ describe('the AIS ships in the control panel', () => {
     expect(screen.queryByRole('switch', { name: 'Show the AIS ships' })).not.toBeInTheDocument()
   })
 
-  it('explains behind an info button that the clock leaves the ships alone', async () => {
+  it('explains behind an info button what the clock does to the ships', async () => {
     // Every other moving thing on the map runs on the panel's clock. The
-    // ships do not, and that note is the reason the button is there.
+    // ships run on it only backwards – a clock set into the past replays
+    // the recording, a clock set ahead leaves them live – and that note
+    // is the reason the button is there.
     panel()
     const info = screen.getByRole('button', { name: 'What the clock does to the ships' })
     fireEvent.focus(info)
     const note = await screen.findAllByText(/sail in real time/i)
     expect(note.length).toBeGreaterThan(0)
+    expect(note[0]).toHaveTextContent(/set back .* replays the traffic recorded/i)
     expect(note[0]).toHaveTextContent(/only pausing holds them/i)
   })
 

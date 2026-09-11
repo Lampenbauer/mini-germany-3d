@@ -2,11 +2,13 @@
  * Background harbor traffic from AIS (see src/lib/ais.ts): one box per
  * vessel in the real ship's reported dimensions, colored by its AIS type,
  * plus a name label. The fleet renders AIS_PLAYBACK_DELAY_MS behind the
- * wall clock, interpolating between the recorded fixes of each vessel's
- * track (playbackSample) – between two known points there is nothing to
- * extrapolate, so ships glide instead of stalling and teleporting. The
- * city ferries are excluded upstream – they sail as simulated vehicles
- * on their timetable.
+ * clock it is handed – the wall clock for the live fleet, the simulated
+ * one for the recording replayed when that clock is set into the past
+ * (lib/ais-archive.ts) – interpolating between the recorded fixes of
+ * each vessel's track (playbackSample): between two known points there
+ * is nothing to extrapolate, so ships glide instead of stalling and
+ * teleporting. The city ferries are excluded upstream – they sail as
+ * simulated vehicles on their timetable.
  *
  * Same rendering approach as VehicleLayer: Primitive boxes with in-place
  * modelMatrix updates (Entity boxes rebuild geometry asynchronously and
