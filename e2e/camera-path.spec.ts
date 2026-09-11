@@ -65,7 +65,7 @@ test('flies from the start to the end on the wall clock, whatever the simulation
   await expect(page.getByTestId('path-start')).toHaveText('54.0600° N 12.1000° E 3.0 km · 350° · −40°')
   await expect(page.getByTestId('path-end')).toHaveText('54.1000° N 12.1400° E 1.5 km · 20° · −30°')
   const beforeStart = await page.evaluate(() => window.location.hash)
-  await page.getByRole('button', { name: 'Camera to the start' }).click()
+  await page.getByRole('button', { name: 'View start' }).click()
   const atStart = await settledPose(page, beforeStart)
   expect(atStart.height).toBeCloseTo(3000, -1)
   expect(atStart.heading).toBe(350)

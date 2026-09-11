@@ -3096,7 +3096,7 @@ export default function App() {
   }, [leaveLinearFor])
 
   /**
-   * The camera path (lib/camera-path.ts) as the photo popover drives it.
+   * The camera path (lib/camera-path.ts) as the camera path bar drives it.
    * Flying it, or standing on one of its keyframes, lets go of a follow
    * – a camera cannot chase a tram and dolly at once – and of the
    * diagram, which has no camera to move. The map drops the path itself
@@ -3670,9 +3670,8 @@ export default function App() {
       if (event.shiftKey && !SHIFTED_SHORTCUTS.has(key)) return
       const pause = key === ' ' || key === 'spacebar'
       if (!pause && !KEY_SHORTCUTS.has(key)) return
-      // Where a letter means a letter, it is not a shortcut. Only the time
-      // field qualifies today, and it refuses typing anyway, but a bare key
-      // has to check rather than assume that stays true.
+      // Editable fields own their keys, including the camera path's duration.
+      // Map shortcuts must not run while a value is being entered.
       const target = event.target as HTMLElement | null
       if (target?.isContentEditable) return
       const tag = target?.tagName

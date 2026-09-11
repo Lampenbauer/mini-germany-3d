@@ -154,9 +154,8 @@ export function parseCameraPathHash(hash: string): CameraPath | null {
 
 /**
  * A moment on the timeline the way a player shows it – "0:00", "3:23",
- * "10:05": whole seconds, the minutes unpadded. Used for the two ends of
- * the bar's timeline, the position on the left and the length on the
- * right.
+ * "10:05": whole seconds, the minutes unpadded. Used for
+ * the bar's elapsed/total readout beside the timeline.
  */
 export function formatPathTime(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds))
@@ -166,8 +165,7 @@ export function formatPathTime(seconds: number): string {
 /**
  * A keyframe as the interface lists it, on two lines: the place, then
  * the height, heading and pitch – "54.0848° N 12.1162° E" over
- * "7.4 km · 0° · −40°". Two lines because the popover is narrow and one
- * line broke at the pitch.
+ * "7.4 km · 0° · −40°". Two lines keep each saved-view card compact.
  */
 export function describeKeyframe(view: CameraView): string {
   const ns = view.latitude >= 0 ? 'N' : 'S'

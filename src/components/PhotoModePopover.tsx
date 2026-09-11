@@ -75,11 +75,8 @@ interface KnobProps {
   onChange: (value: number) => void
 }
 
-/**
- * One labelled knob: name and reading above, the slider below. Shared
- * with the camera path bar, whose duration is a knob like these.
- */
-export function Knob(props: KnobProps) {
+/** One labelled knob: name and reading above, the slider below. */
+function Knob(props: KnobProps) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">

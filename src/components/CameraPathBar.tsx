@@ -1,29 +1,22 @@
 /**
- * The camera path as its own small bar over the foot of the map – the
- * dolly (lib/camera-path.ts) as a strip of transport controls: the two
- * keyframes in one row with the seconds and the pace beside them, and
- * under them the timeline with play at its head. It sits centred above
- * the readings (the radio group at the foot), where a shot is composed
- * looking at the picture rather than at a column of knobs, and opens
- * from the button at the end of the photo popover.
- *
- * Until 2026-09-11 all of this was a section at the end of the photo
- * popover – a column of rows on the right edge, which covered a good
- * part of the frame the shot was being set up in. The state is the
- * app's, as the popover's is: every control reports, the bar shows what
- * it is handed.
+ * A camera path in three rows: saved views, flight settings and playback.
+ * The bar opens from the photo popover and sits above the map's readings,
+ * where a shot is composed looking at the picture – and it fades to
+ * half while the pointer is elsewhere, so the picture stays the thing
+ * looked at; a hand over it, or the focus inside it, brings it back.
+ * The app owns the path; only the duration's uncommitted text lives here.
  */
 
-import { useId } from 'react'
-import { Camera, Info, Play, RotateCcw, Square, X } from 'lucide-react'
-import { Knob } from '@/components/PhotoModePopover'
+import { useId, useState } from 'react'
+import { Camera, Check, Clapperboard, Eye, Info, Play, Square, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { CameraView } from '@/lib/camera-hash'
 import {
-  DEFAULT_DURATION_S,
+  MAX_DURATION_S,
   MIN_DURATION_S,
   describeKeyframe,
   formatPathTime,
@@ -32,18 +25,13 @@ import {
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-/**
- * The camera path as the bar drives it (see lib/camera-path.ts and the
- * handlers in App.tsx): two keyframes taken from the camera as it
- * stands, the seconds between them, the pace – and the flight itself.
- */
 export interface CameraPathControls {
   start: CameraView | null
   end: CameraView | null
   durationS: number
   ease: CameraPathEase
   playing: boolean
-  /** How far along the way the camera stands, 0..1 – the timeline's value. */
+  /** How far along the way the camera stands, 0..1. */
   progress: number
   onSetKeyframe: (which: 'start' | 'end') => void
   onGoTo: (which: 'start' | 'end') => void
@@ -59,64 +47,139 @@ export interface CameraPathBarProps extends CameraPathControls {
   onClose: () => void
 }
 
-/** One face of the play button: its icon and its word. */
-const PLAY_FACE = 'col-start-1 row-start-1 flex items-center gap-1.5'
+/** One face of the play button: its icon and its word, in the one grid cell both share. */
+const PLAY_FACE = 'col-start-1 row-start-1 flex items-center justify-center gap-1.5'
+/** One of the two paces – smaller than the readings' items, it is a setting, not a view. */
+const PACE_ITEM = 'h-7 min-w-0 px-2 text-xs'
 
-/** The pose's text: two lines of monospace, or "not set". */
-const POSE_TEXT = 'font-mono text-[10px] leading-tight tabular-nums whitespace-pre-line'
-
-/** One keyframe: its name, the button that takes it, and where it stands. */
 function Keyframe(props: {
   which: 'start' | 'end'
   view: CameraView | null
+  playing: boolean
   onSet: () => void
   onGoTo: () => void
 }) {
   const start = props.which === 'start'
-  const setLabel = t(start ? 'path.setStart' : 'path.setEnd')
+  const labelId = useId()
+  const setLabel = t(
+    props.view
+      ? start
+        ? 'path.replaceStart'
+        : 'path.replaceEnd'
+      : start
+        ? 'path.setStart'
+        : 'path.setEnd',
+  )
   const goLabel = t(start ? 'path.goStart' : 'path.goEnd')
   return (
-    // flex-1: the two keyframes share whatever width the duration column
-    // beside them leaves, so the row fills the bar at every width
-    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <span className="text-muted-foreground text-xs select-none">
-        {t(start ? 'path.start' : 'path.end')}
-      </span>
-      {/* The button that takes the keyframe, then where it stands. The
-          pose itself is the way to it: a click on the coordinates puts
-          the camera there – the text is the button, named by what it
-          does for a screen reader, with the hover wash every control here
-          takes (--accent). Unset, it is plain text saying so. */}
-      <div className="flex items-center gap-2">
+    <div
+      role="group"
+      aria-labelledby={labelId}
+      className="border-border/60 flex min-w-0 flex-col gap-2 rounded-md border p-2.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span id={labelId} className="flex items-center gap-2 text-xs font-medium">
+          {/* bg-muted, not bg-accent: the accent is the hover wash and
+              nothing else (see CLAUDE.md), and this chip is never hovered */}
+          <span
+            aria-hidden
+            className="bg-muted text-muted-foreground text-2xs flex size-5 items-center justify-center rounded-sm font-mono"
+          >
+            {start ? '01' : '02'}
+          </span>
+          {t(start ? 'path.start' : 'path.end')}
+        </span>
+        <span className="text-muted-foreground flex items-center gap-1 text-2xs">
+          {props.view && <Check aria-hidden className="text-brand-mid size-3" />}
+          {t(props.view ? 'path.saved' : 'path.unset')}
+        </span>
+      </div>
+      <div className="flex min-h-8 items-center" data-testid={`path-${props.which}`}>
+        {props.view ? (
+          <span className="text-muted-foreground font-mono text-[11px] leading-4 whitespace-pre-line tabular-nums">
+            {describeKeyframe(props.view)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-xs leading-4">{t('path.emptyView')}</span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
         <Button
           variant="outline"
-          size="icon-sm"
-          className="shrink-0"
+          size="sm"
+          className="min-w-0 flex-1 text-xs"
           aria-label={setLabel}
           title={setLabel}
+          disabled={props.playing}
           onClick={props.onSet}
         >
           <Camera aria-hidden />
+          {t(props.view ? 'path.replace' : 'path.capture')}
         </Button>
-        {props.view ? (
-          <button
-            type="button"
-            className={cn(
-              POSE_TEXT,
-              'text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 -mx-1 rounded-sm px-1 py-0.5 text-left outline-none focus-visible:ring-2',
-            )}
-            aria-label={goLabel}
-            title={goLabel}
-            data-testid={`path-${props.which}`}
-            onClick={props.onGoTo}
-          >
-            {describeKeyframe(props.view)}
-          </button>
-        ) : (
-          <div className={cn(POSE_TEXT, 'text-muted-foreground')} data-testid={`path-${props.which}`}>
-            {t('path.unset')}
-          </div>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs"
+          aria-label={goLabel}
+          title={goLabel}
+          disabled={!props.view}
+          onClick={props.onGoTo}
+        >
+          <Eye aria-hidden />
+          {t('path.preview')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Commit on blur/Enter so clearing the field never publishes an invalid path. */
+function DurationInput(props: { value: number; onChange: (value: number) => void }) {
+  const id = useId()
+  const [draft, setDraft] = useState(String(props.value))
+  const commit = (text: string) => {
+    const parsed = text.trim() === '' ? NaN : Number(text)
+    const next = Number.isFinite(parsed)
+      ? Math.min(MAX_DURATION_S, Math.max(MIN_DURATION_S, Math.round(parsed * 10) / 10))
+      : props.value
+    setDraft(String(next))
+    if (next !== props.value) props.onChange(next)
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <label htmlFor={id} className="text-muted-foreground text-xs">
+        {t('path.duration')}
+      </label>
+      <div className="relative">
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={MIN_DURATION_S}
+          max={MAX_DURATION_S}
+          step={0.1}
+          value={draft}
+          aria-label={t('path.durationSeconds')}
+          className="h-8 w-24 pr-6 font-mono text-xs tabular-nums"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={(event) => commit(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+            if (event.key === 'Escape') {
+              event.stopPropagation()
+              // Blur reads the DOM value; restore it before committing.
+              event.currentTarget.value = String(props.value)
+              setDraft(String(props.value))
+              event.currentTarget.blur()
+            }
+          }}
+        />
+        <span
+          aria-hidden
+          className="text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs"
+        >
+          s
+        </span>
       </div>
     </div>
   )
@@ -124,34 +187,39 @@ function Keyframe(props: {
 
 export function CameraPathBar(path: CameraPathBarProps) {
   const flyable = path.start !== null && path.end !== null
+  const titleId = useId()
+  const statusId = useId()
   const easeId = useId()
+  const elapsed = path.progress * path.durationS
+  const status = !path.start
+    ? 'path.needStart'
+    : !path.end
+      ? 'path.needEnd'
+      : path.playing
+        ? 'path.running'
+        : 'path.ready'
   return (
     <section
-      aria-label={t('path.title')}
+      aria-labelledby={titleId}
       data-testid="camera-path-bar"
-      // The same glass as the popovers and the rail: a translucent card
-      // over the map, not an opaque dialog on it
-      className="bg-card/85 text-card-foreground border-border/60 pointer-events-auto flex w-xl flex-col gap-2.5 rounded-lg border p-3 shadow-lg backdrop-blur-xl"
+      // The same glass as the popovers and the rail, faded to half
+      // while the pointer is elsewhere (see the head of this file) –
+      // focus-within as well as hover, or a keyboard could never see it
+      className="bg-card/85 text-card-foreground border-border/60 pointer-events-auto flex w-xl max-w-[calc(100vw-7rem)] flex-col gap-3 rounded-lg border p-3 opacity-50 shadow-lg backdrop-blur-xl transition-opacity hover:opacity-100 focus-within:opacity-100"
     >
-      {/* The head: the title, the info mark whose tooltip says what the
-          bar needs saying – the flight is the wall clock's, and H clears
-          the frame – the reset beside it (it puts the whole bar back the
-          way the popover's reset puts the knobs back, so it lives where
-          that one does, at the head), and the X at the end. The mark is
-          not a button – nothing happens on a click – but a focusable span
-          whose content is the hint (visually hidden), so the tooltip opens
-          from the keyboard too and a screen reader reads the sentence
-          itself rather than announcing a control that does nothing. */}
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
-          <span className="text-sm font-medium">{t('path.title')}</span>
+        <div className="flex items-center gap-2">
+          <Clapperboard aria-hidden className="text-muted-foreground size-4" />
+          <h2 id={titleId} className="text-sm font-medium">
+            {t('path.title')}
+          </h2>
           <Tooltip>
             <TooltipTrigger asChild>
               <span
                 tabIndex={0}
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex size-6 cursor-help items-center justify-center rounded-md outline-none focus-visible:ring-2 [&_svg]:size-3"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex size-6 cursor-help items-center justify-center rounded-md outline-none focus-visible:ring-2"
               >
-                <Info aria-hidden />
+                <Info aria-hidden className="size-3.5" />
                 <span className="sr-only">{t('path.hint')}</span>
               </span>
             </TooltipTrigger>
@@ -159,126 +227,133 @@ export function CameraPathBar(path: CameraPathBarProps) {
               {t('path.hint')}
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="-my-1 shrink-0"
-                aria-label={t('path.reset')}
-                disabled={path.start === null && path.end === null}
-                onClick={path.onClear}
-              >
-                <RotateCcw aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{t('path.reset')}</TooltipContent>
-          </Tooltip>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="-my-1 -mr-1 shrink-0"
-          aria-label={t('path.close')}
-          title={t('path.close')}
-          onClick={path.onClose}
-        >
-          <X aria-hidden />
-        </Button>
+        <div className="-my-1 -mr-1 flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground text-xs"
+            aria-label={t('path.clear')}
+            title={t('path.clear')}
+            disabled={path.start === null && path.end === null}
+            onClick={path.onClear}
+          >
+            <Trash2 aria-hidden />
+            {t('path.clearShort')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t('path.close')}
+            title={t('path.close')}
+            onClick={path.onClose}
+          >
+            <X aria-hidden />
+          </Button>
+        </div>
       </div>
 
-      {/* The row: the two keyframes and the seconds between them, each a
-          small column of its own, so the row reads left to right the way
-          the flight goes. The bar's width (w-xl on the section) clears the
-          panel on the left and the photo popover on the right from
-          1400 px up; the keyframes fill what the duration column leaves. */}
-      <div className="flex items-start gap-5">
+      <p id={statusId} role="status" className="text-muted-foreground -mt-1 text-xs leading-4">
+        {t(status)}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2.5">
         <Keyframe
           which="start"
           view={path.start}
+          playing={path.playing}
           onSet={() => path.onSetKeyframe('start')}
           onGoTo={() => path.onGoTo('start')}
         />
         <Keyframe
           which="end"
           view={path.end}
+          playing={path.playing}
           onSet={() => path.onSetKeyframe('end')}
           onGoTo={() => path.onGoTo('end')}
         />
-        <div className="flex w-32 shrink-0 flex-col gap-4">
-          <Knob
-            label="path.duration"
-            value={path.durationS}
-            defaultValue={DEFAULT_DURATION_S}
-            format={(s) => `${s} s`}
-            min={MIN_DURATION_S}
-            max={180}
-            step={1}
-            onChange={path.onDurationChange}
-          />
-
-          {/* The pace under the seconds: both are the flight's, not a
-              keyframe's */}
-          <div className="flex shrink-0 items-center gap-2">
-            <span id={easeId} className="text-muted-foreground text-xs select-none">
-              {t('path.ease')}
-            </span>
-            <Switch
-              aria-labelledby={easeId}
-              checked={path.ease === 'smooth'}
-              onCheckedChange={(smooth) => path.onEaseChange(smooth ? 'smooth' : 'linear')}
-            />
-          </div>
-        </div>
       </div>
 
-      {/* The timeline, with play at its head: dragging the thumb stops the
-          flight and puts the camera where it points, for looking a shot
-          over before it is taken; while the flight runs the thumb follows
-          it. Under its two ends the position and the length, the way a
-          player shows them. */}
-      <div className="flex items-start gap-3">
-        {/* The button says "play" or "stop", and the two words are not
-            the same width: both are laid in one grid cell, the one not
-            showing hidden, so the button keeps the wider one's width and
-            the timeline beside it does not jump when the flight starts. */}
+      {/* A flight uses a snapshot of these settings. Lock editing until it stops. */}
+      <fieldset
+        disabled={path.playing}
+        className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 disabled:opacity-50"
+      >
+        <legend className="sr-only">{t('path.settings')}</legend>
+        {/* Keyed by the value: a duration set from outside (a link, the
+            reset) starts the field's draft afresh */}
+        <DurationInput key={path.durationS} value={path.durationS} onChange={path.onDurationChange} />
+        <div className="flex items-center gap-2">
+          <span id={easeId} className="text-muted-foreground text-xs">
+            {t('path.motion')}
+          </span>
+          <SegmentedControl
+            aria-labelledby={easeId}
+            value={path.ease}
+            disabled={path.playing}
+            onValueChange={(value) => path.onEaseChange(value as CameraPathEase)}
+            className="gap-0 bg-transparent p-0.5 shadow-none backdrop-blur-none"
+          >
+            <SegmentedControlItem value="smooth" className={PACE_ITEM}>
+              {t('path.smooth')}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="linear" className={PACE_ITEM}>
+              {t('path.linear')}
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </div>
+      </fieldset>
+
+      <div className="border-border/60 flex items-center gap-3 border-t pt-3">
+        {/* Both faces occupy one cell so play/stop never shifts the timeline. */}
         <Button
           variant={path.playing ? 'secondary' : 'default'}
           size="sm"
-          className="shrink-0"
           disabled={!flyable}
           aria-label={path.playing ? t('path.stop') : t('path.play')}
+          aria-describedby={statusId}
           onClick={path.playing ? path.onStop : path.onPlay}
         >
           <span className="grid">
-            <span className={cn(PLAY_FACE, path.playing && 'invisible')}>
+            <span aria-hidden={path.playing} className={cn(PLAY_FACE, path.playing && 'invisible')}>
               <Play aria-hidden />
               {t('path.playShort')}
             </span>
-            <span className={cn(PLAY_FACE, !path.playing && 'invisible')}>
+            <span aria-hidden={!path.playing} className={cn(PLAY_FACE, !path.playing && 'invisible')}>
               <Square aria-hidden />
               {t('path.stopShort')}
             </span>
           </span>
         </Button>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <Slider
-            className="mt-2.5"
-            aria-label={t('path.progress')}
-            min={0}
-            max={1}
-            step={0.001}
-            disabled={!flyable}
-            value={[path.progress]}
-            onValueChange={([t]) => path.onScrub(t)}
-          />
-          <div
-            className="text-muted-foreground flex justify-between font-mono text-[10px] leading-none tabular-nums select-none"
-            data-testid="path-times"
+        <Slider
+          className="min-w-0 flex-1 py-2.5"
+          aria-label={t('path.progress')}
+          aria-valuetext={t('path.progressValue', {
+            seconds: Number(elapsed.toFixed(1)),
+            total: path.durationS,
+          })}
+          min={0}
+          max={path.durationS}
+          step={0.1}
+          disabled={!flyable}
+          value={[elapsed]}
+          onValueChange={([seconds]) => path.onScrub(seconds / path.durationS)}
+        />
+        <div
+          className="text-muted-foreground shrink-0 font-mono text-xs whitespace-nowrap tabular-nums"
+          data-testid="path-times"
+        >
+          {/* As wide as the length it counts up to, so the readout does
+              not creep as the minutes turn – a width only known at
+              runtime, hence a style rather than a class */}
+          <span
+            className="text-foreground inline-block text-right"
+            style={{ minWidth: `${formatPathTime(path.durationS).length}ch` }}
           >
-            <span>{formatPathTime(path.progress * path.durationS)}</span>
-            <span>{formatPathTime(path.durationS)}</span>
-          </div>
+            {formatPathTime(elapsed)}
+          </span>
+          <span aria-hidden className="px-1">/</span>
+          <span>{formatPathTime(path.durationS)}</span>
         </div>
       </div>
     </section>

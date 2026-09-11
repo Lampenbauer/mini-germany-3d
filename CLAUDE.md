@@ -297,10 +297,21 @@ runs only when a session ends; `tests/app.test.tsx` pins both.
 
 The controls are a bar of their own since 2026-09-11
 ([src/components/CameraPathBar.tsx](src/components/CameraPathBar.tsx)):
-a horizontal strip – the keyframes in one row with the seconds and the
-pace beside them, the timeline with play at its head under them, a
-click on a keyframe's coordinates puts the camera on it – centred a
-step (16 px) above the readings' radio group, as the first child of the
+a compact editor – two saved-view cards with labelled save/replace and
+preview actions, duration as a number field (1–600 seconds, committed
+on blur/Enter, empty input restored, Escape cancels), smooth/constant
+motion as a segmented choice, and playback below. A status line guides
+the next capture and explains that play starts from the beginning.
+While playing, capture, duration and motion are disabled: the flight
+uses a snapshot, so changing its settings would misrepresent what is
+being flown. Preview, scrubbing, stop and clear remain available. The
+timeline speaks seconds (0.1-second steps, Home/End to the endpoints),
+with elapsed/total together beside it; clearing drops only the saved
+positions, as the button's name says. The bar stands at half its
+opacity while the pointer is elsewhere and comes back under it or with
+the focus inside it (`focus-within`, or a keyboard could never see it) –
+the picture is the thing looked at while a shot is composed. The bar is
+centred a step (16 px) above the readings' radio group, as the first child of the
 group's wrapper so the gap holds whatever height the group has. It was
 a column at the end of the photo popover, which covered a good part of
 the frame a shot was being set up in; the popover's last button (after
