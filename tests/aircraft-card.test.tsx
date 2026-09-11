@@ -73,8 +73,20 @@ describe('AircraftCard', () => {
     expect(screen.getByTestId('aircraft-speed')).toHaveTextContent('458 kn · 848 km/h')
     expect(screen.getByTestId('aircraft-climb')).toHaveTextContent('+5.0 m/s')
     expect(screen.getByText(/Live from ADS-B/)).toBeInTheDocument()
+    expect(document.querySelector('.animate-pulse')).not.toBeNull()
     expect(screen.getByText(/last update 8 s ago/)).toBeInTheDocument()
     expect(screen.queryByTestId('aircraft-mlat')).not.toBeInTheDocument()
+  })
+
+  it('says recorded, without the pulse, for an aircraft replayed from the archive', () => {
+    // As on the ship card: the pulse means "live", a replayed aircraft is
+    // a fact of the past, and its fix age is measured on the clock that
+    // replays it
+    show(aircraft({ positionAt: NOW - 120_000 }), { recorded: true, nowMs: NOW })
+    expect(screen.getByText(/Recorded from ADS-B/)).toBeInTheDocument()
+    expect(screen.queryByText(/Live from ADS-B/)).not.toBeInTheDocument()
+    expect(document.querySelector('.animate-pulse')).toBeNull()
+    expect(screen.getByText(/last update 2 min ago/)).toBeInTheDocument()
   })
 
   it('falls back to the registration, and says what it does not know', () => {

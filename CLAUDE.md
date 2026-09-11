@@ -965,9 +965,9 @@ for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
-`groundHeights()`, `aisReplay()`, `aircraftCount()`; `setAisVessels(list)`
-and `setAircraft(list)` put a fleet on the map where no poll runs (offline,
-the tests).
+`groundHeights()`, `aisReplay()`, `aircraftCount()`, `aircraftReplay()`;
+`setAisVessels(list)` and `setAircraft(list)` put a fleet on the map where
+no poll runs (offline, the tests).
 
 ---
 
@@ -1044,10 +1044,11 @@ put it, or anything else written at runtime, under `dist/`; and
 `src/lib/archive-fs.ts` is Node-only and excluded from
 `tsconfig.app.json`, so a unit test cannot import it – the writer is
 tested against an in-memory store, the file store through the parity
-script. The hour files, the replay edge, the chunk reader and the
-client that keeps the hours loaded live in `src/lib/archive-hours.ts`,
-apart from the harbour's own lines, writer and replay in
-`ais-archive.ts`, so a second recording can share them. The first hours after a deploy are thin: the archive starts with
+script. What the harbour's and the sky's recordings share – the hour
+files, the replay edge, the chunk reader, the client that keeps the
+hours loaded – lives in `src/lib/archive-hours.ts` since the aircraft
+were recorded too (see the ADS-B section); `ais-archive.ts` is the
+harbour's lines, writer and replay on top of it. The first hours after a deploy are thin: the archive starts with
 the first window after it, and a moment before that is an empty harbour.
 `__mg3d.aisReplay()` says whether the replay is on, which hours are held
 and how many ships the recording places at the simulated moment.
@@ -1129,7 +1130,9 @@ source per state.
 
 For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs`,
 `scripts/test-ais-state.mjs`, `scripts/test-ais-archive-parity.mjs` and
-`scripts/test-php-parser.mjs` run in CI. If ships appear undersized, check
+`scripts/test-php-parser.mjs` run in CI – and for the aircraft
+`scripts/test-aircraft-parity.mjs` and
+`scripts/test-aircraft-archive-parity.mjs`. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a
 model bug.
 
@@ -1172,11 +1175,58 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   snapping back inside. The ships get the same soft end at the box's
   edge, though their data still ends there. `e2e/aircraft.spec.ts`
   flies one out over Rostock's eastern edge.
-- **Live only, no archive.** A clock set into the past shows an empty sky
-  (`aisReplayWanted` decides, as for the ships – there is no recording to
-  replay, and yesterday's clock must not show today's aircraft). A
-  recording after the AIS archive's pattern is the obvious follow-up and
-  was deliberately left out of the first cut.
+- **Recorded like the harbour, by a keeper of its own (since
+  2026-09-11, the same day).** [src/lib/aircraft-archive.ts](src/lib/aircraft-archive.ts)
+  is the AIS archive's pattern on the shared hour files
+  (`archive-hours.ts`): a line per fix, a static line when the callsign,
+  registration, type, category, squawk or position source change, a
+  snapshot per hour, three days, `&hour=`/`&from=` reading, the PHP twin
+  in `aircraft.php`, `scripts/test-aircraft-archive-parity.mjs` holding
+  the two to the same files. What differs is the source: adsb.fi answers
+  polls, one a second for every city together, so the per-city polls
+  cannot record for thirteen cities – the recorder is a keeper that
+  polls ONE circle covering every city (`adsbCoverQuery`: 220 nm around
+  51.25° N 10.20° E today, against adsb.fi's cap of 250; Germany fits
+  with thirty miles to spare, and `tests/aircraft-archive.test.ts` fails
+  the day a city does not) every `AIRCRAFT_KEEPER_INTERVAL_MS` (10 s –
+  the recording's resolution; at cruise a straight two kilometres, on
+  final a chord through the turn) and writes what moved into every
+  city whose circle holds it. The per-city live polls do not record:
+  two writers on one file would double its density while a city is
+  watched and leave the rest thin. **Operationally critical, like the
+  AIS keeper:** the production cron must call `/api/aircraft?record=50`
+  every minute – the keeper answers at once, then polls at :00, :10,
+  :20, :30 and :40 of the minute (the poll at :50 would not finish
+  inside the 52 s wall budget; the twenty-second gap to the next
+  minute's first poll is interpolated across in the replay) under a
+  lock of its own (`mg3d-aircraft-keeper.lock`, a keeper still running
+  skips the next minute's), each poll under the shared spacing lock,
+  into `aircraft-archive/<slug>/` above the docroot beside
+  `ais-archive/`. Without the cron there is no recording at all (the
+  AIS archive fills a little from the browser's own windows; this one
+  does not). In dev the middleware runs the keeper from the first
+  aircraft request on. Measured 2026-09-11: the cover circle answers
+  ~460 aircraft at 21:40, 71 kB gzipped; expect the busiest city
+  (Frankfurt, ~100 aircraft aloft) to record ~3 MB an hour raw, which
+  the `.htaccess` deflate rule for `application/x-ndjson` shrinks to a
+  fifth on the way to the browser. If the webspace ever fills, thin the
+  writer by dead-reckoning distance rather than by cadence.
+- **The live traffic renders on the simulated clock, as far as the
+  present.** `aircraftNow = min(simMs, now)` in the render loop, unlike
+  the ships, which render live on the real clock: a clock set back a
+  little moves the traffic back a little (the live tracks reach three
+  minutes back), a pause holds it where it stands, and at the replay
+  edge (`aircraftReplayWanted`, the ships' `REPLAY_EDGE_MS`) the
+  recording takes over without a jump – both sample the same instant.
+  The ships' four-minute delay hides that seam; an airliner's dozen
+  seconds would not. The replay's `aircraftAt` hands the layer the
+  fixes from the one before the sampled instant to the one AFTER the
+  last fix before the moment, because the recording (10 s) is coarser
+  than the playback delay (12 s) and the sampler interpolates between
+  the fix before its instant and the one after – the AIS replay ends
+  its track at the moment, the aircraft one reaches one fix past it.
+  Offline, with no archive client, a clock in the past keeps the
+  injected list rather than emptying the sky.
 - **Heights.** `alt_geom` is a height above the WGS84 ellipsoid and goes
   into Cesium as it is; where an aircraft reports only `alt_baro` the
   layer adds `routes.heightOffset` (the geoid height the routes are
@@ -1265,11 +1315,14 @@ Verified 2026-09-11 with a live answer over Frankfurt: 50 aircraft in a
 21 nm circle, 39 with `alt_geom`, 32 with `roll`, 3 on the ground, 2
 multilaterated; that answer is the fixture (`tests/fixtures/adsb-aircraft.json`).
 `e2e/aircraft.spec.ts` puts two aircraft on the offline map through
-`__mg3d.setAircraft` and checks bodies, plates, the hash and the empty
-sky in the past. Two traps met writing it: a spec that wants aircraft
-must boot on the real clock – `?time=12:00`, which every other spec
-uses, is a clock in the past for the rest of the day, and the sky is
-empty then by design – and the injected track has to outlast the
-runner's slow model loads (ten minutes around the rendered instant),
-or the playback reaches the reckoning window and freezes before the
-pacing assertion runs.
+`__mg3d.setAircraft` and checks bodies, plates, the hash and a clock
+set into the past (offline it keeps the list: no recording to switch
+to). Two traps met writing it: a spec that wants aircraft must boot on
+the real clock – `?time=12:00`, which every other spec uses, is a clock
+hours behind, and the traffic renders on the simulated clock, so an
+injected track around the real moment leaves the aircraft standing on
+its first fix – and the injected track has to outlast the runner's
+slow model loads (ten minutes around the rendered instant), or the
+playback reaches the reckoning window and freezes before the pacing
+assertion runs. The replay itself is unit-tested against a fake
+endpoint (`tests/aircraft-archive.test.ts`), like the harbour's.

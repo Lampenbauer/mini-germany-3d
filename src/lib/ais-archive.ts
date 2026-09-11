@@ -32,10 +32,10 @@
  * empty; nothing is invented (see aisReplayWanted for the rule).
  *
  * The hour files, the edge that sends the clock to the recording, the
- * chunk reader and the client that keeps the hours loaded are not the
- * harbour's alone: they live in archive-hours.ts, ready for the next
- * recording; this module is the harbour's line shapes, writer and
- * replay on top of them.
+ * chunk reader and the client that keeps the hours loaded are shared
+ * with the sky's recording (aircraft-archive.ts) and live in
+ * archive-hours.ts; this module is the harbour's line shapes, writer
+ * and replay on top of them.
  */
 
 import {

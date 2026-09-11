@@ -1,8 +1,8 @@
 /**
- * The recording on disk, for the dev middleware (vite.config.ts) and
- * the parity script: one directory per city, one file per UTC hour
- * (see archive-hours.ts for the names, ais-archive.ts for the lines).
- * Node only – the app never imports
+ * The recordings on disk, for the dev middleware (vite.config.ts) and
+ * the parity scripts: one directory per city, one file per UTC hour
+ * (see archive-hours.ts for the names, ais-archive.ts and
+ * aircraft-archive.ts for the lines). Node only – the app never imports
  * this, and tsconfig.app.json leaves it out for the same reason; it is
  * type-checked through vite.config.ts in the node project.
  */

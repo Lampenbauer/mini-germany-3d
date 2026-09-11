@@ -88,13 +88,13 @@ describe('the aircraft in the control panel', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('explains behind an info button that a clock set back empties the sky', async () => {
+  it('explains behind an info button that a clock set back replays the recording', async () => {
     panel()
     const info = screen.getByRole('button', { name: 'What the clock does to the aircraft' })
     fireEvent.focus(info)
     const note = await screen.findAllByText(/fly in real time/i)
     expect(note.length).toBeGreaterThan(0)
-    expect(note[0]).toHaveTextContent(/set back shows an empty sky/i)
+    expect(note[0]).toHaveTextContent(/set back – up to two days – replays the traffic recorded then/i)
     expect(note[0]).toHaveTextContent(/only pausing holds them/i)
   })
 

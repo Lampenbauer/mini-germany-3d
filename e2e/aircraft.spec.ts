@@ -5,9 +5,12 @@ import { expect, test, type Page } from '@playwright/test'
  * so the tests put aircraft on the map themselves (__mg3d.setAircraft)
  * and check what the layer makes of them – a body per aircraft at its
  * altitude, the glTF loaded and swapped in, the callsign plate, the
- * selection through the URL hash, and an empty sky when the clock is set
- * into the past. The look itself is not judged here: a body at ten
- * kilometres is pixels, and the CI runner's software renderer is slow.
+ * selection through the URL hash, and the clock set into the past –
+ * which offline, with no recording to switch to, keeps the list that is
+ * up (the replay itself is unit-tested against a fake endpoint,
+ * tests/aircraft-archive.test.ts). The look itself is not judged here: a
+ * body at ten kilometres is pixels, and the CI runner's software
+ * renderer is slow.
  */
 
 let page: Page
@@ -30,8 +33,9 @@ test.afterAll(async () => {
 
 /**
  * Boots the map offline on the real clock – not at a fixed time of day
- * like the other specs: a simulated clock behind the real one is a clock
- * in the past, and the sky is empty then by design.
+ * like the other specs: the traffic is rendered on the simulated clock as
+ * far as the present, and an injected track around the real moment would
+ * not cover a clock hours behind it – the aircraft would stand still.
  */
 async function boot(url: string) {
   await page.goto(url)
@@ -133,9 +137,10 @@ test('aircraft put on the map get a body each, their plates, and leave with the 
   await page.evaluate(() => window.__mg3d!.setAircraft(null))
   await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(0)
 
-  // And gone with a clock set two days back: there is no recording of
-  // the sky, so nothing is drawn – on the same scene, a boot being the
-  // dear thing here
+  // A clock set two days back asks for the recording – which offline
+  // there is none of, so the list that is up stays up rather than the
+  // sky blinking empty; proved by a couple of ticks going by on the same
+  // scene, a boot being the dear thing here
   await putAircraft()
   await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(2)
   await page.evaluate(() => {
@@ -144,7 +149,11 @@ test('aircraft put on the map get a body each, their plates, and leave with the 
     day.setUTCDate(day.getUTCDate() - 2)
     window.__mg3d!.setDate(day.toISOString().slice(0, 10))
   })
-  await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(0)
+  const ticks = await page.evaluate(() => window.__mg3d!.loopTicks())
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.loopTicks()), slowPoll).toBeGreaterThan(ticks + 2)
+  expect(await page.evaluate(() => window.__mg3d!.aircraftCount())).toBe(2)
+  expect(await page.evaluate(() => window.__mg3d!.aircraftReplay())).toEqual({ active: false, hours: [], fleet: 0 })
+  expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
   expect(pageErrors).toEqual([])
 })
 

@@ -33,12 +33,31 @@
  * deploy copies them, like for ais.php) – or, in a repository checkout,
  * the src/cities folders two levels up.
  *
- * Self-tests (CLI, no network), used by scripts/test-aircraft-parity.mjs:
+ * The sky is recorded as well, the way ais.php records the harbour:
+ * three days in one file per city and UTC hour, above the docroot
+ * (mg3d_aircraft_archive_dir), replayed by the app when its clock is set
+ * into the past – see src/lib/aircraft-archive.ts for the format and the
+ * reasons. The recorder is the keeper cron, which calls this script
+ * every minute with ?record=50: for that long it polls ONE circle that
+ * covers every city (mg3d_aircraft_cover_query – adsb.fi allows one
+ * request a second for all of them together) every
+ * MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS and writes what moved into the
+ * files, under a lock of its own so two keepers never overlap. The
+ * per-city polls above do not record. ?hour=YYYY-MM-DDTHH (with
+ * &from=<byte> for the tail of the hour still being written) serves a
+ * recorded hour back.
+ *
+ * Self-tests (CLI, no network), used by scripts/test-aircraft-parity.mjs
+ * and scripts/test-aircraft-archive-parity.mjs:
  *   php aircraft.php --selftest answer.json <now-ms>
  * folds one captured API answer into an empty state at a fixed clock and
- * prints the list; and
+ * prints the list;
  *   php aircraft.php --queries
- * prints the circle asked for per city.
+ * prints the circle asked for per city, and --cover the one the keeper
+ * polls; and
+ *   php aircraft.php --selftest-archive timed-answers.ndjson <archive-dir>
+ * records a sequence of {atMs, answer} entries (one per line) into an
+ * archive directory as the keeper would.
  */
 
 declare(strict_types=1);
@@ -70,6 +89,30 @@ const MG3D_AIRCRAFT_TRACK_KEEP_MS = 180_000;
 /** Hard cap per aircraft. Mirror of AIRCRAFT_TRACK_MAX_POINTS. */
 const MG3D_AIRCRAFT_TRACK_MAX_POINTS = 60;
 const MG3D_METERS_PER_FOOT = 0.3048;
+/**
+ * The archive: three days in one file per city and UTC hour – see
+ * src/lib/aircraft-archive.ts. Mirror of ARCHIVE_KEEP_HOURS and
+ * ARCHIVE_SETTLE_MS in archive-hours.ts (the AIS archive's numbers).
+ */
+const MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS = 72;
+const MG3D_AIRCRAFT_ARCHIVE_SETTLE_SECONDS = 60;
+/** How often the keeper polls the cover circle – the recording's resolution. Mirror of AIRCRAFT_KEEPER_INTERVAL_MS. */
+const MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS = 10;
+/**
+ * Hard cap for ?record= (the 60 s wall-clock budget needs headroom).
+ * With ?record=50 the polls fall at :00, :10, :20, :30 and :40 of the
+ * minute – five a minute, twenty seconds to the next minute's first –
+ * the one at :50 would not finish inside the reserve below.
+ */
+const MG3D_AIRCRAFT_RECORD_MAX_SECONDS = 50;
+/**
+ * Wall-clock budget for a keeper request in seconds: all-inkl caps PHP
+ * at 60 s, and FastCGI timeouts count wall time. A poll that could not
+ * finish inside it is not started – see the keeper below.
+ */
+const MG3D_AIRCRAFT_WALL_BUDGET_SECONDS = 52.0;
+/** What a poll is allowed to take before the budget is reached – connect, answer, merge, write. */
+const MG3D_AIRCRAFT_POLL_RESERVE_SECONDS = 6.0;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/aircraft-extract.ts
@@ -246,6 +289,34 @@ function mg3d_aircraft_within(array $query, $lat, $lon): bool
 }
 
 /**
+ * The one circle the keeper polls: centred between the outermost city
+ * circles, reaching the far edge of the furthest one – not clamped to
+ * what adsb.fi answers for, so a city that would fall outside is noticed
+ * (the keeper refuses to run, the parity test fails) rather than left
+ * out of the recording. Mirror of adsbCoverQuery in aircraft-archive.ts.
+ * @param array<array{lat:float,lon:float,distNm:int}> $queries
+ * @return array{lat:float,lon:float,distNm:int}
+ */
+function mg3d_aircraft_cover_query(array $queries): array
+{
+    if ($queries === []) return ['lat' => 0.0, 'lon' => 0.0, 'distNm' => 0];
+    $south = INF; $north = -INF; $west = INF; $east = -INF;
+    foreach ($queries as $query) {
+        $south = min($south, $query['lat']);
+        $north = max($north, $query['lat']);
+        $west = min($west, $query['lon']);
+        $east = max($east, $query['lon']);
+    }
+    $lat = floor(($south + $north) / 2 * 10000 + 0.5) / 10000;
+    $lon = floor(($west + $east) / 2 * 10000 + 0.5) / 10000;
+    $distNm = 0.0;
+    foreach ($queries as $query) {
+        $distNm = max($distNm, mg3d_aircraft_haversine($lat, $lon, $query['lat'], $query['lon']) / 1852 + $query['distNm']);
+    }
+    return ['lat' => $lat, 'lon' => $lon, 'distNm' => (int) ceil($distNm)];
+}
+
+/**
  * Every city, from the first directory that holds any city.json: slug →
  * box in degrees. Every city has a sky, so there is no per-city switch.
  * @return array<string, array{west:float,south:float,east:float,north:float}>
@@ -281,6 +352,195 @@ function mg3d_aircraft_cities(): array
 }
 
 // ---------------------------------------------------------------------------
+// The archive – the PHP twin of the writer in src/lib/aircraft-archive.ts
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the archive lives: beside the AIS archive two levels up, above
+ * the docroot – the deploy's rsync --delete never reaches there, and
+ * neither does the web – or, when that cannot be written, the temp
+ * directory the state files are in. Null when neither can be.
+ */
+function mg3d_aircraft_archive_dir(): ?string
+{
+    foreach ([__DIR__ . '/../../aircraft-archive', sys_get_temp_dir() . '/mg3d-aircraft-archive'] as $dir) {
+        if (is_dir($dir) ? is_writable($dir) : @mkdir($dir, 0755, true)) return $dir;
+    }
+    error_log('aircraft.php: no writable directory for the aircraft archive');
+    return null;
+}
+
+/** The hour file a moment belongs to, as its name: UTC "YYYY-MM-DDTHH". */
+function mg3d_aircraft_archive_hour_key(int $ms): string
+{
+    return gmdate('Y-m-d\TH', intdiv($ms, 1000));
+}
+
+/** The start of a named hour in unix seconds, null for anything else. */
+function mg3d_aircraft_archive_hour_start(string $key): ?int
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}$/', $key)) return null;
+    // The '!' resets what the format does not name to zero – without it
+    // the missing minutes and seconds would be the current ones.
+    $at = DateTimeImmutable::createFromFormat('!Y-m-d\TH', $key, new DateTimeZone('UTC'));
+    return $at === false ? null : $at->getTimestamp();
+}
+
+function mg3d_aircraft_archive_file(string $dir, string $slug, string $hourKey): string
+{
+    return $dir . '/' . $slug . '/' . $hourKey . '.ndjson';
+}
+
+/** An aircraft's static data as the archive keeps it – the fields no fix carries. */
+function mg3d_aircraft_archive_static(array $aircraft): array
+{
+    return [
+        'hex' => $aircraft['hex'],
+        'callsign' => $aircraft['callsign'],
+        'registration' => $aircraft['registration'],
+        'typeCode' => $aircraft['typeCode'],
+        'description' => $aircraft['description'],
+        'category' => $aircraft['category'],
+        'squawk' => $aircraft['squawk'],
+        'source' => $aircraft['source'],
+    ];
+}
+
+/**
+ * The aircraft's last fix as a line: [hex, ms, lat, lon, altGeomM,
+ * altBaroM, gsKn, trackDeg, headingDeg, verticalRateMps, rollDeg,
+ * onGround] – the record's own fields are that fix.
+ */
+function mg3d_aircraft_archive_fix(array $aircraft): array
+{
+    return [
+        $aircraft['hex'], $aircraft['positionAt'], $aircraft['lat'], $aircraft['lon'],
+        $aircraft['altGeomM'], $aircraft['altBaroM'], $aircraft['gsKn'], $aircraft['trackDeg'],
+        $aircraft['headingDeg'], $aircraft['verticalRateMps'], $aircraft['rollDeg'], $aircraft['onGround'],
+    ];
+}
+
+/**
+ * The lines an hour file opens with: every aircraft with a fresh position
+ * inside the city's circle, sorted by address, its static data and its
+ * last fix.
+ */
+function mg3d_aircraft_archive_snapshot(array &$state, int $nowMs, array $query): string
+{
+    $text = '';
+    foreach (mg3d_aircraft_list($state, $nowMs) as $aircraft) {
+        if (!mg3d_aircraft_within($query, $aircraft['lat'], $aircraft['lon'])) continue;
+        $text .= json_encode(mg3d_aircraft_archive_static($aircraft)) . "\n"
+            . json_encode(mg3d_aircraft_archive_fix($aircraft)) . "\n";
+    }
+    return $text;
+}
+
+/** Deletes a city's hour files named before $oldestKept. */
+function mg3d_aircraft_archive_prune(string $cityDir, string $oldestKept): void
+{
+    foreach (glob($cityDir . '/*.ndjson') ?: [] as $file) {
+        if (basename($file, '.ndjson') < $oldestKept) @unlink($file);
+    }
+}
+
+/**
+ * Folds one poll's answer into the state (mg3d_aircraft_merge per entry,
+ * stamped as mg3d_aircraft_merge_response stamps it) and records what it
+ * changed: per aircraft the fix it carried when that is newer than the
+ * last, and the static data when that is new – into every city whose
+ * circle holds the aircraft. A city whose hour file does not exist yet
+ * gets the snapshot instead – taken after the whole answer is merged,
+ * so it already holds every aircraft's newest fix, and the answer's own
+ * lines are not written twice – and its files older than the retention
+ * go. Line for line the twin of AircraftArchiveWriter.record.
+ * @param array<string, array{lat:float,lon:float,distNm:int}> $cities slug → circle
+ */
+function mg3d_aircraft_archive_record(array &$state, array $raw, int $nowMs, array $cities, string $dir): void
+{
+    $changed = [];
+    foreach (is_array($raw['ac'] ?? null) ? $raw['ac'] : [] as $entry) {
+        if (!is_array($entry)) continue;
+        $hex = strtolower(mg3d_aircraft_str($entry['hex'] ?? null));
+        if (!preg_match('/^~?[0-9a-f]{6}$/', $hex)) continue;
+        $before = $state[$hex] ?? null;
+        $beforePositionAt = $before['positionAt'] ?? 0;
+        $beforeStatic = $before === null ? null : json_encode(mg3d_aircraft_archive_static($before));
+        $seenPos = mg3d_aircraft_num($entry['seen_pos'] ?? null) ?? 0.0;
+        mg3d_aircraft_merge($state, $entry, $nowMs - (int) floor($seenPos * 1000 + 0.5));
+        $aircraft = $state[$hex] ?? null;
+        if ($aircraft === null) continue;
+        $lines = '';
+        if (json_encode(mg3d_aircraft_archive_static($aircraft)) !== $beforeStatic) {
+            $lines .= json_encode(mg3d_aircraft_archive_static($aircraft)) . "\n";
+        }
+        if ($aircraft['positionAt'] !== $beforePositionAt) {
+            $lines .= json_encode(mg3d_aircraft_archive_fix($aircraft)) . "\n";
+        }
+        if ($lines !== '') $changed[] = [$aircraft['lat'], $aircraft['lon'], $lines];
+    }
+    if ($changed === []) return;
+
+    $hourKey = mg3d_aircraft_archive_hour_key($nowMs);
+    foreach ($cities as $slug => $query) {
+        $text = '';
+        foreach ($changed as [$lat, $lon, $lines]) {
+            if (mg3d_aircraft_within($query, $lat, $lon)) $text .= $lines;
+        }
+        if ($text === '') continue;
+        $file = mg3d_aircraft_archive_file($dir, $slug, $hourKey);
+        if (is_file($file)) {
+            @file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
+            continue;
+        }
+        $cityDir = dirname($file);
+        if (!is_dir($cityDir) && !@mkdir($cityDir, 0755, true)) continue;
+        mg3d_aircraft_archive_prune(
+            $cityDir,
+            mg3d_aircraft_archive_hour_key($nowMs - MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS * 3600_000)
+        );
+        @file_put_contents($file, mg3d_aircraft_archive_snapshot($state, $nowMs, $query), FILE_APPEND | LOCK_EX);
+    }
+}
+
+/**
+ * Serves one hour file of one city (?hour=YYYY-MM-DDTHH), from the byte
+ * ?from= on – the app fetches the hour still being written for its tail
+ * every few seconds and would not want the whole file each time. A
+ * closed hour is complete and cacheable; an open one, and any tail,
+ * must not be cached. 404 where nothing was recorded, 416 for a start
+ * beyond the end (nothing new). Twin of mg3d_ais_archive_serve.
+ */
+function mg3d_aircraft_archive_serve(?string $dir, string $slug, string $hourKey, int $from): void
+{
+    $hourStart = mg3d_aircraft_archive_hour_start($hourKey);
+    $file = $dir === null || $hourStart === null ? null : mg3d_aircraft_archive_file($dir, $slug, $hourKey);
+    if ($file === null || !is_file($file)) {
+        http_response_code(404);
+        echo json_encode(['error' => 'No recording for this hour']);
+        return;
+    }
+    $size = (int) filesize($file);
+    if ($from < 0 || $from > $size) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $size);
+        return;
+    }
+    $closed = ($hourStart + 3600 + MG3D_AIRCRAFT_ARCHIVE_SETTLE_SECONDS) * 1000 < mg3d_aircraft_now_ms();
+    header('Content-Type: application/x-ndjson');
+    header('Cache-Control: ' . ($closed && $from === 0 ? 'public, max-age=86400' : 'no-store'));
+    header('Content-Length: ' . ($size - $from));
+    // Exactly the bytes announced – the file may grow while they go out
+    $in = fopen($file, 'rb');
+    $out = fopen('php://output', 'wb');
+    if ($in !== false && $out !== false && $size > $from) {
+        stream_copy_to_stream($in, $out, $size - $from, $from);
+    }
+    if ($in !== false) fclose($in);
+    if ($out !== false) fclose($out);
+}
+
+// ---------------------------------------------------------------------------
 // Upstream, state file, serving
 // ---------------------------------------------------------------------------
 
@@ -303,7 +563,7 @@ function mg3d_aircraft_fetch(array $query): array
     ]);
     $body = curl_exec($ch);
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+    // No curl_close: a no-op since PHP 8.0 and deprecated in 8.5
     if (!is_string($body) || $status !== 200) {
         throw new RuntimeException('adsb.fi answered HTTP ' . $status);
     }
@@ -360,6 +620,39 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--queries') {
     exit(0);
 }
 
+// --- CLI: the circle the keeper polls ---------------------------------------
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--cover') {
+    echo json_encode(mg3d_aircraft_cover_query(array_map('mg3d_aircraft_query', mg3d_aircraft_cities()))), "\n";
+    exit(0);
+}
+
+// --- CLI self-test: the archive --------------------------------------------
+// Records a captured sequence of answers – one {atMs, answer} entry per
+// line, in order – into an archive directory, as the keeper's polls
+// would. The parity script scripts/test-aircraft-archive-parity.mjs runs
+// the TypeScript writer over the same entries and compares the files
+// line by line. Read line by line: a whole sequence decoded at once is
+// hundreds of megabytes of PHP arrays.
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-archive') {
+    $file = $argv[2] ?? '';
+    $dir = $argv[3] ?? '';
+    $in = is_readable($file) ? fopen($file, 'rb') : false;
+    if ($in === false || $dir === '' || !is_dir($dir)) {
+        fwrite(STDERR, "usage: php aircraft.php --selftest-archive timed-answers.ndjson <archive-dir>\n");
+        exit(2);
+    }
+    $state = [];
+    $queries = array_map('mg3d_aircraft_query', mg3d_aircraft_cities());
+    while (($line = fgets($in)) !== false) {
+        $entry = json_decode($line, true);
+        if (!is_array($entry) || !is_array($entry['answer'] ?? null) || !is_int($entry['atMs'] ?? null)) continue;
+        mg3d_aircraft_archive_record($state, $entry['answer'], $entry['atMs'], $queries, $dir);
+        mg3d_aircraft_list($state, $entry['atMs']); // expiry prunes in place, as the keeper does
+    }
+    fclose($in);
+    exit(0);
+}
+
 // --- CLI self-test: one captured answer at a fixed clock -------------------
 // With a city slug as the fourth argument the list is cut to that city's
 // circle, as the HTTP entry cuts it.
@@ -401,8 +694,85 @@ if (!is_string($citySlug) || !isset($cities[$citySlug])) {
 }
 $cityQuery = mg3d_aircraft_query($cities[$citySlug]);
 
+// A recorded hour is served from the archive and needs no poll – see
+// mg3d_aircraft_archive_serve; the browser reads it when its clock is in
+// the past.
+if (isset($_GET['hour'])) {
+    mg3d_aircraft_archive_serve(
+        mg3d_aircraft_archive_dir(),
+        $citySlug,
+        is_string($_GET['hour']) ? $_GET['hour'] : '',
+        (int) ($_GET['from'] ?? 0)
+    );
+    exit;
+}
+
 $stateFile = sys_get_temp_dir() . '/mg3d-aircraft-' . $citySlug . '.json';
 $lockFile = sys_get_temp_dir() . '/mg3d-aircraft.lock';
+
+// The keeper cron (?record=50): answers at once, then polls the cover
+// circle for that long with the response gone and records the sky. One
+// keeper at a time – the last minute's may still be running when this
+// one starts – and every poll under the same lock and spacing the
+// per-city polls keep, so adsb.fi still sees one request a second.
+if (isset($_GET['record'])) {
+    $recordSeconds = max(5, min(MG3D_AIRCRAFT_RECORD_MAX_SECONDS, (int) $_GET['record']));
+    echo json_encode(['recording' => $recordSeconds]);
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } else {
+        flush();
+    }
+    set_time_limit(60);
+    $keeperLock = fopen(sys_get_temp_dir() . '/mg3d-aircraft-keeper.lock', 'c');
+    if ($keeperLock === false || !flock($keeperLock, LOCK_EX | LOCK_NB)) exit;
+    $archiveDir = mg3d_aircraft_archive_dir();
+    if ($archiveDir === null) exit;
+    $queries = array_map('mg3d_aircraft_query', $cities);
+    $cover = mg3d_aircraft_cover_query($queries);
+    if ($cover['distNm'] > MG3D_AIRCRAFT_MAX_DIST_NM) {
+        error_log('aircraft.php: the cover circle (' . $cover['distNm'] . ' nm) is more than adsb.fi answers for - the sky is not recorded');
+        exit;
+    }
+    $skyFile = sys_get_temp_dir() . '/mg3d-aircraft-sky.json';
+    $sky = mg3d_aircraft_load($skyFile);
+    $state = $sky['state'];
+    $requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
+    $end = min($requestStart + MG3D_AIRCRAFT_WALL_BUDGET_SECONDS, $requestStart + $recordSeconds);
+    $next = microtime(true);
+    while (true) {
+        // A poll that could not finish inside the budget is not started –
+        // and not waited for: the request ends after the last one that fits
+        if ($next + MG3D_AIRCRAFT_POLL_RESERVE_SECONDS > $end) break;
+        $wait = $next - microtime(true);
+        if ($wait > 0) usleep((int) ($wait * 1_000_000));
+        $next += MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS;
+        $lock = fopen($lockFile, 'c');
+        if ($lock === false || !flock($lock, LOCK_EX)) continue;
+        try {
+            clearstatcache(true, $lockFile);
+            $sinceLast = microtime(true) - (float) (filemtime($lockFile) ?: 0);
+            if ($sinceLast < MG3D_AIRCRAFT_MIN_SPACING_SECONDS) {
+                usleep((int) ((MG3D_AIRCRAFT_MIN_SPACING_SECONDS - $sinceLast) * 1_000_000));
+            }
+            touch($lockFile);
+            $answer = mg3d_aircraft_fetch($cover);
+        } catch (Throwable $e) {
+            error_log('aircraft.php keeper: ' . $e->getMessage());
+            continue;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+        $nowMs = mg3d_aircraft_now_ms();
+        mg3d_aircraft_archive_record($state, $answer, $nowMs, $queries, $archiveDir);
+        mg3d_aircraft_list($state, $nowMs); // expiry prunes in place
+        mg3d_aircraft_save($skyFile, $state, $nowMs);
+    }
+    flock($keeperLock, LOCK_UN);
+    fclose($keeperLock);
+    exit;
+}
 
 $data = mg3d_aircraft_load($stateFile);
 $ageSeconds = (mg3d_aircraft_now_ms() - $data['fetchedAt']) / 1000;

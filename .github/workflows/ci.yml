@@ -299,6 +299,7 @@ jobs:
           node scripts/test-ais-state.mjs
           node scripts/test-ais-archive-parity.mjs
           node scripts/test-aircraft-parity.mjs
+          node scripts/test-aircraft-archive-parity.mjs
 
       - name: Production build
         if: >-

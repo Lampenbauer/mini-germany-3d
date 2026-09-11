@@ -105,6 +105,12 @@ declare global {
       /** Aircraft selection by ICAO address, as a click on a body does it. */
       selectAircraft: (hex: string | null) => void
       selectedAircraftHex: () => string | null
+      /** Whether the aircraft are replayed from the recording, which hours are held, and how many it places at the simulated moment. */
+      aircraftReplay: () => {
+        active: boolean
+        hours: { key: string; status: 'loading' | 'loaded' | 'absent' | 'failed'; lines: number }[]
+        fleet: number
+      }
       /** Puts air traffic on the map as if polled (see src/lib/aircraft-extract.ts for the record); null takes it away. */
       setAircraft: (
         list:

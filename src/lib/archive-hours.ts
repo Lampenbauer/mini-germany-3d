@@ -1,25 +1,26 @@
 /**
- * What every recording shares – the harbour's (ais-archive.ts) today:
- * the hour files and their names, the rule that sends the clock to the
- * recording, the store the writers put their lines in, the chunk
- * reader, and the client that keeps the hours around the simulated
- * moment loaded from the endpoint. A recording brings its own line
- * shapes, its own writer and its own replay; the client takes them as
- * options and knows nothing of ships.
+ * What the two recordings share – the harbour's (ais-archive.ts) and the
+ * sky's (aircraft-archive.ts): the hour files and their names, the rule
+ * that sends the clock to the recording, the store the writers put their
+ * lines in, the chunk reader, and the client that keeps the hours around
+ * the simulated moment loaded from the endpoint. Each recording brings
+ * its own line shapes, its own writer and its own replay; the client
+ * takes them as options and knows nothing of ships or aircraft.
  */
 
 /**
  * How long a recording is kept: three days, the two the calendar offers
- * behind today plus today itself. Mirror of MG3D_AIS_ARCHIVE_KEEP_HOURS.
+ * behind today plus today itself. Mirror of MG3D_AIS_ARCHIVE_KEEP_HOURS
+ * and MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS.
  */
 export const ARCHIVE_KEEP_HOURS = 72
 export const ARCHIVE_HOUR_MS = 3_600_000
 /**
  * A simulated moment this far behind the real clock is replayed from the
- * recording; anything nearer, and the future, is live. Every recording
- * switches at the same edge, so two of them never come from different
- * days. The margin covers the tail poll below: the last minute may not
- * be on disk yet.
+ * recording; anything nearer, and the future, is live. Both recordings
+ * switch at the same edge, so the harbour and the sky never come from
+ * different days. The margin covers the tail poll below: the last minute
+ * may not be on disk yet.
  */
 export const REPLAY_EDGE_MS = 60_000
 /** How often the hour still being written is asked for its new lines. */
@@ -28,7 +29,7 @@ export const ARCHIVE_TAIL_POLL_MS = 20_000
  * A writer stamps a fix as it hears it, so a window that runs across the
  * hour boundary still adds seconds to the hour just closed. An hour
  * counts as closed – complete, cacheable – this long after its end.
- * Mirror of MG3D_AIS_ARCHIVE_SETTLE_SECONDS.
+ * Mirror of MG3D_AIS_ARCHIVE_SETTLE_SECONDS and its aircraft twin.
  */
 export const ARCHIVE_SETTLE_MS = 60_000
 /** A failed fetch is tried again after this long. */
@@ -131,7 +132,8 @@ export function parseArchiveChunk<L>(
 
 /**
  * The index of the last fix at or before `atMs` in a list sorted by
- * time, −1 when there is none. A fix keeps its time stamp at index 1.
+ * time, −1 when there is none. Both recordings keep the time stamp at
+ * index 1 of a fix.
  */
 export function lastFixAtOrBefore(fixes: readonly (readonly [unknown, number, ...unknown[]])[], atMs: number): number {
   let low = 0
@@ -214,7 +216,7 @@ export class HourArchiveClient<L> {
   private lastFollow: { simMs: number; nowMs: number } | null = null
   private stopped = false
 
-  // No parameter properties here: the parity script runs the recording's
+  // No parameter properties here: the parity scripts run the recordings'
   // modules through Node's type stripping, which erases types only.
   constructor(url: string, options: HourArchiveClientOptions<L>) {
     this.url = url

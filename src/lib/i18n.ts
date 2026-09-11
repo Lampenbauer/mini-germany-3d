@@ -100,7 +100,7 @@ const en = {
   'traffic.aircraftCount': '{count} aircraft',
   'traffic.aircraftClockLabel': 'What the clock does to the aircraft',
   'traffic.aircraftClockNote':
-    'The aircraft fly in real time and are not recorded: a clock set back shows an empty sky, a clock set ahead leaves them in the present; only pausing holds them.',
+    'The aircraft fly in real time, and a clock set back – up to two days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
   // City card (the network in numbers, behind the panel head's info button)
   'city.facts': '{name} in numbers',
   'city.factsSubtitle': 'The network in numbers',
@@ -239,6 +239,7 @@ const en = {
   'vessel.fixAgeMin': 'last update {count} min ago',
   // Aircraft card (ADS-B): what a transponder says about its aircraft
   'aircraft.live': 'Live from ADS-B',
+  'aircraft.recorded': 'Recorded from ADS-B',
   'aircraft.altitude': 'Altitude',
   'aircraft.groundSpeed': 'Ground speed',
   'aircraft.verticalRate': 'Climb',
@@ -342,7 +343,7 @@ const en = {
   'about.notTitle': 'Moving to the timetable',
   'about.notLive': 'The trains and buses follow their timetables, with reported delays taken into account. Their positions are calculated, rather than tracked by GPS. A train running three minutes late appears where it would have been three minutes earlier.',
   'about.shipsTitle': 'The harbour and the sky are live',
-  'about.notShips': 'Ships and aircraft are the exception: their positions come from AIS and ADS-B transponders. When a ship or an aircraft sends an update, it moves on the map too – and the last three days of the ships are kept, so a clock set back replays the harbour as it was.',
+  'about.notShips': 'Ships and aircraft are the exception: their positions come from AIS and ADS-B transponders. When a ship or an aircraft sends an update, it moves on the map too – and the last three days of both are kept, so a clock set back replays the harbour and the sky as they were.',
   'about.exploreTitle': 'A place to explore',
   'about.notRouting': 'For your next connection, use your transport operator’s app. This map is here to let you look around and discover.',
   'about.notComplete': 'Larger cities show a selection of lines to keep things running smoothly, such as the Metro buses in Berlin and Munich.',
@@ -475,7 +476,7 @@ const de: Record<MessageKey, string> = {
   'traffic.aircraftCount': '{count} Flugzeuge',
   'traffic.aircraftClockLabel': 'Was die Uhr mit den Flugzeugen macht',
   'traffic.aircraftClockNote':
-    'Die Flugzeuge fliegen in Echtzeit und werden nicht aufgezeichnet: Eine zurückgestellte Uhr zeigt einen leeren Himmel, eine vorgestellte lässt sie in der Gegenwart; nur die Pause hält sie an.',
+    'Die Flugzeuge fliegen in Echtzeit, und eine zurückgestellte Uhr – bis zu zwei Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
   'traffic.running': '{count} unterwegs',
   'traffic.aisCount': '{count} Schiffe',
   // City card (the network in numbers, behind the panel head's info button)
@@ -606,6 +607,7 @@ const de: Record<MessageKey, string> = {
   'vessel.fixAge': 'letzte Meldung vor {count} s',
   'vessel.fixAgeMin': 'letzte Meldung vor {count} min',
   'aircraft.live': 'Live per ADS-B',
+  'aircraft.recorded': 'Aufgezeichnet per ADS-B',
   'aircraft.altitude': 'Höhe',
   'aircraft.groundSpeed': 'Geschwindigkeit über Grund',
   'aircraft.verticalRate': 'Steigen',
@@ -699,7 +701,7 @@ const de: Record<MessageKey, string> = {
   'about.notTitle': 'Unterwegs nach Fahrplan',
   'about.notLive': 'Bahnen und Busse folgen ihrem Fahrplan, gemeldete Verspätungen werden eingerechnet. Ihre Positionen sind berechnet, nicht per GPS gemessen. Eine Bahn mit drei Minuten Verspätung erscheint dort, wo sie drei Minuten früher gewesen wäre.',
   'about.shipsTitle': 'Im Hafen und am Himmel wird’s live',
-  'about.notShips': 'Schiffe und Flugzeuge sind die Ausnahme: Ihre Positionen stammen von AIS- und ADS-B-Transpondern. Wenn ein Schiff oder ein Flugzeug ein Update sendet, bewegt es sich auch auf der Karte weiter – und die letzten drei Tage der Schiffe bleiben erhalten, sodass eine zurückgestellte Uhr den Hafen zeigt, wie er war.',
+  'about.notShips': 'Schiffe und Flugzeuge sind die Ausnahme: Ihre Positionen stammen von AIS- und ADS-B-Transpondern. Wenn ein Schiff oder ein Flugzeug ein Update sendet, bewegt es sich auch auf der Karte weiter – und die letzten drei Tage von beiden bleiben erhalten, sodass eine zurückgestellte Uhr Hafen und Himmel zeigt, wie sie waren.',
   'about.exploreTitle': 'Platz zum Entdecken',
   'about.notRouting': 'Für deine nächste Verbindung nimm am besten die App deines Verkehrsbetriebs. Hier kannst du dich umschauen und auf Entdeckungstour gehen.',
   'about.notComplete': 'Damit alles flüssig läuft, zeigen größere Städte eine Auswahl an Linien, etwa die Metrobusse in Berlin und München.',

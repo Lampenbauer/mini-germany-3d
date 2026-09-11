@@ -25,9 +25,16 @@ import {
   aircraftStateList,
   mergeAdsbResponse,
   withinQuery,
+  type AdsbQuery,
   type AdsbRawResponse,
   type AircraftState,
 } from './src/lib/aircraft-extract'
+import {
+  AIRCRAFT_KEEPER_INTERVAL_MS,
+  AircraftArchiveWriter,
+  adsbCoverQuery,
+  coverWithinLimit,
+} from './src/lib/aircraft-archive'
 import { containsLonLat } from './src/lib/city'
 import { extractWebcams, windyNearby } from './src/lib/webcams-extract'
 import { CITIES, DEFAULT_CITY_SLUG, cityBySlug } from './src/cities/definitions'
@@ -152,12 +159,14 @@ function gtfsRealtimeFilterPlugin(): Plugin {
 
 /** Where the dev middleware records the AIS archive (see ais-archive.ts). */
 const AIS_ARCHIVE_DIR = join(tmpdir(), 'mg3d-ais-archive')
+/** …and the aircraft archive (see aircraft-archive.ts). */
+const AIRCRAFT_ARCHIVE_DIR = join(tmpdir(), 'mg3d-aircraft-archive')
 
 /**
  * One recorded hour of one city from `from` on – 404 where nothing was
  * recorded, 416 for a start beyond the end (nothing new). A closed hour
  * is complete and cacheable; an open one, and any tail, is not. Mirror
- * of mg3d_ais_archive_serve in api/ais.php.
+ * of mg3d_ais_archive_serve in api/ais.php and of its aircraft twin.
  */
 function serveArchiveHour(res: ServerResponse, dir: string, slug: string, hour: string, from: number): void {
   const file = isArchiveHourKey(hour) ? archiveFilePath(dir, slug, hour) : null
@@ -325,6 +334,17 @@ const ADSB_MIN_SPACING_MS = 1_000
  * and cached per city for AIRCRAFT_TTL_MS. A failed call serves the
  * stale state – the reckoning in the browser bridges a gap, and the
  * expiry clears the sky if it lasts.
+ *
+ * The sky is recorded too, under AIRCRAFT_ARCHIVE_DIR: from the first
+ * request on, a keeper polls the one circle that covers every city
+ * (adsbCoverQuery) every AIRCRAFT_KEEPER_INTERVAL_MS and writes the
+ * fixes into one file per city and hour, three days kept – the AIS
+ * archive's pattern, see src/lib/aircraft-archive.ts. `?hour=YYYY-MM-DDTHH`
+ * (with `&from=<byte>` for the tail) serves a recorded hour back, which
+ * is what the app replays when its clock is set into the past. In
+ * production the keeper is a cron calling api/aircraft.php?record=50
+ * every minute; scripts/test-aircraft-archive-parity.mjs holds the two
+ * writers to the same files.
  */
 function aircraftPlugin(): Plugin {
   const states = new Map<string, { state: AircraftState; fetchedAt: number }>()
@@ -333,18 +353,17 @@ function aircraftPlugin(): Plugin {
   let lastUpstreamAt = 0
   let spacing: Promise<void> = Promise.resolve()
 
-  const cityState = (slug: string) => {
-    let entry = states.get(slug)
-    if (!entry) {
-      entry = { state: new Map(), fetchedAt: 0 }
-      states.set(slug, entry)
-    }
-    return entry
-  }
+  /** The keeper's own state – the sky over the cover circle – and its writer. */
+  const skyState: AircraftState = new Map()
+  const archive = new AircraftArchiveWriter(
+    archiveFileStore(AIRCRAFT_ARCHIVE_DIR),
+    CITIES.map(({ slug, boundingBox }) => ({ slug, query: adsbQuery(boundingBox) })),
+  )
+  const cover = adsbCoverQuery(CITIES.map((city) => adsbQuery(city.boundingBox)))
+  let keeperStarted = false
 
-  const refresh = async (slug: string): Promise<void> => {
-    const city = cityBySlug(slug)!
-    const { lat, lon, distNm } = adsbQuery(city.boundingBox)
+  /** One upstream call for a circle, a second behind the last one whichever city asked. */
+  const fetchCircle = async ({ lat, lon, distNm }: AdsbQuery): Promise<AdsbRawResponse> => {
     // One request a second, whichever city asks: the calls queue behind
     // one another and each waits out the second the last one started.
     const slot = spacing.then(async () => {
@@ -359,7 +378,45 @@ function aircraftPlugin(): Plugin {
       signal: AbortSignal.timeout(15_000),
     })
     if (!response.ok) throw new Error(`adsb.fi answered HTTP ${response.status}`)
-    const data = (await response.json()) as AdsbRawResponse
+    return (await response.json()) as AdsbRawResponse
+  }
+
+  /** The keeper: polls the cover circle on its interval and records what moved. */
+  const keep = async (): Promise<void> => {
+    const started = Date.now()
+    try {
+      const data = await fetchCircle(cover)
+      const now = Date.now()
+      archive.record(skyState, data, now)
+      aircraftStateList(skyState, now) // expiry prunes in place
+    } catch (error) {
+      console.warn(`[aircraft] keeper: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    // On the interval from poll start to poll start, whatever a poll took
+    setTimeout(keep, Math.max(1_000, AIRCRAFT_KEEPER_INTERVAL_MS - (Date.now() - started)))
+  }
+  const startKeeper = (): void => {
+    if (keeperStarted) return
+    keeperStarted = true
+    if (!coverWithinLimit(cover)) {
+      console.warn(`[aircraft] the cover circle (${cover.distNm} nm) is more than adsb.fi answers for – the sky is not recorded`)
+      return
+    }
+    void keep()
+  }
+
+  const cityState = (slug: string) => {
+    let entry = states.get(slug)
+    if (!entry) {
+      entry = { state: new Map(), fetchedAt: 0 }
+      states.set(slug, entry)
+    }
+    return entry
+  }
+
+  const refresh = async (slug: string): Promise<void> => {
+    const city = cityBySlug(slug)!
+    const data = await fetchCircle(adsbQuery(city.boundingBox))
     const now = Date.now()
     const entry = cityState(slug)
     mergeAdsbResponse(entry.state, data, now)
@@ -377,6 +434,13 @@ function aircraftPlugin(): Plugin {
     if (!city) {
       res.statusCode = 404
       res.end(JSON.stringify({ error: 'Unknown city' }))
+      return
+    }
+    startKeeper()
+    const params = new URL(req.url, 'http://localhost').searchParams
+    const hour = params.get('hour')
+    if (hour !== null) {
+      serveArchiveHour(res, AIRCRAFT_ARCHIVE_DIR, city.slug, hour, Number(params.get('from') ?? 0))
       return
     }
     const entry = cityState(city.slug)

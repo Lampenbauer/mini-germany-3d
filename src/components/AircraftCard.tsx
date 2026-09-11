@@ -30,24 +30,36 @@ import { formatFixAge } from '@/lib/vessel-info'
  */
 export interface AircraftCardProps {
   aircraft: Aircraft
-  /** The wall clock the fix age is measured against – the traffic is live only. */
+  /** The clock the fix age is measured against – the wall clock, or the simulated one for a replayed aircraft. */
   nowMs: number
+  /**
+   * Whether the aircraft is replayed from the recording rather than live –
+   * the eyebrow says so, and the pulse that means "live" stays off.
+   */
+  recorded?: boolean
   following: boolean
   onToggleFollow: () => void
   onClose: () => void
 }
 
-export function AircraftCard({ aircraft, nowMs, following, onToggleFollow, onClose }: AircraftCardProps) {
+export function AircraftCard({
+  aircraft,
+  nowMs,
+  recorded = false,
+  following,
+  onToggleFollow,
+  onClose,
+}: AircraftCardProps) {
   return (
     <Card className={CARD_SHELL} data-testid="aircraft-card">
       <CardHead
         className="bg-blue-800 text-blue-50"
         eyebrow={
           <>
-            {/* The pulse says "live", as on the ship card – and every
-                aircraft here is live, there is no recording to replay */}
-            <EyebrowDot className="animate-pulse" />
-            {t('aircraft.live')}
+            {/* The pulse says "live", as on the ship card – and a replayed
+                aircraft is not live, so its dot stands still */}
+            <EyebrowDot className={recorded ? undefined : 'animate-pulse'} />
+            {t(recorded ? 'aircraft.recorded' : 'aircraft.live')}
             <span className="font-normal text-blue-300">
               {' · '}
               {formatFixAge(aircraft.positionAt, nowMs)}

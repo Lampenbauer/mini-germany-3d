@@ -93,6 +93,11 @@ import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
 import { AircraftClient } from '@/lib/aircraft'
+import {
+  AircraftArchiveClient,
+  aircraftReplayWanted,
+  type AircraftArchiveHourStatus,
+} from '@/lib/aircraft-archive'
 import type { Aircraft } from '@/lib/aircraft-extract'
 import { AisArchiveClient, aisReplayWanted, type AisArchiveHourStatus } from '@/lib/ais-archive'
 import type { AisVessel } from '@/lib/ais-extract'
@@ -146,6 +151,8 @@ export interface Mg3dTestApi {
    * is empty at 09:00".
    */
   aisReplay: () => { active: boolean; hours: AisArchiveHourStatus[]; fleet: number }
+  /** The same for the aircraft (see lib/aircraft-archive.ts). */
+  aircraftReplay: () => { active: boolean; hours: AircraftArchiveHourStatus[]; fleet: number }
   selectStop: (id: string | null) => void
   selectedStopId: () => string | null
   /** Ship selection by MMSI, as a click on a hull does it. */
@@ -735,6 +742,16 @@ export default function App() {
   const aircraftInjectedRef = useRef<Aircraft[] | null>(null)
   const aircraftCountRef = useRef(0)
   const showAircraftRef = useRef(urlOpts.aircraft)
+  /**
+   * The recording of the city's sky, the harbour's way (aisArchiveRef):
+   * built with the poller, asked by the render loop for the traffic as
+   * of the simulated moment whenever that is far enough behind the real
+   * one; and whether the aircraft on the map are the recording's – read
+   * by the poll's callback and by the card (see aisReplayRef).
+   */
+  const aircraftArchiveRef = useRef<AircraftArchiveClient | null>(null)
+  const aircraftReplayRef = useRef(false)
+  const [aircraftReplay, setAircraftReplay] = useState(false)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the viewer effect – selection changes write the URL immediately. */
@@ -1570,8 +1587,12 @@ export default function App() {
     // The replayed fleet needs none of this: its clock is the simulated
     // one, which the pause holds by itself.
     let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
-    /** The air traffic frozen by a pause, the same way (see aisFrozen). */
-    let aircraftFrozen: { list: Aircraft[]; atMs: number } | null = null
+    /**
+     * The air traffic frozen by a pause: the list, so that later polls
+     * cannot move a frozen world (the clock it is rendered on is the
+     * simulated one, which the pause holds by itself – see aircraftNow).
+     */
+    let aircraftFrozen: Aircraft[] | null = null
     /**
      * Which clock the ships are on. The recording replays a simulated
      * moment behind the real one (aisReplayWanted); the present and the
@@ -1580,6 +1601,8 @@ export default function App() {
      * the real clock moving on underneath must not swap it out.
      */
     let aisReplaying = false
+    /** Which clock the aircraft are on – see aisReplaying. */
+    let aircraftReplaying = false
     /** Ships on the map right now – false before the first sync and while
         the panel switch is off, which is what tells the tick below that
         there is a fleet left to take down. */
@@ -1766,28 +1789,50 @@ export default function App() {
               aisDrawn = false
             }
             aisFleetCountRef.current = wantAis ? aisBackdrop.length : 0
-            // The air traffic, live only: wanted while the switch is on
-            // and the clock is not in the past – there is no recording
-            // of the sky, and yesterday's clock must not show today's
-            // aircraft (the ships' rule). A pause freezes the list and
-            // its clock the way it freezes the ships'.
+            // The air traffic, the ships' way: the recording as of the
+            // simulated moment once that is far enough behind the real one,
+            // the live list otherwise. The live list is rendered on the
+            // simulated clock too, as far as the present – its tracks reach
+            // three minutes back – so a clock set back a little moves the
+            // traffic back a little, a pause holds it where it stands, and
+            // at the edge the recording takes over without a jump: both
+            // sample the same instant. (The ships render live on the real
+            // clock; their four-minute delay hides the seam, an airliner's
+            // dozen seconds would not.)
             const wantAircraft =
               (aircraftAvailableRef.current || aircraftInjectedRef.current !== null) &&
-              showAircraftRef.current &&
-              !aisReplayWanted(simMs, Date.now())
+              showAircraftRef.current
             if (wantAircraft && !aircraftDrawn) aircraftFrozen = null
-            if (clock.paused) {
-              if (
-                aircraftFrozen === null ||
-                (aircraftFrozen.list.length === 0 && aircraftRef.current.length > 0)
-              ) {
-                aircraftFrozen = { list: aircraftRef.current, atMs: Date.now() }
-              }
-            } else {
-              aircraftFrozen = null
+            const aircraftArchive = aircraftArchiveRef.current
+            if (!clock.paused) {
+              aircraftReplaying = aircraftArchive !== null && aircraftReplayWanted(simMs, Date.now())
             }
-            const aircraftList = aircraftFrozen?.list ?? aircraftRef.current
-            const aircraftNow = aircraftFrozen?.atMs ?? Date.now()
+            if (aircraftReplaying !== aircraftReplayRef.current) {
+              aircraftReplayRef.current = aircraftReplaying
+              setAircraftReplay(aircraftReplaying)
+            }
+            let replayedAircraft: Aircraft[] | null = null
+            if (aircraftReplaying && aircraftArchive) {
+              if (wantAircraft && !clock.paused) aircraftArchive.follow(simMs)
+              if (aircraftArchive.ready(simMs)) {
+                replayedAircraft = wantAircraft ? aircraftArchive.aircraftAt(simMs) : []
+              }
+            }
+            let aircraftList: Aircraft[]
+            if (replayedAircraft !== null) {
+              aircraftList = replayedAircraft
+              aircraftFrozen = null
+            } else {
+              if (clock.paused) {
+                if (aircraftFrozen === null || (aircraftFrozen.length === 0 && aircraftRef.current.length > 0)) {
+                  aircraftFrozen = aircraftRef.current
+                }
+              } else {
+                aircraftFrozen = null
+              }
+              aircraftList = aircraftFrozen ?? aircraftRef.current
+            }
+            const aircraftNow = Math.min(simMs, Date.now())
             let aircraftInfo: {
               anyMovingAircraftInView: boolean
               maxScreenMotionPx: number
@@ -1903,6 +1948,17 @@ export default function App() {
                     current?.mmsi === fresh.mmsi && current.positionAt === fresh.positionAt
                       ? current
                       : fresh,
+                  )
+                }
+              }
+              // And a replayed aircraft's card, the same way
+              const replayedHex = replayedAircraft !== null ? selectedHexRef.current : null
+              if (replayedHex !== null) {
+                const fresh = aircraftList.find((a) => a.hex === replayedHex) ?? null
+                if (fresh === null) selectAircraft(null)
+                else {
+                  setSelectedAircraft((current) =>
+                    current?.hex === fresh.hex && current.positionAt === fresh.positionAt ? current : fresh,
                   )
                 }
               }
@@ -2063,6 +2119,11 @@ export default function App() {
         active: aisReplayRef.current,
         hours: aisArchiveRef.current?.status() ?? [],
         fleet: aisArchiveRef.current?.vesselsAt(clock.now()).length ?? 0,
+      }),
+      aircraftReplay: () => ({
+        active: aircraftReplayRef.current,
+        hours: aircraftArchiveRef.current?.status() ?? [],
+        fleet: aircraftArchiveRef.current?.aircraftAt(clock.now()).length ?? 0,
       }),
       setRealtimeDelays: (delays: Record<string, number>) => {
         simRef.current?.setRealtimeDelays(new Map(Object.entries(delays)))
@@ -2287,6 +2348,7 @@ export default function App() {
     let aisClient: AisClient | null = null
     let aircraftClient: AircraftClient | null = null
     let aisArchive: AisArchiveClient | null = null
+    let aircraftArchive: AircraftArchiveClient | null = null
     let weatherClient: WeatherClient | null = null
     let webcamsClient: WebcamsClient | null = null
 
@@ -2387,8 +2449,10 @@ export default function App() {
           (_status, list) => {
             aircraftRef.current = list
             // An open card follows its aircraft's fixes; one that has
-            // left the box closes it rather than freezing at its last fix
-            const hex = selectedHexRef.current
+            // left the box closes it rather than freezing at its last fix.
+            // Unless the map is replaying the recording: the card is on an
+            // aircraft of the past then, and the render loop keeps it.
+            const hex = aircraftReplayRef.current ? null : selectedHexRef.current
             if (hex !== null) {
               const fresh = list.find((a) => a.hex === hex) ?? null
               if (fresh === null) selectAircraft(null)
@@ -2398,6 +2462,10 @@ export default function App() {
         )
         aircraftClientRef.current = aircraftClient
         if (showAircraftRef.current) aircraftClient.start(config.aircraft.pollIntervalMs)
+        // The recording of the same sky, for a clock set into the past –
+        // pull-driven from the render loop, like the harbour's
+        aircraftArchive = new AircraftArchiveClient(cityApiUrl(config.aircraft.url, sessionCity.slug))
+        aircraftArchiveRef.current = aircraftArchive
       }
 
       // Rain overlay: live precipitation for the city (Open-Meteo).
@@ -2517,11 +2585,13 @@ export default function App() {
       aisClient?.stop()
       aircraftClient?.stop()
       aisArchive?.stop()
+      aircraftArchive?.stop()
       weatherClient?.stop()
       webcamsClient?.stop()
       aisClientRef.current = null
       aircraftClientRef.current = null
       aisArchiveRef.current = null
+      aircraftArchiveRef.current = null
       const api = apiRef.current
       if (api) {
         api.ready = false
@@ -3827,7 +3897,9 @@ export default function App() {
           <div className={CARD_SLOT}>
             <AircraftCard
               aircraft={selectedAircraft}
-              nowMs={Date.now()}
+              // A replayed aircraft's fix is as old as the simulated clock says
+              nowMs={aircraftReplay ? (clockRef.current?.now() ?? Date.now()) : Date.now()}
+              recorded={aircraftReplay}
               following={following}
               onToggleFollow={handleToggleFollow}
               onClose={() => selectAircraft(null)}
