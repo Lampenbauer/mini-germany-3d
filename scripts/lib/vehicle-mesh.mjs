@@ -1,5 +1,5 @@
 /**
- * Low-poly vehicle meshes for Mini Rostock 3D, written as self-contained
+ * Low-poly vehicle meshes for Mini Germany 3D, written as self-contained
  * binary glTF (.glb) – no textures, no external assets, PBR materials
  * with muted colors so the models sit believably inside the
  * photorealistic Google tiles instead of reading as toys.
