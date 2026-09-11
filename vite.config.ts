@@ -19,6 +19,14 @@ import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, type AisState } from './src/lib/ais-extract'
 import { AisArchiveWriter, archiveHourIsOpen, isArchiveHourKey } from './src/lib/ais-archive'
 import { archiveFilePath, archiveFileStore } from './src/lib/ais-archive-fs'
+import {
+  adsbQuery,
+  aircraftStateList,
+  mergeAdsbResponse,
+  withinQuery,
+  type AdsbRawResponse,
+  type AircraftState,
+} from './src/lib/aircraft-extract'
 import { containsLonLat } from './src/lib/city'
 import { extractWebcams, windyNearby } from './src/lib/webcams-extract'
 import { CITIES, DEFAULT_CITY_SLUG, cityBySlug } from './src/cities/definitions'
@@ -288,6 +296,120 @@ function aisLivePlugin(): Plugin {
   }
 }
 
+/** Where adsb.fi's open data API answers for a circle: lat, lon, radius in nautical miles. */
+const ADSB_URL = 'https://opendata.adsb.fi/api/v3'
+/**
+ * How long one answer serves every browser looking at the city. The
+ * feed itself moves every second; four seconds keep the app's five-second
+ * poll one answer behind and the upstream load at a request every few
+ * seconds per city on screen.
+ */
+const AIRCRAFT_TTL_MS = 4_000
+/** adsb.fi's public rate limit is one request a second – for every city together. */
+const ADSB_MIN_SPACING_MS = 1_000
+
+/**
+ * Dev/preview middleware for /api/aircraft: asks adsb.fi's open data API
+ * for the aircraft around the city asked for (?city=<slug>) – the circle
+ * that covers its box and a margin round it (adsbQuery) – folds every
+ * answer into a per-city state with a short track per aircraft
+ * (src/lib/aircraft-extract.ts), and serves the aircraft inside that
+ * circle: the sky reaches past the city's edge, so an aircraft followed
+ * to it can be watched flying on. In production api/aircraft.php does
+ * the same job; scripts/test-aircraft-parity.mjs holds the two to the
+ * same fixture.
+ *
+ * No key: adsb.fi's public endpoints are open, at one request a second
+ * across every city, which is why the upstream calls are spaced here
+ * and cached per city for AIRCRAFT_TTL_MS. A failed call serves the
+ * stale state – the reckoning in the browser bridges a gap, and the
+ * expiry clears the sky if it lasts.
+ */
+function aircraftPlugin(): Plugin {
+  const states = new Map<string, { state: AircraftState; fetchedAt: number }>()
+  const refreshing = new Map<string, Promise<void>>()
+  /** The moment the last upstream request went out, to keep the next a second behind it. */
+  let lastUpstreamAt = 0
+  let spacing: Promise<void> = Promise.resolve()
+
+  const cityState = (slug: string) => {
+    let entry = states.get(slug)
+    if (!entry) {
+      entry = { state: new Map(), fetchedAt: 0 }
+      states.set(slug, entry)
+    }
+    return entry
+  }
+
+  const refresh = async (slug: string): Promise<void> => {
+    const city = cityBySlug(slug)!
+    const { lat, lon, distNm } = adsbQuery(city.boundingBox)
+    // One request a second, whichever city asks: the calls queue behind
+    // one another and each waits out the second the last one started.
+    const slot = spacing.then(async () => {
+      const wait = lastUpstreamAt + ADSB_MIN_SPACING_MS - Date.now()
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+      lastUpstreamAt = Date.now()
+    })
+    spacing = slot.catch(() => undefined)
+    await slot
+    const response = await fetch(`${ADSB_URL}/lat/${lat}/lon/${lon}/dist/${distNm}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'mini-germany-3d (dev)' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) throw new Error(`adsb.fi answered HTTP ${response.status}`)
+    const data = (await response.json()) as AdsbRawResponse
+    const now = Date.now()
+    const entry = cityState(slug)
+    mergeAdsbResponse(entry.state, data, now)
+    entry.fetchedAt = now
+  }
+
+  const handle = async (req: IncomingMessage, res: ServerResponse, next: () => void): Promise<void> => {
+    if (!req.url || !req.url.startsWith('/api/aircraft')) {
+      next()
+      return
+    }
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Cache-Control', 'no-store')
+    const city = requestedCity(req.url)
+    if (!city) {
+      res.statusCode = 404
+      res.end(JSON.stringify({ error: 'Unknown city' }))
+      return
+    }
+    const entry = cityState(city.slug)
+    if (Date.now() - entry.fetchedAt > AIRCRAFT_TTL_MS) {
+      // Requests arriving in parallel share one upstream call
+      let pending = refreshing.get(city.slug)
+      if (!pending) {
+        pending = refresh(city.slug).finally(() => refreshing.delete(city.slug))
+        refreshing.set(city.slug, pending)
+      }
+      try {
+        await pending
+      } catch (error) {
+        // Stale beats nothing – and an empty state is honest too
+        console.warn(`[aircraft] ${city.slug}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const now = Date.now()
+    const query = adsbQuery(city.boundingBox)
+    const aircraft = aircraftStateList(entry.state, now).filter((a) => withinQuery(a.lat, a.lon, query))
+    res.end(JSON.stringify({ timestamp: entry.fetchedAt, servedAt: now, aircraft }))
+  }
+
+  return {
+    name: 'aircraft-live',
+    configureServer(server) {
+      server.middlewares.use(handle)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle)
+    },
+  }
+}
+
 /**
  * Dev/preview middleware for /api/webcams: asks Windy's Webcams API for
  * the cameras around the city asked for (?city=<slug>) and answers the
@@ -483,6 +605,7 @@ export default defineConfig({
     tailwindcss(),
     gtfsRealtimeFilterPlugin(),
     aisLivePlugin(),
+    aircraftPlugin(),
     webcamsPlugin(),
     prerenderPlugin(),
   ],

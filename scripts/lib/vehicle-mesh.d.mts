@@ -8,6 +8,8 @@ export interface MeshGroup {
 
 export interface Mesh {
   groups: Map<string, MeshGroup>
+  /** Named sub-meshes, written as glTF nodes of their own (see toGlb). */
+  parts: Record<string, Mesh>
 }
 
 export const MATERIALS: Record<
@@ -24,6 +26,8 @@ export function quad(
   c: number[],
   d: number[],
 ): void
+export function tri(mesh: Mesh, material: string, a: number[], b: number[], c: number[]): void
+export function fan(mesh: Mesh, material: string, centre: number[], ring: number[][]): void
 export function box(
   mesh: Mesh,
   material: string,

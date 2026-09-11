@@ -63,6 +63,20 @@ vi.mock('@/map/CesiumMap', () => {
     getVesselCount() {
       return 0
     }
+    setFollowAircraft() {}
+    setSelectedAircraft() {}
+    syncAircraft() {
+      return { anyMovingAircraftInView: false }
+    }
+    getAircraftCount() {
+      return 0
+    }
+    navLightsState() {
+      return { aircraft: 0 }
+    }
+    hasAircraft() {
+      return false
+    }
     addRoutes() {}
     addStops() {}
     addStreetLamps() {}

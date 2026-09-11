@@ -65,8 +65,10 @@ import { TUNNEL_VISIBILITY } from './tunnel-view'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { StopsLayer } from './StopsLayer'
 import { VesselLayer, WATER_SURFACE_FALLBACK_LIFT } from './VesselLayer'
+import { AircraftLayer } from './AircraftLayer'
 import { WebcamsLayer } from './WebcamsLayer'
 import type { AisVessel } from '@/lib/ais-extract'
+import type { Aircraft } from '@/lib/aircraft-extract'
 import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
@@ -130,6 +132,8 @@ export interface CesiumMapOptions {
   onSelectVehicle?: (vehicleId: string | null) => void
   /** Click on an AIS ship, by MMSI (null = selection cleared). */
   onSelectVessel?: (mmsi: number | null) => void
+  /** Click on an aircraft, by ICAO address (null = selection cleared). */
+  onSelectAircraft?: (hex: string | null) => void
   /**
    * Where a scheduled vehicle was some seconds before the clock's moment
    * (Simulation.positionAt) – the ferries' wake is laid along it. Optional:
@@ -324,6 +328,8 @@ const SHADOW_CASTER_WIDTH_M = 2.65
  * reports its own widths on the next tick.
  */
 const FALLBACK_VESSEL_WIDTH_M = 10
+/** Wing span the shadow gate assumes before any aircraft is drawn – a light aircraft's. */
+const FALLBACK_AIRCRAFT_SPAN_M = 11
 
 /**
  * Shadows off for this long and the shadow map's texture is released
@@ -701,6 +707,8 @@ export class CesiumMap {
   private readonly stops: StopsLayer
   /** AIS harbor traffic (see VesselLayer). */
   private vesselLayer: VesselLayer
+  /** ADS-B air traffic (see AircraftLayer). */
+  private aircraftLayer: AircraftLayer
   /** Live webcams floating over their spot (see WebcamsLayer). */
   private readonly webcamsLayer: WebcamsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
@@ -800,6 +808,9 @@ export class CesiumMap {
   private nearestVesselMeters = Number.POSITIVE_INFINITY
   /** Beam of that closest hull – how wide a shadow it can throw. */
   private nearestVesselWidthM = FALLBACK_VESSEL_WIDTH_M
+  /** The same for the nearest drawn aircraft body and its wing span. */
+  private nearestAircraftMeters = Number.POSITIVE_INFINITY
+  private nearestAircraftSpanM = FALLBACK_AIRCRAFT_SPAN_M
 
   /** Unit up vector at the city center (sun elevation reference). */
   private cityUp: Cartesian3 | null = null
@@ -1003,6 +1014,7 @@ export class CesiumMap {
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
+      clampToLeash: (pose) => this.clampToLeash(pose),
       get paceWholeView() {
         return map.paceWholeView
       },
@@ -1066,6 +1078,34 @@ export class CesiumMap {
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
+      clampToLeash: (pose) => this.clampToLeash(pose),
+      get paceWholeView() {
+        return map.paceWholeView
+      },
+    })
+    // The air traffic over the city: the same host as the ships', minus
+    // the water – an aircraft on the ground is clamped to the apron, one
+    // in the air is placed by the altitude it reports over the geoid the
+    // routes are calibrated against (see AircraftLayer).
+    this.aircraftLayer = new AircraftLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      obstacles: () => map.webcamsLayer.screenRects,
+      windowPosition: (position) => this.windowPosition(position),
+      get defaultGroundHeight() {
+        return map.defaultGroundHeight
+      },
+      get geoidHeight() {
+        return map.routes.heightOffset
+      },
+      surfaceGeneration: () => this.surfaceGeneration,
+      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
+      noteCameraFlight: (durationMs) => {
+        this.flyingUntil = performance.now() + durationMs
+      },
+      clampToLeash: (pose) => this.clampToLeash(pose),
       get paceWholeView() {
         return map.paceWholeView
       },
@@ -1215,6 +1255,8 @@ export class CesiumMap {
         this.opts.onSelectStop?.(target.id)
       } else if (target?.type === 'vessel') {
         this.opts.onSelectVessel?.(Number(target.id))
+      } else if (target?.type === 'aircraft') {
+        this.opts.onSelectAircraft?.(target.id)
       } else if (target?.type === 'webcam') {
         // A picture leads to its page; whatever is selected stays so
         const url = this.webcamsLayer.detailUrl(Number(target.id))
@@ -1224,6 +1266,7 @@ export class CesiumMap {
         this.opts.onSelectVehicle?.(null)
         this.opts.onSelectStop?.(null)
         this.opts.onSelectVessel?.(null)
+        this.opts.onSelectAircraft?.(null)
       }
     }, ScreenSpaceEventType.LEFT_CLICK)
 
@@ -1264,11 +1307,12 @@ export class CesiumMap {
    * Entity – both carry the "vehicle:" prefix. A stop's disc answers with
    * its pick id's object and its name with the billboard, both carrying
    * the "stop:"-prefixed stop id (see StopDiscs); AIS hulls and their name
-   * labels carry the "vessel:"-prefixed MMSI.
+   * labels carry the "vessel:"-prefixed MMSI, aircraft bodies and plates
+   * the "aircraft:"-prefixed ICAO address.
    */
   private pickTarget(
     position: Cartesian2,
-  ): { type: 'vehicle' | 'stop' | 'vessel' | 'webcam'; id: string } | null {
+  ): { type: 'vehicle' | 'stop' | 'vessel' | 'aircraft' | 'webcam'; id: string } | null {
     const picked = this.viewer.scene.pick(position) as { id?: unknown } | undefined
     const pickedId = picked?.id
     const raw =
@@ -1277,6 +1321,7 @@ export class CesiumMap {
     if (raw.startsWith('vehicle:')) return { type: 'vehicle', id: raw.slice('vehicle:'.length) }
     if (raw.startsWith('stop:')) return { type: 'stop', id: raw.slice('stop:'.length) }
     if (raw.startsWith('vessel:')) return { type: 'vessel', id: raw.slice('vessel:'.length) }
+    if (raw.startsWith('aircraft:')) return { type: 'aircraft', id: raw.slice('aircraft:'.length) }
     if (raw.startsWith('webcam:')) return { type: 'webcam', id: raw.slice('webcam:'.length) }
     return null
   }
@@ -1672,6 +1717,8 @@ export class CesiumMap {
     // the shadow gate lets go of the last hull now rather than one tick late.
     this.nearestVesselMeters = Number.POSITIVE_INFINITY
     this.nearestVesselWidthM = FALLBACK_VESSEL_WIDTH_M
+    this.nearestAircraftMeters = Number.POSITIVE_INFINITY
+    this.nearestAircraftSpanM = FALLBACK_AIRCRAFT_SPAN_M
     this.applyShadowState()
     this.requestRender()
   }
@@ -1813,6 +1860,17 @@ export class CesiumMap {
    * never stands outside the fence, not even for a frame. No leash while
    * the camera is flying to another city (see setCity).
    */
+  /**
+   * The leash as a follow applies it (see FollowCamera): the nearest
+   * position inside the city's box for a pose outside it, null inside –
+   * and null while no leash holds, on the flight to another city.
+   */
+  private clampToLeash(pose: Cartographic): Cartesian3 | null {
+    if (!this.cameraLimits) return null
+    const clamped = clampCameraPose(pose, this.cameraLimits)
+    return clamped ? Cartesian3.fromRadians(clamped.longitude, clamped.latitude, clamped.height) : null
+  }
+
   private enforceCameraLimits(): void {
     if (!this.cameraLimits) return
     const camera = this.viewer.camera
@@ -1899,6 +1957,7 @@ export class CesiumMap {
     this.vehicleLayer.startLineFocus(lineId, ROUTE_PULSE_DURATION_MS)
     this.stops.startLineFocus(lineId, ROUTE_PULSE_DURATION_MS)
     this.vesselLayer.startLineFocus(ROUTE_PULSE_DURATION_MS)
+    this.aircraftLayer.startLineFocus(ROUTE_PULSE_DURATION_MS)
     this.requestRender()
     this.viewer.camera.flyToBoundingSphere(sphere, {
       duration: 1.5,
@@ -2136,9 +2195,13 @@ export class CesiumMap {
     return !Matrix4.equals(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
   }
 
-  /** A chase cam is engaged on a vehicle or a ship – the camera moves per tick. */
+  /** A chase cam is engaged on a vehicle, a ship or an aircraft – the camera moves per tick. */
   isChasing(): boolean {
-    return this.vehicleLayer.followedId !== null || this.vesselLayer.followedMmsi !== null
+    return (
+      this.vehicleLayer.followedId !== null ||
+      this.vesselLayer.followedMmsi !== null ||
+      this.aircraftLayer.followedHex !== null
+    )
   }
 
   /**
@@ -2181,13 +2244,21 @@ export class CesiumMap {
   private applyShadowState(): void {
     const vehicleReach = this.shadowReachMeters(SHADOW_CASTER_WIDTH_M)
     const vesselReach = this.shadowReachMeters(this.nearestVesselWidthM)
+    const aircraftReach = this.shadowReachMeters(this.nearestAircraftSpanM)
     const vehiclesCast = this.nearestVehicleMeters < vehicleReach
     const vesselsCast = this.nearestVesselMeters < vesselReach
+    const aircraftCast = this.nearestAircraftMeters < aircraftReach
     const wanted =
-      !this.underground && (vehiclesCast || vesselsCast) && this.sunHighEnoughForShadows
+      !this.underground &&
+      (vehiclesCast || vesselsCast || aircraftCast) &&
+      this.sunHighEnoughForShadows
     const shadowMap = this.viewer.scene.shadowMap
     if (wanted) {
-      const reach = Math.max(vehiclesCast ? vehicleReach : 0, vesselsCast ? vesselReach : 0)
+      const reach = Math.max(
+        vehiclesCast ? vehicleReach : 0,
+        vesselsCast ? vesselReach : 0,
+        aircraftCast ? aircraftReach : 0,
+      )
       if (Math.abs(shadowMap.maximumDistance - reach) > reach * 0.05) {
         shadowMap.maximumDistance = reach
         this.requestRender()
@@ -2230,30 +2301,49 @@ export class CesiumMap {
     this.vesselLayer.setSelected(mmsi)
   }
 
+  /** The picked aircraft lights up the same way (null = none). */
+  setSelectedAircraft(hex: string | null): void {
+    this.aircraftLayer.setSelected(hex)
+  }
+
   setFollow(id: string | null): void {
-    // One camera between the two layers, so every change of mind has to
-    // release the other one – including a release, which is where this
+    // One camera between the three layers, so every change of mind has to
+    // release the other two – including a release, which is where this
     // used to go wrong: clearing the vehicle follow left a still-engaged
     // ship chase behind, and the next tick threw the camera into orbit.
-    // A camera path is a third claim on it and gives way to a follow.
+    // A camera path is a fourth claim on it and gives way to a follow.
     if (id !== null) this.stopCameraPath()
     this.vesselLayer.setFollow(null)
+    this.aircraftLayer.setFollow(null)
     this.vehicleLayer.setFollow(id)
   }
 
   /**
    * Follow an AIS ship, or nobody. A camera cannot chase a tram and a
-   * freighter at once, so this releases the vehicle side either way –
+   * freighter at once, so this releases the other sides either way –
    * see setFollow above for why "either way" matters.
    */
   setFollowVessel(mmsi: number | null): void {
     if (mmsi !== null) this.stopCameraPath()
     this.vehicleLayer.setFollow(null)
+    this.aircraftLayer.setFollow(null)
     this.vesselLayer.setFollow(mmsi)
+  }
+
+  /** Follow an aircraft, or nobody – the same one camera, the same release of the other two. */
+  setFollowAircraft(hex: string | null): void {
+    if (hex !== null) this.stopCameraPath()
+    this.vehicleLayer.setFollow(null)
+    this.vesselLayer.setFollow(null)
+    this.aircraftLayer.setFollow(hex)
   }
 
   hasVessel(mmsi: number): boolean {
     return this.vesselLayer.hasVessel(mmsi)
+  }
+
+  hasAircraft(hex: string): boolean {
+    return this.aircraftLayer.hasAircraft(hex)
   }
 
   hasVehicle(id: string): boolean {
@@ -2323,14 +2413,36 @@ export class CesiumMap {
     return this.vesselLayer.vesselCount
   }
 
+  /** Per-tick update of the ADS-B air traffic (see AircraftLayer). */
+  syncAircraft(
+    list: Aircraft[],
+    nowMs: number,
+  ): { anyMovingAircraftInView: boolean; maxScreenMotionPx: number; maxTickMotionPx: number } {
+    const info = this.aircraftLayer.sync(list, nowMs)
+    this.nearestAircraftMeters = info.nearestBodyMeters
+    this.nearestAircraftSpanM = info.nearestBodySpanM
+    return info
+  }
+
+  getAircraftCount(): number {
+    return this.aircraftLayer.count
+  }
+
+  /** Debug/test: the navigation lights on at the last tick, per fleet (see NavLights). */
+  navLightsState(): { aircraft: number } {
+    return { aircraft: this.aircraftLayer.lightCount }
+  }
+
   setUnderground(underground: boolean): void {
     if (underground === this.underground) return
     this.underground = underground
     this.applyShadowState()
     this.routes.setUnderground(underground)
     this.vehicleLayer.setUnderground(underground)
-    // The AIS fleet is surface scenery – it leaves with the sky.
+    // The AIS fleet is surface scenery – it leaves with the sky, and so
+    // does the air traffic above it.
     this.vesselLayer.setVisible(!underground)
+    this.aircraftLayer.setVisible(!underground)
     this.webcamsLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
     this.streetLamps.setUnderground(underground)
@@ -2429,10 +2541,11 @@ export class CesiumMap {
     this.stops.setVisible(visible)
   }
 
-  /** One switch for every name on the map: vehicle numbers and ship names. */
+  /** One switch for every name on the map: vehicle numbers, ship names and callsigns. */
   setLabelsVisible(visible: boolean): void {
     this.vehicleLayer.setLabelsVisible(visible)
     this.vesselLayer.setLabelsVisible(visible)
+    this.aircraftLayer.setLabelsVisible(visible)
   }
 
   /**
@@ -2472,7 +2585,8 @@ export class CesiumMap {
   private applyLensDistance(factor: number): void {
     const chasingVehicle = this.vehicleLayer.applyLensDistance(factor)
     const chasingVessel = this.vesselLayer.applyLensDistance(factor)
-    if (chasingVehicle || chasingVessel) return
+    const chasingAircraft = this.aircraftLayer.applyLensDistance(factor)
+    if (chasingVehicle || chasingVessel || chasingAircraft) return
     const camera = this.viewer.camera
     const above = camera.positionCartographic.height - this.defaultGroundHeight
     const descent = Math.sin(-camera.pitch)
@@ -2682,6 +2796,7 @@ export class CesiumMap {
     // What this frame showed is the reference for the next one's motion
     this.vehicleLayer.markRendered()
     this.vesselLayer.markRendered()
+    this.aircraftLayer.markRendered()
     this.shipWake?.markRendered()
     this.ferryWake?.markRendered()
     this.clouds.markRendered()
@@ -2741,6 +2856,7 @@ export class CesiumMap {
     this.nightFactor = night
     this.vehicleLayer.applyNightFactor(night)
     this.vesselLayer.applyNightFactor(night)
+    this.aircraftLayer.applyNightFactor(night)
   }
 
 
@@ -2812,6 +2928,7 @@ export class CesiumMap {
     // wants the world's
     this.vehicleLayer.setFollow(null)
     this.vesselLayer.setFollow(null)
+    this.aircraftLayer.setFollow(null)
     this.cameraPathPlayback = { path, startedAt: performance.now(), ...callbacks }
     this.flyingUntil = this.cameraPathPlayback.startedAt + path.durationS * 1000 + 200
     this.applyCameraPathView(0)
@@ -2836,6 +2953,7 @@ export class CesiumMap {
     this.stopCameraPath()
     this.vehicleLayer.setFollow(null)
     this.vesselLayer.setFollow(null)
+    this.aircraftLayer.setFollow(null)
     this.setView(viewAlongPath(path, t))
   }
 

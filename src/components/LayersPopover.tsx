@@ -1,7 +1,7 @@
 /**
  * The layers button, above the camera block: what is drawn on the map.
  *
- * Routes, stops, the names on the vehicles and ships, and the city's live
+ * Routes, stops, the names on the vehicles, ships and aircraft, and the city's live
  * webcams. It used to be a block in the control panel, between the clock
  * and the line list – but none of that is about the timetable, and the
  * panel is long enough without it. Here it sits with the other controls
@@ -34,7 +34,7 @@ export interface LayersPopoverProps {
   onToggleRoutes: (visible: boolean) => void
   showStops: boolean
   onToggleStops: (visible: boolean) => void
-  /** Vehicle numbers and ship names – one switch for every name on the map. */
+  /** Vehicle numbers, ship names and callsigns – one switch for every name on the map. */
   showLabels: boolean
   onToggleLabels: (visible: boolean) => void
   /** The city's live webcams, as last polled – empty without the layer. */

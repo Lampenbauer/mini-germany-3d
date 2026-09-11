@@ -99,6 +99,31 @@ export const config = {
   },
 
   /**
+   * Live air traffic (adsb.fi's open data API, via the /api/aircraft
+   * endpoint – Vite middleware in dev, api/aircraft.php in production,
+   * both answering for the city asked for with `?city=<slug>`, and both
+   * folding the feed into a per-city state with a short track per
+   * aircraft, see lib/aircraft-extract.ts). Every aircraft over the
+   * city's box, at every altitude – the airliner on approach and the one
+   * crossing at cruise alike. An empty URL disables the layer, and so
+   * does offline mode. ?aircraft=0 is softer: it opens with the traffic
+   * switched off, and the panel's "Aircraft" switch turns it back on
+   * (see handleToggleAircraft in App.tsx). There is no recording: a
+   * clock set into the past shows an empty sky.
+   */
+  aircraft: {
+    url: (import.meta.env?.VITE_AIRCRAFT_URL as string | undefined) ?? '/api/aircraft',
+    /**
+     * Poll interval in ms. The endpoint caches upstream for four
+     * seconds, so a poll every five keeps the browser one answer behind
+     * the feed at the cost of a small JSON – and it has to stay well
+     * under the playback delay (AIRCRAFT_PLAYBACK_DELAY_MS) for the
+     * playback to run between two known fixes.
+     */
+    pollIntervalMs: 5_000,
+  },
+
+  /**
    * Camera optics: the horizontal field of view in degrees. Cesium's own
    * default is 60°, a ~30 mm wide angle – and the wide end is where the
    * miniature look works worst. The tilt-shift band is a stand-in for a

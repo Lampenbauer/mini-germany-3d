@@ -17,6 +17,7 @@ import { CityCard } from '@/components/CityCard'
 import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
+import { AircraftCard } from '@/components/AircraftCard'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -39,11 +40,13 @@ import {
   formatUiStateHash,
   formatVehicleHash,
   formatVesselHash,
+  formatAircraftHash,
   parseCameraHash,
   parseStopHash,
   parseUiStateHash,
   parseVehicleHash,
   parseVesselHash,
+  parseAircraftHash,
   type CameraView,
 } from '@/lib/camera-hash'
 import {
@@ -89,6 +92,8 @@ import {
 import { buildLineActivity, buildLineProfile } from '@/lib/line-profile'
 import { RealtimeClient, type RealtimeStatus } from '@/lib/realtime'
 import { AisClient } from '@/lib/ais'
+import { AircraftClient } from '@/lib/aircraft'
+import type { Aircraft } from '@/lib/aircraft-extract'
 import { AisArchiveClient, aisReplayWanted, type AisArchiveHourStatus } from '@/lib/ais-archive'
 import type { AisVessel } from '@/lib/ais-extract'
 import {
@@ -128,6 +133,13 @@ export interface Mg3dTestApi {
   selectVehicle: (id: string | null) => void
   /** AIS backdrop vessels currently drawn (0 = layer off or no data yet). */
   aisVesselCount: () => number
+  /** Aircraft currently drawn (0 = layer off or no data yet). */
+  aircraftCount: () => number
+  /** The navigation lights on at the last tick, per fleet (see map/NavLights.ts). */
+  navLights: () => { aircraft: number }
+  /** Aircraft selection by ICAO address, as a click on a body does it. */
+  selectAircraft: (hex: string | null) => void
+  selectedAircraftHex: () => string | null
   /**
    * Whether the ships are replayed from the recording, and which hours of
    * it are held (see lib/ais-archive.ts) – the first stop for "the harbour
@@ -201,6 +213,8 @@ export interface Mg3dTestApi {
    * again and hands the map back to the poll.
    */
   setAisVessels: (vessels: AisVessel[] | null) => void
+  /** The same for the air traffic (see src/lib/aircraft-extract.ts for the record). */
+  setAircraft: (list: Aircraft[] | null) => void
   renderPacing: () => {
     /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
@@ -208,6 +222,8 @@ export interface Mg3dTestApi {
     vehicleInView: boolean
     /** A vessel whose drawn pose is still changing is on screen. */
     vesselInView: boolean
+    /** An aircraft whose drawn pose is still changing is on screen. */
+    aircraftInView: boolean
     interacting: boolean
     tilesLoading: boolean
     /** The fallback render interval; motion and camera changes request frames on their own. */
@@ -269,6 +285,8 @@ interface UrlOptions {
   rain: boolean
   /** false only with ?ais=0 – live AIS vessels are on by default. */
   ais: boolean
+  /** false only with ?aircraft=0 – the live air traffic is on by default. */
+  aircraft: boolean
   /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
   lamps: boolean
   /** Live webcams floating over their spot (?webcams=0 disables them). */
@@ -424,6 +442,12 @@ const SHARED_VEHICLE_TIMEOUT_MS = 20_000
  * 60-second grid another minute behind that.
  */
 const SHARED_VESSEL_TIMEOUT_MS = 90_000
+/**
+ * And for an aircraft (#aircraft=…): the feed answers within seconds,
+ * so the wait is for the aircraft itself – one that has flown on out of
+ * the city's circle within a minute is not coming back for the link.
+ */
+const SHARED_AIRCRAFT_TIMEOUT_MS = 60_000
 
 /**
  * Where the last visited city is remembered between sessions. Nothing
@@ -474,6 +498,7 @@ function readUrlOptions(): UrlOptions {
     realtime: params.get('rt') === '1' ? true : params.get('rt') === '0' ? false : null,
     rain: params.get('rain') !== '0',
     ais: params.get('ais') !== '0',
+    aircraft: params.get('aircraft') !== '0',
     lamps: params.get('lamps') !== '0',
     webcams: params.get('webcams') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
@@ -630,6 +655,15 @@ export default function App() {
   const aisAvailableRef = useRef(aisAvailable)
   aisAvailableRef.current = aisAvailable
   /**
+   * Whether the live air traffic is reachable at all – the AIS rule
+   * without the harbour: every city has a sky. ?aircraft=0 is likewise
+   * not part of this; it decides whether the traffic opens switched on.
+   */
+  const aircraftAvailable =
+    config.aircraft.url !== '' && import.meta.env.MODE !== 'test' && !urlOpts.offline
+  const aircraftAvailableRef = useRef(aircraftAvailable)
+  aircraftAvailableRef.current = aircraftAvailable
+  /**
    * Whether there is live weather to poll at all. Without an endpoint, in
    * the tests, offline and with ?rain=0 there is none – the scene popover
    * then offers its "Live weather" tile greyed out rather than as a
@@ -655,6 +689,7 @@ export default function App() {
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
   const selectedMmsiRef = useRef<number | null>(null)
+  const selectedHexRef = useRef<string | null>(null)
   /**
    * Latest AIS list – the one copy of it. The render loop draws from it,
    * a selected ship's card refreshes from it, and the panel switch empties
@@ -689,6 +724,17 @@ export default function App() {
    * ships off must not have the loop draw them anyway.
    */
   const showAisVesselsRef = useRef(urlOpts.ais)
+  /**
+   * The air traffic, the AIS fleet's way: the latest list (the one
+   * copy), the poller of the city session, a list put on the map by
+   * the test API, the count the panel shows, and the panel switch as
+   * the render loop reads it – seeded from ?aircraft=0.
+   */
+  const aircraftRef = useRef<Aircraft[]>([])
+  const aircraftClientRef = useRef<AircraftClient | null>(null)
+  const aircraftInjectedRef = useRef<Aircraft[] | null>(null)
+  const aircraftCountRef = useRef(0)
+  const showAircraftRef = useRef(urlOpts.aircraft)
   const followingRef = useRef(false)
   const snapshotsRef = useRef<VehicleSnapshot[]>([])
   /** Set by the viewer effect – selection changes write the URL immediately. */
@@ -734,6 +780,9 @@ export default function App() {
    */
   const pendingSharedVesselRef = useRef<number | null>(null)
   const sharedVesselDeadlineRef = useRef(0)
+  /** An aircraft shared via the URL (#aircraft=…), restored as soon as the feed reports it – or never. */
+  const pendingSharedAircraftRef = useRef<string | null>(null)
+  const sharedAircraftDeadlineRef = useRef(0)
   /**
    * The sky in force: precipitation in mm and cloud cover in percent.
    * forced = not the live weather but a value set on purpose (a picked
@@ -822,6 +871,7 @@ export default function App() {
    */
   const [temperatureC, setTemperatureC] = useState<number | null>(null)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
+  const [showAircraft, setShowAircraft] = useState(urlOpts.aircraft)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
   /** The About dialog (press ?, or the button under the map controls). */
@@ -910,6 +960,7 @@ export default function App() {
   const tilesetStatusRef = useRef<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
   const [selectedVessel, setSelectedVessel] = useState<AisVessel | null>(null)
+  const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null)
   /** Line whose profile card is open (id), null = none. */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null)
   /** The city card – the network in numbers – is up. */
@@ -1019,6 +1070,13 @@ export default function App() {
       setSelectedVessel(null)
       mapRef.current?.setFollowVessel(null)
     }
+    // …and the aircraft card, the same
+    if (id !== null && selectedHexRef.current !== null) {
+      selectedHexRef.current = null
+      setSelectedAircraft(null)
+      mapRef.current?.setSelectedAircraft(null)
+      mapRef.current?.setFollowAircraft(null)
+    }
     if (id !== null) setSelectedLineId(null)
     // Selection is a discrete event – the shareable URL updates immediately
     writeHashRef.current()
@@ -1040,6 +1098,48 @@ export default function App() {
   }, [])
 
   /**
+   * Aircraft selection (click on a body or its plate, or an #aircraft=
+   * link). Its address goes into the URL like a ship's MMSI, and the
+   * restore is allowed to find nothing – the aircraft may have flown on
+   * (see pendingSharedAircraftRef). Clears the ship by hand rather than
+   * through selectVessel, which is defined after this and clears the
+   * aircraft in turn.
+   */
+  const selectAircraft = useCallback(
+    (hex: string | null) => {
+      if (hex !== null) {
+        if (selectedIdRef.current !== null) selectVehicle(null)
+        if (selectedStopIdRef.current !== null) {
+          selectedStopIdRef.current = null
+          setSelectedStopId(null)
+        }
+        if (selectedMmsiRef.current !== null) {
+          selectedMmsiRef.current = null
+          setSelectedVessel(null)
+          mapRef.current?.setSelectedVessel(null)
+          mapRef.current?.setFollowVessel(null)
+        }
+      }
+      selectedHexRef.current = hex
+      mapRef.current?.setSelectedAircraft(hex)
+      writeHashRef.current()
+      if (hex !== null) setSelectedLineId(null)
+      if (hex === null) {
+        setSelectedAircraft(null)
+        if (followingRef.current) {
+          followingRef.current = false
+          setFollowing(false)
+          mapRef.current?.setFollowAircraft(null)
+        }
+        return
+      }
+      setSelectedAircraft(aircraftRef.current.find((a) => a.hex === hex) ?? null)
+      if (followingRef.current) mapRef.current?.setFollowAircraft(hex)
+    },
+    [selectVehicle],
+  )
+
+  /**
    * Ship selection (click on a hull or its name label, or a #vessel= link).
    * Her MMSI goes into the URL like a trip id or a stop id does, and a
    * reload picks her up again and chases her – with the caveat the other
@@ -1050,6 +1150,7 @@ export default function App() {
     (mmsi: number | null) => {
       if (mmsi !== null) {
         if (selectedIdRef.current !== null) selectVehicle(null)
+        if (selectedHexRef.current !== null) selectAircraft(null)
         if (selectedStopIdRef.current !== null) {
           selectedStopIdRef.current = null
           setSelectedStopId(null)
@@ -1077,7 +1178,7 @@ export default function App() {
       setSelectedVessel(fleet.find((v) => v.mmsi === mmsi) ?? null)
       if (followingRef.current) mapRef.current?.setFollowVessel(mmsi)
     },
-    [selectVehicle],
+    [selectAircraft, selectVehicle],
   )
 
   /** Stop selection (click on a disc/name, or a #stop= link). */
@@ -1085,12 +1186,13 @@ export default function App() {
     (id: string | null) => {
       if (id !== null && selectedIdRef.current !== null) selectVehicle(null)
       if (id !== null && selectedMmsiRef.current !== null) selectVessel(null)
+      if (id !== null && selectedHexRef.current !== null) selectAircraft(null)
       if (id !== null) setSelectedLineId(null)
       selectedStopIdRef.current = id
       setSelectedStopId(id)
       writeHashRef.current()
     },
-    [selectVehicle, selectVessel],
+    [selectAircraft, selectVehicle, selectVessel],
   )
 
   /**
@@ -1236,9 +1338,11 @@ export default function App() {
           ? formatVehicleHash(selectedIdRef.current)
           : selectedMmsiRef.current !== null
             ? formatVesselHash(selectedMmsiRef.current)
-            : selectedStopIdRef.current
-              ? formatStopHash(selectedStopIdRef.current)
-              : formatCameraHash(m.getCameraView())) +
+            : selectedHexRef.current !== null
+              ? formatAircraftHash(selectedHexRef.current)
+              : selectedStopIdRef.current
+                ? formatStopHash(selectedStopIdRef.current)
+                : formatCameraHash(m.getCameraView())) +
         formatUiStateHash({
           view: currentViewRef.current(),
           routesHidden: !showRoutesRef.current,
@@ -1296,6 +1400,7 @@ export default function App() {
       maxRainDrops: urlOpts.maxRainDrops,
       onSelectVehicle: selectVehicle,
       onSelectVessel: selectVessel,
+      onSelectAircraft: selectAircraft,
       // The ferries' wake is laid where the timetable had them (see Wake)
       vehiclePositionAt: (id, secondsAgo) => simRef.current?.positionAt(id, secondsAgo) ?? null,
       // Windy's terms: a picture leads to its windy.com page
@@ -1417,6 +1522,13 @@ export default function App() {
         return
       }
       pendingSharedVesselRef.current = null
+      const hex = parseAircraftHash(hash)
+      if (hex !== null) {
+        pendingSharedAircraftRef.current = hex
+        sharedAircraftDeadlineRef.current = performance.now() + SHARED_AIRCRAFT_TIMEOUT_MS
+        return
+      }
+      pendingSharedAircraftRef.current = null
       const stopId = parseStopHash(hash)
       const stop = stopId ? stopInfoByIdRef.current.get(stopId) : undefined
       if (stop) {
@@ -1426,6 +1538,7 @@ export default function App() {
       }
       if (selectedIdRef.current) selectVehicle(null)
       if (selectedMmsiRef.current !== null) selectVessel(null)
+      if (selectedHexRef.current !== null) selectAircraft(null)
       if (selectedStopIdRef.current) selectStop(null)
       const view = parseCameraHash(hash)
       // Instant, like the boot restore – an edited pose is a jump to it,
@@ -1449,6 +1562,7 @@ export default function App() {
     // A real ship under way on screen paces ticks and rendering like a
     // tram in view does.
     let lastMovingVesselInView = false
+    let lastMovingAircraftInView = false
     // Pause freezes the whole picture, ships included: the live AIS input
     // and its clock hold at the moment of pausing, so the playback stands
     // still and later polls cannot move a frozen world. Play unfreezes
@@ -1456,6 +1570,8 @@ export default function App() {
     // The replayed fleet needs none of this: its clock is the simulated
     // one, which the pause holds by itself.
     let aisFrozen: { backdrop: AisVessel[]; atMs: number } | null = null
+    /** The air traffic frozen by a pause, the same way (see aisFrozen). */
+    let aircraftFrozen: { list: Aircraft[]; atMs: number } | null = null
     /**
      * Which clock the ships are on. The recording replays a simulated
      * moment behind the real one (aisReplayWanted); the present and the
@@ -1468,6 +1584,8 @@ export default function App() {
         the panel switch is off, which is what tells the tick below that
         there is a fleet left to take down. */
     let aisDrawn = false
+    /** Aircraft on the map right now – see aisDrawn. */
+    let aircraftDrawn = false
     let lastRender = 0
     let lastLightingMs = -Infinity
     let lastAnyVehicleInView = true
@@ -1535,7 +1653,11 @@ export default function App() {
             paceWholeView && !clock.paused ? map.cloudMotionPxPerSecond(clock.speed) : 0
           const fleetMoving =
             !clock.paused &&
-            (lastAnyVehicleInView || lastMovingVesselInView || diagramLive || cloudPxPerSecond > 0)
+            (lastAnyVehicleInView ||
+              lastMovingVesselInView ||
+              lastMovingAircraftInView ||
+              diagramLive ||
+              cloudPxPerSecond > 0)
           const tickInterval = !fleetMoving
             ? 500
             : hints?.interacting || diagramLive || map.isChasing()
@@ -1644,6 +1766,41 @@ export default function App() {
               aisDrawn = false
             }
             aisFleetCountRef.current = wantAis ? aisBackdrop.length : 0
+            // The air traffic, live only: wanted while the switch is on
+            // and the clock is not in the past – there is no recording
+            // of the sky, and yesterday's clock must not show today's
+            // aircraft (the ships' rule). A pause freezes the list and
+            // its clock the way it freezes the ships'.
+            const wantAircraft =
+              (aircraftAvailableRef.current || aircraftInjectedRef.current !== null) &&
+              showAircraftRef.current &&
+              !aisReplayWanted(simMs, Date.now())
+            if (wantAircraft && !aircraftDrawn) aircraftFrozen = null
+            if (clock.paused) {
+              if (
+                aircraftFrozen === null ||
+                (aircraftFrozen.list.length === 0 && aircraftRef.current.length > 0)
+              ) {
+                aircraftFrozen = { list: aircraftRef.current, atMs: Date.now() }
+              }
+            } else {
+              aircraftFrozen = null
+            }
+            const aircraftList = aircraftFrozen?.list ?? aircraftRef.current
+            const aircraftNow = aircraftFrozen?.atMs ?? Date.now()
+            let aircraftInfo: {
+              anyMovingAircraftInView: boolean
+              maxScreenMotionPx: number
+              maxTickMotionPx: number
+            } | null = null
+            if (wantAircraft) {
+              aircraftInfo = map.syncAircraft(aircraftList, aircraftNow)
+              aircraftDrawn = true
+            } else if (aircraftDrawn) {
+              map.syncAircraft([], aircraftNow)
+              aircraftDrawn = false
+            }
+            aircraftCountRef.current = wantAircraft ? aircraftList.length : 0
             // The sky under the time-lapse: carried forward every tick,
             // not four times a second, or the clouds step like stop-motion
             if (paceWholeView) map.advanceClouds(simMs)
@@ -1656,11 +1813,18 @@ export default function App() {
               (linearRef.current || morphRef.current > 0) && snapshots.length > 0
             lastAnyVehicleInView = (viewInfo?.anyVehicleInView ?? false) || diagramHasVehicles
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
+            lastMovingAircraftInView =
+              !clock.paused && (aircraftInfo?.anyMovingAircraftInView ?? false)
             // Speed over this tick, not since the last frame: right after a
             // frame the elapsed time is a millisecond and any ratio over
             // it would read as a sprint.
             lastMotionPxPerSecond =
-              (Math.max(viewInfo?.maxTickMotionPx ?? 0, vesselInfo?.maxTickMotionPx ?? 0) * 1000) /
+              (Math.max(
+                viewInfo?.maxTickMotionPx ?? 0,
+                vesselInfo?.maxTickMotionPx ?? 0,
+                aircraftInfo?.maxTickMotionPx ?? 0,
+              ) *
+                1000) /
               tickDtMs
 
             // After syncVehicles, so the selection highlight and the follow
@@ -1703,6 +1867,22 @@ export default function App() {
                 pendingSharedVesselRef.current = null
               } else if (now > sharedVesselDeadlineRef.current) {
                 pendingSharedVesselRef.current = null
+              }
+            }
+
+            // And for an aircraft, after syncAircraft above
+            const pendingSharedAircraft = pendingSharedAircraftRef.current
+            if (pendingSharedAircraft !== null) {
+              if (aircraftDrawn && map.hasAircraft(pendingSharedAircraft)) {
+                selectAircraft(pendingSharedAircraft)
+                if (!linearRef.current) {
+                  followingRef.current = true
+                  setFollowing(true)
+                  map.setFollowAircraft(pendingSharedAircraft)
+                }
+                pendingSharedAircraftRef.current = null
+              } else if (now > sharedAircraftDeadlineRef.current) {
+                pendingSharedAircraftRef.current = null
               }
             }
 
@@ -1877,6 +2057,8 @@ export default function App() {
         setPaused(p)
       },
       aisVesselCount: () => map.getVesselCount(),
+      aircraftCount: () => map.getAircraftCount(),
+      navLights: () => map.navLightsState(),
       aisReplay: () => ({
         active: aisReplayRef.current,
         hours: aisArchiveRef.current?.status() ?? [],
@@ -1902,6 +2084,8 @@ export default function App() {
       selectedStopId: () => selectedStopIdRef.current,
       selectVessel,
       selectedMmsi: () => selectedMmsiRef.current,
+      selectAircraft,
+      selectedAircraftHex: () => selectedHexRef.current,
       vehicleScreenPosition: (id: string) => map.getVehicleScreenPosition(id),
       stopScreenPosition: (id: string) => map.getStopScreenPosition(id),
       dataSource: '',
@@ -1952,6 +2136,11 @@ export default function App() {
         // meant to be seen, so the next tick freezes this one instead
         aisFrozen = null
       },
+      setAircraft: (list: Aircraft[] | null) => {
+        aircraftInjectedRef.current = list
+        aircraftRef.current = list ?? []
+        aircraftFrozen = null
+      },
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating = rainActiveRef.current
@@ -1960,6 +2149,7 @@ export default function App() {
           rainActive: rainActiveRef.current,
           vehicleInView: lastAnyVehicleInView,
           vesselInView: lastMovingVesselInView,
+          aircraftInView: lastMovingAircraftInView,
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
@@ -2037,8 +2227,12 @@ export default function App() {
     const sharedVehicle = transition === 'jump' ? parseVehicleHash(bootHash) : null
     const sharedVessel =
       transition === 'jump' && !sharedVehicle ? parseVesselHash(bootHash) : null
-    const sharedStopId =
+    const sharedAircraft =
       transition === 'jump' && !sharedVehicle && sharedVessel === null
+        ? parseAircraftHash(bootHash)
+        : null
+    const sharedStopId =
+      transition === 'jump' && !sharedVehicle && sharedVessel === null && sharedAircraft === null
         ? parseStopHash(bootHash)
         : null
 
@@ -2060,6 +2254,7 @@ export default function App() {
       simRef.current = null
       snapshotsRef.current = []
       aisVesselsRef.current = []
+      aircraftRef.current = []
       mapRef.current?.clearCity()
       for (const waiter of handoverWaiters.splice(0)) waiter()
     }
@@ -2075,7 +2270,7 @@ export default function App() {
     // camera there before the first frame rather than after the data.
     // A vehicle, ship or stop link carries no pose – those wait for what
     // they are about.
-    if (transition === 'jump' && !sharedVehicle && sharedVessel === null && !sharedStopId) {
+    if (transition === 'jump' && !sharedVehicle && sharedVessel === null && sharedAircraft === null && !sharedStopId) {
       const view = parseCameraHash(bootHash)
       if (view) map.setView(view)
     }
@@ -2086,10 +2281,11 @@ export default function App() {
     // that with the camera pose, and the restore writes it back itself. A
     // camera that never moves after boot fires no change event, so the
     // first write cannot wait for one.
-    if (!sharedVehicle && sharedVessel === null && !sharedStopId) writeHashRef.current()
+    if (!sharedVehicle && sharedVessel === null && sharedAircraft === null && !sharedStopId) writeHashRef.current()
 
     let realtimeClient: RealtimeClient | null = null
     let aisClient: AisClient | null = null
+    let aircraftClient: AircraftClient | null = null
     let aisArchive: AisArchiveClient | null = null
     let weatherClient: WeatherClient | null = null
     let webcamsClient: WebcamsClient | null = null
@@ -2179,6 +2375,31 @@ export default function App() {
         aisArchiveRef.current = aisArchive
       }
 
+      // The air traffic (adsb.fi via /api/aircraft, this city's box):
+      // every aircraft over the box, played back a few seconds behind
+      // the wall clock (see aircraft-extract.ts). Built wherever the
+      // endpoint is reachable, started only if the traffic opens
+      // switched on – ?aircraft=0 and the panel switch share one state
+      // (see handleToggleAircraft).
+      if (aircraftAvailableRef.current) {
+        aircraftClient = new AircraftClient(
+          cityApiUrl(config.aircraft.url, sessionCity.slug),
+          (_status, list) => {
+            aircraftRef.current = list
+            // An open card follows its aircraft's fixes; one that has
+            // left the box closes it rather than freezing at its last fix
+            const hex = selectedHexRef.current
+            if (hex !== null) {
+              const fresh = list.find((a) => a.hex === hex) ?? null
+              if (fresh === null) selectAircraft(null)
+              else setSelectedAircraft(fresh)
+            }
+          },
+        )
+        aircraftClientRef.current = aircraftClient
+        if (showAircraftRef.current) aircraftClient.start(config.aircraft.pollIntervalMs)
+      }
+
       // Rain overlay: live precipitation for the city (Open-Meteo).
       // Offline mode stays dry (no network, deterministic E2E tests) and
       // ?rain=0 opts out. Whether the rain is actually drawn is decided per
@@ -2243,6 +2464,9 @@ export default function App() {
         // simulation – with the longer fuse, and prepared to find nothing.
         pendingSharedVesselRef.current = sharedVessel
         sharedVesselDeadlineRef.current = performance.now() + SHARED_VESSEL_TIMEOUT_MS
+      } else if (sharedAircraft !== null) {
+        pendingSharedAircraftRef.current = sharedAircraft
+        sharedAircraftDeadlineRef.current = performance.now() + SHARED_AIRCRAFT_TIMEOUT_MS
       } else if (sharedStopId) {
         // The memo of this render is stale: the data landed just now
         const stop = findStop(data.network, sharedStopId)
@@ -2291,10 +2515,12 @@ export default function App() {
       cancelled = true
       realtimeClient?.stop()
       aisClient?.stop()
+      aircraftClient?.stop()
       aisArchive?.stop()
       weatherClient?.stop()
       webcamsClient?.stop()
       aisClientRef.current = null
+      aircraftClientRef.current = null
       aisArchiveRef.current = null
       const api = apiRef.current
       if (api) {
@@ -2307,6 +2533,7 @@ export default function App() {
       setWebcams([])
       pendingSharedVehicleRef.current = null
       pendingSharedVesselRef.current = null
+      pendingSharedAircraftRef.current = null
       // What the map draws of this city – the simulation behind its
       // vehicles, the ships, the routes and stops – is handed to the
       // flight rather than dropped: it stays up until the flight to the
@@ -2321,6 +2548,7 @@ export default function App() {
         simRef.current = null
         snapshotsRef.current = []
         aisVesselsRef.current = []
+        aircraftRef.current = []
         mapRef.current?.clearCity()
       }
       // A start() still waiting on a handover that will never come now
@@ -2347,6 +2575,7 @@ export default function App() {
       if (selectedIdRef.current !== null) selectVehicle(null)
       if (selectedStopIdRef.current !== null) selectStop(null)
       if (selectedMmsiRef.current !== null) selectVessel(null)
+      if (selectedHexRef.current !== null) selectAircraft(null)
       setSelectedLineId(null)
       if (followingRef.current) {
         followingRef.current = false
@@ -2699,6 +2928,27 @@ export default function App() {
   )
 
   /**
+   * The panel switch for the air traffic – the AIS switch's twin. Off,
+   * the poller stops and the aircraft leave with the next tick; on, the
+   * list in hand is dropped first and the poller restarted, so a sky
+   * full of aircraft a minute old is not put up for one poll interval.
+   */
+  const handleToggleAircraft = useCallback(
+    (visible: boolean) => {
+      showAircraftRef.current = visible
+      setShowAircraft(visible)
+      if (visible) {
+        aircraftRef.current = []
+        aircraftClientRef.current?.start(config.aircraft.pollIntervalMs)
+      } else {
+        aircraftClientRef.current?.stop()
+        if (selectedHexRef.current !== null) selectAircraft(null)
+      }
+    },
+    [selectAircraft],
+  )
+
+  /**
    * Full screen is state the browser owns: Escape and F11 change it behind
    * the app's back, so the button's face comes from the change event
    * rather than from what was last clicked.
@@ -2739,13 +2989,15 @@ export default function App() {
   const handleToggleFollow = useCallback(() => {
     const id = selectedIdRef.current
     const mmsi = selectedMmsiRef.current
-    if (id === null && mmsi === null) return
+    const hex = selectedHexRef.current
+    if (id === null && mmsi === null && hex === null) return
     const next = !followingRef.current
     followingRef.current = next
     setFollowing(next)
     // Chasing a vehicle is something to watch, so it brings the map back
     const chase = () => {
       if (mmsi !== null) mapRef.current?.setFollowVessel(next ? mmsi : null)
+      else if (hex !== null) mapRef.current?.setFollowAircraft(next ? hex : null)
       else mapRef.current?.setFollow(next && id !== null ? id : null)
     }
     if (next) leaveLinearFor(chase)
@@ -3089,9 +3341,10 @@ export default function App() {
       selectVehicle(null)
       selectStop(null)
       selectVessel(null)
+      selectAircraft(null)
       setSelectedLineId(lineId)
     },
-    [handleSetLinesVisible, leaveLinearFor, selectStop, selectVehicle, selectVessel],
+    [handleSetLinesVisible, leaveLinearFor, selectAircraft, selectStop, selectVehicle, selectVessel],
   )
 
   /**
@@ -3205,8 +3458,9 @@ export default function App() {
     setSelectedLineId(null)
     if (selectedIdRef.current !== null) selectVehicle(null)
     if (selectedMmsiRef.current !== null) selectVessel(null)
+    if (selectedHexRef.current !== null) selectAircraft(null)
     if (selectedStopIdRef.current !== null) selectStop(null)
-  }, [selectStop, selectVehicle, selectVessel])
+  }, [selectAircraft, selectStop, selectVehicle, selectVessel])
 
   /** The miniature lens on and off – the switch in the photo popover. */
   const handleToggleMiniature = useCallback(() => {
@@ -3232,9 +3486,12 @@ export default function App() {
 
   const lineCard = selectedLine !== null && lineProfile !== null
   const vesselCard = !lineCard && selectedLine === null && selectedVessel !== null
+  const aircraftCard =
+    !lineCard && !vesselCard && selectedLine === null && selectedAircraft !== null
   const vehicleCard = selected !== null && selectedLine === null
-  const stopCard = !vehicleCard && !vesselCard && selectedLine === null && selectedStop !== null
-  const selectionCard = lineCard || vesselCard || vehicleCard || stopCard
+  const stopCard =
+    !vehicleCard && !vesselCard && !aircraftCard && selectedLine === null && selectedStop !== null
+  const selectionCard = lineCard || vesselCard || aircraftCard || vehicleCard || stopCard
   // The city card ranks below every selection: picking anything on the map
   // or in the panel takes its corner, and takes the card down for good
   // rather than leaving it to reappear when the selection goes (see the
@@ -3496,6 +3753,10 @@ export default function App() {
             onToggleAisVessels={handleToggleAisVessels}
             activity={cityActivity}
             aisVesselCount={aisFleetCountRef.current}
+            aircraftAvailable={aircraftAvailable}
+            showAircraft={showAircraft}
+            onToggleAircraft={handleToggleAircraft}
+            aircraftCount={aircraftCountRef.current}
             onShowCityFacts={handleShowCityFacts}
           />
         </div>
@@ -3558,6 +3819,18 @@ export default function App() {
               following={following}
               onToggleFollow={handleToggleFollow}
               onClose={() => selectVessel(null)}
+            />
+          </div>
+        )}
+
+        {aircraftCard && selectedAircraft && (
+          <div className={CARD_SLOT}>
+            <AircraftCard
+              aircraft={selectedAircraft}
+              nowMs={Date.now()}
+              following={following}
+              onToggleFollow={handleToggleFollow}
+              onClose={() => selectAircraft(null)}
             />
           </div>
         )}

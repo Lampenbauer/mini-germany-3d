@@ -98,6 +98,40 @@ declare global {
       }
       /** AIS backdrop vessels currently drawn. */
       aisVesselCount: () => number
+      /** Aircraft currently drawn (0 = layer off or no data yet). */
+      aircraftCount: () => number
+      /** The navigation lights on at the last tick, per fleet. */
+      navLights: () => { aircraft: number }
+      /** Aircraft selection by ICAO address, as a click on a body does it. */
+      selectAircraft: (hex: string | null) => void
+      selectedAircraftHex: () => string | null
+      /** Puts air traffic on the map as if polled (see src/lib/aircraft-extract.ts for the record); null takes it away. */
+      setAircraft: (
+        list:
+          | {
+              hex: string
+              callsign: string
+              registration: string
+              typeCode: string
+              description: string
+              category: string
+              lat: number
+              lon: number
+              altGeomM: number | null
+              altBaroM: number | null
+              onGround: boolean
+              gsKn: number | null
+              trackDeg: number | null
+              headingDeg: number | null
+              verticalRateMps: number | null
+              rollDeg: number | null
+              squawk: string
+              source: 'adsb' | 'mlat' | 'other'
+              positionAt: number
+              track: [number, number, number, number | null, number | null, number | null, number | null][]
+            }[]
+          | null,
+      ) => void
       /** The wakes: ribbon segments drawn for the AIS fleet and the ferries; null without the profile's knob. */
       wake: () => { ships: number; ferries: number; supported: boolean } | null
       /** The ships' exhaust: plumes drawn, support, the plume's clock, the wind; null without the profile's knob. */
@@ -132,6 +166,8 @@ declare global {
         animating: boolean
         rainActive: boolean
         vehicleInView: boolean
+        /** An aircraft whose drawn pose is still changing is on screen. */
+        aircraftInView: boolean
         interacting: boolean
         tilesLoading: boolean
         intervalMs: number
@@ -173,8 +209,9 @@ declare global {
         groundPrimitives: { length: number; get: (index: number) => object }
         /**
          * The scene's own primitives – the models among them carry the
-         * id they were made with (`vessel:<mmsi>`, see VesselLayer) and
-         * say whether they are ready to draw.
+         * id they were made with (`vessel:<mmsi>`, see VesselLayer;
+         * `aircraft:<hex>`, see AircraftLayer) and say whether they are
+         * ready to draw.
          */
         primitives: { length: number; get: (index: number) => { id?: unknown; ready?: boolean } }
       }

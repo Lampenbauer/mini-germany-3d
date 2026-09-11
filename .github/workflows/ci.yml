@@ -289,7 +289,7 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: PHP twin parity tests (api/realtime.php, api/ais.php)
+      - name: PHP twin parity tests (api/realtime.php, api/ais.php, api/aircraft.php)
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
           steps.reuse.outputs.run_id == ''
@@ -298,6 +298,7 @@ jobs:
           node scripts/test-ais-parity.mjs
           node scripts/test-ais-state.mjs
           node scripts/test-ais-archive-parity.mjs
+          node scripts/test-aircraft-parity.mjs
 
       - name: Production build
         if: >-
@@ -381,6 +382,7 @@ jobs:
           mkdir -p dist/api
           cp server/api/realtime.php dist/api/
           cp server/api/ais.php dist/api/
+          cp server/api/aircraft.php dist/api/
           cp server/api/webcams.php dist/api/
           # The Windy key for api/webcams.php, from the repository secret
           # (Settings → Secrets → Actions → WINDY_KEY): written next to the
@@ -389,7 +391,8 @@ jobs:
           if [ -n "$WINDY_KEY" ]; then
             printf '%s' "$WINDY_KEY" > dist/api/webcams-key.txt
           fi
-          # Every city's definition (the boxes ais.php subscribes with)
+          # Every city's definition (the boxes ais.php subscribes with and
+          # aircraft.php asks adsb.fi for)
           # and schedule (the trip ids realtime.php filters by) – the same
           # files the app and the pipeline read.
           for dir in src/cities/*/; do

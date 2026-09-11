@@ -7,6 +7,7 @@ import {
   Info,
   Pause,
   Play,
+  Plane,
   Ship,
   TimerReset,
   TramFront,
@@ -117,6 +118,16 @@ export interface ControlPanelProps {
   activity: CityActivity | null
   /** Ships the AIS backdrop currently holds for this city. */
   aisVesselCount: number
+  /**
+   * Whether the air traffic can be shown at all – false offline, in the
+   * tests and without an endpoint, like the AIS row; unlike it, every
+   * city has a sky, so no city leaves the row out.
+   */
+  aircraftAvailable: boolean
+  showAircraft: boolean
+  onToggleAircraft: (visible: boolean) => void
+  /** Aircraft the ADS-B feed currently reports over this city. */
+  aircraftCount: number
   /** The info button in the head: opens the city card (the network in numbers). */
   onShowCityFacts: () => void
 }
@@ -126,6 +137,10 @@ export interface ControlPanelProps {
  * tabular, so a change of digit does not shift the switch next to it.
  */
 const HEADER_COUNT = 'shrink-0 text-xs tabular-nums text-muted-foreground'
+
+/** The ⓘ behind the AIS and the aircraft hint – a real button, so the keyboard reaches the note too. */
+const CLOCK_NOTE_BUTTON =
+  'cursor-help rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none'
 
 /** Display order of the transit-mode groups. */
 const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
@@ -696,7 +711,7 @@ export function ControlPanel(props: ControlPanelProps) {
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              className="cursor-help rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+                              className={CLOCK_NOTE_BUTTON}
                               aria-label={t('traffic.aisClockLabel')}
                             >
                               <Info className="size-3.5" aria-hidden />
@@ -704,6 +719,52 @@ export function ControlPanel(props: ControlPanelProps) {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-56">
                             {t('traffic.aisClockNote')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  )}
+                  {/* The air traffic last of all, above the ships it flies
+                      over: the same kind of row – a whole category behind
+                      one switch, a count while it is on, and a note about
+                      the clock, which does even less to the aircraft than
+                      to the ships (there is no recording of them). */}
+                  {props.aircraftAvailable && (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          <Plane className="size-3.5" aria-hidden />
+                          {t('traffic.aircraft')}
+                          {props.showAircraft && props.aircraftCount > 0 && (
+                            <span
+                              className="font-normal tabular-nums"
+                              title={t('traffic.aircraftCount', { count: props.aircraftCount })}
+                              data-testid="aircraft-count"
+                            >
+                              ({props.aircraftCount})
+                            </span>
+                          )}
+                        </span>
+                        <Switch
+                          aria-label={t('traffic.showAircraft')}
+                          checked={props.showAircraft}
+                          onCheckedChange={props.onToggleAircraft}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 pl-5 text-xs leading-tight text-muted-foreground">
+                        {t('traffic.aircraftHint')}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className={CLOCK_NOTE_BUTTON}
+                              aria-label={t('traffic.aircraftClockLabel')}
+                            >
+                              <Info className="size-3.5" aria-hidden />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-56">
+                            {t('traffic.aircraftClockNote')}
                           </TooltipContent>
                         </Tooltip>
                       </div>

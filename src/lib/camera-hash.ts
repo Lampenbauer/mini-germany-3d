@@ -7,6 +7,7 @@ import { isWeatherMode, type WeatherMode } from '@/lib/weather'
  *   camera pose  #lat=54.084784&lon=12.131939&height=250&heading=0&pitch=-35
  *   vehicle      #vehicle=1-0-500
  *   ship         #vessel=211222290
+ *   aircraft     #aircraft=3c65a2
  *   stop         #stop=osm-241200227
  * While a selection is up, ONLY its id is in the URL – trip ids are
  * deterministic across reloads (see simTripId), stop ids are the stable
@@ -85,6 +86,25 @@ export function parseVesselHash(hash: string): number | null {
   if (!vessel || !/^[0-9]{1,9}$/.test(vessel)) return null
   const mmsi = Number(vessel)
   return mmsi > 0 ? mmsi : null
+}
+
+/** Hash for a selected aircraft – its ICAO address is the whole shared state. */
+export function formatAircraftHash(hex: string): string {
+  return `#aircraft=${encodeURIComponent(hex)}`
+}
+
+/**
+ * ICAO address of the aircraft selection carried in the hash, or null:
+ * six hex digits, with the '~' a non-ICAO address wears. Like the ship,
+ * an aircraft that has flown on out of the box is simply never found by
+ * the restore.
+ */
+export function parseAircraftHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  if (!raw) return null
+  const aircraft = new URLSearchParams(raw).get('aircraft')?.toLowerCase()
+  if (!aircraft || !/^~?[0-9a-f]{6}$/.test(aircraft)) return null
+  return aircraft
 }
 
 /**

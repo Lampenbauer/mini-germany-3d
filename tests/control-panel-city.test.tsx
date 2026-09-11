@@ -47,6 +47,10 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     onToggleAisVessels: vi.fn(),
     activity: null,
     aisVesselCount: 0,
+    aircraftAvailable: false,
+    showAircraft: false,
+    onToggleAircraft: vi.fn(),
+    aircraftCount: 0,
     onShowCityFacts: vi.fn(),
     ...overrides,
   }

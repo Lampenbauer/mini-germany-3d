@@ -34,11 +34,22 @@ export const MATERIALS = {
   hullBlue: { color: [0.13, 0.19, 0.27, 1], metallic: 0.05, roughness: 0.75 },
   /** Off-white yacht and superstructure shell (no line tint on vessels). */
   hullWhite: { color: [0.82, 0.83, 0.81, 1], metallic: 0.05, roughness: 0.45 },
+  /**
+   * A turning rotor or propeller: the blurred disc the eye sees, dark
+   * and mostly see-through. The one translucent material – the writer
+   * turns an alpha under 1 into a blended, double-sided glTF material.
+   */
+  rotor: { color: [0.1, 0.1, 0.11, 0.3], metallic: 0.0, roughness: 0.9 },
 }
 
-/** One mesh under construction: per-material triangle soups. */
+/**
+ * One mesh under construction: per-material triangle soups. `parts`
+ * holds named sub-meshes the writer turns into glTF nodes of their own,
+ * so the app can show and hide them by name – an airliner's landing
+ * gear is drawn only near the ground (see AircraftLayer).
+ */
 export function createMesh() {
-  return { groups: new Map() }
+  return { groups: new Map(), parts: {} }
 }
 
 function group(mesh, material) {
@@ -61,6 +72,45 @@ export function quad(mesh, material, a, b, c, d) {
     g.normals.push(n[0], n[1], n[2])
   }
   g.indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
+/** Flat-shaded triangle a→b→c (counter-clockwise seen from the outside). */
+export function tri(mesh, material, a, b, c) {
+  const g = group(mesh, material)
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+  let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+  const len = Math.hypot(...n) || 1
+  n = [n[0] / len, n[1] / len, n[2] / len]
+  const base = g.positions.length / 3
+  for (const p of [a, b, c]) {
+    g.positions.push(p[0], p[1], p[2])
+    g.normals.push(n[0], n[1], n[2])
+  }
+  g.indices.push(base, base + 1, base + 2)
+}
+
+/**
+ * A flat polygon as a fan around `centre`: the ring's points in order,
+ * counter-clockwise seen from the outside, one shared normal – nine
+ * vertices for an octagon where eight loose triangles would be
+ * twenty-four, which is what keeps a row of portholes light.
+ */
+export function fan(mesh, material, centre, ring) {
+  const g = group(mesh, material)
+  const u = [ring[0][0] - centre[0], ring[0][1] - centre[1], ring[0][2] - centre[2]]
+  const v = [ring[1][0] - centre[0], ring[1][1] - centre[1], ring[1][2] - centre[2]]
+  let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+  const len = Math.hypot(...n) || 1
+  n = [n[0] / len, n[1] / len, n[2] / len]
+  const base = g.positions.length / 3
+  for (const p of [centre, ...ring]) {
+    g.positions.push(p[0], p[1], p[2])
+    g.normals.push(n[0], n[1], n[2])
+  }
+  for (let i = 0; i < ring.length; i++) {
+    g.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % ring.length))
+  }
 }
 
 /** Axis-aligned box, centered at (cx, cy, cz). */
@@ -307,13 +357,24 @@ function align(n, pad) {
   return Math.ceil(n / pad) * pad
 }
 
-/** Serializes the mesh into a self-contained binary glTF. */
+/**
+ * Serializes the mesh into a self-contained binary glTF: one node per
+ * part – the mesh itself first, named `name`, then every entry of
+ * `mesh.parts` under its own name – all in one scene, the materials
+ * shared between them.
+ */
 export function toGlb(mesh, { name }) {
-  const materialNames = [...mesh.groups.keys()]
+  const parts = [{ name, mesh }, ...Object.entries(mesh.parts ?? {}).map(([n, m]) => ({ name: n, mesh: m }))]
+  const materialNames = []
+  for (const part of parts) {
+    for (const materialName of part.mesh.groups.keys()) {
+      if (!materialNames.includes(materialName)) materialNames.push(materialName)
+    }
+  }
   const buffers = []
   const bufferViews = []
   const accessors = []
-  const primitives = []
+  const meshes = []
   let offset = 0
 
   const pushView = (bytes, target) => {
@@ -323,35 +384,38 @@ export function toGlb(mesh, { name }) {
     return bufferViews.length - 1
   }
 
-  for (const materialName of materialNames) {
-    const g = mesh.groups.get(materialName)
-    const positions = new Float32Array(g.positions)
-    const normals = new Float32Array(g.normals)
-    const indices = new Uint16Array(g.indices)
-    if (g.positions.length / 3 > 65535) {
-      throw new Error(`${name}/${materialName}: too many vertices for uint16 indices`)
-    }
-    const min = [Infinity, Infinity, Infinity]
-    const max = [-Infinity, -Infinity, -Infinity]
-    for (let i = 0; i < positions.length; i += 3) {
-      for (let k = 0; k < 3; k++) {
-        if (positions[i + k] < min[k]) min[k] = positions[i + k]
-        if (positions[i + k] > max[k]) max[k] = positions[i + k]
+  for (const part of parts) {
+    const primitives = []
+    for (const [materialName, g] of part.mesh.groups) {
+      const positions = new Float32Array(g.positions)
+      const normals = new Float32Array(g.normals)
+      const indices = new Uint16Array(g.indices)
+      if (g.positions.length / 3 > 65535) {
+        throw new Error(`${part.name}/${materialName}: too many vertices for uint16 indices`)
       }
+      const min = [Infinity, Infinity, Infinity]
+      const max = [-Infinity, -Infinity, -Infinity]
+      for (let i = 0; i < positions.length; i += 3) {
+        for (let k = 0; k < 3; k++) {
+          if (positions[i + k] < min[k]) min[k] = positions[i + k]
+          if (positions[i + k] > max[k]) max[k] = positions[i + k]
+        }
+      }
+      const posView = pushView(new Uint8Array(positions.buffer), 34962)
+      const normView = pushView(new Uint8Array(normals.buffer), 34962)
+      const idxView = pushView(new Uint8Array(indices.buffer), 34963)
+      accessors.push(
+        { bufferView: posView, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max },
+        { bufferView: normView, componentType: 5126, count: normals.length / 3, type: 'VEC3' },
+        { bufferView: idxView, componentType: 5123, count: indices.length, type: 'SCALAR' },
+      )
+      primitives.push({
+        attributes: { POSITION: accessors.length - 3, NORMAL: accessors.length - 2 },
+        indices: accessors.length - 1,
+        material: materialNames.indexOf(materialName),
+      })
     }
-    const posView = pushView(new Uint8Array(positions.buffer), 34962)
-    const normView = pushView(new Uint8Array(normals.buffer), 34962)
-    const idxView = pushView(new Uint8Array(indices.buffer), 34963)
-    accessors.push(
-      { bufferView: posView, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max },
-      { bufferView: normView, componentType: 5126, count: normals.length / 3, type: 'VEC3' },
-      { bufferView: idxView, componentType: 5123, count: indices.length, type: 'SCALAR' },
-    )
-    primitives.push({
-      attributes: { POSITION: accessors.length - 3, NORMAL: accessors.length - 2 },
-      indices: accessors.length - 1,
-      material: materialNames.indexOf(materialName),
-    })
+    meshes.push({ primitives, name: part.name })
   }
 
   const binLength = offset
@@ -365,9 +429,9 @@ export function toGlb(mesh, { name }) {
   const json = {
     asset: { version: '2.0', generator: 'mini-germany-3d vehicle-mesh' },
     scene: 0,
-    scenes: [{ nodes: [0] }],
-    nodes: [{ mesh: 0, name }],
-    meshes: [{ primitives, name }],
+    scenes: [{ nodes: meshes.map((_, i) => i) }],
+    nodes: meshes.map((m, i) => ({ mesh: i, name: m.name })),
+    meshes,
     materials: materialNames.map((materialName) => {
       const m = MATERIALS[materialName]
       if (!m) throw new Error(`unknown material "${materialName}"`)
@@ -378,6 +442,9 @@ export function toGlb(mesh, { name }) {
           metallicFactor: m.metallic,
           roughnessFactor: m.roughness,
         },
+        // A see-through material is blended and shows its back – a rotor
+        // disc is looked at from below as often as from above
+        ...(m.color[3] < 1 ? { alphaMode: 'BLEND', doubleSided: true } : {}),
       }
     }),
     buffers: [{ byteLength: binLength }],
@@ -405,9 +472,10 @@ export function toGlb(mesh, { name }) {
   return out
 }
 
-/** Triangle count across all materials (budget checks in tests). */
+/** Triangle count across all materials and parts (budget checks in tests). */
 export function triangleCount(mesh) {
   let count = 0
   for (const g of mesh.groups.values()) count += g.indices.length / 3
+  for (const part of Object.values(mesh.parts ?? {})) count += triangleCount(part)
   return count
 }

@@ -77,6 +77,8 @@ export interface VesselLayerHost {
   surfaceGeneration?(): number
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /** The city's leash for the chase camera (see FollowCameraHost.clampToLeash). */
+  clampToLeash?(pose: Cartographic): Cartesian3 | null
   /**
    * Whether every ship drawn counts as in view for the pacing – the
    * time-lapse and a playing camera path (see CesiumMap.setPaceWholeView).

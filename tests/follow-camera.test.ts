@@ -17,8 +17,8 @@ const ROSTOCK: FollowTarget = { lon: 12.106, lat: 54.098, centerHeight: 40, bear
 /** Distance from the earth's center, i.e. what a DETACHED camera reports. */
 const EARTH_RADIUS = 6_378_137
 
-function harness({ detached = false } = {}) {
-  const calls: { name: string; range?: number }[] = []
+function harness({ detached = false, leash }: { detached?: boolean; leash?: Cartesian3 | null } = {}) {
+  const calls: { name: string; range?: number; offset?: Cartesian3 }[] = []
   const camera = {
     // In a lookAt frame the position is relative to the subject; detached
     // it is the world position, which is what this switch models.
@@ -27,14 +27,23 @@ function harness({ detached = false } = {}) {
       : new Cartesian3(140, 0, 0),
     heading: CesiumMath.toRadians(90),
     pitch: CesiumMath.toRadians(-16),
-    lookAt: (_center: Cartesian3, offset: { range: number }) =>
-      calls.push({ name: 'lookAt', range: offset.range }),
+    lookAt: (_center: Cartesian3, offset: { range: number } | Cartesian3) =>
+      calls.push(
+        offset instanceof Cartesian3
+          ? { name: 'lookAt', offset: Cartesian3.clone(offset) }
+          : { name: 'lookAt', range: offset.range },
+      ),
+    positionCartographic: { longitude: 0.2113, latitude: 0.9442, height: 100 },
     lookAtTransform: () => calls.push({ name: 'lookAtTransform' }),
     flyToBoundingSphere: () => calls.push({ name: 'flyToBoundingSphere' }),
     cancelFlight: () => calls.push({ name: 'cancelFlight' }),
   }
   const viewer = { camera } as unknown as Viewer
-  const cam = new FollowCamera(viewer, { requestRender: () => {}, noteCameraFlight: () => {} })
+  const cam = new FollowCamera(viewer, {
+    requestRender: () => {},
+    noteCameraFlight: () => {},
+    ...(leash !== undefined ? { clampToLeash: () => leash } : {}),
+  })
   return { cam, camera, calls }
 }
 
@@ -179,3 +188,30 @@ describe('FollowCamera against the lookAt round trip', () => {
   })
 })
 
+describe('FollowCamera on the city\u2019s leash', () => {
+  it('stops at the edge and watches the subject from there when the chase would leave the box', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000)
+    // The leash answers with a parked point: the chase's own lookAt lands
+    // first, then a second lookAt from that point, given as a Cartesian
+    // offset in the subject's frame
+    const parked = Cartesian3.fromDegrees(12.2, 54.098, 140)
+    const h = harness({ leash: parked })
+    h.cam.engage(null)
+    h.cam.update(ROSTOCK)
+    const lookAts = h.calls.filter((c) => c.name === 'lookAt')
+    expect(lookAts).toHaveLength(2)
+    expect(lookAts[0].range).toBeCloseTo(140, 5)
+    expect(lookAts[1].offset).toBeInstanceOf(Cartesian3)
+    // The parked point is 6 km east of Rostock's subject: the offset says so, in its east-north-up frame
+    expect(lookAts[1].offset!.x).toBeCloseTo(6141, -2)
+    expect(Math.abs(lookAts[1].offset!.y)).toBeLessThan(50)
+  })
+
+  it('chases as before while the leash says the camera is inside', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(10_000)
+    const h = harness({ leash: null })
+    h.cam.engage(null)
+    h.cam.update(ROSTOCK)
+    expect(h.calls.filter((c) => c.name === 'lookAt')).toHaveLength(1)
+  })
+})

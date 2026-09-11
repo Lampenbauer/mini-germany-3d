@@ -14,15 +14,25 @@
  * it is adopted and the chase continues).
  *
  * One instance drives one camera, so only one thing can be followed at a
- * time; CesiumMap releases the other layer before engaging either.
+ * time; CesiumMap releases the other layers before engaging either.
+ *
+ * The city's leash holds here too, only softly: where the chase would
+ * carry the camera out of the city's box – an aircraft crossing the
+ * box's edge at cruise, a ship leaving the harbour – the camera stops
+ * at the edge and keeps the subject in view from there, turning after
+ * it as it recedes, until it comes back within reach or leaves the map
+ * (see clampToLeash on the host). A chase that ended with a jump back
+ * into the box was the alternative, and the worse one.
  */
 
 import {
   BoundingSphere,
   Cartesian3,
+  type Cartographic,
   HeadingPitchRange,
   Math as CesiumMath,
   Matrix4,
+  Transforms,
   type Viewer,
 } from 'cesium'
 import { cameraFramingScale } from './CameraLens'
@@ -41,6 +51,13 @@ export interface FollowCameraHost {
   requestRender(): void
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /**
+   * The city's leash, applied to a pose the chase wants the camera in:
+   * the nearest position inside the box where the pose is outside it,
+   * null where it is inside (or while no leash holds – a flight between
+   * cities). Optional: without it a follow goes wherever the subject does.
+   */
+  clampToLeash?(pose: Cartographic): Cartesian3 | null
 }
 
 /**
@@ -72,6 +89,10 @@ const FOLLOW_CHASE_EASE = 0.12
  */
 const CHASE_BREAK_ANGLE = 0.003
 const CHASE_BREAK_RANGE_RATIO = 0.01
+
+const leashFrameScratch = new Matrix4()
+const leashInverseScratch = new Matrix4()
+const leashOffsetScratch = new Cartesian3()
 
 export class FollowCamera {
   private offset: HeadingPitchRange | null = null
@@ -247,6 +268,18 @@ export class FollowCamera {
       }
     }
     camera.lookAt(center, this.offset)
+    // The leash: a chase that would take the camera out of the city's box
+    // stops at the edge instead and watches the subject from there – the
+    // offset keeps what the chase wants, so the chase resumes by itself
+    // once the subject is back within reach. The parked point is given
+    // to lookAt in the subject's own east-north-up frame, which is what
+    // a Cartesian offset means to it.
+    const parked = this.host.clampToLeash?.(camera.positionCartographic)
+    if (parked) {
+      const frame = Transforms.eastNorthUpToFixedFrame(center, undefined, leashFrameScratch)
+      Matrix4.inverseTransformation(frame, leashInverseScratch)
+      camera.lookAt(center, Matrix4.multiplyByPoint(leashInverseScratch, parked, leashOffsetScratch))
+    }
     // What the camera makes of it, for the next tick to measure against.
     this.applied = {
       heading: camera.heading,

@@ -11,6 +11,7 @@
   RewriteEngine On
   RewriteRule ^api/realtime$ api/realtime.php [L]
   RewriteRule ^api/webcams$ api/webcams.php [L]
+  RewriteRule ^api/aircraft$ api/aircraft.php [L]
 </IfModule>
 
 # Caching: Vite-hashed assets may be cached "forever",

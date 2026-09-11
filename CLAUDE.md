@@ -279,7 +279,7 @@ in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
 narrower than the group above it, because the group's border sits outside its
 buttons.
 
-**Three kinds of name on the map, and they must not converge.** A vehicle
+**Four kinds of name on the map, and they must not converge.** A vehicle
 wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),
 `lineBadge`). A stop wears no plate at all: light slate text in a thin dark
 halo, its lines a shade dimmer ([StopsLayer](src/map/StopsLayer.ts),
@@ -294,16 +294,21 @@ billboard shader uses, log-depth varying included) and pickable by a
 GLSL compiles offline, so every e2e run proves it; the stop-card spec's
 real click goes through its pick colours.
 A ship wears a dark slate plate with white text
-([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). Bare text on land, a
-dark plate on water, traffic in colour: that is how the fleet is told from the
-network at a glance, so do not give any of the three the look of another.
+([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). An aircraft, since
+2026-09-11, wears its callsign on a blue plate (`#1e40af`, white text –
+[AircraftLayer](src/map/AircraftLayer.ts), `NAME_PLATE` there): the sky's
+colour, and one no line badge wears as a plain dark ground. Bare text on
+land, a dark plate on water, blue in the sky, traffic in colour: that is how
+the fleets are told from the network at a glance, so do not give any of
+the four the look of another.
 The cards keep to the same divide ([card-parts.tsx](src/components/card-parts.tsx)
 holds their head, tiles and chips): the city card wears the network's
 green, the line and the vehicle card the line's own colour – in white ink
 on the deep colours and in near-black on the light ones, chosen by the
 colour's luminance (`headInk`; Rostock's light-blue bus 19 and orange
 line 6 were unreadable in white) – the vessel card the plate's slate
-(`bg-slate-800`), and the stop card the plain card, no colour at all. Do
+(`bg-slate-800`), the aircraft card the plate's blue (`bg-blue-800`), and
+the stop card the plain card, no colour at all. Do
 not paint the ship's card green to match, and do not give a stop a line's
 colour – a stop is the network's furniture, not a line's.
 
@@ -317,18 +322,20 @@ eye before the badges do, that is the bug. Do not give them a plate back.
 vehicle's body is washed toward white and rimmed in a 2.5 px silhouette
 (`applyVehicleAppearance`), and since 2026-09-10 the selected ship's hull is
 too (`VesselLayer.setSelected`, `applyVesselAppearance` – the constants there
-are the vehicles' own, borrowed by name). A ship carries no line colour to
-brighten, so her blend goes to white itself; everything else is shared. If a
-third kind of thing ever becomes selectable, it takes the same two marks
-rather than inventing a third.
+are the vehicles' own, borrowed by name), and since 2026-09-11 the selected
+aircraft's body (`AircraftLayer.setSelected`). A ship or an aircraft carries
+no line colour to brighten, so the blend goes to white itself; everything
+else is shared. If a fourth kind of thing ever becomes selectable, it takes
+the same two marks rather than inventing a third.
 
 **"Zoom to line" clears the stage, and every layer that draws on it has to
 join.** `CesiumMap.focusLine` pulses the line's route for
 `ROUTE_PULSE_DURATION_MS` and takes everything else off for exactly that span:
 the other routes (`RoutesLayer.startPulse`), the other lines' badges
 (`VehicleLayer.startLineFocus`), the discs and names of every stop the line
-does not call at (`StopsLayer.startLineFocus`) and every ship name
-(`VesselLayer.startLineFocus` — no ship belongs to a line, so all of them go).
+does not call at (`StopsLayer.startLineFocus`), every ship name
+(`VesselLayer.startLineFocus` — no ship belongs to a line, so all of them go)
+and every callsign plate (`AircraftLayer.startLineFocus`, the same reason).
 Bodies and hulls stay: a name is what covers a route, a body is where the thing
 is. None of the three needs a timer — the badges and the ship names expire in
 their layer's next sync, the stops in the next frame's `update()`, and the
@@ -901,8 +908,9 @@ for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
-`groundHeights()`, `aisReplay()`; `setAisVessels(list)` puts a fleet on
-the map where no poll runs (offline, the tests).
+`groundHeights()`, `aisReplay()`, `aircraftCount()`; `setAisVessels(list)`
+and `setAircraft(list)` put a fleet on the map where no poll runs (offline,
+the tests).
 
 ---
 
@@ -1064,3 +1072,136 @@ For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs`,
 `scripts/test-php-parser.mjs` run in CI. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a
 model bug.
+
+---
+
+## ADS-B (live air traffic)
+
+Built 2026-09-11 after the AIS pattern: `/api/aircraft?city=<slug>` (the
+Vite middleware, `server/api/aircraft.php` in production, the extraction
+shared in [src/lib/aircraft-extract.ts](src/lib/aircraft-extract.ts) and
+held to the PHP twin by `scripts/test-aircraft-parity.mjs`),
+[AircraftLayer](src/map/AircraftLayer.ts) after VesselLayer, an
+`AircraftCard`, `#aircraft=<hex>`, `?aircraft=0`, the panel row after the
+ships. Decisions, taken with the user, that should not be re-litigated:
+
+- **The source is adsb.fi's open data API** (`opendata.adsb.fi/api/v3`),
+  a readsb aggregator with second-by-second updates, no key, one request
+  a second for personal use, and a link asked for in return (the layer's
+  static credit). OpenSky was the alternative and lost on resolution (10 s
+  anonymous, 5 s registered, credits per day). Both sides keep the rate
+  limit for every city together: a 4 s per-city TTL and upstream calls
+  spaced a second apart, in PHP through the lock file's mtime. If adsb.fi
+  ever requires a key for non-feeders (adsb.lol has announced it), the
+  same shape is spoken by airplanes.live and adsb.lol – only the URL and
+  the query helper (`adsbQuery`) would change.
+- **No altitude filter.** The user wants the traffic at cruise as much as
+  the approach, so every aircraft over the city is drawn, at 12 km up as
+  at 400 m. The plates are drawn out to 60 km and the bodies to 40 km for
+  that reason. A wide-body at cruise is a few pixels and its plate; that
+  is the picture asked for.
+- **The sky is a circle, not the box.** The endpoint serves everything
+  within the circle it asks adsb.fi for – the box's corner distance plus
+  `AIRCRAFT_MARGIN_NM` (6 nm) – while the camera's leash stays the box.
+  Since 2026-09-11, for the soft end of a follow: where the chase would
+  carry the camera out of the box, `FollowCamera` parks it at the edge
+  (`clampToLeash` on every layer host, `CesiumMap.clampToLeash`) and
+  looks at the subject from there, turning after it until it leaves
+  the circle a minute later and the card closes. Before, the aircraft
+  vanished at the box's edge and the follow ended with the camera
+  snapping back inside. The ships get the same soft end at the box's
+  edge, though their data still ends there. `e2e/aircraft.spec.ts`
+  flies one out over Rostock's eastern edge.
+- **Live only, no archive.** A clock set into the past shows an empty sky
+  (`aisReplayWanted` decides, as for the ships – there is no recording to
+  replay, and yesterday's clock must not show today's aircraft). A
+  recording after the AIS archive's pattern is the obvious follow-up and
+  was deliberately left out of the first cut.
+- **Heights.** `alt_geom` is a height above the WGS84 ellipsoid and goes
+  into Cesium as it is; where an aircraft reports only `alt_baro` the
+  layer adds `routes.heightOffset` (the geoid height the routes are
+  calibrated against) and lives with the pressure error. An aircraft on
+  the ground is clamped to the tiles like a ship (three picks a tick,
+  again after 25 m or a `surfaceGeneration` bump); nothing else is
+  clamped – the feed's number is the truth.
+- **Playback 12 s behind, reckoned 20 s ahead.** The ships wait at their
+  last fix when data dries up; an aircraft flies on from its last speed,
+  track and climb rate for `AIRCRAFT_RECKON_MAX_MS`, then freezes –
+  hanging in the sky is the lesser wrong, flying into a building the
+  greater. An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
+- **Pose.** The nose follows `true_heading` where reported (the crab
+  angle off the track), the pitch is `atan2(vertical rate, ground speed)`
+  capped at 12°, the bank is the reported `roll` or the coordinated turn
+  the track rate implies, capped at 35°. Cesium's HPR frame: positive
+  pitch is nose up, positive roll is right wing down, which is what
+  readsb's `roll` means too.
+- **Bodies.** Seven archetypes in `scripts/lib/aircraft-fleet.mjs`,
+  stretched per type from the table in
+  [src/lib/aircraft-info.ts](src/lib/aircraft-info.ts) (ICAO designator →
+  archetype, length, span, height; the emitter category as fallback). A
+  helicopter's length there is the fuselage's, nose to tail rotor, not
+  the "rotors turning" figure – the model is built that long.
+  `tests/aircraft-models.test.ts` pins the GLB bounds against
+  `ARCHETYPE_SIZE` and `AIRCRAFT_DIMS`. Surface vehicles (emitter
+  category C) are dropped in the extraction: the map has no body for a
+  follow-me car. Rounder than the vehicles on purpose (the user asked,
+  2026-09-11: "ein wenig mehr Polygone ist in Ordnung"): sixteen-sided
+  fuselages, nacelles and wheels, up to ~1700 triangles, the budget in
+  the test 2500. The first cockpit was a box and broke through the nose
+  taper on every side – glass is laid ON the shell now (`glaze` in the
+  workshop: the extrusion's ring at any length, interpolated as its faces
+  are), never as a solid poked into it. The first glazing was also big
+  rectangular panes and a dark wrap-around cockpit, which the user read
+  as a WWII bomber (2026-09-11): the cabin windows are a row of small
+  octagonal portholes at an airliner's frame pitch (`portholeRow`, one
+  fan of nine vertices each – most of a model's triangles), the cockpit
+  a narrow band of three panes a side from 20° to 55° above the centre
+  line, and the nose drops away under it (`noseDroop`) as an airliner's
+  does. Keep the windows small: at map distance a window is a dot. Rotors and propellers are
+  see-through discs (`rotor` material, alpha 0.3 – the one translucent
+  material; `toGlb` writes alphaMode BLEND for an alpha under 1). The
+  retractable gear is a glTF node of its own (`mesh.parts.gear`, `toGlb`
+  writes every part as a node), which `AircraftLayer` shows only within
+  `GEAR_DOWN_AGL_M` (600 m) of the city's ground – an airliner at cruise
+  with its wheels out read as a toy. The vehicle and vessel GLBs came out
+  byte-identical through the writer change; keep it that way.
+- **Lights.** [NavLights](src/map/NavLights.ts) is one
+  PointPrimitiveCollection per layer, pooled, fed begin/add/commit per
+  tick like the plumes; what is on comes from the clock alone
+  ([src/lib/nav-lights.ts](src/lib/nav-lights.ts), pure, tested) – the
+  stateless rule again, so a pause holds every flash. Aircraft: red
+  port, green starboard, white tail (steady), red beacons top and bottom
+  (1.2 s period, 160 ms on – over 100 ms so a 100 ms tick catches it),
+  white strobes at the tips (1.6 s, 120 ms) in flight only; nothing
+  parked; 35 % by day, full at night. The ships' rules (motion only – the nav
+  status is set by hand and stale both ways) are in the library too,
+  waiting for the ships. The screened lights show over
+  their real arcs (112.5° sidelights at sea, 110° in the air, the stern
+  and tail light the rest) – from the chase camera behind an aircraft
+  the tail light and the strobes, never the red and green. A flash that
+  changed on an aircraft on screen requests a frame; a ship's lights
+  are steady and ask for none. The light positions per archetype are
+  the workshop's `mesh.lights` copied into `AIRCRAFT_MODELS[…].lights`
+  (glTF x,y,z → layer y,z,x), pinned by the model test; a ship's come
+  from her hull's dimensions and funnel. The collections are on both
+  layers' clamp exclusion lists, or a beacon over an aircraft on the
+  apron would be what the apron pick hits. `__mg3d.navLights()` counts
+  them per fleet.
+- **Shadows and pacing** join the existing gates: the nearest drawn body
+  and its span feed `applyShadowState` like the nearest hull, and an
+  aircraft in view paces the ticks like a tram – the render range for
+  that is 15 km at the reference lens, three times the ships', because
+  an airliner moves on screen from much further out.
+
+Verified 2026-09-11 with a live answer over Frankfurt: 50 aircraft in a
+21 nm circle, 39 with `alt_geom`, 32 with `roll`, 3 on the ground, 2
+multilaterated; that answer is the fixture (`tests/fixtures/adsb-aircraft.json`).
+`e2e/aircraft.spec.ts` puts two aircraft on the offline map through
+`__mg3d.setAircraft` and checks bodies, plates, the hash and the empty
+sky in the past. Two traps met writing it: a spec that wants aircraft
+must boot on the real clock – `?time=12:00`, which every other spec
+uses, is a clock in the past for the rest of the day, and the sky is
+empty then by design – and the injected track has to outlast the
+runner's slow model loads (ten minutes around the rendered instant),
+or the playback reaches the reckoning window and freezes before the
+pacing assertion runs.

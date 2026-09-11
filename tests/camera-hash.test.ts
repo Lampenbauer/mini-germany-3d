@@ -10,6 +10,8 @@ import {
   parseUiStateHash,
   parseVehicleHash,
   parseVesselHash,
+  formatAircraftHash,
+  parseAircraftHash,
   type HashUiState,
 } from '@/lib/camera-hash'
 import { config } from '@/config'
@@ -111,6 +113,27 @@ describe('ship selection in the hash', () => {
     expect(parseVesselHash('#vessel=21122229a')).toBeNull()
     expect(parseVesselHash('#vessel=-211222290')).toBeNull()
     expect(parseVesselHash('#vessel=999999999')).toBe(999999999)
+  })
+})
+
+describe('aircraft selection in the hash', () => {
+  it('holds ONLY the ICAO address and round-trips it', () => {
+    const hash = formatAircraftHash('3c65a2')
+    expect(hash).toBe('#aircraft=3c65a2')
+    expect(parseAircraftHash(hash)).toBe('3c65a2')
+    expect(parseCameraHash(hash)).toBeNull()
+    expect(parseVehicleHash(hash)).toBeNull()
+    expect(parseVesselHash(hash)).toBeNull()
+  })
+
+  it('takes six hex digits, upper case included, with the non-ICAO prefix', () => {
+    expect(parseAircraftHash('#aircraft=3C65A2')).toBe('3c65a2')
+    expect(parseAircraftHash('#aircraft=~2a1b3c')).toBe('~2a1b3c')
+    expect(parseAircraftHash('#aircraft=')).toBeNull()
+    expect(parseAircraftHash('#aircraft=3c65a')).toBeNull()
+    expect(parseAircraftHash('#aircraft=3c65a2b')).toBeNull()
+    expect(parseAircraftHash('#aircraft=DLH3Y')).toBeNull()
+    expect(parseAircraftHash(formatVesselHash(211222290))).toBeNull()
   })
 })
 

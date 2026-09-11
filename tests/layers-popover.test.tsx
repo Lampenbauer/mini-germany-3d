@@ -52,7 +52,7 @@ describe('the layers popover', () => {
       'aria-checked',
       'true',
     )
-    expect(screen.getByRole('switch', { name: 'Show vehicle and ship labels' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Show vehicle, ship and aircraft labels' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Show routes' }))
     expect(h.onToggleRoutes).toHaveBeenCalledWith(false)
   })

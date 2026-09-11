@@ -1,0 +1,1104 @@
+/**
+ * Live air traffic from ADS-B (see src/lib/aircraft.ts): one body per
+ * aircraft in the type's real size, at its reported altitude, plus a
+ * callsign plate. Built after VesselLayer – the same playback a few
+ * seconds behind the clock, the same display ease, the same pacing
+ * signals, the same highlight and chase – with three differences that
+ * are the aircraft's own:
+ *
+ * - It flies in three dimensions. The pose is heading, pitch and roll:
+ *   the nose follows the true heading where the transponder reports it
+ *   (the aircraft crabs into the wind and the track over the ground is
+ *   not where it points), the pitch is the climb angle out of the
+ *   vertical rate and the ground speed, the bank is the reported roll
+ *   or, without one, what the turn rate and the speed say it must be.
+ * - Its height is a number the feed sends, not a surface to clamp to:
+ *   the geometric altitude is a height above the WGS84 ellipsoid and
+ *   goes straight into Cesium; where only the pressure altitude is
+ *   reported the geoid height is added and the pressure error lived
+ *   with. Only an aircraft on the ground is clamped to the tiles, the
+ *   way the ships are, so a taxiing airliner rolls on Google's apron.
+ * - Its plate is blue (NAME_PLATE) – the fourth kind of name on the map
+ *   after the vehicles' line badges, the stops' bare text and the
+ *   ships' slate, and it must not converge with any of them (see
+ *   CLAUDE.md, "Three kinds of name").
+ *
+ * The ranges are wide: an aircraft at cruise is ten kilometres up and
+ * the box is seventy across, so the plates are drawn out to
+ * LABEL_VISIBLE_RANGE and the bodies to BODY_VISIBLE_RANGE, where a
+ * wide-body is still a few pixels. Nothing here is more than one body,
+ * one label and a handful of lights per aircraft, and a city sees a few
+ * dozen.
+ *
+ * The lights (NavLights, timed by lib/nav-lights.ts): the red and green
+ * position lights at the wing tips, the white tail light, the flashing
+ * red beacons and the white strobes – in the air the whole set, taxiing
+ * everything but the strobes, parked none. Their brightness follows the
+ * night, though never to nothing: a strobe is seen by day. And the
+ * landing gear, a glTF node of its own in every retractable type, is
+ * shown only near the ground (GEAR_DOWN_AGL_M) – an airliner crossing
+ * the box with its wheels out read as a toy.
+ */
+
+import {
+  BoundingSphere,
+  BoxGeometry,
+  Cartesian2,
+  Cartesian3,
+  Cartesian4,
+  Cartographic,
+  Color,
+  ColorBlendMode,
+  ColorGeometryInstanceAttribute,
+  ConstantPositionProperty,
+  ConstantProperty,
+  Credit,
+  DistanceDisplayCondition,
+  GeometryInstance,
+  HeadingPitchRoll,
+  Intersect,
+  LabelStyle,
+  Math as CesiumMath,
+  Matrix4,
+  Model,
+  PerInstanceColorAppearance,
+  Primitive,
+  ShadowMode,
+  Transforms,
+  type Entity,
+  type Viewer,
+} from 'cesium'
+import {
+  AIRCRAFT_EXPIRE_MS,
+  AIRCRAFT_PLAYBACK_DELAY_MS,
+  aircraftPlaybackSample,
+  type Aircraft,
+} from '@/lib/aircraft-extract'
+import {
+  ARCHETYPE_SIZE,
+  aircraftSize,
+  aircraftTitle,
+  type AircraftArchetype,
+  type AircraftSize,
+} from '@/lib/aircraft-info'
+import {
+  AIRCRAFT_SIDELIGHT_ARC_DEG,
+  aircraftLightsMode,
+  beaconOn,
+  lightPhaseMs,
+  portLightSeen,
+  starboardLightSeen,
+  sternLightSeen,
+  strobeOn,
+  viewBearingDeg,
+} from '@/lib/nav-lights'
+import { FollowCamera } from '@/map/FollowCamera'
+import { LIGHT_GREEN, LIGHT_RED, LIGHT_WHITE, NavLights, STROBE_PX } from './NavLights'
+import { cameraFramingScale } from './CameraLens'
+import { keepNonOverlappingLabels, type LabelMetrics, type ScreenRect } from './screen-rects'
+import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
+
+/** What the layer needs from the map around it. */
+export interface AircraftLayerHost {
+  requestRender(): void
+  /** Ellipsoid height of the city's ground – where an aircraft on the ground stands until it is clamped. */
+  readonly defaultGroundHeight: number
+  /**
+   * Ellipsoid height of sea level here – what a pressure altitude is
+   * lifted by to become a height Cesium can place (the calibrated
+   * offset the routes carry, see RoutesLayer.heightOffset).
+   */
+  readonly geoidHeight: number
+  /**
+   * Ellipsoid height of the loaded scene geometry under a position –
+   * the tiles' own apron (scene.clampToHeight: an offscreen pick per
+   * call). undefined where nothing is loaded yet or picking is
+   * unsupported (offline). `exclude` holds the layer's own primitives.
+   */
+  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  /** Bumped whenever the loaded tiles changed – a clamped height is read again then. */
+  surfaceGeneration?(): number
+  /** A camera flight is starting – keeps the render loop at full rate. */
+  noteCameraFlight(durationMs: number): void
+  /** The city's leash for the chase camera (see FollowCameraHost.clampToLeash). */
+  clampToLeash?(pose: Cartographic): Cartesian3 | null
+  /** Whether every aircraft drawn counts as in view for the pacing (see CesiumMap.setPaceWholeView). */
+  readonly paceWholeView?: boolean
+  /** Screen rectangles the plates keep clear of (the webcam pictures). */
+  obstacles?: () => readonly ScreenRect[]
+  /** Window position of a world point (CSS px), undefined behind the camera. */
+  windowPosition?: (position: Cartesian3) => Cartesian2 | undefined
+  /** Device pixels per CSS pixel the map draws at (default 1). */
+  readonly pixelRatio?: number
+}
+
+/**
+ * Beyond this camera distance the body is not drawn any more and the
+ * plate carries the aircraft alone. Twice the ships' range: an aircraft
+ * at cruise is ten kilometres above the city and still a real thing in
+ * the sky, and a wide-body is a few pixels there. Below
+ * LABEL_VISIBLE_RANGE, so no aircraft loses its plate before its body.
+ */
+const BODY_VISIBLE_RANGE = 40_000
+/** The plates fade in below this camera distance (metres) – the whole box from the home view. */
+const LABEL_VISIBLE_RANGE = 60_000
+/**
+ * Beyond this camera distance an aircraft is off screen for the pacing –
+ * measured at the reference lens and scaled by the lens the camera
+ * wears (cameraFramingScale), like the ships' render range. Three
+ * times theirs: an airliner covers a hundred metres a second and moves
+ * on screen from much further out than a ship does.
+ */
+const AIRCRAFT_RENDER_RANGE_AT_REFERENCE = 15_000
+/** The plate floats this many CSS pixels above the aircraft (negative = up). */
+const NAME_PIXEL_OFFSET_Y = -16
+/** Rough glyph width of the 10 px bold font, for the declutter. */
+const NAME_PX_PER_CHAR = 6
+const NAME_HEIGHT_PX = 19
+const NAME_PAD_X_PX = 3
+const NAME_GAP_PX = 2
+const NAME_METRICS: LabelMetrics = {
+  offsetY: NAME_PIXEL_OFFSET_Y + NAME_HEIGHT_PX / 2,
+  height: NAME_HEIGHT_PX,
+  gap: NAME_GAP_PX,
+}
+/**
+ * The callsign plate: blue, where a ship's is slate and a stop's is bare
+ * text – the sky's own colour, and one no line badge wears as a plain
+ * dark ground. Opaque like the ships' (see NAME_PLATE there for why),
+ * decluttered by the same pass.
+ */
+const NAME_PLATE = Color.fromCssColorString('#1e40af')
+const NAME_INK = Color.fromCssColorString('#f8fafc')
+/**
+ * Time constant of the display smoothing in ms – position, heading,
+ * pitch and roll all ease toward the playback target at this rate, the
+ * ships' value: between ticks it makes motion fluid, and it rounds the
+ * kinks where one track segment hands over to the next.
+ */
+const SMOOTH_TAU_MS = 400
+/** The climb angle drawn is capped: a transponder's rate is noisy, and an airliner never pitches more than this. */
+const MAX_PITCH_DEG = 12
+/** The bank drawn is capped at what an airliner turns with – a light aircraft rolls more, and reads fine at this. */
+const MAX_BANK_DEG = 35
+/** Placeholder box colour until the glTF body is in. */
+const BODY_COLOR = Color.fromCssColorString('#d6d9dd')
+/** Highlight of the picked aircraft – the vehicles' and the ships' own numbers (see VesselLayer). */
+const HIGHLIGHT_BLEND = 0.25
+const HIGHLIGHT_SILHOUETTE_PX = 2.5
+const HIGHLIGHT_BOX_MIX = 0.45
+/** Only an aircraft on the ground is clamped – to the apron, at most this many picks a tick, again after this much motion. */
+const CLAMP_BUDGET_PER_TICK = 3
+const CLAMP_MOVE_M = 25
+const KNOT_MPS = 0.514444
+const GRAVITY_MPS2 = 9.81
+/**
+ * Below this height over the city's ground the landing gear is out:
+ * an airliner lowers it some five miles from the runway, about 1500 ft
+ * up, and raises it seconds after lifting off. Measured against the
+ * city's ground rather than the airport's, which the map does not know
+ * – the two differ by tens of metres, not hundreds.
+ */
+const GEAR_DOWN_AGL_M = 600
+/** The name of the gear's node in the glTF (scripts/lib/aircraft-fleet.mjs, mesh.parts.gear). */
+const GEAR_NODE = 'gear'
+/**
+ * How bright the lights are by day: the position lights are on by day
+ * too, and a strobe is seen by day – against a bright sky at a
+ * distance, less than at night, which the night factor adds.
+ */
+const LIGHTS_DAY_INTENSITY = 0.35
+
+/** A light's position in the model frame Cesium hands the layer (x forward, y port, z up). */
+export interface LightPoint {
+  x: number
+  y: number
+  z: number
+}
+
+/**
+ * Where an aircraft's lights are, in the model frame: the position
+ * lights at the wing tips (port red, starboard green), the white tail
+ * light, the beacons on top of and under the fuselage. Recorded by the
+ * workshop (mesh.lights in scripts/lib/aircraft-fleet.mjs, in its Y-up
+ * frame) and pinned against these by tests/aircraft-models.test.ts.
+ */
+export interface AircraftLights {
+  port: LightPoint
+  starboard: LightPoint
+  tail: LightPoint
+  beaconTop: LightPoint
+  beaconBottom: LightPoint
+}
+
+/**
+ * glTF bodies per archetype, generated by scripts/build-vehicle-models.mjs
+ * from scripts/lib/aircraft-fleet.mjs. Reference dimensions mirror
+ * AIRCRAFT_DIMS there and ARCHETYPE_SIZE in lib/aircraft-info.ts (pinned
+ * against the GLB bounds by tests/aircraft-models.test.ts); the drawn
+ * aircraft is this model stretched to its type's size.
+ */
+const LIGHTS: Record<AircraftArchetype, AircraftLights> = {
+  'aircraft-narrowbody': {
+    port: { x: -3.39, y: 18.15, z: -0.96 },
+    starboard: { x: -3.39, y: -18.15, z: -0.96 },
+    tail: { x: -19.05, y: 0, z: -0.02 },
+    beaconTop: { x: -1.88, y: 0, z: 1 },
+    beaconBottom: { x: 3.76, y: 0, z: -3.5 },
+  },
+  'aircraft-widebody': {
+    port: { x: -5.65, y: 30.4, z: -0.98 },
+    starboard: { x: -5.65, y: -30.4, z: -0.98 },
+    tail: { x: -32.1, y: 0, z: -0.19 },
+    beaconTop: { x: -3.19, y: 0, z: 1.14 },
+    beaconBottom: { x: 6.37, y: 0, z: -4.9 },
+  },
+  'aircraft-jumbo': {
+    port: { x: -9.03, y: 40.15, z: -1.65 },
+    starboard: { x: -9.03, y: -40.15, z: -1.65 },
+    tail: { x: -36.6, y: 0, z: -0.03 },
+    beaconTop: { x: -3.64, y: 0, z: 1.85 },
+    beaconBottom: { x: 7.27, y: 0, z: -6.95 },
+  },
+  'aircraft-bizjet': {
+    port: { x: -1.91, y: 10.05, z: -0.76 },
+    starboard: { x: -1.91, y: -10.05, z: -0.76 },
+    tail: { x: -10.7, y: 0, z: 0.41 },
+    beaconTop: { x: -1.04, y: 0, z: 1.01 },
+    beaconBottom: { x: 2.09, y: 0, z: -2.09 },
+  },
+  'aircraft-turboprop': {
+    port: { x: 2.53, y: 13.8, z: 0.67 },
+    starboard: { x: 2.53, y: -13.8, z: 0.67 },
+    tail: { x: -13.85, y: 0, z: 0.16 },
+    beaconTop: { x: -2.18, y: 0, z: 0.66 },
+    beaconBottom: { x: 2.72, y: 0, z: -2.74 },
+  },
+  'aircraft-light': {
+    port: { x: 1.41, y: 5.75, z: 1.16 },
+    starboard: { x: 1.41, y: -5.75, z: 1.16 },
+    tail: { x: -4.4, y: 0, z: 0.38 },
+    beaconTop: { x: -3.24, y: 0, z: 1.2 },
+    beaconBottom: { x: 0.42, y: 0, z: -0.79 },
+  },
+  'aircraft-helicopter': {
+    port: { x: 0.32, y: 1.2, z: 0.07 },
+    starboard: { x: 0.32, y: -1.2, z: 0.07 },
+    tail: { x: -5.25, y: 0, z: 0.34 },
+    beaconTop: { x: -4.45, y: 0, z: 1.54 },
+    beaconBottom: { x: 1.4, y: 0, z: -1 },
+  },
+}
+
+export const AIRCRAFT_MODELS: Record<
+  AircraftArchetype,
+  { uri: string; lengthM: number; spanM: number; heightM: number; lights: AircraftLights }
+> = Object.fromEntries(
+  (Object.keys(ARCHETYPE_SIZE) as AircraftArchetype[]).map((archetype) => [
+    archetype,
+    { uri: `models/${archetype}.glb`, ...ARCHETYPE_SIZE[archetype], lights: LIGHTS[archetype] },
+  ]),
+) as Record<
+  AircraftArchetype,
+  { uri: string; lengthM: number; spanM: number; heightM: number; lights: AircraftLights }
+>
+
+interface AircraftRecord {
+  size: AircraftSize
+  highlighted: boolean
+  /** Placeholder box until the glTF body is in (null afterwards). */
+  primitive: Primitive | null
+  /** glTF body; null while loading or after a failure. */
+  model: Model | null
+  /** The model's own matrix – fromGltfAsync clones what it got. */
+  modelMatrix: Matrix4 | null
+  /** Unscaled base pose; the model matrix composes scale on top. */
+  matrix: Matrix4
+  labelEntity: Entity
+  labelPosition: ConstantPositionProperty
+  labelText: string
+  /** Smoothed pose actually drawn (eases toward the playback target). */
+  displayPosition: Cartesian3
+  displayBearing: number
+  displayPitch: number
+  displayRoll: number
+  /** Pose as of the last repaint request – the change detector. */
+  lastPosition: Cartesian3
+  lastBearing: number
+  /** Pose as of the frame that was last RENDERED (see VesselLayer's twin). */
+  renderedPosition: Cartesian3
+  renderedBearing: number
+  renderedStamp: number
+  /** Apron height the aircraft was last clamped to on the ground, and where (see VesselLayer). */
+  clampedHeight: number | null
+  clampLon: number
+  clampLat: number
+  clampedGeneration: number
+  /** The per-aircraft offset of its flashes (see lightPhaseMs). */
+  lightPhaseMs: number
+  /** Beacon and strobe as last drawn – a change on screen is worth a frame. */
+  lastBeacon: boolean
+  lastStrobe: boolean
+  /** Whether the gear node is shown, null until the model has one to show. */
+  gearShown: boolean | null
+}
+
+const positionScratch = new Cartesian3()
+const hprScratch = new HeadingPitchRoll(0, 0, 0)
+const scaleScratch = new Cartesian3()
+const lightScratch = new Cartesian3()
+const lightWorldScratch = new Cartesian3()
+const axisScratch = new Cartesian4()
+const toCameraScratch = new Cartesian3()
+
+/** The dot product of a pose matrix's axis (0 forward, 1 port, 2 up) with a world vector. */
+function axisDot(matrix: Matrix4, column: 0 | 1 | 2, vector: Cartesian3): number {
+  Matrix4.getColumn(matrix, column, axisScratch)
+  return axisScratch.x * vector.x + axisScratch.y * vector.y + axisScratch.z * vector.z
+}
+
+export class AircraftLayer {
+  private aircraft = new Map<string, AircraftRecord>()
+  private readonly clampExclusionList: object[] = []
+  private clampExclusionsStale = true
+  private visible = true
+  private labelsVisible = true
+  /** "Zoom to line" keeps the plates off until this instant (startLineFocus). */
+  private lineFocusUntil = 0
+  /** Address of the picked aircraft, null when nothing is picked. */
+  private selectedHex: string | null = null
+  /** Address the camera is chasing, null when free. */
+  private followHex: string | null = null
+  private readonly followCamera: FollowCamera
+  private frustumSphere = new BoundingSphere()
+  private lastSyncMs = 0
+  /** Counts rendered frames (see markRendered / AircraftRecord.renderedStamp). */
+  private renderStamp = 0
+  /** adsb.fi's line in the credits, while any aircraft is drawn – its terms ask for it. */
+  private credit: Credit | null = null
+  /** The position lights, beacons and strobes of every aircraft drawn (see NavLights). */
+  private readonly lights: NavLights
+  /** 0 = day … 1 = full night; the lights' brightness follows it. */
+  private night = 0
+
+  constructor(
+    private readonly viewer: Viewer,
+    private readonly host: AircraftLayerHost,
+  ) {
+    this.followCamera = new FollowCamera(viewer, host)
+    this.lights = new NavLights(viewer)
+  }
+
+  /** Day→night ramp for the lights (driven by the map's sun state). */
+  applyNightFactor(night: number): void {
+    this.night = night
+  }
+
+  /** Lights on at the last tick – the debug API's count. */
+  get lightCount(): number {
+    return this.lights.count
+  }
+
+  /** Whether `position` sits inside the view and close enough to matter (the ships' rule). */
+  private isOnScreen(
+    cullingVolume: { computeVisibility(sphere: BoundingSphere): number },
+    position: Cartesian3,
+  ): boolean {
+    if (!this.visible) return false
+    const camera = this.viewer.camera
+    const renderRange = this.host.paceWholeView
+      ? LABEL_VISIBLE_RANGE
+      : AIRCRAFT_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    if (Cartesian3.distance(camera.positionWC, position) >= renderRange) return false
+    Cartesian3.clone(position, this.frustumSphere.center)
+    this.frustumSphere.radius = 80
+    return cullingVolume.computeVisibility(this.frustumSphere) !== Intersect.OUTSIDE
+  }
+
+  private repaintIfOnScreen(
+    cullingVolume: { computeVisibility(sphere: BoundingSphere): number },
+    position: Cartesian3,
+  ): void {
+    if (this.isOnScreen(cullingVolume, position)) this.host.requestRender()
+  }
+
+  /**
+   * Per-tick update: played-back poses, arrivals, departures. Returns
+   * whether an aircraft whose drawn pose is still changing sits inside
+   * the view – the app's tick and render pacing treat that like a tram
+   * in view – and the nearest drawn body for the map's shadow gate.
+   */
+  sync(
+    list: Aircraft[],
+    nowMs: number,
+  ): {
+    anyMovingAircraftInView: boolean
+    nearestBodyMeters: number
+    nearestBodySpanM: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
+    const entities = this.viewer.entities
+    entities.suspendEvents()
+    try {
+      return this.syncBatched(list, nowMs)
+    } finally {
+      entities.resumeEvents()
+    }
+  }
+
+  /** The map drew a frame: motion is measured against the poses of the tick before this call from here on. */
+  markRendered(): void {
+    this.renderStamp++
+  }
+
+  private syncBatched(
+    list: Aircraft[],
+    nowMs: number,
+  ): {
+    anyMovingAircraftInView: boolean
+    nearestBodyMeters: number
+    nearestBodySpanM: number
+    maxScreenMotionPx: number
+    maxTickMotionPx: number
+  } {
+    const renderMs = nowMs - AIRCRAFT_PLAYBACK_DELAY_MS
+    const alive = new Set<string>()
+    const camera = this.viewer.camera
+    const obstacles = this.host.obstacles?.() ?? []
+    const namesAside = this.namesAside()
+    const cullingVolume = camera.frustum.computeCullingVolume(
+      camera.positionWC,
+      camera.directionWC,
+      camera.upWC,
+    )
+    const dtMs = this.lastSyncMs > 0 ? Math.max(0, nowMs - this.lastSyncMs) : 0
+    this.lastSyncMs = nowMs
+    const alpha = dtMs > 0 && dtMs < 2000 ? 1 - Math.exp(-dtMs / SMOOTH_TAU_MS) : 1
+
+    let anyMovingAircraftInView = false
+    let nearestBodyMeters = Number.POSITIVE_INFINITY
+    let nearestBodySpanM = ARCHETYPE_SIZE['aircraft-light'].spanM
+    const pxPerMeterAtUnit = cssPixelsPerMeterAtUnitDistance(this.viewer)
+    const motionThreshold = motionThresholdCssPx(this.host.pixelRatio ?? 1)
+    let maxScreenMotionPx = 0
+    let maxTickMotionPx = 0
+    const windowPosition = this.host.windowPosition
+    const nameCandidates: {
+      record: AircraftRecord
+      distance: number
+      x: number
+      y: number
+      halfWidth: number
+    }[] = []
+    let clampBudget = CLAMP_BUDGET_PER_TICK
+    const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
+    const lights = this.lights
+    lights.begin()
+    const lightIntensity = LIGHTS_DAY_INTENSITY + (1 - LIGHTS_DAY_INTENSITY) * this.night
+
+    for (const aircraft of list) {
+      if (nowMs - aircraft.positionAt > AIRCRAFT_EXPIRE_MS) continue
+      alive.add(aircraft.hex)
+
+      let record = this.aircraft.get(aircraft.hex)
+      // A type learnt after the first position picks a different body
+      const size = aircraftSize(aircraft.typeCode, aircraft.category, aircraft.callsign)
+      if (record && record.size.archetype !== size.archetype) {
+        this.remove(aircraft.hex)
+        record = undefined
+      }
+      if (!record) {
+        record = this.createAircraft(aircraft, size, nowMs)
+        this.aircraft.set(aircraft.hex, record)
+        this.clampExclusionsStale = true
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
+      }
+      record.size = size
+
+      const sample = aircraftPlaybackSample(aircraft, renderMs)
+      const spec = AIRCRAFT_MODELS[size.archetype]
+      const lengthScale = size.lengthM / spec.lengthM
+      const spanScale = size.spanM / spec.spanM
+      const heightScale = size.heightM / spec.heightM
+
+      // Height: the feed's own number in the air; on the ground the tiles'
+      // apron, clamped the way the ships are – only when the answer could
+      // have changed, only on screen, a few a tick (see VesselLayer)
+      let height: number
+      if (sample.altM === null) {
+        if (this.host.clampToSurface && clampBudget > 0) {
+          const movedM = Math.hypot(
+            (sample.lon - record.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
+            (sample.lat - record.clampLat) * 111_132,
+          )
+          const stale =
+            record.clampedHeight === null ||
+            movedM > CLAMP_MOVE_M ||
+            record.clampedGeneration !== surfaceGeneration
+          if (stale && this.isOnScreen(cullingVolume, record.displayPosition)) {
+            clampBudget--
+            const h = this.host.clampToSurface(sample.lon, sample.lat, this.clampExclusions())
+            record.clampLon = sample.lon
+            record.clampLat = sample.lat
+            record.clampedGeneration = surfaceGeneration
+            if (h !== undefined) record.clampedHeight = h
+          }
+        }
+        height = (record.clampedHeight ?? this.host.defaultGroundHeight) + size.heightM / 2
+      } else {
+        // The track carries the geometric altitude where the aircraft
+        // reports one, the pressure altitude otherwise (see Aircraft)
+        height = aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight
+      }
+      const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
+      Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
+      if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {
+        Cartesian3.clone(target, record.displayPosition)
+      }
+
+      // The nose: the true heading where reported, crabbed off the track
+      // it moves along; else the track itself
+      const crab = aircraft.headingDeg !== null && aircraft.trackDeg !== null
+        ? ((aircraft.headingDeg - aircraft.trackDeg + 540) % 360) - 180
+        : 0
+      const targetBearing = (sample.bearingDeg + crab + 360) % 360
+      const bearingGap = ((targetBearing - record.displayBearing + 540) % 360) - 180
+      record.displayBearing =
+        Math.abs(bearingGap) < 0.05
+          ? targetBearing
+          : (record.displayBearing + bearingGap * alpha + 360) % 360
+      // Climb angle out of the vertical rate and the ground speed
+      const gsMps = (sample.gsKn ?? 0) * KNOT_MPS
+      const targetPitch =
+        sample.altM === null || gsMps < 5
+          ? 0
+          : CesiumMath.clamp(
+              CesiumMath.toDegrees(Math.atan2(sample.verticalRateMps ?? 0, gsMps)),
+              -MAX_PITCH_DEG,
+              MAX_PITCH_DEG,
+            )
+      record.displayPitch += (targetPitch - record.displayPitch) * alpha
+      // Bank: the reported roll, or the coordinated turn the turn rate implies
+      const targetRoll =
+        sample.altM === null
+          ? 0
+          : aircraft.rollDeg !== null
+            ? CesiumMath.clamp(aircraft.rollDeg, -MAX_BANK_DEG, MAX_BANK_DEG)
+            : CesiumMath.clamp(
+                CesiumMath.toDegrees(
+                  Math.atan((gsMps * CesiumMath.toRadians(sample.turnRateDegPerS)) / GRAVITY_MPS2),
+                ),
+                -MAX_BANK_DEG,
+                MAX_BANK_DEG,
+              )
+      record.displayRoll += (targetRoll - record.displayRoll) * alpha
+
+      hprScratch.heading = CesiumMath.toRadians(record.displayBearing - 90)
+      hprScratch.pitch = CesiumMath.toRadians(record.displayPitch)
+      hprScratch.roll = CesiumMath.toRadians(record.displayRoll)
+      Transforms.headingPitchRollToFixedFrame(
+        record.displayPosition,
+        hprScratch,
+        undefined,
+        undefined,
+        record.matrix,
+      )
+      if (record.model && record.modelMatrix) {
+        // Model frame after Cesium's glTF mapping: x = travel, y = span, z = up
+        scaleScratch.x = lengthScale
+        scaleScratch.y = spanScale
+        scaleScratch.z = heightScale
+        Matrix4.multiplyByScale(record.matrix, scaleScratch, record.modelMatrix)
+      }
+      record.labelPosition.setValue(record.displayPosition)
+      const distance = Cartesian3.distance(camera.positionWC, record.displayPosition)
+
+      // Which plates are drawn is settled after the loop by the declutter
+      // the ships' names use (see VesselLayer); the loop collects
+      let nameShown = this.visible && this.labelsVisible && !namesAside
+      if (nameShown && distance < LABEL_VISIBLE_RANGE && windowPosition) {
+        const window = windowPosition(record.displayPosition)
+        if (window) {
+          nameCandidates.push({
+            record,
+            distance,
+            x: window.x,
+            y: window.y,
+            halfWidth: (record.labelText.length * NAME_PX_PER_CHAR) / 2 + NAME_PAD_X_PX,
+          })
+          nameShown = record.labelEntity.show === true
+        } else {
+          nameShown = false
+        }
+      }
+      if (record.labelEntity.show !== nameShown) {
+        record.labelEntity.show = nameShown
+        this.host.requestRender()
+      }
+      const showBody = this.visible && distance < BODY_VISIBLE_RANGE
+      if (showBody && distance < nearestBodyMeters) {
+        nearestBodyMeters = distance
+        nearestBodySpanM = size.spanM
+      }
+      const body = record.model ?? record.primitive
+      if (body && body.show !== showBody) {
+        body.show = showBody
+        this.host.requestRender()
+      }
+      // The gear: out near the ground, folded away above it – set on the
+      // glTF node once the model is in, and again only when it changes
+      if (record.model?.ready) {
+        const gearDown =
+          sample.altM === null || height - this.host.defaultGroundHeight < GEAR_DOWN_AGL_M
+        if (record.gearShown !== gearDown) {
+          const node = record.model.getNode(GEAR_NODE)
+          if (node) node.show = gearDown
+          record.gearShown = gearDown
+          if (showBody) this.host.requestRender()
+        }
+      }
+      // The lights, from the clock: steady position lights, the beacons
+      // and strobes flashing on the aircraft's own phase. A flash that
+      // changed since the last tick on an aircraft on screen is a frame.
+      const mode = aircraftLightsMode(sample.altM === null, sample.moving || (sample.gsKn ?? 0) >= 1)
+      let beacon = false
+      let strobe = false
+      if (showBody && mode !== 'off') {
+        const inAir = sample.altM !== null
+        const at = (point: LightPoint) => {
+          lightScratch.x = point.x * lengthScale
+          lightScratch.y = point.y * spanScale
+          lightScratch.z = point.z * heightScale
+          return Matrix4.multiplyByPoint(record.matrix, lightScratch, lightWorldScratch)
+        }
+        const id = `aircraft:${aircraft.hex}`
+        // The position lights are screened – each shows over its own arc,
+        // so the camera chasing from behind sees the tail light and the
+        // strobes, and one ahead the red and the green together
+        Cartesian3.subtract(camera.positionWC, record.displayPosition, toCameraScratch)
+        const forwardDot = axisDot(record.matrix, 0, toCameraScratch)
+        const portDot = axisDot(record.matrix, 1, toCameraScratch)
+        const bearing = viewBearingDeg(forwardDot, portDot)
+        beacon = beaconOn(nowMs, record.lightPhaseMs)
+        strobe = mode === 'flight' && strobeOn(nowMs, record.lightPhaseMs)
+        if (strobe) {
+          lights.add(at(spec.lights.port), LIGHT_WHITE, lightIntensity, id, STROBE_PX, inAir)
+          lights.add(at(spec.lights.starboard), LIGHT_WHITE, lightIntensity, id, STROBE_PX, inAir)
+        } else {
+          if (portLightSeen(bearing, AIRCRAFT_SIDELIGHT_ARC_DEG)) {
+            lights.add(at(spec.lights.port), LIGHT_RED, lightIntensity, id, undefined, inAir)
+          }
+          if (starboardLightSeen(bearing, AIRCRAFT_SIDELIGHT_ARC_DEG)) {
+            lights.add(at(spec.lights.starboard), LIGHT_GREEN, lightIntensity, id, undefined, inAir)
+          }
+        }
+        if (sternLightSeen(bearing, AIRCRAFT_SIDELIGHT_ARC_DEG)) {
+          lights.add(at(spec.lights.tail), LIGHT_WHITE, lightIntensity, id, undefined, inAir)
+        }
+        if (beacon) lights.add(at(spec.lights.beaconTop), LIGHT_RED, lightIntensity, id, undefined, inAir)
+        if (beaconOn(nowMs, record.lightPhaseMs, true)) {
+          lights.add(at(spec.lights.beaconBottom), LIGHT_RED, lightIntensity, id, undefined, inAir)
+        }
+      }
+      if (
+        (beacon !== record.lastBeacon || strobe !== record.lastStrobe) &&
+        this.isOnScreen(cullingVolume, record.displayPosition)
+      ) {
+        this.host.requestRender()
+      }
+      record.lastBeacon = beacon
+      record.lastStrobe = strobe
+      if (record.renderedStamp !== this.renderStamp) {
+        Cartesian3.clone(record.lastPosition, record.renderedPosition)
+        record.renderedBearing = record.lastBearing
+        record.renderedStamp = this.renderStamp
+      }
+      const poseChanged =
+        !Cartesian3.equalsEpsilon(record.displayPosition, record.lastPosition, 0, 0.02) ||
+        Math.abs(record.displayBearing - record.lastBearing) > 0.05
+      // The pacing signal keys on the playback's own "moving", stable
+      // across ticks, with the pose ease riding along (the ships' reasoning)
+      if ((poseChanged || sample.moving) && this.isOnScreen(cullingVolume, record.displayPosition)) {
+        anyMovingAircraftInView = true
+        const halfLength = size.lengthM / 2
+        const swing = (from: number) =>
+          halfLength * CesiumMath.toRadians(Math.abs(((record.displayBearing - from + 540) % 360) - 180))
+        const pxPerMeter = pxPerMeterAtUnit / Math.max(1, distance)
+        const movedMeters = Math.max(
+          Cartesian3.distance(record.displayPosition, record.renderedPosition),
+          swing(record.renderedBearing),
+        )
+        const tickMeters = Math.max(
+          Cartesian3.distance(record.displayPosition, record.lastPosition),
+          swing(record.lastBearing),
+        )
+        const motionPx = movedMeters > 0 ? movedMeters * pxPerMeter : 0
+        const tickPx = tickMeters > 0 ? tickMeters * pxPerMeter : 0
+        if (motionPx > maxScreenMotionPx) maxScreenMotionPx = motionPx
+        if (tickPx > maxTickMotionPx) maxTickMotionPx = tickPx
+        if (motionPx >= motionThreshold) this.host.requestRender()
+      }
+      if (poseChanged) {
+        Cartesian3.clone(record.displayPosition, record.lastPosition)
+        record.lastBearing = record.displayBearing
+      }
+
+      // Chase from the DRAWN pose, along the direction of motion
+      if (aircraft.hex === this.followHex) {
+        const carto = Cartographic.fromCartesian(record.displayPosition)
+        this.followCamera.update({
+          lon: CesiumMath.toDegrees(carto.longitude),
+          lat: CesiumMath.toDegrees(carto.latitude),
+          centerHeight: carto.height + size.heightM / 2,
+          bearingDeg: sample.bearingDeg,
+        })
+      }
+
+      const text = aircraftTitle(aircraft)
+      if (text !== record.labelText && record.labelEntity.label) {
+        record.labelText = text
+        record.labelEntity.label.text = new ConstantProperty(text)
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
+      }
+    }
+
+    // Nearest first, so the closest aircraft keeps its plate in a crowd
+    nameCandidates.sort((a, b) => a.distance - b.distance)
+    const namesVisible = keepNonOverlappingLabels(nameCandidates, NAME_METRICS, obstacles)
+    for (let i = 0; i < nameCandidates.length; i++) {
+      const { record } = nameCandidates[i]
+      if (record.labelEntity.show !== namesVisible[i]) {
+        record.labelEntity.show = namesVisible[i]
+        this.host.requestRender()
+      }
+    }
+
+    for (const [hex, record] of this.aircraft) {
+      if (!alive.has(hex)) {
+        this.repaintIfOnScreen(cullingVolume, record.lastPosition)
+        this.remove(hex)
+      }
+    }
+    lights.commit()
+    this.applyCredit()
+    return {
+      anyMovingAircraftInView,
+      nearestBodyMeters,
+      nearestBodySpanM,
+      maxScreenMotionPx,
+      maxTickMotionPx,
+    }
+  }
+
+  /**
+   * The underground view hides the traffic with the rest of the surface.
+   * Hiding is applied here so the switch acts at once; bringing the
+   * bodies back is left to the next sync, which knows the cutoffs.
+   */
+  setVisible(visible: boolean): void {
+    if (visible === this.visible) return
+    this.visible = visible
+    for (const record of this.aircraft.values()) {
+      if (!visible) {
+        if (record.primitive) record.primitive.show = false
+        if (record.model) record.model.show = false
+      }
+      record.labelEntity.show = visible && this.labelsVisible && !this.namesAside()
+    }
+    this.lights.setVisible(visible)
+    this.host.requestRender()
+  }
+
+  /** Chase leash follows the lens (see CesiumMap.applyLensDistance). */
+  applyLensDistance(factor: number): boolean {
+    return this.followCamera.applyLensDistance(factor)
+  }
+
+  /**
+   * Follow an aircraft by address, or nobody. One not on the map yet
+   * gets no approach flight – the first sync that draws it engages the
+   * chase instead (the ships' behaviour).
+   */
+  setFollow(hex: string | null): void {
+    this.followHex = hex
+    if (hex === null) {
+      this.followCamera.release()
+      return
+    }
+    const record = this.aircraft.get(hex)
+    if (!record) {
+      this.followCamera.engage(null)
+      return
+    }
+    const carto = Cartographic.fromCartesian(record.displayPosition)
+    this.followCamera.engage({
+      lon: CesiumMath.toDegrees(carto.longitude),
+      lat: CesiumMath.toDegrees(carto.latitude),
+      centerHeight: carto.height + record.size.heightM / 2,
+      bearingDeg: record.displayBearing,
+    })
+  }
+
+  hasAircraft(hex: string): boolean {
+    return this.aircraft.has(hex)
+  }
+
+  /**
+   * The picked aircraft lights up, the one before it goes dark (null =
+   * none) – the two marks every picked thing on this map wears (see
+   * VesselLayer.setSelected). Kept by address, so a link restored before
+   * the aircraft was reported lights it up when it arrives.
+   */
+  setSelected(hex: string | null): void {
+    if (hex === this.selectedHex) return
+    const before = this.selectedHex === null ? undefined : this.aircraft.get(this.selectedHex)
+    if (before) {
+      before.highlighted = false
+      this.applyAppearance(before, this.selectedHex as string)
+    }
+    this.selectedHex = hex
+    if (hex !== null) {
+      const record = this.aircraft.get(hex)
+      if (record) {
+        record.highlighted = true
+        this.applyAppearance(record, hex)
+      }
+    }
+    this.host.requestRender()
+  }
+
+  /** Address of the picked aircraft, null when nothing is picked. */
+  get selectedAircraftHex(): string | null {
+    return this.selectedHex
+  }
+
+  private applyAppearance(record: AircraftRecord, hex: string): void {
+    if (record.model) {
+      record.model.colorBlendMode = ColorBlendMode.MIX
+      record.model.color = Color.WHITE
+      record.model.colorBlendAmount = record.highlighted ? HIGHLIGHT_BLEND : 0
+      record.model.silhouetteColor = Color.WHITE
+      record.model.silhouetteSize = record.highlighted ? HIGHLIGHT_SILHOUETTE_PX : 0
+    }
+    if (record.primitive) {
+      try {
+        const attributes = record.primitive.getGeometryInstanceAttributes(`aircraft:${hex}`)
+        if (attributes) {
+          attributes.color = ColorGeometryInstanceAttribute.toValue(
+            this.boxTint(record),
+            attributes.color,
+          )
+        }
+      } catch {
+        // Not rendered yet – the box was built in this colour anyway.
+      }
+    }
+  }
+
+  private boxTint(record: AircraftRecord): Color {
+    return record.highlighted
+      ? Color.lerp(BODY_COLOR, Color.WHITE, HIGHLIGHT_BOX_MIX, new Color())
+      : BODY_COLOR
+  }
+
+  /** Plates off – the traffic's share of the Labels layer toggle. */
+  setLabelsVisible(visible: boolean): void {
+    if (visible === this.labelsVisible) return
+    this.labelsVisible = visible
+    for (const record of this.aircraft.values()) {
+      record.labelEntity.show = this.visible && visible && !this.namesAside()
+    }
+    this.host.requestRender()
+  }
+
+  /**
+   * "Zoom to line": the plates step aside for the route pulse like the
+   * ship names do (VesselLayer.startLineFocus) – no aircraft belongs to
+   * a line, so every plate goes. The bodies stay: a plate is what covers
+   * a route, a body is where the aircraft is. They come back on the
+   * first sync after the focus has run out.
+   */
+  startLineFocus(durationMs: number): void {
+    this.lineFocusUntil = performance.now() + durationMs
+    for (const record of this.aircraft.values()) record.labelEntity.show = false
+    this.host.requestRender()
+  }
+
+  private namesAside(): boolean {
+    return performance.now() < this.lineFocusUntil
+  }
+
+  get count(): number {
+    return this.aircraft.size
+  }
+
+  /** Address of the aircraft the camera is chasing, null when free. */
+  get followedHex(): string | null {
+    return this.followHex
+  }
+
+  private createAircraft(aircraft: Aircraft, size: AircraftSize, nowMs: number): AircraftRecord {
+    const sample = aircraftPlaybackSample(aircraft, nowMs - AIRCRAFT_PLAYBACK_DELAY_MS)
+    const height =
+      sample.altM === null
+        ? this.host.defaultGroundHeight + size.heightM / 2
+        : aircraft.altGeomM !== null
+          ? sample.altM
+          : sample.altM + this.host.geoidHeight
+    const position = Cartesian3.fromDegrees(sample.lon, sample.lat, height)
+    const matrix = Transforms.headingPitchRollToFixedFrame(
+      position,
+      new HeadingPitchRoll(CesiumMath.toRadians(sample.bearingDeg - 90), 0, 0),
+    )
+    const highlighted = this.selectedHex === aircraft.hex
+    const color = highlighted
+      ? Color.lerp(BODY_COLOR, Color.WHITE, HIGHLIGHT_BOX_MIX, new Color())
+      : BODY_COLOR
+    const primitive = new Primitive({
+      geometryInstances: new GeometryInstance({
+        geometry: BoxGeometry.fromDimensions({
+          vertexFormat: PerInstanceColorAppearance.VERTEX_FORMAT,
+          dimensions: new Cartesian3(size.lengthM, size.spanM, size.heightM),
+        }),
+        attributes: { color: ColorGeometryInstanceAttribute.fromColor(color) },
+        id: `aircraft:${aircraft.hex}`,
+      }),
+      appearance: new PerInstanceColorAppearance({ closed: true, translucent: false }),
+      asynchronous: false,
+      modelMatrix: matrix,
+    })
+    primitive.show = this.visible
+    this.viewer.scene.primitives.add(primitive)
+
+    const labelPosition = new ConstantPositionProperty(position)
+    const labelText = aircraftTitle(aircraft)
+    const labelEntity = this.viewer.entities.add({
+      id: `aircraft:${aircraft.hex}`,
+      position: labelPosition,
+      show: this.visible && this.labelsVisible && !this.namesAside(),
+      label: {
+        text: labelText,
+        font: 'bold 10px "Inter Variable", system-ui, sans-serif',
+        fillColor: NAME_INK,
+        style: LabelStyle.FILL,
+        showBackground: true,
+        backgroundColor: NAME_PLATE,
+        backgroundPadding: new Cartesian2(NAME_PAD_X_PX, 5),
+        pixelOffset: new Cartesian2(0, NAME_PIXEL_OFFSET_Y),
+        distanceDisplayCondition: new DistanceDisplayCondition(0, LABEL_VISIBLE_RANGE),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    })
+
+    const record: AircraftRecord = {
+      size,
+      highlighted,
+      // Primitive CLONES the modelMatrix passed in – reference its own
+      // instance so the in-place updates in sync() actually move the box
+      primitive,
+      model: null,
+      modelMatrix: null,
+      matrix: primitive.modelMatrix,
+      labelEntity,
+      labelPosition,
+      labelText,
+      displayPosition: Cartesian3.clone(position),
+      displayBearing: sample.bearingDeg,
+      displayPitch: 0,
+      displayRoll: 0,
+      lastPosition: Cartesian3.clone(position),
+      lastBearing: sample.bearingDeg,
+      renderedPosition: Cartesian3.clone(position),
+      renderedBearing: sample.bearingDeg,
+      renderedStamp: this.renderStamp,
+      clampedHeight: null,
+      clampLon: sample.lon,
+      clampLat: sample.lat,
+      clampedGeneration: -1,
+      lightPhaseMs: lightPhaseMs(aircraft.hex),
+      lastBeacon: false,
+      lastStrobe: false,
+      gearShown: null,
+    }
+    void this.attachModel(record, aircraft.hex)
+    return record
+  }
+
+  /** Swaps the placeholder box for the archetype's glTF body once it is in; a failed load keeps the box. */
+  private async attachModel(record: AircraftRecord, hex: string): Promise<void> {
+    const spec = AIRCRAFT_MODELS[record.size.archetype]
+    let model: Model
+    try {
+      model = await Model.fromGltfAsync({
+        url: `${import.meta.env.BASE_URL}${spec.uri}`,
+        id: `aircraft:${hex}`,
+        modelMatrix: Matrix4.clone(record.matrix),
+        // Casts onto the tiles, receives nothing – the land fleet's reasoning
+        shadows: ShadowMode.CAST_ONLY,
+      })
+    } catch (error) {
+      console.warn('[MiniGermany3D] Aircraft model failed to load:', error)
+      return
+    }
+    if (this.viewer.isDestroyed() || this.aircraft.get(hex) !== record) {
+      model.destroy()
+      return
+    }
+    model.show =
+      this.visible &&
+      Cartesian3.distance(this.viewer.camera.positionWC, record.displayPosition) < BODY_VISIBLE_RANGE
+    this.viewer.scene.primitives.add(model)
+    if (record.primitive) {
+      this.viewer.scene.primitives.remove(record.primitive)
+      record.primitive = null
+    }
+    record.model = model
+    this.applyAppearance(record, hex)
+    this.clampExclusionsStale = true
+    record.modelMatrix = model.modelMatrix
+    this.host.requestRender()
+  }
+
+  private remove(hex: string): void {
+    const record = this.aircraft.get(hex)
+    if (!record) return
+    if (record.primitive) this.viewer.scene.primitives.remove(record.primitive)
+    if (record.model) this.viewer.scene.primitives.remove(record.model)
+    this.viewer.entities.remove(record.labelEntity)
+    this.aircraft.delete(hex)
+    this.clampExclusionsStale = true
+  }
+
+  /** Everything a clamp pick has to look past: the bodies, their boxes, the plates and the lights. */
+  private clampExclusions(): object[] {
+    if (this.clampExclusionsStale) {
+      this.clampExclusionList.length = 0
+      this.clampExclusionList.push(this.lights.primitive)
+      for (const r of this.aircraft.values()) {
+        if (r.model) this.clampExclusionList.push(r.model)
+        if (r.primitive) this.clampExclusionList.push(r.primitive)
+        this.clampExclusionList.push(r.labelEntity)
+      }
+      this.clampExclusionsStale = false
+    }
+    return this.clampExclusionList
+  }
+
+  /** The line adsb.fi's terms ask for, shown while any aircraft is on the map. */
+  private applyCredit(): void {
+    const display = this.viewer.creditDisplay
+    if (!display) return
+    const wanted = this.aircraft.size > 0
+    if (wanted && !this.credit) {
+      this.credit = new Credit(
+        '<a href="https://adsb.fi" target="_blank" rel="noopener">Aircraft: adsb.fi</a>',
+        true,
+      )
+      display.addStaticCredit(this.credit)
+    } else if (!wanted && this.credit) {
+      display.removeStaticCredit(this.credit)
+      this.credit = null
+    }
+  }
+}
