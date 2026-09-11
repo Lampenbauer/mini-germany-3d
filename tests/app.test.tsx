@@ -311,6 +311,21 @@ describe('App (UI shell)', () => {
     await waitFor(() => expect(screen.getAllByText(title)).toHaveLength(1))
   })
 
+  it('fades the rail out after ten seconds without a move, and back on the first one', async () => {
+    vi.useFakeTimers()
+    render(<App />)
+    const rail = screen.getByTestId('map-rail')
+    expect(rail).not.toHaveClass('opacity-0')
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(rail).not.toHaveClass('opacity-0')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(rail).toHaveClass('opacity-0')
+    // The focus inside keeps it readable for a keyboard whatever the pointer does
+    expect(rail).toHaveClass('focus-within:opacity-100')
+    fireEvent.pointerMove(window)
+    expect(rail).not.toHaveClass('opacity-0')
+  })
+
   it('pause button toggles between pause and resume', () => {
     render(<App />)
     const pauseBtn = screen.getByRole('button', { name: 'Pause simulation' })

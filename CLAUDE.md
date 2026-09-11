@@ -374,7 +374,15 @@ the panel on 2026-09-08 for exactly that reason; do not move map switches back
 into it. All three boxes are built the same way (`RAIL_BOX` + `GROUPED_CONTROL`
 in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
 narrower than the group above it, because the group's border sits outside its
-buttons.
+buttons. Since 2026-09-12 the rail fades out once the pointer has rested
+`RAIL_IDLE_MS` (10 s) – a slow fade, a quick return on the first movement,
+press, wheel or key ([src/lib/pointer-idle.ts](src/lib/pointer-idle.ts),
+`watchPointerIdle` on the window, `railIdle` in App.tsx) – and keeps
+`focus-within:opacity-100` for a reader stepping through it by keyboard.
+Never where `(hover: none)` holds: a finger between touches is always at
+rest, and the rail would fade into every visit for good. The boxes stay
+in the layout and clickable while faded; the pointer that reaches them
+has moved, so they are back before it arrives.
 
 **Four kinds of name on the map, and they must not converge.** A vehicle
 wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),

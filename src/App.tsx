@@ -69,6 +69,7 @@ import {
 } from '@/lib/render-profile'
 import { formatSitePath, parseSitePath } from '@/lib/site-path'
 import { narrowViewport } from '@/lib/viewport'
+import { hoverUnavailable, watchPointerIdle } from '@/lib/pointer-idle'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
 import { FUTURE_NOTICE_DURATION_MS, FutureNotice } from '@/lib/future-notice'
@@ -445,6 +446,13 @@ const NO_LINES: ReadonlySet<string> = new Set()
  * polylines to compile (see mapWarmupRef).
  */
 const LINEAR_MAP_WARMUP_FRAMES = 120
+
+/**
+ * How long the pointer has to rest before the rail at the lower right –
+ * the layers, the camera's block, the About button – fades out (see
+ * lib/pointer-idle.ts). Any movement brings it back.
+ */
+const RAIL_IDLE_MS = 10_000
 
 /** How long a shared vehicle (#vehicle=…) is waited for before the link is given up on. */
 const SHARED_VEHICLE_TIMEOUT_MS = 20_000
@@ -904,6 +912,16 @@ export default function App() {
   const [showAircraft, setShowAircraft] = useState(urlOpts.aircraft)
   /** H: the whole interface out of the way (see the effect below). */
   const [uiHidden, setUiHidden] = useState(false)
+  /**
+   * The pointer has rested for RAIL_IDLE_MS: the rail fades. Never on a
+   * device that cannot hover – there a finger between touches is always
+   * at rest, and the rail would fade into every visit for good.
+   */
+  const [railIdle, setRailIdle] = useState(false)
+  useEffect(() => {
+    if (hoverUnavailable()) return
+    return watchPointerIdle(window, RAIL_IDLE_MS, setRailIdle)
+  }, [])
   /** The About dialog (press ?, or the button under the map controls). */
   const [aboutOpen, setAboutOpen] = useState(false)
   /** Cesium's credits, opened from the "Data attribution" link it draws. */
@@ -4041,7 +4059,17 @@ export default function App() {
         {/* On a phone the column stands at the top instead, clear of the
             sheet at the foot; the boxes close up a little so the three of
             them end above where the sheet opens to. */}
-        <div className="pointer-events-none absolute bottom-8 right-4 z-10 flex flex-col items-end gap-3 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto max-sm:gap-2">
+        {/* Faded out once the pointer has rested a while (railIdle): the
+            boxes are not what a hand at rest is looking at. The fade is
+            slow, the way back on the first movement quick; the focus
+            inside keeps it, for a reader stepping through by keyboard. */}
+        <div
+          data-testid="map-rail"
+          className={cn(
+            'pointer-events-none absolute right-4 bottom-8 z-10 flex flex-col items-end gap-3 transition-opacity duration-150 focus-within:opacity-100 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto max-sm:gap-2',
+            railIdle && 'opacity-0 duration-1000',
+          )}
+        >
           {/* What is drawn on the map, above the block that aims the camera
               at it: routes, stops, the names, the webcams. Its own button
               rather than a fifth in the group below – that group is the
