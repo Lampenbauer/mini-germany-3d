@@ -43,13 +43,13 @@ test('the underground view stops the rain', async () => {
   await page.evaluate(() => window.__mg3d!.setRain(0.2))
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
 
-  await page.getByRole('tab', { name: 'Underground' }).click()
+  await page.getByRole('radio', { name: 'Underground' }).click()
   // No drops falling around a camera that is below ground
   await expect.poll(drops, slowPoll).toBe(0)
 
   // Dry before leaving again, so the second click lands on an idle scene
   await page.evaluate(() => window.__mg3d!.setRain(0))
-  await page.getByRole('tab', { name: 'Surface' }).click()
+  await page.getByRole('radio', { name: 'Surface' }).click()
 
   // The gate opens both ways: rain set on the surface shows up again
   await page.evaluate(() => window.__mg3d!.setRain(0.2))

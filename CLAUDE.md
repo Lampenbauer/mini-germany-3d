@@ -255,6 +255,20 @@ clearing the popover's button does, seconds and pace kept): they are
 poses over the city that is leaving. A link's path is safe, the cleanup
 runs only when a session ends; `tests/app.test.tsx` pins both.
 
+**The three readings at the foot of the map are a radio group, not
+tabs.** They were Radix `Tabs` until 2026-09-11, for the look and the
+keyboard, but a tab controls a panel and these swap what the whole map
+shows – every trigger carried an `aria-controls` pointing at a panel
+that never existed, which an accessibility audit flagged. They are a
+`SegmentedControl` now ([src/components/ui/segmented-control.tsx](src/components/ui/segmented-control.tsx),
+Radix `ToggleGroup type="single"`: `role="radiogroup"`, items
+`role="radio"` with `aria-checked`) wearing the tabs list's exact
+classes – a before/after screenshot was byte-identical, hover included –
+and Radix's roving focus keeps the keys (arrows move the focus, Enter
+picks). Pressing the chosen reading again is swallowed by the root;
+there is always one. Tests and specs address them as
+`getByRole('radio', …)` inside `getByRole('radiogroup', { name: 'View' })`.
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,

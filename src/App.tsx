@@ -18,7 +18,7 @@ import { LineCard } from '@/components/LineCard'
 import { VehicleCard } from '@/components/VehicleCard'
 import { VesselCard } from '@/components/VesselCard'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { config } from '@/config'
 import { cn } from '@/lib/utils'
@@ -3598,21 +3598,29 @@ export default function App() {
             the camera – it replaces what the camera looks at, so it does
             not belong in the column of camera buttons at the right.
             bottom-8 clears the Cesium attribution line at the lower edge. */}
-        <Tabs
-          value={mapView}
-          onValueChange={(value) => selectView(value as MapView)}
-          // Arrow keys move the focus, Enter picks. Radix activates on
-          // focus by default, and arrowing across this group would fly
-          // the camera twice on the way to the tab actually wanted.
-          activationMode="manual"
-          // On a phone the foot of the screen is the sheet's, so the
-          // readings go to the top, between the weather and the rail.
-          className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto"
-        >
-          <TabsList aria-label={t('view.readings')} className="pointer-events-auto">
+        {/* One reading of three, a radio group by role (see
+            ui/segmented-control.tsx): it was tabs until 2026-09-11, and
+            a tab controls a panel these never had. The arrow keys move
+            the focus and Enter picks, as before – Radix's roving focus,
+            with no activation on focus, so arrowing across the group
+            does not fly the camera twice on the way to the reading
+            actually wanted. On a phone the foot of the screen is the
+            sheet's, so the readings go to the top, between the weather
+            and the rail. */}
+        <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 flex flex-col -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto">
+          <SegmentedControl
+            value={mapView}
+            onValueChange={(value) => selectView(value as MapView)}
+            aria-label={t('view.readings')}
+            className="pointer-events-auto"
+          >
             {VIEW_TABS.map(({ value, labelKey, Icon }) => (
               // The diagram stays a desktop reading (see lib/viewport.ts)
-              <TabsTrigger key={value} value={value} className={cn(value === 'linear' && 'max-sm:hidden')}>
+              <SegmentedControlItem
+                key={value}
+                value={value}
+                className={cn(value === 'linear' && 'max-sm:hidden')}
+              >
                 <Icon aria-hidden />
                 {/* Named at every width, spelled out only where the three
                     of them fit beside the panel. Centred at the foot of the
@@ -3620,12 +3628,12 @@ export default function App() {
                     the panel's 336 from about 1080px up; 1120 leaves a gap
                     rather than a graze, and it is a width Tailwind has no
                     name for. sr-only rather than hidden, so the label stays
-                    the tab's own accessible name at every width. */}
+                    the button's own accessible name at every width. */}
                 <span className="sr-only min-[1120px]:not-sr-only">{t(labelKey)}</span>
-              </TabsTrigger>
+              </SegmentedControlItem>
             ))}
-          </TabsList>
-        </Tabs>
+          </SegmentedControl>
+        </div>
 
         {/* Map controls at the lower right: the four that only ever aim
             the camera or the window, joined into one block – compass,

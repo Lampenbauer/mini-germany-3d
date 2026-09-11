@@ -3,10 +3,11 @@ import * as TabsPrimitive from '@radix-ui/react-tabs'
 import { cn } from '@/lib/utils'
 
 /**
- * shadcn-style tabs on Radix. The map's view switch is the only user so
- * far, and it wears icons rather than words – hence the square triggers
- * and no assumption about text width. Content panels are unused there:
- * what a tab selects is the whole map, not a box below the list.
+ * shadcn-style tabs on Radix, as the About dialog wears them. The map's
+ * view switch wore them too until 2026-09-11 – hence the square triggers
+ * and no assumption about text width – but it had no panels for its tabs
+ * to control and is a segmented control now (segmented-control.tsx),
+ * which keeps this look.
  */
 function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Root>) {
   return (

@@ -659,15 +659,23 @@ describe('App (UI shell)', () => {
     // The third reading, the diagram, is a morph with a camera flight in
     // front of it and belongs to the E2E suite (e2e/linear-view.spec.ts).
     render(<App />)
-    const tab = (name: string) => screen.getByRole('tab', { name })
-    expect(tab('Surface')).toHaveAttribute('data-state', 'active')
+    // The readings are one choice of three – a radio group, not tabs
+    // (a tab controls a panel these never had; see ui/segmented-control.tsx)
+    const reading = (name: string) =>
+      within(screen.getByRole('radiogroup', { name: 'View' })).getByRole('radio', { name })
+    expect(reading('Surface')).toHaveAttribute('aria-checked', 'true')
+    expect(reading('Surface')).not.toHaveAttribute('aria-controls')
     fireEvent.keyDown(window, { key: 'u', code: 'KeyU' })
-    expect(tab('Underground')).toHaveAttribute('data-state', 'active')
+    expect(reading('Underground')).toHaveAttribute('aria-checked', 'true')
+    expect(reading('Surface')).toHaveAttribute('aria-checked', 'false')
     fireEvent.keyDown(window, { key: 's', code: 'KeyS' })
-    expect(tab('Surface')).toHaveAttribute('data-state', 'active')
+    expect(reading('Surface')).toHaveAttribute('aria-checked', 'true')
     // Upper case counts too, for whoever has caps lock on
     fireEvent.keyDown(window, { key: 'U', code: 'KeyU' })
-    expect(tab('Underground')).toHaveAttribute('data-state', 'active')
+    expect(reading('Underground')).toHaveAttribute('aria-checked', 'true')
+    // Pressing the chosen reading again leaves it chosen – there is always one
+    fireEvent.click(reading('Underground'))
+    expect(reading('Underground')).toHaveAttribute('aria-checked', 'true')
   })
 
   it('tells what the map is, and is not, on the button below the controls', async () => {

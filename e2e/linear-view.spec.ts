@@ -83,7 +83,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   const diagram = page.getByTestId('linear-view')
   await expect(diagram).toBeHidden()
 
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await page.getByRole('radio', { name: 'Line diagram' }).click()
 
   // The camera climbs straight above the middle of the drawn network
   await expect
@@ -128,13 +128,13 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   await expect(page.getByTestId('vehicle-card')).toBeVisible()
 
   // The camera controls went with the map – the diagram has no camera to
-  // aim – but the tabs stay: a view you cannot leave by is not a tab.
+  // aim – but the readings stay: a view you cannot leave is no view.
   await expect(page.getByRole('button', { name: 'Reset camera' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'Line diagram' })).toHaveAttribute(
-    'aria-selected',
+  await expect(page.getByRole('radio', { name: 'Line diagram' })).toHaveAttribute(
+    'aria-checked',
     'true',
   )
-  await expect(page.getByRole('tab', { name: 'Underground' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Underground' })).toBeVisible()
 
   // The URL carries the view, so the diagram can be shared
   expect(await page.evaluate(() => window.location.hash)).toContain('view=linear')
@@ -142,7 +142,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   // Back to the map: the globe returns, the diagram gets out of the way,
   // and the camera flies home – the plan view is a working position, not
   // a place to be put down in.
-  await page.getByRole('tab', { name: 'Surface' }).click()
+  await page.getByRole('radio', { name: 'Surface' }).click()
   await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 10_000 }).toBe(false)
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
   await expect(diagram).toBeHidden({ timeout: 10_000 })
@@ -219,7 +219,7 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 
   // Into the diagram
   await watch()
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await page.getByRole('radio', { name: 'Line diagram' }).click()
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,
   })
@@ -236,7 +236,7 @@ test('the map lets go of the network for exactly as long as the diagram holds it
 
   // Back to the map, same claim in reverse
   await watch()
-  await page.getByRole('tab', { name: 'Surface' }).click()
+  await page.getByRole('radio', { name: 'Surface' }).click()
   await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 30_000 })
   const goingOut = await recordShowing((f) => !f.diagramShown && f.drawnByMap > 0)
   expect(goingOut.some((f) => f.diagramShown)).toBe(true)
@@ -275,7 +275,7 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
   // The underground view moves no camera of its own, so nothing but the
   // press itself can put it in the URL.
   await page.keyboard.press('u')
-  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute('data-state', 'active', {
+  await expect(page.getByRole('radio', { name: 'Underground' })).toHaveAttribute('data-state', 'on', {
     timeout: 30_000,
   })
   await expect.poll(hash, { timeout: 10_000 }).toContain('view=underground')
@@ -289,15 +289,15 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
   // ... and the surface writes nothing at all
   await page.keyboard.press('s')
   await expect.poll(linear, { timeout: 60_000 }).toBe(false)
-  await expect(page.getByRole('tab', { name: 'Surface' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('radio', { name: 'Surface' })).toHaveAttribute('data-state', 'on')
   await expect.poll(hash, { timeout: 30_000 }).not.toContain('view=')
 
   // An edited hash applies without a reload, like every other switch
   await page.evaluate(() => {
     window.location.hash = '#stops=0&labels=0&view=underground'
   })
-  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
-    'aria-selected',
+  await expect(page.getByRole('radio', { name: 'Underground' })).toHaveAttribute(
+    'aria-checked',
     'true',
     { timeout: 30_000 },
   )
@@ -312,8 +312,8 @@ test('a shared link opens on the reading it names', async ({ page }) => {
 
   await page.goto(`/?offline=1&welcome=0&time=08:30#stops=0&labels=0&view=underground`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
-  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
-    'aria-selected',
+  await expect(page.getByRole('radio', { name: 'Underground' })).toHaveAttribute(
+    'aria-checked',
     'true',
     { timeout: 30_000 },
   )
@@ -331,18 +331,18 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
   await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await page.getByRole('radio', { name: 'Line diagram' }).click()
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,
   })
 
-  await page.getByRole('tab', { name: 'Underground' }).click()
+  await page.getByRole('radio', { name: 'Underground' }).click()
 
   // The diagram is down, the map is back, and the map is the underground one
   await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 20_000 }).toBe(false)
   await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 20_000 })
-  await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
-    'aria-selected',
+  await expect(page.getByRole('radio', { name: 'Underground' })).toHaveAttribute(
+    'aria-checked',
     'true',
   )
   expect(await page.evaluate(() => window.location.hash)).toContain('view=underground')
@@ -358,9 +358,9 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
   expect(landed.lon).toBeCloseTo(CITY.home.longitude, 1)
 
   // ... and back up the other way, without passing through the diagram
-  await page.getByRole('tab', { name: 'Surface' }).click()
-  await expect(page.getByRole('tab', { name: 'Surface' })).toHaveAttribute(
-    'aria-selected',
+  await page.getByRole('radio', { name: 'Surface' }).click()
+  await expect(page.getByRole('radio', { name: 'Surface' })).toHaveAttribute(
+    'aria-checked',
     'true',
   )
 })
@@ -383,7 +383,7 @@ test('following a vehicle from the diagram brings the map back', async ({ page }
     .poll(() => page.evaluate(() => window.__mg3d!.vehicleCount()), { timeout: 30_000 })
     .toBeGreaterThan(0)
 
-  await page.getByRole('tab', { name: 'Line diagram' }).click()
+  await page.getByRole('radio', { name: 'Line diagram' }).click()
   const diagram = page.getByTestId('linear-view')
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
     timeout: 30_000,

@@ -47,9 +47,9 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   const railBox = (await rail.boundingBox())!
   expect(railBox.y).toBeLessThan(100)
   expect(railBox.x + railBox.width).toBeLessThanOrEqual(393)
-  const tabs = page.getByRole('tablist', { name: 'View' })
+  const tabs = page.getByRole('radiogroup', { name: 'View' })
   expect((await tabs.boundingBox())!.y).toBeLessThan(100)
-  await expect(page.getByRole('tab', { name: 'Line diagram' })).toBeHidden()
+  await expect(page.getByRole('radio', { name: 'Line diagram' })).toBeHidden()
   await expect(page.getByRole('button', { name: 'Photo mode' })).toBeHidden()
   await expect(page.getByRole('button', { name: 'Full screen' })).toBeHidden()
   await expect(page.getByRole('button', { name: /^Face (north|east|south|west)$/ })).toBeVisible()

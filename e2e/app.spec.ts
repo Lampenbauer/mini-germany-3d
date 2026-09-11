@@ -225,13 +225,13 @@ test('a vehicle body is ghosted in a tunnel, solid past the portal, and the unde
   await setSimulationTime(transition!.tunnelTime)
   await expect.poll(opacity(true), { timeout: 30_000 }).toBeCloseTo(0.2)
 
-  const underground = page.getByRole('tab', { name: 'Underground' })
+  const underground = page.getByRole('radio', { name: 'Underground' })
   await underground.click()
-  await expect(underground).toHaveAttribute('aria-selected', 'true')
+  await expect(underground).toHaveAttribute('aria-checked', 'true')
   await expect.poll(opacity(true), { timeout: 30_000 }).toBeCloseTo(1)
 
-  await page.getByRole('tab', { name: 'Surface' }).click()
-  await expect(underground).toHaveAttribute('aria-selected', 'false')
+  await page.getByRole('radio', { name: 'Surface' }).click()
+  await expect(underground).toHaveAttribute('aria-checked', 'false')
   await expect.poll(opacity(true), { timeout: 30_000 }).toBeCloseTo(0.2)
 
   // Past the portal the body is solid again
