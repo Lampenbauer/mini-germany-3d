@@ -7,6 +7,7 @@ import {
   parseTimeOfDay,
   SimClock,
 } from '@/lib/clock'
+import { CLOCK_AHEAD_MS, FUTURE_NOTICE_COOLDOWN_MS, FutureNotice, clockAhead } from '@/lib/future-notice'
 
 describe('berlinEpoch / SimClock.setDate', () => {
   it('lands on the requested day and second in Berlin, in winter and in summer', () => {
@@ -124,5 +125,48 @@ describe('SimClock', () => {
     fast.resetToRealTime()
     vi.advanceTimersByTime(1000)
     expect(fast.now() - Date.now()).toBeCloseTo(59_000, -3)
+  })
+})
+
+describe('FutureNotice (the toast for a clock moved past the present)', () => {
+  const T0 = Date.UTC(2026, 8, 11, 10, 0, 0)
+
+  it('the future begins where the replay edge ends, mirrored', () => {
+    expect(clockAhead(T0, T0)).toBe(false)
+    expect(clockAhead(T0 + CLOCK_AHEAD_MS, T0)).toBe(false)
+    expect(clockAhead(T0 + CLOCK_AHEAD_MS + 1, T0)).toBe(true)
+    expect(clockAhead(T0 - 3_600_000, T0)).toBe(false)
+  })
+
+  it('says it once as the clock crosses into the future, not while it stays there', () => {
+    const notice = new FutureNotice()
+    expect(notice.update(T0, T0)).toBe(false)
+    expect(notice.update(T0 + 3_600_000, T0 + 250)).toBe(true)
+    // Still ahead on the next ticks: nothing new
+    expect(notice.update(T0 + 3_600_500, T0 + 500)).toBe(false)
+    expect(notice.update(T0 + 7_200_000, T0 + 750)).toBe(false)
+  })
+
+  it('a second crossing goes without a notice until the cooldown is over', () => {
+    const notice = new FutureNotice()
+    notice.update(T0, T0)
+    expect(notice.update(T0 + 3_600_000, T0)).toBe(true)
+    // Back to the present ("Now"), and ahead again a minute later
+    expect(notice.update(T0 + 60_000, T0 + 60_000)).toBe(false)
+    expect(notice.update(T0 + 3_600_000, T0 + 61_000)).toBe(false)
+    // Back again, and ahead once the cooldown has run – measured on the
+    // real clock from the last notice shown, not from the swallowed one
+    const later = T0 + FUTURE_NOTICE_COOLDOWN_MS
+    expect(notice.update(later - 1000, later - 1000)).toBe(false)
+    expect(notice.update(later + 3_600_000, later)).toBe(true)
+  })
+
+  it('a clock that opens in the future is the starting point, not a move', () => {
+    const notice = new FutureNotice()
+    expect(notice.update(T0 + 3_600_000, T0)).toBe(false)
+    expect(notice.update(T0 + 3_600_250, T0 + 250)).toBe(false)
+    // Back to the present and ahead again is the first move
+    expect(notice.update(T0 + 500, T0 + 500)).toBe(false)
+    expect(notice.update(T0 + 3_600_000, T0 + 750)).toBe(true)
   })
 })

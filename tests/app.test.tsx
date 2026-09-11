@@ -102,6 +102,11 @@ vi.mock('@/map/CesiumMap', () => {
     getRenderHints() {
       return { interacting: false, tilesLoading: false }
     }
+    // The tick interval is worked out from this; without it the loop's
+    // arithmetic came out NaN and the simulation never ticked in here
+    get motionThresholdCssPx() {
+      return 0.5
+    }
     consumeRenderRequest() {
       return false
     }
@@ -269,6 +274,41 @@ describe('App (UI shell)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     const drift = Math.abs(window.__mg3d!.secondsOfDay() - berlinSecondsOfDay(Date.now()))
     expect(drift).toBeLessThan(5)
+  })
+
+  it('a clock moved past the present says once that ships and aircraft stay in real time', async () => {
+    // The real clock alone is faked, so the loop's rAF and the UI tick
+    // run as they do – Date.now() is what the notice's cooldown reads
+    vi.useFakeTimers({ toFake: ['Date'] })
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    const title = 'Ships and aircraft stay in real time'
+    expect(screen.queryByText(title)).not.toBeInTheDocument()
+    // The first UI tick sets the notice's baseline – wait for the clock to show
+    await waitFor(() => expect(screen.getByTestId('sim-clock')).not.toHaveTextContent('--:--:--'))
+    // A day ahead by the calendar (the same day's time field could wrap
+    // into the past near midnight)
+    const tomorrow = berlinDateKey(Date.now() + 86_400_000)
+    window.__mg3d!.setDate(tomorrow)
+    await waitFor(() => expect(screen.getAllByText(title)).toHaveLength(1))
+    expect(
+      screen.getByText(/Ships and aircraft cannot be shown in the future/),
+    ).toBeInTheDocument()
+    // Back to the present and ahead again: nothing new within the cooldown
+    fireEvent.click(screen.getByRole('button', { name: 'Now' }))
+    window.__mg3d!.setDate(tomorrow)
+    await waitFor(() => expect(window.__mg3d!.dateKey()).toBe(tomorrow))
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(screen.getAllByText(title)).toHaveLength(1)
+    // Fifteen minutes on, the next move says it again
+    fireEvent.click(screen.getByRole('button', { name: 'Now' }))
+    vi.setSystemTime(Date.now() + 15 * 60_000)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    window.__mg3d!.setDate(berlinDateKey(Date.now() + 86_400_000))
+    await waitFor(() => expect(screen.getAllByText(title)).toHaveLength(2))
+    // Each notice carries its own X, and it takes only that one away
+    fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss the notice' })[0])
+    await waitFor(() => expect(screen.getAllByText(title)).toHaveLength(1))
   })
 
   it('pause button toggles between pause and resume', () => {

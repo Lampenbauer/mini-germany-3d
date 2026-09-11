@@ -309,6 +309,27 @@ picks). Pressing the chosen reading again is swallowed by the root;
 there is always one. Tests and specs address them as
 `getByRole('radio', …)` inside `getByRole('radiogroup', { name: 'View' })`.
 
+**A clock moved past the present says so once, in a toast.** The ships
+and the aircraft are live and cannot be shown in the future, so a clock
+set ahead leaves them in real time under a timetable that has run on
+(the panel's help says it too). Since 2026-09-11 the first crossing in a
+session puts a Sonner info toast at the top centre
+([src/components/ui/sonner.tsx](src/components/ui/sonner.tsx), shadcn's
+wrapper minus next-themes – the app has one theme), and the rule is pure
+in [src/lib/future-notice.ts](src/lib/future-notice.ts), fed by the
+loop's UI tick: the future begins where the replay edge ends
+(`CLOCK_AHEAD_MS` = `REPLAY_EDGE_MS`, a minute), so the time field, the
+calendar and a time-lapse that runs on all count the same way; a
+crossing within `FUTURE_NOTICE_COOLDOWN_MS` (15 min, on the real clock
+from the last toast shown) of the last is swallowed for good, and the
+boot's clock is the baseline, not a move – a link with `?time=` ahead,
+which every e2e spec is at times of day, opens without one. The Toaster
+sits inside the `ui-overlay` wrapper so H takes a notice away with the
+rest. `tests/clock.test.ts` pins the rule, `tests/app.test.tsx` the toast
+– that test is also what made the App tests' map double grow
+`motionThresholdCssPx`: without it the tick interval was NaN and the
+simulation had never ticked in jsdom.
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,

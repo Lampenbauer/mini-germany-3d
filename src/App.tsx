@@ -20,7 +20,9 @@ import { VesselCard } from '@/components/VesselCard'
 import { AircraftCard } from '@/components/AircraftCard'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
+import { Toaster } from '@/components/ui/sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { toast } from 'sonner'
 import { config } from '@/config'
 import { cn } from '@/lib/utils'
 import {
@@ -68,6 +70,7 @@ import { formatSitePath, parseSitePath } from '@/lib/site-path'
 import { narrowViewport } from '@/lib/viewport'
 import { cityApiUrl } from '@/lib/city-api'
 import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { FUTURE_NOTICE_DURATION_MS, FutureNotice } from '@/lib/future-notice'
 import { isInTunnel } from '@/lib/tunnels'
 import {
   fullscreenElement,
@@ -1285,6 +1288,9 @@ export default function App() {
     const startPaused = urlOpts.paused || uiState.paused
     const clock = new SimClock(Date.now(), urlOpts.speed)
     clockRef.current = clock
+    // The notice for a clock moved past the present (lib/future-notice.ts);
+    // the UI tick asks it, once a session like the clock itself
+    const futureNotice = new FutureNotice()
     if (urlOpts.timeSec !== null) clock.setSecondsOfDay(urlOpts.timeSec)
     if (startPaused) clock.setPaused(true)
     setSpeed(urlOpts.speed)
@@ -1935,6 +1941,16 @@ export default function App() {
             if (now - lastUiUpdate > 250) {
               lastUiUpdate = now
               setClockText(clock.formatted())
+              // A clock moved past the present – by the time field, the
+              // calendar or a time-lapse that ran on – leaves the ships
+              // and the aircraft in real time (see aisReplaying above);
+              // said once as it happens, and not again for a while
+              if (futureNotice.update(simMs, Date.now())) {
+                toast.info(t('sim.aheadNotice'), {
+                  description: t('sim.aheadNoticeDetail'),
+                  duration: FUTURE_NOTICE_DURATION_MS,
+                })
+              }
               // A replayed ship's card follows the recording the way a live
               // one follows the polls: her fix as of the simulated moment,
               // and closed once the recording has no fix for her there –
@@ -3731,6 +3747,10 @@ export default function App() {
       />
 
       <div className={cn('contents', interfaceHidden && 'hidden')} data-testid="ui-overlay">
+        {/* The notices (sonner): top centre, over the map's middle, where
+            neither the panel nor the rail stands. Inside the wrapper so H
+            takes a notice away with the rest of the interface. */}
+        <Toaster position="top-center" toastOptions={{ closeButtonAriaLabel: t('sim.noticeClose') }} />
         {/* The framing guides from the photo popover – thirds, the way a
             phone camera draws them. Inside this wrapper on purpose: they
             are a guide for composing the shot, not part of it, so H takes

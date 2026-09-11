@@ -21,6 +21,12 @@ const en = {
   'sim.setDate': 'Set simulation date (two days back to a week ahead)',
   'sim.now': 'Now',
   'sim.timeLapse': 'Time-lapse',
+  // The notice (a toast) when the clock is moved past the present – see
+  // lib/future-notice.ts
+  'sim.aheadNotice': 'Ships and aircraft stay in real time',
+  'sim.aheadNoticeDetail':
+    'Ships and aircraft cannot be shown in the future, so they keep moving at real speed and position.',
+  'sim.noticeClose': 'Dismiss the notice',
   'layers.title': 'Layers',
   'layers.routes': 'Routes',
   'layers.stops': 'Stops',
@@ -408,6 +414,10 @@ const de: Record<MessageKey, string> = {
   'sim.setDate': 'Simulationsdatum wählen (zwei Tage zurück bis in einer Woche)',
   'sim.now': 'Jetzt',
   'sim.timeLapse': 'Zeitraffer',
+  'sim.aheadNotice': 'Schiffe und Flugzeuge bleiben in Echtzeit',
+  'sim.aheadNoticeDetail':
+    'Schiffe und Flugzeuge lassen sich nicht in die Zukunft versetzen, sie bewegen sich weiter wie in echt.',
+  'sim.noticeClose': 'Hinweis schließen',
   'layers.title': 'Ebenen',
   'layers.routes': 'Routen',
   'layers.stops': 'Haltestellen',
