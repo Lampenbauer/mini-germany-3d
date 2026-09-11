@@ -97,6 +97,10 @@ describe('where a vehicle was some seconds ago (positionAt)', () => {
   it('answers with the timetable at the earlier instant, and null for a trip not active then', () => {
     const clock = new SimClock()
     clock.setSecondsOfDay(8.5 * 3600)
+    // Held still: the clock runs on Date.now(), and the two readings
+    // compared below are milliseconds apart – enough for a vehicle to
+    // move past the tolerance on a slow runner
+    clock.setPaused(true)
     const sim = new Simulation(loadRostockNetwork(), clock)
     const moving = sim.snapshots().find((s) => s.status === 'moving')!
     const now = sim.positionAt(moving.id, 0)!
