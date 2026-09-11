@@ -40,6 +40,13 @@ export const MATERIALS = {
    * turns an alpha under 1 into a blended, double-sided glTF material.
    */
   rotor: { color: [0.1, 0.1, 0.11, 0.3], metallic: 0.0, roughness: 0.9 },
+  /** The container liveries, muted like the rest: the mosaic a box ship's deck load is. */
+  boxRed: { color: [0.46, 0.15, 0.12, 1], metallic: 0.05, roughness: 0.8 },
+  boxBlue: { color: [0.13, 0.22, 0.4, 1], metallic: 0.05, roughness: 0.8 },
+  boxGreen: { color: [0.15, 0.3, 0.22, 1], metallic: 0.05, roughness: 0.8 },
+  boxOrange: { color: [0.58, 0.3, 0.11, 1], metallic: 0.05, roughness: 0.8 },
+  boxRust: { color: [0.4, 0.25, 0.16, 1], metallic: 0.05, roughness: 0.85 },
+  boxGrey: { color: [0.5, 0.52, 0.52, 1], metallic: 0.05, roughness: 0.8 },
 }
 
 /**

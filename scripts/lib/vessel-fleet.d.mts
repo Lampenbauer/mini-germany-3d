@@ -19,3 +19,9 @@ export function vesselMotor(): Mesh
 export function vesselGeneric(): Mesh
 
 export const VESSELS: Record<string, () => Mesh>
+
+/** Half the hull's beam at a length z, as hull() builds it. */
+export function hullHalfWidthAt(
+  z: number,
+  hull: { length: number; width: number; bow?: number; stern?: number; taper?: number },
+): number

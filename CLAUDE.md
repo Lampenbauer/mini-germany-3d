@@ -546,6 +546,23 @@ Consists are composed from existing meshes wherever possible — see
 `VEHICLE_CONSISTS` in [src/map/VehicleLayer.ts](src/map/VehicleLayer.ts).
 `tests/cities.test.ts` uses Paris as its "outside every box" point.
 
+**Nothing on a ship's deck may be wider than the hull under it.** The
+hull's bow is a quarter-ellipse in plan (`hullStations` in
+`scripts/lib/vessel-fleet.mjs`): full beam down to a blunt stem (`bow`,
+a fifth to a third of the beam – a tanker's is the fullest) over the
+last fifth of the length (`taper`; a seventh on the box ship and the
+cruise ship, which carry their beam nearly to the stem). It was a
+straight wedge to a stem a tenth of the beam wide, and the user found
+the tanker and the box ship "viel zu spitz" (2026-09-11) – keep the
+bows full. A rectangular deck, fo'c'sle or fender strake laid over the
+taper stood proud of the bow on either side – the tanker read as an
+aircraft carrier, the dredger's suction pipe came out through the side
+(same day). The deck plates and the strakes are extrusions through the
+hull's own stations now (`deckPlate`), the bow furniture sits back
+where the hull is wide enough (`hullHalfWidthAt` says how wide), and
+`tests/vessel-models.test.ts` measures every vertex above the keel
+against the hull's plan and allows a hand's breadth.
+
 ### Switching cities at runtime
 
 A city switch is a swap, not a reload. `CesiumMap.clearCity` takes the routes,

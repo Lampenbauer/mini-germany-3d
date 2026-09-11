@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VESSELS, VESSEL_DIMS } from '../scripts/lib/vessel-fleet.mjs'
+import { VESSELS, VESSEL_DIMS, hullHalfWidthAt } from '../scripts/lib/vessel-fleet.mjs'
 import { MATERIALS, toGlb, triangleCount } from '../scripts/lib/vehicle-mesh.mjs'
 import { VESSEL_MODELS, archetypeFor } from '@/map/VesselLayer'
 
@@ -37,8 +37,30 @@ describe('the generated backdrop fleet', () => {
       })
 
       it('stays low-poly and self-contained', () => {
-        expect(triangleCount(mesh)).toBeLessThan(800)
-        expect(glb.byteLength).toBeLessThan(64 * 1024)
+        // The box ship's deck load is many stacks rather than one slab,
+        // and that is worth a bigger budget on the one hull
+        const budget = name === 'vessel-container' ? 2000 : 800
+        expect(triangleCount(mesh)).toBeLessThan(budget)
+        expect(glb.byteLength).toBeLessThan((budget / 800) * 64 * 1024)
+      })
+
+      it('keeps everything on deck inside the hull\u2019s plan', () => {
+        // A deck or a fo'c'sle wider than the hull under it stands proud
+        // of the side like a flight deck – the tanker's did (2026-09-11);
+        // the strakes are a hand proud on purpose, nothing else is
+        const hull = (mesh as { hull?: { length: number; width: number } }).hull!
+        expect(hull).toBeDefined()
+        let worst = 0
+        for (const g of mesh.groups.values()) {
+          for (let i = 0; i < g.positions.length; i += 3) {
+            const x = Math.abs(g.positions[i])
+            const y = g.positions[i + 1]
+            const z = Math.min(hull.length / 2, Math.max(-hull.length / 2, g.positions[i + 2]))
+            if (y <= -expected.height / 2 + 0.5) continue
+            worst = Math.max(worst, x - hullHalfWidthAt(z, hull))
+          }
+        }
+        expect(worst).toBeLessThan(0.1)
       })
 
       it('uses only palette materials', () => {
