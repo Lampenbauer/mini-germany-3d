@@ -345,14 +345,14 @@ export class TiltShiftEffect {
       u_maxRadius: defaults.maxBlurRadius,
     }
     const blurX = new PostProcessStage({
-      name: 'mrt_tilt_shift_blur_x',
+      name: 'mg3d_tilt_shift_blur_x',
       fragmentShader: BLUR_SHADER,
       uniforms: { ...band, u_direction: 0, u_highlightGain: defaults.highlightGain },
       textureScale: TEXTURE_SCALE,
       sampleMode: PostProcessStageSampleMode.LINEAR,
     })
     const blurY = new PostProcessStage({
-      name: 'mrt_tilt_shift_blur_y',
+      name: 'mg3d_tilt_shift_blur_y',
       fragmentShader: BLUR_SHADER,
       uniforms: { ...band, u_direction: 1, u_highlightGain: defaults.highlightGain },
       textureScale: TEXTURE_SCALE,
@@ -360,12 +360,12 @@ export class TiltShiftEffect {
     })
     // Chained: the vertical pass blurs what the horizontal one produced.
     const blur = new PostProcessStageComposite({
-      name: 'mrt_tilt_shift_blur',
+      name: 'mg3d_tilt_shift_blur',
       stages: [blurX, blurY],
     })
 
     const grade = new PostProcessStage({
-      name: 'mrt_tilt_shift_composite',
+      name: 'mg3d_tilt_shift_composite',
       fragmentShader: COMPOSITE_SHADER,
       uniforms: {
         ...band,
@@ -388,7 +388,7 @@ export class TiltShiftEffect {
     // scene as their input. The grading pass needs the sharp original for
     // the band; it picks the blurred copy up through u_blurTexture.
     this.composite = new PostProcessStageComposite({
-      name: 'mrt_tilt_shift',
+      name: 'mg3d_tilt_shift',
       stages: [blur, grade],
       inputPreviousStageTexture: false,
     })

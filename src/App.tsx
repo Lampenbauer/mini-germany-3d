@@ -104,8 +104,8 @@ import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
 import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
 
-/** Debug/test API that the E2E tests use under window.__mrt. */
-export interface MrtTestApi {
+/** Debug/test API that the E2E tests use under window.__mg3d. */
+export interface Mg3dTestApi {
   /** The city's data is on the map and the simulation runs on it. */
   ready: boolean
   vehicleCount: () => number
@@ -240,7 +240,7 @@ export interface MrtTestApi {
 
 declare global {
   interface Window {
-    __mrt?: MrtTestApi
+    __mg3d?: Mg3dTestApi
   }
 }
 
@@ -703,7 +703,7 @@ export default function App() {
   /** The control panel, so the diagram can lay its rows out beside it. */
   const panelRef = useRef<HTMLDivElement>(null)
   /** The test API, so the city session can flip its ready flag. */
-  const apiRef = useRef<MrtTestApi | null>(null)
+  const apiRef = useRef<Mg3dTestApi | null>(null)
   /**
    * A vehicle shared via the URL (#vehicle=…), restored as soon as its
    * trip shows up in the snapshots – it may take a moment for the
@@ -890,7 +890,7 @@ export default function App() {
   const [paused, setPaused] = useState(false)
   const [clockText, setClockText] = useState('--:--:--')
   // Nothing renders these any more – they exist so the map's basemap and
-  // the realtime feed stay observable to the E2E suite (see __mrt below),
+  // the realtime feed stay observable to the E2E suite (see __mg3d below),
   // which is why they are refs rather than state.
   const tilesetStatusRef = useRef<TilesetStatus>('loading')
   const [selected, setSelected] = useState<VehicleSnapshot | null>(null)
@@ -1817,7 +1817,7 @@ export default function App() {
     }, RAF_WATCHDOG_INTERVAL_MS)
 
     // Test/debug API
-    const api: MrtTestApi = {
+    const api: Mg3dTestApi = {
       ready: false,
       vehicleCount: () => snapshotsRef.current.length,
       visibleVehicleCount: () =>
@@ -1938,7 +1938,7 @@ export default function App() {
         return null
       },
     }
-    window.__mrt = api
+    window.__mg3d = api
     apiRef.current = api
 
     return () => {
@@ -1952,7 +1952,7 @@ export default function App() {
       window.removeEventListener('hashchange', applyHash)
       window.clearTimeout(hashTimeout)
       writeHashRef.current = () => {}
-      window.__mrt = undefined
+      window.__mg3d = undefined
       apiRef.current = null
       map.destroy()
       mapRef.current = null

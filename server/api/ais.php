@@ -64,14 +64,14 @@ declare(strict_types=1);
 // would otherwise inflate every coordinate to 48 digits.
 ini_set('serialize_precision', '-1');
 
-const MRT_AIS_HOST = 'stream.aisstream.io';
-const MRT_AIS_PATH = '/v0/stream';
+const MG3D_AIS_HOST = 'stream.aisstream.io';
+const MG3D_AIS_PATH = '/v0/stream';
 /** Where cities/<slug>/city.json is looked for, in order (see the header). */
-const MRT_AIS_CITY_DIRS = [
+const MG3D_AIS_CITY_DIRS = [
     __DIR__ . '/cities',
     __DIR__ . '/../../src/cities',
 ];
-const MRT_AIS_DEFAULT_CITY = 'rostock';
+const MG3D_AIS_DEFAULT_CITY = 'rostock';
 /**
  * State age at which a BROWSER request triggers the next listen window –
  * it bounds the blind gap the browser-driven path leaves when no keeper
@@ -80,13 +80,13 @@ const MRT_AIS_DEFAULT_CITY = 'rostock';
  * from the cache instead of listening, and the endpoint spent 27 % of
  * the time on the stream where the minutely cron alone buys 75 %.
  */
-const MRT_AIS_TTL_SECONDS = 15;
+const MG3D_AIS_TTL_SECONDS = 15;
 /** How long the keeper queues for the lock before skipping its minute. */
-const MRT_AIS_LOCK_WAIT_SECONDS = 15;
+const MG3D_AIS_LOCK_WAIT_SECONDS = 15;
 /** Default listen window; ?listen= raises it up to the cap below. */
-const MRT_AIS_LISTEN_SECONDS = 12;
+const MG3D_AIS_LISTEN_SECONDS = 12;
 /** Hard cap for ?listen= (the 60 s wall-clock budget needs headroom). */
-const MRT_AIS_LISTEN_MAX_SECONDS = 45;
+const MG3D_AIS_LISTEN_MAX_SECONDS = 45;
 /**
  * Wall-clock budget for the whole request in seconds: all-inkl caps PHP
  * at 60 s, and FastCGI timeouts count wall time. The window is bounded
@@ -94,52 +94,52 @@ const MRT_AIS_LISTEN_MAX_SECONDS = 45;
  * the listen instead of the process being killed mid-window with the
  * state write still pending.
  */
-const MRT_AIS_WALL_BUDGET_SECONDS = 52.0;
+const MG3D_AIS_WALL_BUDGET_SECONDS = 52.0;
 /** During a window the state is flushed this often – polls arriving
  *  mid-window pick up near-live fixes instead of waiting for its end. */
-const MRT_AIS_FLUSH_SECONDS = 8;
+const MG3D_AIS_FLUSH_SECONDS = 8;
 /** Vessels drop out of the LIST after this long without a position. */
-const MRT_AIS_EXPIRE_MS = 30 * 60_000;
+const MG3D_AIS_EXPIRE_MS = 30 * 60_000;
 /** Records survive in the STATE this long – static data (name, type,
  *  dimensions, learned only every 6 minutes) must outlive a ferry's
  *  round trip to Gedser. Mirror of ais-extract.ts. */
-const MRT_AIS_STATIC_KEEP_MS = 48 * 3600_000;
+const MG3D_AIS_STATIC_KEEP_MS = 48 * 3600_000;
 /** Track points older than this are pruned. Mirror of ais-extract.ts. */
-const MRT_AIS_TRACK_KEEP_MS = 10 * 60_000;
+const MG3D_AIS_TRACK_KEEP_MS = 10 * 60_000;
 /** Hard cap per vessel – a runaway-transmitter backstop. */
-const MRT_AIS_TRACK_MAX_POINTS = 40;
+const MG3D_AIS_TRACK_MAX_POINTS = 40;
 /**
  * The archive: every fix, kept for three days in one file per city and
  * UTC hour, so the app can replay the harbour when its clock is set into
  * the past – see src/lib/ais-archive.ts for the format and the reasons,
- * and mrt_ais_archive_dir for where it lives. Mirror of
+ * and mg3d_ais_archive_dir for where it lives. Mirror of
  * AIS_ARCHIVE_KEEP_HOURS and AIS_ARCHIVE_SETTLE_MS there.
  */
-const MRT_AIS_ARCHIVE_KEEP_HOURS = 72;
-const MRT_AIS_ARCHIVE_SETTLE_SECONDS = 60;
+const MG3D_AIS_ARCHIVE_KEEP_HOURS = 72;
+const MG3D_AIS_ARCHIVE_SETTLE_SECONDS = 60;
 
 // ---------------------------------------------------------------------------
 // Extraction – the PHP twin of src/lib/ais-extract.ts
 // ---------------------------------------------------------------------------
 
 /** AIS "not available" sentinels → null (Sog 102.3, Cog 360, heading 511). */
-function mrt_ais_sog($value): ?float
+function mg3d_ais_sog($value): ?float
 {
     return !is_numeric($value) || $value >= 102.3 ? null : (float) $value;
 }
 
-function mrt_ais_cog($value): ?float
+function mg3d_ais_cog($value): ?float
 {
     return !is_numeric($value) || $value >= 360 ? null : (float) $value;
 }
 
-function mrt_ais_heading($value): ?float
+function mg3d_ais_heading($value): ?float
 {
     return !is_numeric($value) || $value >= 511 ? null : (float) $value;
 }
 
 /** Dimension halves A+B / C+D → length/width, null when unreported. */
-function mrt_ais_dimensions(?array $dim): array
+function mg3d_ais_dimensions(?array $dim): array
 {
     $length = (float) ($dim['A'] ?? 0) + (float) ($dim['B'] ?? 0);
     $width = (float) ($dim['C'] ?? 0) + (float) ($dim['D'] ?? 0);
@@ -148,12 +148,12 @@ function mrt_ais_dimensions(?array $dim): array
 
 /**
  * The shape of a vessel record, in one place. Also what an older state
- * file is completed to when it is read back (see mrt_ais_load): the state
+ * file is completed to when it is read back (see mg3d_ais_load): the state
  * outlives deploys, so a record written before a field existed would
  * otherwise reach the browser without that key at all – which is not the
  * same as null, and crashed the vessel card when draughtM arrived.
  */
-function mrt_ais_default_vessel(int $mmsi): array
+function mg3d_ais_default_vessel(int $mmsi): array
 {
     return [
         'mmsi' => $mmsi,
@@ -178,13 +178,13 @@ function mrt_ais_default_vessel(int $mmsi): array
  * Field-for-field port of mergeAisMessage in src/lib/ais-extract.ts – any
  * behavioral change must land in both, the parity test insists.
  */
-function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
+function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
 {
     $meta = $raw['MetaData'] ?? null;
     $mmsi = $meta['MMSI'] ?? null;
     if (!is_int($mmsi) || $mmsi <= 0) return;
 
-    $vessel = $state[$mmsi] ?? mrt_ais_default_vessel($mmsi);
+    $vessel = $state[$mmsi] ?? mg3d_ais_default_vessel($mmsi);
 
     // Position: the message payload is authoritative (full precision), the
     // MetaData copy fills in for static reports.
@@ -200,9 +200,9 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
         $vessel['positionAt'] = $nowMs;
     }
     if ($report !== null) {
-        $vessel['sogKn'] = mrt_ais_sog($report['Sog'] ?? null);
-        $vessel['cogDeg'] = mrt_ais_cog($report['Cog'] ?? null);
-        $vessel['headingDeg'] = mrt_ais_heading($report['TrueHeading'] ?? null);
+        $vessel['sogKn'] = mg3d_ais_sog($report['Sog'] ?? null);
+        $vessel['cogDeg'] = mg3d_ais_cog($report['Cog'] ?? null);
+        $vessel['headingDeg'] = mg3d_ais_heading($report['TrueHeading'] ?? null);
         if (array_key_exists('NavigationalStatus', $report)) {
             $vessel['navStatus'] = $report['NavigationalStatus'] ?? $vessel['navStatus'];
         }
@@ -214,9 +214,9 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
             $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg']];
         $track = [];
         foreach ($vessel['track'] as $point) {
-            if ($nowMs - $point[0] <= MRT_AIS_TRACK_KEEP_MS) $track[] = $point;
+            if ($nowMs - $point[0] <= MG3D_AIS_TRACK_KEEP_MS) $track[] = $point;
         }
-        $vessel['track'] = array_slice($track, -MRT_AIS_TRACK_MAX_POINTS);
+        $vessel['track'] = array_slice($track, -MG3D_AIS_TRACK_MAX_POINTS);
     }
 
     // Static data: name, type, dimensions – whichever report carries them.
@@ -229,7 +229,7 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
     $vessel['name'] = $staticName !== '' ? $staticName : ($vessel['name'] !== '' ? $vessel['name'] : $metaName);
     $typeCode = $staticData['Type'] ?? $reportB['ShipType'] ?? 0;
     if ($typeCode) $vessel['typeCode'] = (int) $typeCode;
-    [$length, $width] = mrt_ais_dimensions($staticData['Dimension'] ?? $reportB['Dimension'] ?? null);
+    [$length, $width] = mg3d_ais_dimensions($staticData['Dimension'] ?? $reportB['Dimension'] ?? null);
     if ($length !== null) $vessel['lengthM'] = $length;
     if ($width !== null) $vessel['widthM'] = $width;
     // Draught rides with the name and dimensions – only the full static
@@ -242,17 +242,17 @@ function mrt_ais_merge(array &$state, array $raw, int $nowMs): void
 
 /**
  * Lists vessels with a fresh position, sorted by MMSI. Stale records
- * stay in the state as memory until MRT_AIS_STATIC_KEEP_MS – see the
+ * stay in the state as memory until MG3D_AIS_STATIC_KEEP_MS – see the
  * constant above.
  */
-function mrt_ais_vessels(array &$state, int $nowMs): array
+function mg3d_ais_vessels(array &$state, int $nowMs): array
 {
     $fresh = [];
     foreach ($state as $mmsi => $vessel) {
         $age = $nowMs - $vessel['positionAt'];
-        if ($age > MRT_AIS_STATIC_KEEP_MS) {
+        if ($age > MG3D_AIS_STATIC_KEEP_MS) {
             unset($state[$mmsi]);
-        } elseif ($age <= MRT_AIS_EXPIRE_MS) {
+        } elseif ($age <= MG3D_AIS_EXPIRE_MS) {
             $fresh[$mmsi] = $vessel;
         }
     }
@@ -265,7 +265,7 @@ function mrt_ais_vessels(array &$state, int $nowMs): array
 // ---------------------------------------------------------------------------
 
 /** Sends one masked client frame (RFC 6455: client frames MUST be masked). */
-function mrt_ws_send($fp, int $opcode, string $payload): void
+function mg3d_ws_send($fp, int $opcode, string $payload): void
 {
     $len = strlen($payload);
     $header = chr(0x80 | $opcode);
@@ -284,7 +284,7 @@ function mrt_ws_send($fp, int $opcode, string $payload): void
 }
 
 /** Extracts one complete frame from the buffer front, null while partial. */
-function mrt_ws_parse(string &$buffer): ?array
+function mg3d_ws_parse(string &$buffer): ?array
 {
     $available = strlen($buffer);
     if ($available < 2) return null;
@@ -327,9 +327,9 @@ function mrt_ws_parse(string &$buffer): ?array
  *
  * @return array<string, array{west:float,south:float,east:float,north:float}>
  */
-function mrt_ais_cities(): array
+function mg3d_ais_cities(): array
 {
-    foreach (MRT_AIS_CITY_DIRS as $dir) {
+    foreach (MG3D_AIS_CITY_DIRS as $dir) {
         $files = glob($dir . '/*/city.json');
         if (!is_array($files) || $files === []) continue;
         sort($files);
@@ -355,7 +355,7 @@ function mrt_ais_cities(): array
         }
         return $cities;
     }
-    error_log('ais.php: no cities/<slug>/city.json found (' . implode(', ', MRT_AIS_CITY_DIRS) . ')');
+    error_log('ais.php: no cities/<slug>/city.json found (' . implode(', ', MG3D_AIS_CITY_DIRS) . ')');
     return [];
 }
 
@@ -363,10 +363,10 @@ function mrt_ais_cities(): array
  * Every city's box as aisstream wants it ([[lat, lon] SW, [lat, lon] NE]
  * each), in city order – null when there is none to subscribe with.
  */
-function mrt_ais_bboxes(): ?array
+function mg3d_ais_bboxes(): ?array
 {
     $boxes = [];
-    foreach (mrt_ais_cities() as $box) {
+    foreach (mg3d_ais_cities() as $box) {
         $boxes[] = [
             [$box['south'], $box['west']],
             [$box['north'], $box['east']],
@@ -376,7 +376,7 @@ function mrt_ais_bboxes(): ?array
 }
 
 /** Whether a position lies inside a city's box (edges included). */
-function mrt_ais_inside(array $box, $lat, $lon): bool
+function mg3d_ais_inside(array $box, $lat, $lon): bool
 {
     return is_numeric($lat) && is_numeric($lon)
         && $lon >= $box['west'] && $lon <= $box['east']
@@ -395,9 +395,9 @@ function mrt_ais_inside(array $box, $lat, $lon): bool
  * request rather than failing the request: the live fleet does not
  * depend on the recording.
  */
-function mrt_ais_archive_dir(): ?string
+function mg3d_ais_archive_dir(): ?string
 {
-    foreach ([__DIR__ . '/../../ais-archive', sys_get_temp_dir() . '/mrt-ais-archive'] as $dir) {
+    foreach ([__DIR__ . '/../../ais-archive', sys_get_temp_dir() . '/mg3d-ais-archive'] as $dir) {
         if (is_dir($dir) ? is_writable($dir) : @mkdir($dir, 0755, true)) return $dir;
     }
     error_log('ais.php: no writable directory for the AIS archive');
@@ -405,13 +405,13 @@ function mrt_ais_archive_dir(): ?string
 }
 
 /** The hour file a moment belongs to, as its name: UTC "YYYY-MM-DDTHH". */
-function mrt_ais_archive_hour_key(int $ms): string
+function mg3d_ais_archive_hour_key(int $ms): string
 {
     return gmdate('Y-m-d\TH', intdiv($ms, 1000));
 }
 
 /** The start of a named hour in unix seconds, null for anything else. */
-function mrt_ais_archive_hour_start(string $key): ?int
+function mg3d_ais_archive_hour_start(string $key): ?int
 {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}$/', $key)) return null;
     // The '!' resets what the format does not name to zero – without it
@@ -420,13 +420,13 @@ function mrt_ais_archive_hour_start(string $key): ?int
     return $at === false ? null : $at->getTimestamp();
 }
 
-function mrt_ais_archive_file(string $dir, string $slug, string $hourKey): string
+function mg3d_ais_archive_file(string $dir, string $slug, string $hourKey): string
 {
     return $dir . '/' . $slug . '/' . $hourKey . '.ndjson';
 }
 
 /** A vessel's static data as the archive keeps it – the fields no fix carries. */
-function mrt_ais_archive_static(array $vessel): array
+function mg3d_ais_archive_static(array $vessel): array
 {
     return [
         'mmsi' => $vessel['mmsi'],
@@ -443,7 +443,7 @@ function mrt_ais_archive_static(array $vessel): array
  * heading, navStatus]. The track's last point is that fix as it was
  * heard; the record's own fields stand in for a record without a track.
  */
-function mrt_ais_archive_fix(array $vessel): array
+function mg3d_ais_archive_fix(array $vessel): array
 {
     $track = $vessel['track'];
     $last = $track === [] ? null : $track[count($track) - 1];
@@ -458,19 +458,19 @@ function mrt_ais_archive_fix(array $vessel): array
  * The lines an hour file opens with: every ship with a fresh position
  * inside the box, sorted by MMSI, her static data and her last fix.
  */
-function mrt_ais_archive_snapshot(array &$state, int $nowMs, array $box): string
+function mg3d_ais_archive_snapshot(array &$state, int $nowMs, array $box): string
 {
     $text = '';
-    foreach (mrt_ais_vessels($state, $nowMs) as $vessel) {
-        if (!mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
-        $text .= json_encode(mrt_ais_archive_static($vessel)) . "\n"
-            . json_encode(mrt_ais_archive_fix($vessel)) . "\n";
+    foreach (mg3d_ais_vessels($state, $nowMs) as $vessel) {
+        if (!mg3d_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
+        $text .= json_encode(mg3d_ais_archive_static($vessel)) . "\n"
+            . json_encode(mg3d_ais_archive_fix($vessel)) . "\n";
     }
     return $text;
 }
 
 /** Deletes a city's hour files named before $oldestKept. */
-function mrt_ais_archive_prune(string $cityDir, string $oldestKept): void
+function mg3d_ais_archive_prune(string $cityDir, string $oldestKept): void
 {
     foreach (glob($cityDir . '/*.ndjson') ?: [] as $file) {
         if (basename($file, '.ndjson') < $oldestKept) @unlink($file);
@@ -478,48 +478,48 @@ function mrt_ais_archive_prune(string $cityDir, string $oldestKept): void
 }
 
 /**
- * Folds one message into the state (mrt_ais_merge) and records what it
+ * Folds one message into the state (mg3d_ais_merge) and records what it
  * changed: the fix it carried, and the static data when that is new. A
  * city whose hour file does not exist yet gets the snapshot instead –
  * taken after the merge, so it already holds this ship and this fix –
  * and its files older than the retention go. Line for line the twin of
  * AisArchiveWriter.record in src/lib/ais-archive.ts.
  */
-function mrt_ais_archive_record(array &$state, array $raw, int $nowMs, array $cities, string $dir): void
+function mg3d_ais_archive_record(array &$state, array $raw, int $nowMs, array $cities, string $dir): void
 {
     $mmsi = $raw['MetaData']['MMSI'] ?? null;
     if (!is_int($mmsi) || $mmsi <= 0) return;
     $before = $state[$mmsi] ?? null;
     $beforePositionAt = $before['positionAt'] ?? 0;
-    $beforeStatic = $before === null ? null : json_encode(mrt_ais_archive_static($before));
-    mrt_ais_merge($state, $raw, $nowMs);
+    $beforeStatic = $before === null ? null : json_encode(mg3d_ais_archive_static($before));
+    mg3d_ais_merge($state, $raw, $nowMs);
     $vessel = $state[$mmsi] ?? null;
     if ($vessel === null) return;
 
     $lines = '';
-    if (json_encode(mrt_ais_archive_static($vessel)) !== $beforeStatic) {
-        $lines .= json_encode(mrt_ais_archive_static($vessel)) . "\n";
+    if (json_encode(mg3d_ais_archive_static($vessel)) !== $beforeStatic) {
+        $lines .= json_encode(mg3d_ais_archive_static($vessel)) . "\n";
     }
     if ($vessel['positionAt'] !== $beforePositionAt) {
-        $lines .= json_encode(mrt_ais_archive_fix($vessel)) . "\n";
+        $lines .= json_encode(mg3d_ais_archive_fix($vessel)) . "\n";
     }
     if ($lines === '') return;
 
-    $hourKey = mrt_ais_archive_hour_key($nowMs);
+    $hourKey = mg3d_ais_archive_hour_key($nowMs);
     foreach ($cities as $slug => $box) {
-        if (!mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
-        $file = mrt_ais_archive_file($dir, $slug, $hourKey);
+        if (!mg3d_ais_inside($box, $vessel['lat'], $vessel['lon'])) continue;
+        $file = mg3d_ais_archive_file($dir, $slug, $hourKey);
         if (is_file($file)) {
             @file_put_contents($file, $lines, FILE_APPEND | LOCK_EX);
             continue;
         }
         $cityDir = dirname($file);
         if (!is_dir($cityDir) && !@mkdir($cityDir, 0755, true)) continue;
-        mrt_ais_archive_prune(
+        mg3d_ais_archive_prune(
             $cityDir,
-            mrt_ais_archive_hour_key($nowMs - MRT_AIS_ARCHIVE_KEEP_HOURS * 3600_000)
+            mg3d_ais_archive_hour_key($nowMs - MG3D_AIS_ARCHIVE_KEEP_HOURS * 3600_000)
         );
-        @file_put_contents($file, mrt_ais_archive_snapshot($state, $nowMs, $box), FILE_APPEND | LOCK_EX);
+        @file_put_contents($file, mg3d_ais_archive_snapshot($state, $nowMs, $box), FILE_APPEND | LOCK_EX);
     }
 }
 
@@ -531,10 +531,10 @@ function mrt_ais_archive_record(array &$state, array $raw, int $nowMs, array $ci
  * must not be cached. 404 where nothing was recorded, 416 for a start
  * beyond the end (nothing new).
  */
-function mrt_ais_archive_serve(?string $dir, string $slug, string $hourKey, int $from): void
+function mg3d_ais_archive_serve(?string $dir, string $slug, string $hourKey, int $from): void
 {
-    $hourStart = mrt_ais_archive_hour_start($hourKey);
-    $file = $dir === null || $hourStart === null ? null : mrt_ais_archive_file($dir, $slug, $hourKey);
+    $hourStart = mg3d_ais_archive_hour_start($hourKey);
+    $file = $dir === null || $hourStart === null ? null : mg3d_ais_archive_file($dir, $slug, $hourKey);
     if ($file === null || !is_file($file)) {
         http_response_code(404);
         echo json_encode(['error' => 'No recording for this hour']);
@@ -546,7 +546,7 @@ function mrt_ais_archive_serve(?string $dir, string $slug, string $hourKey, int 
         header('Content-Range: bytes */' . $size);
         return;
     }
-    $closed = ($hourStart + 3600 + MRT_AIS_ARCHIVE_SETTLE_SECONDS) * 1000 < mrt_now_ms();
+    $closed = ($hourStart + 3600 + MG3D_AIS_ARCHIVE_SETTLE_SECONDS) * 1000 < mg3d_now_ms();
     header('Content-Type: application/x-ndjson');
     header('Cache-Control: ' . ($closed && $from === 0 ? 'public, max-age=86400' : 'no-store'));
     header('Content-Length: ' . ($size - $from));
@@ -565,7 +565,7 @@ function mrt_ais_archive_serve(?string $dir, string $slug, string $hourKey, int 
  * $state – through $record where given, which is how the archive is
  * written. Failures are silent by design – the previous state stays.
  */
-function mrt_ais_listen(
+function mg3d_ais_listen(
     array &$state,
     string $apiKey,
     int $listenSeconds,
@@ -573,18 +573,18 @@ function mrt_ais_listen(
     ?float $hardDeadline = null,
     ?callable $record = null
 ): bool {
-    $bboxes = mrt_ais_bboxes();
+    $bboxes = mg3d_ais_bboxes();
     if ($bboxes === null) return false;
-    $context = stream_context_create(['ssl' => ['peer_name' => MRT_AIS_HOST]]);
+    $context = stream_context_create(['ssl' => ['peer_name' => MG3D_AIS_HOST]]);
     $fp = @stream_socket_client(
-        'ssl://' . MRT_AIS_HOST . ':443', $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context
+        'ssl://' . MG3D_AIS_HOST . ':443', $errno, $errstr, 10, STREAM_CLIENT_CONNECT, $context
     );
     if ($fp === false) return false;
 
     $wsKey = base64_encode(random_bytes(16));
     fwrite($fp,
-        'GET ' . MRT_AIS_PATH . " HTTP/1.1\r\n" .
-        'Host: ' . MRT_AIS_HOST . "\r\n" .
+        'GET ' . MG3D_AIS_PATH . " HTTP/1.1\r\n" .
+        'Host: ' . MG3D_AIS_HOST . "\r\n" .
         "Upgrade: websocket\r\n" .
         "Connection: Upgrade\r\n" .
         'Sec-WebSocket-Key: ' . $wsKey . "\r\n" .
@@ -607,17 +607,17 @@ function mrt_ais_listen(
     // Bytes past the header block are already frames – keep them.
     $buffer = substr($buffer, $headerEnd + 4);
 
-    mrt_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => $bboxes]));
+    mg3d_ws_send($fp, 0x1, json_encode(['APIKey' => $apiKey, 'BoundingBoxes' => $bboxes]));
 
     $fragment = '';
     $heard = false;
     stream_set_timeout($fp, 1);
     $deadline = microtime(true) + $listenSeconds;
     if ($hardDeadline !== null && $hardDeadline < $deadline) $deadline = $hardDeadline;
-    $nextFlush = microtime(true) + MRT_AIS_FLUSH_SECONDS;
+    $nextFlush = microtime(true) + MG3D_AIS_FLUSH_SECONDS;
     while (microtime(true) < $deadline) {
         $closed = false;
-        while (($frame = mrt_ws_parse($buffer)) !== null) {
+        while (($frame = mg3d_ws_parse($buffer)) !== null) {
             switch ($frame['opcode']) {
                 case 0x0:
                 case 0x1:
@@ -628,9 +628,9 @@ function mrt_ais_listen(
                         $fragment = '';
                         if (is_array($message)) {
                             if ($record !== null) {
-                                $record($state, $message, mrt_now_ms());
+                                $record($state, $message, mg3d_now_ms());
                             } else {
-                                mrt_ais_merge($state, $message, mrt_now_ms());
+                                mg3d_ais_merge($state, $message, mg3d_now_ms());
                             }
                             $heard = true;
                         }
@@ -640,7 +640,7 @@ function mrt_ais_listen(
                     $closed = true;
                     break;
                 case 0x9:
-                    mrt_ws_send($fp, 0xA, $frame['payload']);
+                    mg3d_ws_send($fp, 0xA, $frame['payload']);
                     break;
             }
             if ($closed) break;
@@ -648,7 +648,7 @@ function mrt_ais_listen(
         if ($closed) break;
         if ($onFlush !== null && $heard && microtime(true) >= $nextFlush) {
             $onFlush($state);
-            $nextFlush = microtime(true) + MRT_AIS_FLUSH_SECONDS;
+            $nextFlush = microtime(true) + MG3D_AIS_FLUSH_SECONDS;
         }
         $chunk = fread($fp, 8192);
         if ($chunk !== false && $chunk !== '') {
@@ -665,12 +665,12 @@ function mrt_ais_listen(
 // State file, key lookup, serving
 // ---------------------------------------------------------------------------
 
-function mrt_now_ms(): int
+function mg3d_now_ms(): int
 {
     return (int) round(microtime(true) * 1000);
 }
 
-function mrt_ais_key(): string
+function mg3d_ais_key(): string
 {
     $env = getenv('AISSTREAM_KEY');
     if (is_string($env) && $env !== '') return trim($env);
@@ -684,7 +684,7 @@ function mrt_ais_key(): string
 }
 
 /** @return array{listenedAt:int, state:array<int,array>} */
-function mrt_ais_load(string $stateFile): array
+function mg3d_ais_load(string $stateFile): array
 {
     $raw = @file_get_contents($stateFile);
     $data = is_string($raw) ? json_decode($raw, true) : null;
@@ -700,7 +700,7 @@ function mrt_ais_load(string $stateFile): array
         // fields were added since. Union with the defaults fills those in
         // (PHP's + keeps the keys the record already has), so a record
         // that predates a field arrives as null rather than as absent.
-        $vessel = $vessel + mrt_ais_default_vessel($mmsi);
+        $vessel = $vessel + mg3d_ais_default_vessel($mmsi);
         // The track additionally has to BE a list, not merely present.
         if (!is_array($vessel['track'])) $vessel['track'] = [];
         $state[$mmsi] = $vessel;
@@ -708,7 +708,7 @@ function mrt_ais_load(string $stateFile): array
     return ['listenedAt' => (int) ($data['listenedAt'] ?? 0), 'state' => $state];
 }
 
-function mrt_ais_save(string $stateFile, array $state, int $listenedAt): void
+function mg3d_ais_save(string $stateFile, array $state, int $listenedAt): void
 {
     $tmp = $stateFile . '.' . getmypid() . '.tmp';
     file_put_contents($tmp, json_encode(['listenedAt' => $listenedAt, 'state' => $state]));
@@ -719,14 +719,14 @@ function mrt_ais_save(string $stateFile, array $state, int $listenedAt): void
  * Answers with the vessels of one city's box – the state holds every
  * city's ships, the browser asked for one harbor.
  */
-function mrt_ais_respond(array $state, int $listenedAt, ?array $box = null): void
+function mg3d_ais_respond(array $state, int $listenedAt, ?array $box = null): void
 {
-    $nowMs = mrt_now_ms();
-    $vessels = mrt_ais_vessels($state, $nowMs);
+    $nowMs = mg3d_now_ms();
+    $vessels = mg3d_ais_vessels($state, $nowMs);
     if ($box !== null) {
         $vessels = array_values(array_filter(
             $vessels,
-            fn(array $vessel) => mrt_ais_inside($box, $vessel['lat'], $vessel['lon'])
+            fn(array $vessel) => mg3d_ais_inside($box, $vessel['lat'], $vessel['lon'])
         ));
     }
     // servedAt is the clock-skew anchor: positionAt stamps only compare
@@ -742,7 +742,7 @@ function mrt_ais_respond(array $state, int $listenedAt, ?array $box = null): voi
 // --- CLI: the boxes this script subscribes with ----------------------------
 // scripts/test-ais-parity.mjs compares them against the city definitions.
 if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--bbox') {
-    $bboxes = mrt_ais_bboxes();
+    $bboxes = mg3d_ais_bboxes();
     if ($bboxes === null) exit(1);
     echo json_encode($bboxes), "\n";
     exit(0);
@@ -759,10 +759,10 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-state') {
         fwrite(STDERR, "usage: php ais.php --selftest-state state.json <now-ms>\n");
         exit(2);
     }
-    $data = mrt_ais_load($file);
+    $data = mg3d_ais_load($file);
     echo json_encode([
         'timestamp' => $data['listenedAt'],
-        'vessels' => mrt_ais_vessels($data['state'], $nowMs),
+        'vessels' => mg3d_ais_vessels($data['state'], $nowMs),
     ]), "\n";
     exit(0);
 }
@@ -780,11 +780,11 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-archive') {
         exit(2);
     }
     $state = [];
-    $cities = mrt_ais_cities();
+    $cities = mg3d_ais_cities();
     $entries = json_decode((string) file_get_contents($file), true);
     foreach (is_array($entries) ? $entries : [] as $entry) {
         if (!is_array($entry['message'] ?? null) || !is_int($entry['atMs'] ?? null)) continue;
-        mrt_ais_archive_record($state, $entry['message'], $entry['atMs'], $cities, $dir);
+        mg3d_ais_archive_record($state, $entry['message'], $entry['atMs'], $cities, $dir);
     }
     exit(0);
 }
@@ -800,9 +800,9 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
     $state = [];
     $messages = json_decode((string) file_get_contents($file), true);
     foreach (is_array($messages) ? $messages : [] as $message) {
-        if (is_array($message)) mrt_ais_merge($state, $message, $nowMs);
+        if (is_array($message)) mg3d_ais_merge($state, $message, $nowMs);
     }
-    echo json_encode(['timestamp' => $nowMs, 'vessels' => mrt_ais_vessels($state, $nowMs)]), "\n";
+    echo json_encode(['timestamp' => $nowMs, 'vessels' => mg3d_ais_vessels($state, $nowMs)]), "\n";
     exit(0);
 }
 
@@ -810,8 +810,8 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
-$citySlug = $_GET['city'] ?? MRT_AIS_DEFAULT_CITY;
-$cities = mrt_ais_cities();
+$citySlug = $_GET['city'] ?? MG3D_AIS_DEFAULT_CITY;
+$cities = mg3d_ais_cities();
 if (!is_string($citySlug) || !isset($cities[$citySlug])) {
     http_response_code(404);
     echo json_encode(['error' => 'Unknown city']);
@@ -820,10 +820,10 @@ if (!is_string($citySlug) || !isset($cities[$citySlug])) {
 $cityBox = $cities[$citySlug];
 
 // A recorded hour is served from the archive and needs no stream – see
-// mrt_ais_archive_serve; the browser reads it when its clock is in the past.
+// mg3d_ais_archive_serve; the browser reads it when its clock is in the past.
 if (isset($_GET['hour'])) {
-    mrt_ais_archive_serve(
-        mrt_ais_archive_dir(),
+    mg3d_ais_archive_serve(
+        mg3d_ais_archive_dir(),
         $citySlug,
         is_string($_GET['hour']) ? $_GET['hour'] : '',
         (int) ($_GET['from'] ?? 0)
@@ -831,17 +831,17 @@ if (isset($_GET['hour'])) {
     exit;
 }
 
-$apiKey = mrt_ais_key();
+$apiKey = mg3d_ais_key();
 if ($apiKey === '') {
     http_response_code(503);
     echo json_encode(['error' => 'No aisstream API key configured (see header comment of ais.php)']);
     exit;
 }
 
-$stateFile = sys_get_temp_dir() . '/mrt-ais-state.json';
-$lockFile = sys_get_temp_dir() . '/mrt-ais-state.lock';
+$stateFile = sys_get_temp_dir() . '/mg3d-ais-state.json';
+$lockFile = sys_get_temp_dir() . '/mg3d-ais-state.lock';
 
-$data = mrt_ais_load($stateFile);
+$data = mg3d_ais_load($stateFile);
 // A request that names its own window is the keeper cron. Freshness must
 // not silence it: the browser's short windows hold the state inside the
 // TTL almost continuously, so a keeper that trusted that freshness would
@@ -851,15 +851,15 @@ $keeper = isset($_GET['listen']);
 // Freshness keys on when the last window STARTED: a long window must not
 // push the next one further out – the blind gap between windows is what
 // a moving ship's jump grows with.
-$ageSeconds = (mrt_now_ms() - $data['listenedAt']) / 1000;
-if (!$keeper && $ageSeconds <= MRT_AIS_TTL_SECONDS) {
-    mrt_ais_respond($data['state'], $data['listenedAt'], $cityBox);
+$ageSeconds = (mg3d_now_ms() - $data['listenedAt']) / 1000;
+if (!$keeper && $ageSeconds <= MG3D_AIS_TTL_SECONDS) {
+    mg3d_ais_respond($data['state'], $data['listenedAt'], $cityBox);
     exit;
 }
 
 // Answer from the state either way, then listen with the response gone –
 // nobody waits on a window, not even while the keeper queues for the lock.
-mrt_ais_respond($data['state'], $data['listenedAt'], $cityBox);
+mg3d_ais_respond($data['state'], $data['listenedAt'], $cityBox);
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
@@ -880,7 +880,7 @@ if (!$haveLock) {
         fclose($lock);
         exit;
     }
-    $waitUntil = microtime(true) + MRT_AIS_LOCK_WAIT_SECONDS;
+    $waitUntil = microtime(true) + MG3D_AIS_LOCK_WAIT_SECONDS;
     while (!($haveLock = flock($lock, LOCK_EX | LOCK_NB)) && microtime(true) < $waitUntil) {
         usleep(250_000);
     }
@@ -892,41 +892,41 @@ if (!$haveLock) {
 
 // The keeper asks for a longer window (?listen=45): higher listening
 // duty cycle, smaller blind gaps, smoother ships – same single lock.
-$listenSeconds = max(5, min(MRT_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MRT_AIS_LISTEN_SECONDS)));
+$listenSeconds = max(5, min(MG3D_AIS_LISTEN_MAX_SECONDS, (int) ($_GET['listen'] ?? MG3D_AIS_LISTEN_SECONDS)));
 $requestStart = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
-$windowStart = mrt_now_ms();
+$windowStart = mg3d_now_ms();
 // Re-read the state now that the lock is ours: a keeper that queued
 // behind another window would otherwise save its pre-wait snapshot and
 // silently drop every track point that window just recorded.
-$data = mrt_ais_load($stateFile);
+$data = mg3d_ais_load($stateFile);
 $state = $data['state'];
 $flush = function (array $flushState) use ($stateFile, $windowStart): void {
-    mrt_ais_vessels($flushState, mrt_now_ms()); // expiry prunes the copy
-    mrt_ais_save($stateFile, $flushState, $windowStart);
+    mg3d_ais_vessels($flushState, mg3d_now_ms()); // expiry prunes the copy
+    mg3d_ais_save($stateFile, $flushState, $windowStart);
 };
 // Every fix heard goes into the archive as well as into the state – one
 // writer at a time, which the lock above already guarantees.
-$archiveDir = mrt_ais_archive_dir();
+$archiveDir = mg3d_ais_archive_dir();
 $record = $archiveDir === null
     ? null
     : function (array &$recordState, array $message, int $nowMs) use ($cities, $archiveDir): void {
-        mrt_ais_archive_record($recordState, $message, $nowMs, $cities, $archiveDir);
+        mg3d_ais_archive_record($recordState, $message, $nowMs, $cities, $archiveDir);
     };
-$heard = mrt_ais_listen(
+$heard = mg3d_ais_listen(
     $state,
     $apiKey,
     $listenSeconds,
     $flush,
-    $requestStart + MRT_AIS_WALL_BUDGET_SECONDS,
+    $requestStart + MG3D_AIS_WALL_BUDGET_SECONDS,
     $record
 );
 if ($heard) {
     // A window that never even reached the stream keeps the old
     // listenedAt – the next request retries right away instead of
     // trusting a freshness the failed window did not earn.
-    $nowMs = mrt_now_ms();
-    mrt_ais_vessels($state, $nowMs); // expiry prunes in place
-    mrt_ais_save($stateFile, $state, $windowStart);
+    $nowMs = mg3d_now_ms();
+    mg3d_ais_vessels($state, $nowMs); // expiry prunes in place
+    mg3d_ais_save($stateFile, $state, $windowStart);
 }
 flock($lock, LOCK_UN);
 fclose($lock);

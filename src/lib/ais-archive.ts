@@ -46,7 +46,7 @@ import { containsLonLat, type BoundingBox } from './city.ts'
 
 /**
  * How long the recording is kept: three days, the two the calendar
- * offers behind today plus today itself. Mirror of MRT_AIS_ARCHIVE_KEEP_HOURS.
+ * offers behind today plus today itself. Mirror of MG3D_AIS_ARCHIVE_KEEP_HOURS.
  */
 export const AIS_ARCHIVE_KEEP_HOURS = 72
 export const AIS_ARCHIVE_HOUR_MS = 3_600_000
@@ -64,7 +64,7 @@ export const AIS_ARCHIVE_TAIL_POLL_MS = 20_000
  * The keeper stamps a fix as it hears it, so a window that runs across
  * the hour boundary still adds seconds to the hour just closed. An hour
  * counts as closed – complete, cacheable – this long after its end.
- * Mirror of MRT_AIS_ARCHIVE_SETTLE_SECONDS.
+ * Mirror of MG3D_AIS_ARCHIVE_SETTLE_SECONDS.
  */
 export const AIS_ARCHIVE_SETTLE_MS = 60_000
 /** A failed fetch is tried again after this long. */
@@ -147,7 +147,7 @@ export function aisReplayWanted(simMs: number, nowMs: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Writing – the twin of mrt_ais_archive_record in server/api/ais.php
+// Writing – the twin of mg3d_ais_archive_record in server/api/ais.php
 // ---------------------------------------------------------------------------
 
 /** Where the writer keeps its files; the file system in dev, a stub in the tests. */

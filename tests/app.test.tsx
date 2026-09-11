@@ -145,7 +145,7 @@ afterEach(() => {
   mockCamera.orientations = 0
   mockCamera.tiltShift = false
   mockCamera.pitch = -38
-  window.__mrt = undefined
+  window.__mg3d = undefined
   window.localStorage.clear()
   window.history.replaceState(null, '', '/')
 })
@@ -162,11 +162,11 @@ describe('App (UI shell)', () => {
     // asserting – offline mode is what the whole test run depends on –
     // so they moved to the debug API rather than out of the suite.
     render(<App />)
-    expect(window.__mrt?.tilesetStatus()).toBe('offline')
+    expect(window.__mg3d?.tilesetStatus()).toBe('offline')
     // The city's data is a lazy chunk – ready flips once it is in
-    await waitFor(() => expect(window.__mrt?.ready).toBe(true))
-    expect(window.__mrt?.dataSource).toBe(loadRostockNetwork().meta.source)
-    expect(window.__mrt?.city()).toBe('rostock')
+    await waitFor(() => expect(window.__mg3d?.ready).toBe(true))
+    expect(window.__mg3d?.dataSource).toBe(loadRostockNetwork().meta.source)
+    expect(window.__mg3d?.city()).toBe('rostock')
   })
 
   it('points the compass needle where the camera looks', () => {
@@ -231,13 +231,13 @@ describe('App (UI shell)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
     // Time-travel while paused – play must continue from there, not
     // snap back to the present.
-    window.__mrt!.setTime('03:00')
-    expect(window.__mrt!.secondsOfDay()).toBeCloseTo(3 * 3600, -1)
+    window.__mg3d!.setTime('03:00')
+    expect(window.__mg3d!.secondsOfDay()).toBeCloseTo(3 * 3600, -1)
     fireEvent.click(screen.getByRole('button', { name: 'Resume simulation' }))
-    expect(Math.abs(window.__mrt!.secondsOfDay() - 3 * 3600)).toBeLessThan(5)
+    expect(Math.abs(window.__mg3d!.secondsOfDay() - 3 * 3600)).toBeLessThan(5)
     // The way back to the present is the "Now" button
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
-    const drift = Math.abs(window.__mrt!.secondsOfDay() - berlinSecondsOfDay(Date.now()))
+    const drift = Math.abs(window.__mg3d!.secondsOfDay() - berlinSecondsOfDay(Date.now()))
     expect(drift).toBeLessThan(5)
   })
 
@@ -250,19 +250,19 @@ describe('App (UI shell)', () => {
     ).toBeInTheDocument()
   })
 
-  it('registers the test API window.__mrt', async () => {
+  it('registers the test API window.__mg3d', async () => {
     render(<App />)
-    expect(window.__mrt).toBeDefined()
+    expect(window.__mg3d).toBeDefined()
     // Not ready until the city's data is on the map
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    expect(typeof window.__mrt!.vehicleCount()).toBe('number')
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(typeof window.__mg3d!.vehicleCount()).toBe('number')
   })
 
   it('names the city in the title and lists the others behind it', async () => {
     render(<App />)
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
     // The title waits for the city's data before it offers a move
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     expect(screen.getByRole('option', { name: 'Rostock' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('option', { name: 'Switch to Kiel' })).toBeInTheDocument()
@@ -270,16 +270,16 @@ describe('App (UI shell)', () => {
 
   it('switches the city from the picker and remembers it', async () => {
     render(<App />)
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
     // The old city's session ends at once …
-    expect(window.__mrt!.city()).toBe('kiel')
+    expect(window.__mg3d!.city()).toBe('kiel')
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Kiel 3D')
     // … and the new one is ready once its data is in
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    expect(window.__mrt!.lineIds()).toContain('F1')
-    expect(window.__mrt!.lineIds()).not.toContain('FG')
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(window.__mg3d!.lineIds()).toContain('F1')
+    expect(window.__mg3d!.lineIds()).not.toContain('FG')
     // Every URL names its city in the path, the default one included, in
     // the language the interface speaks (English here – see lib/site-path.ts)
     expect(window.location.pathname).toBe('/en/kiel/')
@@ -297,9 +297,9 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
     // Cesium is up, nothing of a city is: no session, no data, no hash
     expect(screen.getByTestId('cesium-container')).toBeInTheDocument()
-    expect(window.__mrt!.welcomeOpen()).toBe(true)
-    expect(window.__mrt!.ready).toBe(false)
-    expect(window.__mrt!.vehicleCount()).toBe(0)
+    expect(window.__mg3d!.welcomeOpen()).toBe(true)
+    expect(window.__mg3d!.ready).toBe(false)
+    expect(window.__mg3d!.vehicleCount()).toBe(0)
     expect(screen.getByTestId('ui-overlay').className).toContain('hidden')
     expect(window.location.hash).toBe('')
     expect(window.location.pathname).toBe('/')
@@ -314,17 +314,17 @@ describe('App (UI shell)', () => {
     // map to fly from – and its data comes in
     expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
     expect(screen.getByTestId('welcome-spinner')).toBeInTheDocument()
-    expect(window.__mrt!.welcomeOpen()).toBe(true)
+    expect(window.__mg3d!.welcomeOpen()).toBe(true)
     expect(mockMoves.transitions).toEqual(['jump'])
-    expect(window.__mrt!.city()).toBe('kiel')
-    await vi.waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    expect(window.__mg3d!.city()).toBe('kiel')
+    await vi.waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
     // Two seconds after the pick, and not before, the screen goes
     await vi.advanceTimersByTimeAsync(1500)
     expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
     await vi.advanceTimersByTimeAsync(600)
     expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
-    expect(window.__mrt!.welcomeOpen()).toBe(false)
+    expect(window.__mg3d!.welcomeOpen()).toBe(false)
     expect(screen.getByTestId('ui-overlay').className).not.toContain('hidden')
     expect(window.location.pathname).toBe('/en/kiel/')
     // The box was left unticked: the door stays for the next visit
@@ -336,7 +336,7 @@ describe('App (UI shell)', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Don’t show this welcome screen on your next visit' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open Kiel' }))
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     expect(window.localStorage.getItem('mg3d.welcome')).toBe('hidden')
     expect(window.localStorage.getItem('mg3d.city')).toBe('kiel')
     cleanup()
@@ -345,9 +345,9 @@ describe('App (UI shell)', () => {
     window.history.replaceState(null, '', '/')
     render(<App />)
     expect(screen.queryByTestId('welcome-screen')).not.toBeInTheDocument()
-    expect(window.__mrt!.welcomeOpen()).toBe(false)
+    expect(window.__mg3d!.welcomeOpen()).toBe(false)
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Rostock 3D')
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     // A link still says where to go, door or no door – in its path
     cleanup()
     window.localStorage.removeItem('mg3d.welcome')
@@ -361,8 +361,8 @@ describe('App (UI shell)', () => {
     setLanguage('de')
     window.history.replaceState(null, '', '/en/kiel/?welcome=0&offline=1')
     render(<App />)
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    expect(window.__mrt!.city()).toBe('kiel')
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(window.__mg3d!.city()).toBe('kiel')
     // The German page has no language prefix (lib/site-path.ts)
     expect(window.location.pathname).toBe('/kiel/')
     expect(window.location.search).toBe('?welcome=0&offline=1')
@@ -372,14 +372,14 @@ describe('App (UI shell)', () => {
     // jsdom reads as a desktop (no touch points); ?tier=mobile overrides the reading
     window.history.replaceState(null, '', '/kiel/?welcome=0&tier=mobile')
     render(<App />)
-    await waitFor(() => expect(window.__mrt!.ready).toBe(true))
-    expect(window.__mrt!.renderProfile().tier).toBe('mobile')
-    expect(mockMoves.renderProfile).toBe(window.__mrt!.renderProfile())
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(window.__mg3d!.renderProfile().tier).toBe('mobile')
+    expect(mockMoves.renderProfile).toBe(window.__mg3d!.renderProfile())
     cleanup()
     window.history.replaceState(null, '', '/kiel/?welcome=0')
     render(<App />)
-    expect(window.__mrt!.renderProfile().tier).toBe('desktop')
-    expect(window.__mrt!.renderProfile().shadowMapSize).toBe(8192)
+    expect(window.__mg3d!.renderProfile().tier).toBe('desktop')
+    expect(window.__mg3d!.renderProfile().shadowMapSize).toBe(8192)
   })
 
   it('shows the static page again and says why when the app cannot start', () => {
@@ -416,12 +416,12 @@ describe('App (UI shell)', () => {
     render(<App />)
     const input = screen.getByLabelText('Set simulation time')
     fireEvent.change(input, { target: { value: '08:00' } })
-    expect(window.__mrt!.secondsOfDay()).toBeGreaterThanOrEqual(8 * 3600)
-    expect(window.__mrt!.secondsOfDay()).toBeLessThan(8 * 3600 + 5)
+    expect(window.__mg3d!.secondsOfDay()).toBeGreaterThanOrEqual(8 * 3600)
+    expect(window.__mg3d!.secondsOfDay()).toBeLessThan(8 * 3600 + 5)
 
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     const realNow = berlinSecondsOfDay(Date.now())
-    const diff = Math.abs(window.__mrt!.secondsOfDay() - realNow)
+    const diff = Math.abs(window.__mg3d!.secondsOfDay() - realNow)
     expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
     // The field goes back to its default: it must not keep showing 08:00
     expect(input).toHaveValue('')
@@ -452,11 +452,11 @@ describe('App (UI shell)', () => {
     expect(enabled).toHaveLength(10)
     const dayNumber = String(parseInt(tomorrow.slice(8), 10))
     const tomorrowButton = enabled.find((b) => b.textContent === dayNumber)!
-    const secondsBefore = window.__mrt!.secondsOfDay()
+    const secondsBefore = window.__mg3d!.secondsOfDay()
     fireEvent.click(tomorrowButton)
-    expect(window.__mrt!.dateKey()).toBe(tomorrow)
+    expect(window.__mg3d!.dateKey()).toBe(tomorrow)
     // The time of day stays: only the day moved
-    expect(Math.abs(window.__mrt!.secondsOfDay() - secondsBefore)).toBeLessThan(2)
+    expect(Math.abs(window.__mg3d!.secondsOfDay() - secondsBefore)).toBeLessThan(2)
     // The trigger now names the day picked, and the calendar closed itself
     expect(trigger).toHaveTextContent(shortDay(tomorrow))
     expect(screen.queryByRole('grid')).not.toBeInTheDocument()
@@ -468,20 +468,20 @@ describe('App (UI shell)', () => {
     )[0]
     expect(earliest.textContent).toBe(String(parseInt(twoDaysAgo.slice(8), 10)))
     fireEvent.click(earliest)
-    expect(window.__mrt!.dateKey()).toBe(twoDaysAgo)
+    expect(window.__mg3d!.dateKey()).toBe(twoDaysAgo)
     expect(trigger).toHaveTextContent(shortDay(twoDaysAgo))
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
-    expect(window.__mrt!.dateKey()).toBe(today)
+    expect(window.__mg3d!.dateKey()).toBe(today)
     // … and gives the day up again with the clock, back to today
     expect(trigger).toHaveTextContent(shortDay(today))
   })
 
   it('brings a running time-lapse back to real pace along with the real time', () => {
     render(<App />)
-    window.__mrt!.setSpeed(30)
-    expect(window.__mrt!.speed()).toBe(30)
+    window.__mg3d!.setSpeed(30)
+    expect(window.__mg3d!.speed()).toBe(30)
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
-    expect(window.__mrt!.speed()).toBe(1)
+    expect(window.__mg3d!.speed()).toBe(1)
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
   })
 
@@ -698,7 +698,7 @@ describe('App (UI shell)', () => {
 
   it('flattens the view on 2 and tips it back on 3', async () => {
     render(<App />)
-    await waitFor(() => expect(window.__mrt?.ready).toBe(true))
+    await waitFor(() => expect(window.__mg3d?.ready).toBe(true))
     expect(screen.getByRole('button', { name: 'Switch to 2D view' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: '2', code: 'Digit2' })
     expect(screen.getByRole('button', { name: 'Switch to 3D view' })).toBeInTheDocument()

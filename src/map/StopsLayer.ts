@@ -592,7 +592,7 @@ export class StopsLayer {
     record.named = true
     const image = this.stopNameImage(record.name, record.lines)
     if (!image) return
-    record.label.setImage(`mrt:stop-name:${record.id}`, image.canvas)
+    record.label.setImage(`mg3d:stop-name:${record.id}`, image.canvas)
     record.label.width = image.width
     record.label.height = image.height
     record.labelHalfWidth = image.width / 2

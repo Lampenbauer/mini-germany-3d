@@ -31,7 +31,7 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   const hash = () => page.evaluate(() => window.location.hash)
 
   await page.goto('/?offline=1&welcome=0&time=08:30&paused=1')
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
 
@@ -71,7 +71,7 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   // a fresh app boot afterwards, without holding two WebGL contexts at once.
   await page.goto('about:blank')
   await page.goto(sharedUrl)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
   const opened = await cameraView(page)
@@ -98,7 +98,7 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   // not walk the camera for the lens it puts on, or every reload would
   // land a step closer.
   await page.reload()
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
   const reloaded = await cameraView(page)
@@ -144,15 +144,15 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
 
   await page.goto('/?offline=1&welcome=0&time=08:30&paused=1')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+    () => window.__mg3d?.ready === true && window.__mg3d.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
 
   // Select a vehicle – the URL must switch to the vehicle-only hash
   const vehicleId = await page.evaluate(() => {
-    const id = window.__mrt!.vehicles()[0].id
-    window.__mrt!.selectVehicle(id)
+    const id = window.__mg3d!.vehicles()[0].id
+    window.__mg3d!.selectVehicle(id)
     return id
   })
   await expect
@@ -165,7 +165,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   // vehicle card opens, and follow mode engages.
   await page.goto('about:blank')
   await page.goto(sharedUrl)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
   const card = page.getByTestId('vehicle-card')
@@ -173,7 +173,7 @@ test('a selected vehicle is shared and restored via the URL', async ({ page }) =
   // The trip id is no longer printed on the card, so ask the app which
   // vehicle it restored – that is what this test is actually about.
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.selectedVehicleId()), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.selectedVehicleId()), { timeout: 30_000 })
     .toBe(vehicleId)
   await expect(card.getByRole('button', { name: 'Stop following' })).toBeVisible({
     timeout: 30_000,

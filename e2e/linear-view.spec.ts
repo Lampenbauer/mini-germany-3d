@@ -74,9 +74,9 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   // Vehicles have to be running, otherwise the dots prove nothing
-  await expect.poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), {
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.vehicleCount()), {
     timeout: 30_000,
   }).toBeGreaterThan(0)
 
@@ -110,7 +110,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   expect(framed.north).toBeGreaterThan(NETWORK.north)
 
   // One row per line the panel shows, and a dot per vehicle on them
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 10_000 }).toBe(true)
   await expect(diagram).toBeVisible({ timeout: 10_000 })
   // The globe is not drawn while nothing of it is visible – also the
   // signal that the morph has run its course.
@@ -143,7 +143,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   // and the camera flies home – the plan view is a working position, not
   // a place to be put down in.
   await page.getByRole('tab', { name: 'Surface' }).click()
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 10_000 }).toBe(false)
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
   await expect(diagram).toBeHidden({ timeout: 10_000 })
   expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
@@ -180,9 +180,9 @@ test('the map lets go of the network for exactly as long as the diagram holds it
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30#lat=54.0880&lon=12.1330&height=6000&heading=0&pitch=-50`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.vehicleCount()), { timeout: 30_000 })
     .toBeGreaterThan(0)
 
   /** Samples the two networks every frame until told to stop. */
@@ -258,7 +258,7 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
   test.setTimeout(240_000)
 
   const hash = () => page.evaluate(() => window.location.hash)
-  const linear = () => page.evaluate(() => window.__mrt!.linear())
+  const linear = () => page.evaluate(() => window.__mg3d!.linear())
 
   // A pose in the link and a camera left to settle. Both matter: without
   // them the boot flight is still writing the hash for its own reasons,
@@ -266,9 +266,9 @@ test('the keyboard reaches all three readings, and the URL carries whichever is 
   await page.goto(
     `/?offline=1&welcome=0&time=08:30&paused=1#stops=0&labels=0&lat=54.0880&lon=12.1330&height=2500&heading=0&pitch=-45`,
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting), { timeout: 60_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().interacting), { timeout: 60_000 })
     .toBe(false)
   expect(await hash()).not.toContain('view=')
 
@@ -311,7 +311,7 @@ test('a shared link opens on the reading it names', async ({ page }) => {
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30#stops=0&labels=0&view=underground`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -329,7 +329,7 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 
   await page.getByRole('tab', { name: 'Line diagram' }).click()
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'hidden', {
@@ -339,7 +339,7 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
   await page.getByRole('tab', { name: 'Underground' }).click()
 
   // The diagram is down, the map is back, and the map is the underground one
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 20_000 }).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 20_000 }).toBe(false)
   await expect(page.getByTestId('linear-view')).toBeHidden({ timeout: 20_000 })
   await expect(page.getByRole('tab', { name: 'Underground' })).toHaveAttribute(
     'aria-selected',
@@ -378,9 +378,9 @@ test('following a vehicle from the diagram brings the map back', async ({ page }
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30${VIEW}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.vehicleCount()), { timeout: 30_000 })
     .toBeGreaterThan(0)
 
   await page.getByRole('tab', { name: 'Line diagram' }).click()
@@ -398,7 +398,7 @@ test('following a vehicle from the diagram brings the map back', async ({ page }
   await page.getByRole('button', { name: 'Follow' }).click()
 
   // The map is back, the URL says so, and the camera is down at the vehicle
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 10_000 }).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 10_000 }).toBe(false)
   await expect(page.getByTestId('cesium-container')).toHaveCSS('visibility', 'visible')
   expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
   await expect
@@ -410,9 +410,9 @@ test('a shared link opens straight into the diagram', async ({ page }) => {
   test.setTimeout(240_000)
 
   await page.goto(`/?offline=1&welcome=0&time=08:30#stops=0&labels=0&view=linear`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 
-  await expect.poll(() => page.evaluate(() => window.__mrt!.linear()), { timeout: 30_000 }).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.linear()), { timeout: 30_000 }).toBe(true)
   const diagram = page.getByTestId('linear-view')
   await expect(diagram).toBeVisible()
   // The map underneath is the plan view too, so coming back lands where

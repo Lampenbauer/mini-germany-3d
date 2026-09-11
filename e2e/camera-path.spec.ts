@@ -37,11 +37,11 @@ async function settledPose(page: Page, before: string) {
 test('flies from the start to the end on the wall clock, whatever the simulation does', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto(`/rostock/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
-  const secondsBefore = await page.evaluate(() => window.__mrt!.secondsOfDay())
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
+  const secondsBefore = await page.evaluate(() => window.__mg3d!.secondsOfDay())
 
   await page.evaluate(
-    ([start, end]) => window.__mrt!.setCameraPath({ keyframes: [start, end], durationS: 3, ease: 'linear' }),
+    ([start, end]) => window.__mg3d!.setCameraPath({ keyframes: [start, end], durationS: 3, ease: 'linear' }),
     [START, END],
   )
   // The path rides in the hash, so a link carries it
@@ -63,10 +63,10 @@ test('flies from the start to the end on the wall clock, whatever the simulation
   // Play: the flight ends on the end keyframe and reports itself over
   const beforeFlight = await page.evaluate(() => window.location.hash)
   await page.getByRole('button', { name: 'Play the camera path' }).click()
-  expect(await page.evaluate(() => window.__mrt!.cameraPath().playing)).toBe(true)
+  expect(await page.evaluate(() => window.__mg3d!.cameraPath().playing)).toBe(true)
   await expect(page.getByRole('button', { name: 'Stop the camera path' })).toBeVisible()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.cameraPath()), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.cameraPath()), { timeout: 30_000 })
     .toMatchObject({ playing: false, progress: 1 })
   const atEnd = await settledPose(page, beforeFlight)
   expect(atEnd.lat).toBeCloseTo(54.1, 3)
@@ -75,15 +75,15 @@ test('flies from the start to the end on the wall clock, whatever the simulation
   expect(atEnd.heading).toBe(20)
   expect(atEnd.pitch).toBe(-30)
   // The simulation was paused and is paused still: the flight is the wall clock's
-  expect(await page.evaluate(() => window.__mrt!.secondsOfDay())).toBe(secondsBefore)
+  expect(await page.evaluate(() => window.__mg3d!.secondsOfDay())).toBe(secondsBefore)
 
   // A hand on the camera takes the flight off
   await page.keyboard.press('Escape')
-  await page.evaluate(() => window.__mrt!.playCameraPath())
-  expect(await page.evaluate(() => window.__mrt!.cameraPath().playing)).toBe(true)
+  await page.evaluate(() => window.__mg3d!.playCameraPath())
+  expect(await page.evaluate(() => window.__mg3d!.cameraPath().playing)).toBe(true)
   await page.mouse.move(640, 400)
   await page.mouse.wheel(0, -300)
-  await expect.poll(() => page.evaluate(() => window.__mrt!.cameraPath().playing)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.cameraPath().playing)).toBe(false)
 })
 
 test('a link with ?play=1 flies its path once the city is up', async ({ page }) => {
@@ -92,11 +92,11 @@ test('a link with ?play=1 flies its path once the city is up', async ({ page }) 
     `/rostock/?offline=1&welcome=0&time=08:30&paused=1&play=1` +
       `#${CHEAP}&path=54.060000,12.100000,3000,350,-40;54.100000,12.140000,1500,20,-30&dur=2`,
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   // No pace named: the gentle one is the default
-  expect(await page.evaluate(() => window.__mrt!.cameraPath().path?.ease)).toBe('smooth')
+  expect(await page.evaluate(() => window.__mg3d!.cameraPath().path?.ease)).toBe('smooth')
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.cameraPath()), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.cameraPath()), { timeout: 30_000 })
     .toMatchObject({ playing: false, progress: 1 })
   const atEnd = await settledPose(page, '')
   expect(atEnd.height).toBeCloseTo(1500, -1)

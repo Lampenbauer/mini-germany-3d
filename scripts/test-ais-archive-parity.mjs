@@ -39,8 +39,8 @@ const cities = CITIES.filter((city) => city.ais.enabled)
   .sort((a, b) => a.slug.localeCompare(b.slug))
   .map(({ slug, boundingBox }) => ({ slug, box: boundingBox }))
 
-const tsDir = mkdtempSync(join(tmpdir(), 'mrt-ais-archive-ts-'))
-const phpDir = mkdtempSync(join(tmpdir(), 'mrt-ais-archive-php-'))
+const tsDir = mkdtempSync(join(tmpdir(), 'mg3d-ais-archive-ts-'))
+const phpDir = mkdtempSync(join(tmpdir(), 'mg3d-ais-archive-php-'))
 const entriesFile = join(tsDir, 'entries.json')
 /** Reports a mismatch and leaves through the cleanup below – process.exit would skip it. */
 const fail = (...lines) => {

@@ -25,7 +25,7 @@ declare global {
   interface Window {
     /** Test hook of render-loop.spec.ts: freezes requestAnimationFrame. */
     __stopRaf?: boolean
-    __mrt?: {
+    __mg3d?: {
       ready: boolean
       /** Whether the welcome screen is up – no city session runs behind it. */
       welcomeOpen: () => boolean

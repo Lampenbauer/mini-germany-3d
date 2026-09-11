@@ -565,12 +565,12 @@ the wrong path before this was understood.
 
 Headed Playwright Chromium + `EXT_disjoint_timer_query_webgl2` (available there
 on this Mac; readPixels-synced timing has ~7 ms of sync overhead). Wait for
-`__mrt.tilesetStatus() === 'google-3d-tiles'` **and** `tileset.tilesLoaded &&
+`__mg3d.tilesetStatus() === 'google-3d-tiles'` **and** `tileset.tilesLoaded &&
 statistics.numberOfTilesWithContentReady > 50` held ~2 s (`tilesLoaded` is true
 before the first request), then `gl.beginQuery(ext.TIME_ELAPSED_EXT)` /
 `viewer.render()` / `endQuery` per frame. Runtime toggles: `scene.msaaSamples`,
 `scene.shadowMap.size` (4 cascades → the texture is 2×size square!),
-`viewer.resolutionScale`, the `mrt_tilt_shift` stage in
+`viewer.resolutionScale`, the `mg3d_tilt_shift` stage in
 `scene.postProcessStages`. `viewer.shadows` must be overridden via
 `defineProperty` — `applyShadowState` re-sets it every tick. City comes from the
 path (`/berlin/`). The dev build inflates React (jsxDEV).
@@ -642,7 +642,7 @@ Consequences to keep in mind:
   MSAA, a pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
   384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
   instead of 3.5 and a 600-drop rain pool. `?tier=` forces either;
-  `__mrt.renderProfile()` and `__mrt.shadowMap().size` show what is in
+  `__mg3d.renderProfile()` and `__mg3d.shadowMap().size` show what is in
   force. The mobile numbers are a first cut, chosen for memory (a
   mid-range phone gives a tab well under a gigabyte) rather than
   measured frame by frame – measure on a phone before tuning them, with
@@ -709,7 +709,7 @@ this camera per frame has to hold its readings against the same reference.
 Cesium raises `memoryAdjustedScreenSpaceError` by 2 %/frame whenever selected
 tiles exceed `cacheBytes + maximumCacheOverflowBytes`, **silently overriding
 every LOD knob**. Before proposing any SSE change, check
-`window.__mrt.tileMemory()`: `effectiveSse > configuredSse` means the ratchet is
+`window.__mg3d.tileMemory()`: `effectiveSse > configuredSse` means the ratchet is
 active and SSE tuning is moot. Budgets were raised in
 `CesiumMap.loadGoogleTiles` (2 GB cache on ≥8 GB devices, 1 GB otherwise, 1 GB
 overflow). The base budget is `TILE_SSE_CSS_PX = 6` CSS px × pixelRatio
@@ -770,14 +770,14 @@ neither unit nor e2e tests. Custom `DrawCommand` shaders (`CloudLayer`) *do*
 compile offline and are covered by `e2e/clouds.spec.ts`.
 
 After editing `TIME_OF_DAY_SHADER`, load the dev server **without** `offline=1`
-in a headless Chromium, wait for `__mrt.tilesetStatus() === 'google-3d-tiles'`,
-then check `__mrt.lastLoopError()` and the console. Google tiles answer many
+in a headless Chromium, wait for `__mg3d.tilesetStatus() === 'google-3d-tiles'`,
+then check `__mg3d.lastLoopError()` and the console. Google tiles answer many
 requests with HTTP 429 under SwiftShader, so only coarse tiles load — enough to
 prove the shader compiles, not enough to judge the look.
 
-### `window.__mrt`
+### `window.__mg3d`
 
-The debug/test API ([src/App.tsx](src/App.tsx), `MrtTestApi`) is the first stop
+The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
@@ -855,7 +855,7 @@ put it, or anything else written at runtime, under `dist/`; and
 tested against an in-memory store, the file store through the parity
 script. The first hours after a deploy are thin: the archive starts with
 the first window after it, and a moment before that is an empty harbour.
-`__mrt.aisReplay()` says whether the replay is on, which hours are held
+`__mg3d.aisReplay()` says whether the replay is on, which hours are held
 and how many ships the recording places at the simulated moment.
 
 **Ships are clamped to the tiles, and the clamps are rationed.** Until
@@ -927,8 +927,8 @@ hall longer than twice its roof height over it keeps a tent in its
 middle). Route rewrites are rationed to one per direction per second –
 each re-batches the polyline geometry. Stops on a
 viaduct are untouched: they already re-measure themselves near the camera
-(`StopsLayer.resolveHeights`). `__mrt.bridgeDecks()` shows the progress,
-`__mrt.bridgeDecks(lineId)` a line's vertices with sample and verdict.
+(`StopsLayer.resolveHeights`). `__mg3d.bridgeDecks()` shows the progress,
+`__mg3d.bridgeDecks(lineId)` a line's vertices with sample and verdict.
 Real fix, if ever wanted: a surface model (DOM1) for bridge ranges in
 `data:heights`; it was weighed against this and deferred for needing one
 source per state.

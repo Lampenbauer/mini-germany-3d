@@ -46,7 +46,7 @@ test('a link from far away lands at the fence, and dragging and zooming out both
   await page.goto(
     `/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}&lat=48.137&lon=11.575&height=2000000&heading=0&pitch=-60`,
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
   const landed = await cameraView(page)

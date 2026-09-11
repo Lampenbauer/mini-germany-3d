@@ -66,7 +66,7 @@ test('the realtime feed reaches the simulation, which keeps running when request
 
   await page.goto('/?offline=1&welcome=0&rt=1&time=08:30&paused=1#routes=0&stops=0&labels=0')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+    () => window.__mg3d?.ready === true && window.__mg3d.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
@@ -74,7 +74,7 @@ test('the realtime feed reaches the simulation, which keeps running when request
   // The feed reaching the app and matching trips is the part worth
   // asserting, so it is read from the debug API.
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.realtimeStatus()?.state))
+    .poll(() => page.evaluate(() => window.__mg3d!.realtimeStatus()?.state))
     .toBe('live')
   // ... and it really was our JSON that got there, not the internet's
   expect(served).toBeGreaterThan(0)
@@ -82,20 +82,20 @@ test('the realtime feed reaches the simulation, which keeps running when request
   // Now the watchdog. Cut off rAF and note where the simulation stands at
   // that moment.
   await page.evaluate(() => {
-    window.__mrt!.setPaused(false)
-    window.__mrt!.setSpeed(120)
+    window.__mg3d!.setPaused(false)
+    window.__mg3d!.setSpeed(120)
   })
   await page.evaluate(() => {
     window.__stopRaf = true
   })
   const frozen = await page.evaluate(() => ({
-    ticks: window.__mrt!.loopTicks(),
-    vehicle: window.__mrt!.vehicles()[0],
+    ticks: window.__mg3d!.loopTicks(),
+    vehicle: window.__mg3d!.vehicles()[0],
   }))
 
   // The watchdog must keep ticking the simulation and moving the vehicles.
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.loopTicks()), {
+    .poll(() => page.evaluate(() => window.__mg3d!.loopTicks()), {
       timeout: 15_000,
       intervals: [250, 500, 1000],
     })
@@ -106,7 +106,7 @@ test('the realtime feed reaches the simulation, which keeps running when request
       () =>
         page.evaluate(
           ({ id, lat, lon }) => {
-            const vehicle = window.__mrt!.vehicles().find((v) => v.id === id)
+            const vehicle = window.__mg3d!.vehicles().find((v) => v.id === id)
             // Reaching the terminus and leaving the list also proves movement.
             return vehicle == null || vehicle.lat !== lat || vehicle.lon !== lon
           },
@@ -116,5 +116,5 @@ test('the realtime feed reaches the simulation, which keeps running when request
     )
     .toBe(true)
 
-  expect(await page.evaluate(() => window.__mrt!.lastLoopError())).toBeNull()
+  expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 })

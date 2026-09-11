@@ -40,7 +40,7 @@ test.beforeAll(async ({ browser }) => {
   await page.goto(
     '/?offline=1&welcome=0&time=08:30&paused=1#lat=54.022550&lon=12.116191&height=5800&heading=0&pitch=-40&routes=0&labels=0',
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 })
 
 test.afterAll(async () => {
@@ -109,7 +109,7 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   // that would measure the motion rather than the blur.
   const settled = () =>
     expect
-      .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting), {
+      .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().interacting), {
         timeout: 60_000,
       })
       .toBe(false)
@@ -155,7 +155,7 @@ test('the miniature effect blurs the frame outside its sharp band', async () => 
   // that carries the effect at all – without both, the frame below would
   // be the unblurred one and the failure would point at the shader.
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.tiltShiftState()), { timeout: 60_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.tiltShiftState()), { timeout: 60_000 })
     .toEqual({ enabled: true, strength: 1, ready: true })
   await settled()
   const withEffect = await steadyFrameDetail()

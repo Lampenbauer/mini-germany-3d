@@ -19,7 +19,7 @@ function gradeHarness() {
 describe('PhotoGradeEffect', () => {
   it('adds its stage switched off', () => {
     const { effect, stage } = gradeHarness()
-    expect(stage.name).toBe('mrt_photo_grade')
+    expect(stage.name).toBe('mg3d_photo_grade')
     expect(stage.enabled).toBe(false)
     expect(effect.enabled).toBe(false)
   })

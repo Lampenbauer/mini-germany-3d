@@ -57,7 +57,7 @@ test.describe('on one scene', () => {
     page = await browser.newPage()
     await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0')
     await page.waitForFunction(
-      () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+      () => window.__mg3d?.ready === true && window.__mg3d.vehicleCount() > 0,
       undefined,
       { timeout: 120_000 },
     )
@@ -90,7 +90,7 @@ test.describe('on one scene', () => {
     const positions = await page.evaluate(
       (stopIdList) =>
         stopIdList.flatMap((sid) => {
-          const pos = window.__mrt!.stopScreenPosition(sid)
+          const pos = window.__mg3d!.stopScreenPosition(sid)
           return pos ? [{ id: sid, x: pos.x, y: pos.y }] : []
         }),
       ids,
@@ -113,7 +113,7 @@ test.describe('on one scene', () => {
     const card = page.getByTestId('stop-card')
     await expect(card).toBeVisible({ timeout: 30_000 })
     await expect
-      .poll(() => page.evaluate(() => window.__mrt!.selectedStopId()))
+      .poll(() => page.evaluate(() => window.__mg3d!.selectedStopId()))
       .toBe(clickable!.id)
 
     await card.getByRole('button', { name: 'Close selection' }).click({ force: true })
@@ -126,7 +126,7 @@ test.describe('on one scene', () => {
     const stopId = (await stopIds(page))[0]
     expect(stopId).toBeTruthy()
 
-    await page.evaluate((id) => window.__mrt!.selectStop(id), stopId)
+    await page.evaluate((id) => window.__mg3d!.selectStop(id), stopId)
     const card = page.getByTestId('stop-card')
     await expect(card).toBeVisible()
     await expect(card.getByTestId('stop-lines')).toBeVisible()
@@ -155,7 +155,7 @@ test.describe('on one scene', () => {
     const link = card.getByTitle('Fly to this vehicle').first()
     let found = false
     for (const id of (await stopIds(page)).slice(0, 25)) {
-      await page.evaluate((sid) => window.__mrt!.selectStop(sid), id)
+      await page.evaluate((sid) => window.__mg3d!.selectStop(sid), id)
       await expect(card).toBeVisible()
       if ((await link.count()) > 0) {
         found = true
@@ -175,7 +175,7 @@ test.describe('on one scene', () => {
     await expect(page.getByTestId('vehicle-card')).toBeVisible()
     await expect(card).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Stop following' })).toBeVisible()
-    const tripId = await page.evaluate(() => window.__mrt!.selectedVehicleId())
+    const tripId = await page.evaluate(() => window.__mg3d!.selectedVehicleId())
     expect(tripId).toBeTruthy()
 
     // The camera closes in on the vehicle (paused, so it stays put).
@@ -184,7 +184,7 @@ test.describe('on one scene', () => {
         () =>
           page.evaluate((vehicleId) => {
             const c = window.__cesiumViewer!.camera.positionCartographic
-            const v = window.__mrt!.vehicles().find(({ id }) => id === vehicleId)
+            const v = window.__mg3d!.vehicles().find(({ id }) => id === vehicleId)
             if (!v) return Number.POSITIVE_INFINITY
             const camLat = (c.latitude * 180) / Math.PI
             const camLon = (c.longitude * 180) / Math.PI
@@ -207,11 +207,11 @@ test('a shared stop link restores the card and flies to the stop', async ({ page
   const stopId = sharedStopId()
 
   await page.goto(`/?offline=1&welcome=0&time=08:30&paused=1#routes=0&stop=${encodeURIComponent(stopId)}`)
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
   await expect(page.getByTestId('stop-card')).toBeVisible({ timeout: 30_000 })
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.selectedStopId()))
+    .poll(() => page.evaluate(() => window.__mg3d!.selectedStopId()))
     .toBe(stopId)
 })

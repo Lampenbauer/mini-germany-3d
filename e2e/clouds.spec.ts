@@ -20,7 +20,7 @@ let page: Page
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto('/?offline=1&welcome=0&time=12:00&paused=1#routes=0&stops=0&labels=0')
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, { timeout: 120_000 })
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 })
 
 test.afterAll(async () => {
@@ -57,10 +57,10 @@ test('a closed sky puts a cloud layer over the city and takes it away again', as
   // A picture that stands still, with the globe's tiles in: the baseline
   // is what a frame without clouds looks like, not one still loading
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.renderPacing()), { timeout: 60_000 })
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 60_000 })
     .toMatchObject({ interacting: false, tilesLoading: false })
   const clear = await frameLuminance()
-  expect(await page.evaluate(() => window.__mrt!.cloudState())).toMatchObject({
+  expect(await page.evaluate(() => window.__mg3d!.cloudState())).toMatchObject({
     enabled: false,
     coverPercent: 0,
     drawn: false,
@@ -78,21 +78,21 @@ test('a closed sky puts a cloud layer over the city and takes it away again', as
   await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('clouds=1')
   await page.keyboard.press('Escape')
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.cloudState().enabled), slowPoll)
+    .poll(() => page.evaluate(() => window.__mg3d!.cloudState().enabled), slowPoll)
     .toBe(true)
 
   // The picked sky goes through the same per-tick path the live one does
-  await page.evaluate(() => window.__mrt!.setCloudCover(100))
+  await page.evaluate(() => window.__mg3d!.setCloudCover(100))
   // The cover eases in over six seconds; the layer reports when it is up
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.cloudState()), slowPoll)
+    .poll(() => page.evaluate(() => window.__mg3d!.cloudState()), slowPoll)
     .toMatchObject({ coverPercent: 100, coverApplied: 100, drawn: true })
   // A closed noon sky seen from above is a lot brighter than the dark globe
   await expect.poll(frameLuminance, slowPoll).toBeGreaterThan(clear * 1.5)
 
-  await page.evaluate(() => window.__mrt!.setCloudCover(0))
+  await page.evaluate(() => window.__mg3d!.setCloudCover(0))
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.cloudState()), slowPoll)
+    .poll(() => page.evaluate(() => window.__mg3d!.cloudState()), slowPoll)
     .toMatchObject({ coverPercent: 0, coverApplied: 0, drawn: false })
   await expect.poll(frameLuminance, slowPoll).toBeLessThan(clear * 1.1)
   expect(pageErrors).toEqual([])

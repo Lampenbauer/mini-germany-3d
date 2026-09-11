@@ -591,7 +591,7 @@ export class BridgeDecks {
   /**
    * Debug: one line's measured points – vertices and stations – with
    * what was measured and what the deck made of it, for
-   * __mrt.bridgeDecks(lineId) when a train still stands wrong somewhere.
+   * __mg3d.bridgeDecks(lineId) when a train still stands wrong somewhere.
    */
   details(lineId: string): {
     direction: 0 | 1

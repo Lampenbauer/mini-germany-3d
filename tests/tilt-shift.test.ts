@@ -93,7 +93,7 @@ function effectHarness(groundHeight = 0) {
 describe('TiltShiftEffect', () => {
   it('adds its stages switched off', () => {
     const { composite, effect } = effectHarness()
-    expect(composite.name).toBe('mrt_tilt_shift')
+    expect(composite.name).toBe('mg3d_tilt_shift')
     expect(composite.enabled).toBe(false)
     expect(effect.enabled).toBe(false)
   })

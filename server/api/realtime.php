@@ -24,28 +24,28 @@
 
 declare(strict_types=1);
 
-const MRT_UPSTREAM_URL = 'https://realtime.gtfs.de/realtime-free.pb';
-const MRT_CACHE_TTL_SECONDS = 60;
-const MRT_UPSTREAM_TIMEOUT = 30;
-const MRT_DEFAULT_CITY = 'rostock';
+const MG3D_UPSTREAM_URL = 'https://realtime.gtfs.de/realtime-free.pb';
+const MG3D_CACHE_TTL_SECONDS = 60;
+const MG3D_UPSTREAM_TIMEOUT = 30;
+const MG3D_DEFAULT_CITY = 'rostock';
 /** Where cities/<slug>/schedule.json is looked for: next to the script (the deploy), then the checkout. */
-const MRT_CITY_DIRS = [__DIR__ . '/cities', __DIR__ . '/../../src/cities'];
+const MG3D_CITY_DIRS = [__DIR__ . '/cities', __DIR__ . '/../../src/cities'];
 
 /**
  * The city a request names (?city=<slug>), as a slug – or null for one
  * that does not look like a slug at all. Whether it exists is decided by
  * the schedule lookup below.
  */
-function mrt_city_slug(): ?string
+function mg3d_city_slug(): ?string
 {
-    $slug = $_GET['city'] ?? MRT_DEFAULT_CITY;
+    $slug = $_GET['city'] ?? MG3D_DEFAULT_CITY;
     return is_string($slug) && preg_match('/^[a-z][a-z0-9-]{0,63}$/', $slug) === 1 ? $slug : null;
 }
 
 /** The city's schedule.json, or null when no city of that slug is deployed. */
-function mrt_city_schedule(string $slug): ?string
+function mg3d_city_schedule(string $slug): ?string
 {
-    foreach (MRT_CITY_DIRS as $dir) {
+    foreach (MG3D_CITY_DIRS as $dir) {
         $file = $dir . '/' . $slug . '/schedule.json';
         if (is_file($file)) return $file;
     }
@@ -61,7 +61,7 @@ function mrt_city_schedule(string $slug): ?string
  * negative int32 values (10-byte varints) automatically yield the correct
  * negative result. PHP discards shifts > 63 as 0.
  */
-function mrt_pb_varint(string $data, int &$pos): int
+function mg3d_pb_varint(string $data, int &$pos): int
 {
     $result = 0;
     $shift = 0;
@@ -83,17 +83,17 @@ function mrt_pb_varint(string $data, int &$pos): int
 }
 
 /** Skips a field of the given wire type. */
-function mrt_pb_skip(string $data, int &$pos, int $wire): void
+function mg3d_pb_skip(string $data, int &$pos, int $wire): void
 {
     switch ($wire) {
         case 0: // Varint
-            mrt_pb_varint($data, $pos);
+            mg3d_pb_varint($data, $pos);
             break;
         case 1: // fixed64
             $pos += 8;
             break;
         case 2: // length-delimited
-            $len = mrt_pb_varint($data, $pos);
+            $len = mg3d_pb_varint($data, $pos);
             $pos += $len;
             break;
         case 5: // fixed32
@@ -105,9 +105,9 @@ function mrt_pb_skip(string $data, int &$pos, int $wire): void
 }
 
 /** Reads a length-delimited field and returns the substring. */
-function mrt_pb_bytes(string $data, int &$pos): string
+function mg3d_pb_bytes(string $data, int &$pos): string
 {
-    $len = mrt_pb_varint($data, $pos);
+    $len = mg3d_pb_varint($data, $pos);
     $bytes = substr($data, $pos, $len);
     $pos += $len;
     return $bytes;
@@ -118,16 +118,16 @@ function mrt_pb_bytes(string $data, int &$pos): string
 // ---------------------------------------------------------------------------
 
 /** StopTimeEvent: { delay = field 1 (int32) } — null if not set. */
-function mrt_stop_time_event_delay(string $data): ?int
+function mg3d_stop_time_event_delay(string $data): ?int
 {
     $pos = 0;
     $len = strlen($data);
     while ($pos < $len) {
-        $tag = mrt_pb_varint($data, $pos);
+        $tag = mg3d_pb_varint($data, $pos);
         if (($tag >> 3) === 1 && ($tag & 7) === 0) {
-            return mrt_pb_varint($data, $pos);
+            return mg3d_pb_varint($data, $pos);
         }
-        mrt_pb_skip($data, $pos, $tag & 7);
+        mg3d_pb_skip($data, $pos, $tag & 7);
     }
     return null;
 }
@@ -136,7 +136,7 @@ function mrt_stop_time_event_delay(string $data): ?int
  * TripUpdate: trip = field 1, stop_time_update = field 2 (repeated),
  * delay = field 5 (int32). Returns [trip_id, delay|null].
  */
-function mrt_trip_update_extract(string $data): array
+function mg3d_trip_update_extract(string $data): array
 {
     $pos = 0;
     $len = strlen($data);
@@ -145,45 +145,45 @@ function mrt_trip_update_extract(string $data): array
     $firstStopDelay = null;
 
     while ($pos < $len) {
-        $tag = mrt_pb_varint($data, $pos);
+        $tag = mg3d_pb_varint($data, $pos);
         $field = $tag >> 3;
         $wire = $tag & 7;
 
         if ($field === 1 && $wire === 2) { // TripDescriptor
-            $trip = mrt_pb_bytes($data, $pos);
+            $trip = mg3d_pb_bytes($data, $pos);
             $tPos = 0;
             $tLen = strlen($trip);
             while ($tPos < $tLen) {
-                $tTag = mrt_pb_varint($trip, $tPos);
+                $tTag = mg3d_pb_varint($trip, $tPos);
                 if (($tTag >> 3) === 1 && ($tTag & 7) === 2) { // trip_id
-                    $tripId = mrt_pb_bytes($trip, $tPos);
+                    $tripId = mg3d_pb_bytes($trip, $tPos);
                 } else {
-                    mrt_pb_skip($trip, $tPos, $tTag & 7);
+                    mg3d_pb_skip($trip, $tPos, $tTag & 7);
                 }
             }
         } elseif ($field === 5 && $wire === 0) { // trip_update.delay
-            $tripUpdateDelay = mrt_pb_varint($data, $pos);
+            $tripUpdateDelay = mg3d_pb_varint($data, $pos);
         } elseif ($field === 2 && $wire === 2 && $firstStopDelay === null) {
             // StopTimeUpdate: departure = field 3, arrival = field 2
-            $stu = mrt_pb_bytes($data, $pos);
+            $stu = mg3d_pb_bytes($data, $pos);
             $sPos = 0;
             $sLen = strlen($stu);
             $departure = null;
             $arrival = null;
             while ($sPos < $sLen) {
-                $sTag = mrt_pb_varint($stu, $sPos);
+                $sTag = mg3d_pb_varint($stu, $sPos);
                 $sField = $sTag >> 3;
                 if ($sField === 3 && ($sTag & 7) === 2) {
-                    $departure = mrt_stop_time_event_delay(mrt_pb_bytes($stu, $sPos));
+                    $departure = mg3d_stop_time_event_delay(mg3d_pb_bytes($stu, $sPos));
                 } elseif ($sField === 2 && ($sTag & 7) === 2) {
-                    $arrival = mrt_stop_time_event_delay(mrt_pb_bytes($stu, $sPos));
+                    $arrival = mg3d_stop_time_event_delay(mg3d_pb_bytes($stu, $sPos));
                 } else {
-                    mrt_pb_skip($stu, $sPos, $sTag & 7);
+                    mg3d_pb_skip($stu, $sPos, $sTag & 7);
                 }
             }
             $firstStopDelay = $departure ?? $arrival;
         } else {
-            mrt_pb_skip($data, $pos, $wire);
+            mg3d_pb_skip($data, $pos, $wire);
         }
     }
 
@@ -194,7 +194,7 @@ function mrt_trip_update_extract(string $data): array
  * FeedMessage: header = field 1, entity = field 2 (repeated).
  * Returns [timestamp, totalEntities, delays(trip_id → seconds)].
  */
-function mrt_extract_delays(string $data, array $tripIdSet): array
+function mg3d_extract_delays(string $data, array $tripIdSet): array
 {
     $pos = 0;
     $len = strlen($data);
@@ -203,40 +203,40 @@ function mrt_extract_delays(string $data, array $tripIdSet): array
     $delays = [];
 
     while ($pos < $len) {
-        $tag = mrt_pb_varint($data, $pos);
+        $tag = mg3d_pb_varint($data, $pos);
         $field = $tag >> 3;
         $wire = $tag & 7;
 
         if ($field === 1 && $wire === 2) { // FeedHeader: timestamp = field 3
-            $header = mrt_pb_bytes($data, $pos);
+            $header = mg3d_pb_bytes($data, $pos);
             $hPos = 0;
             $hLen = strlen($header);
             while ($hPos < $hLen) {
-                $hTag = mrt_pb_varint($header, $hPos);
+                $hTag = mg3d_pb_varint($header, $hPos);
                 if (($hTag >> 3) === 3 && ($hTag & 7) === 0) {
-                    $timestamp = mrt_pb_varint($header, $hPos);
+                    $timestamp = mg3d_pb_varint($header, $hPos);
                 } else {
-                    mrt_pb_skip($header, $hPos, $hTag & 7);
+                    mg3d_pb_skip($header, $hPos, $hTag & 7);
                 }
             }
         } elseif ($field === 2 && $wire === 2) { // FeedEntity
-            $entity = mrt_pb_bytes($data, $pos);
+            $entity = mg3d_pb_bytes($data, $pos);
             $total++;
             $ePos = 0;
             $eLen = strlen($entity);
             while ($ePos < $eLen) {
-                $eTag = mrt_pb_varint($entity, $ePos);
+                $eTag = mg3d_pb_varint($entity, $ePos);
                 if (($eTag >> 3) === 3 && ($eTag & 7) === 2) { // trip_update
-                    [$tripId, $delay] = mrt_trip_update_extract(mrt_pb_bytes($entity, $ePos));
+                    [$tripId, $delay] = mg3d_trip_update_extract(mg3d_pb_bytes($entity, $ePos));
                     if ($tripId !== null && $delay !== null && isset($tripIdSet[$tripId])) {
                         $delays[$tripId] = $delay;
                     }
                 } else {
-                    mrt_pb_skip($entity, $ePos, $eTag & 7);
+                    mg3d_pb_skip($entity, $ePos, $eTag & 7);
                 }
             }
         } else {
-            mrt_pb_skip($data, $pos, $wire);
+            mg3d_pb_skip($data, $pos, $wire);
         }
     }
 
@@ -244,7 +244,7 @@ function mrt_extract_delays(string $data, array $tripIdSet): array
 }
 
 /** A city's trip_ids from its schedule.json as a set (keys). */
-function mrt_load_trip_ids(string $schedulePath): array
+function mg3d_load_trip_ids(string $schedulePath): array
 {
     $schedule = json_decode((string) file_get_contents($schedulePath), true);
     $set = [];
@@ -258,9 +258,9 @@ function mrt_load_trip_ids(string $schedulePath): array
     return $set;
 }
 
-function mrt_build_response(string $feedData, array $tripIdSet): string
+function mg3d_build_response(string $feedData, array $tripIdSet): string
 {
-    [$timestamp, $total, $delays] = mrt_extract_delays($feedData, $tripIdSet);
+    [$timestamp, $total, $delays] = mg3d_extract_delays($feedData, $tripIdSet);
     return json_encode([
         'timestamp' => $timestamp,
         'total' => $total,
@@ -274,8 +274,8 @@ function mrt_build_response(string $feedData, array $tripIdSet): string
 
 if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
     $feed = (string) file_get_contents($argv[2]);
-    $tripIds = mrt_load_trip_ids($argv[3]);
-    echo mrt_build_response($feed, $tripIds), "\n";
+    $tripIds = mg3d_load_trip_ids($argv[3]);
+    echo mg3d_build_response($feed, $tripIds), "\n";
     exit(0);
 }
 
@@ -286,20 +286,20 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
-$slug = mrt_city_slug();
-$schedulePath = $slug === null ? null : mrt_city_schedule($slug);
+$slug = mg3d_city_slug();
+$schedulePath = $slug === null ? null : mg3d_city_schedule($slug);
 if ($slug === null || $schedulePath === null) {
     http_response_code(404);
     echo json_encode(['error' => 'Unknown city']);
     exit;
 }
 
-$cacheFile = sys_get_temp_dir() . '/mrt-realtime-' . $slug . '.json';
-$feedFile = sys_get_temp_dir() . '/mrt-realtime-feed.pb';
-$lockFile = sys_get_temp_dir() . '/mrt-realtime-cache.lock';
+$cacheFile = sys_get_temp_dir() . '/mg3d-realtime-' . $slug . '.json';
+$feedFile = sys_get_temp_dir() . '/mg3d-realtime-feed.pb';
+$lockFile = sys_get_temp_dir() . '/mg3d-realtime-cache.lock';
 
 $cacheAge = is_file($cacheFile) ? time() - (int) filemtime($cacheFile) : PHP_INT_MAX;
-if ($cacheAge <= MRT_CACHE_TTL_SECONDS) {
+if ($cacheAge <= MG3D_CACHE_TTL_SECONDS) {
     readfile($cacheFile);
     exit;
 }
@@ -330,12 +330,12 @@ try {
     // The raw feed is shared by every city: a second city within the TTL
     // reuses the download instead of fetching >10 MB again.
     $feedAge = is_file($feedFile) ? time() - (int) filemtime($feedFile) : PHP_INT_MAX;
-    if ($feedAge > MRT_CACHE_TTL_SECONDS) {
-        $ch = curl_init(MRT_UPSTREAM_URL);
+    if ($feedAge > MG3D_CACHE_TTL_SECONDS) {
+        $ch = curl_init(MG3D_UPSTREAM_URL);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => MRT_UPSTREAM_TIMEOUT,
+            CURLOPT_TIMEOUT => MG3D_UPSTREAM_TIMEOUT,
             CURLOPT_USERAGENT => 'mini-germany-3d/1.0 (+https://github.com/Lampenbauer/mini-germany-3d)',
             CURLOPT_ENCODING => '', // allow gzip
         ]);
@@ -352,8 +352,8 @@ try {
         $feedData = (string) file_get_contents($feedFile);
     }
 
-    $tripIds = mrt_load_trip_ids($schedulePath);
-    $json = mrt_build_response($feedData, $tripIds);
+    $tripIds = mg3d_load_trip_ids($schedulePath);
+    $json = mg3d_build_response($feedData, $tripIds);
 
     // Write atomically so concurrent readers never see partial files
     $tmp = $cacheFile . '.' . getmypid() . '.tmp';

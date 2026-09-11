@@ -850,7 +850,7 @@ src/
 │                           # control rail, cards, ui/*, the ErrorBoundary for a viewer
 │                           # that cannot start)
 └── App.tsx                 # Viewer effect (once) + city session effect (per city),
-                            # render loop pacing, test API (window.__mrt)
+                            # render loop pacing, test API (window.__mg3d)
 
 scripts/
 ├── add-city.mjs              # new city: bounds from OSM → city.json skeleton

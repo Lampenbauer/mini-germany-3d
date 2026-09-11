@@ -2305,12 +2305,12 @@ export class CesiumMap {
     }
   }
 
-  /** Debug/test: progress of the bridge deck measurement (see __mrt.bridgeDecks). */
+  /** Debug/test: progress of the bridge deck measurement (see __mg3d.bridgeDecks). */
   getBridgeDeckInfo(): BridgeDecks['info'] {
     return this.bridgeDecks.info
   }
 
-  /** Debug: one line's measured bridge vertices (see __mrt.bridgeDecks). */
+  /** Debug: one line's measured bridge vertices (see __mg3d.bridgeDecks). */
   getBridgeDeckDetails(lineId: string): ReturnType<BridgeDecks['details']> {
     return this.bridgeDecks.details(lineId)
   }
@@ -2482,7 +2482,7 @@ export class CesiumMap {
       console.warn(
         '[MiniGermany3D] Height bootstrap: no valid tile heights determined – ' +
           'vehicles will use the fallback height. Please report this message ' +
-          'along with window.__mrt.groundHeights().',
+          'along with window.__mg3d.groundHeights().',
       )
       return
     }

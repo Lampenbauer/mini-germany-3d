@@ -17,14 +17,14 @@ test.describe.configure({ mode: 'serial' })
 
 let page: Page
 const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
-const drops = () => page.evaluate(() => window.__mrt!.rainDropsVisible())
+const drops = () => page.evaluate(() => window.__mg3d!.rainDropsVisible())
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto(
     '/?offline=1&welcome=0&time=08:30&paused=1&drops=40#lat=54.0847&lon=12.1162&height=400&heading=0&pitch=-35&routes=0&stops=0',
   )
-  await page.waitForFunction(() => window.__mrt?.ready === true, undefined, {
+  await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
 })
@@ -40,7 +40,7 @@ test.afterAll(async () => {
 test('the underground view stops the rain', async () => {
   test.setTimeout(240_000)
 
-  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await page.evaluate(() => window.__mg3d!.setRain(0.2))
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
 
   await page.getByRole('tab', { name: 'Underground' }).click()
@@ -48,13 +48,13 @@ test('the underground view stops the rain', async () => {
   await expect.poll(drops, slowPoll).toBe(0)
 
   // Dry before leaving again, so the second click lands on an idle scene
-  await page.evaluate(() => window.__mrt!.setRain(0))
+  await page.evaluate(() => window.__mg3d!.setRain(0))
   await page.getByRole('tab', { name: 'Surface' }).click()
 
   // The gate opens both ways: rain set on the surface shows up again
-  await page.evaluate(() => window.__mrt!.setRain(0.2))
+  await page.evaluate(() => window.__mg3d!.setRain(0.2))
   await expect.poll(drops, slowPoll).toBeGreaterThan(0)
-  await page.evaluate(() => window.__mrt!.setRain(0))
+  await page.evaluate(() => window.__mg3d!.setRain(0))
   await expect.poll(drops, slowPoll).toBe(0)
 })
 

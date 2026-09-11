@@ -55,7 +55,7 @@ const legacyState = {
   },
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'mrt-ais-state-'))
+const dir = mkdtempSync(join(tmpdir(), 'mg3d-ais-state-'))
 const stateFile = join(dir, 'state.json')
 writeFileSync(stateFile, JSON.stringify(legacyState))
 

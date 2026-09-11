@@ -48,7 +48,7 @@ const expected = {
   delays: { 'rostock-a': 180, 'rostock-b': 45, 'rostock-c': -90, 'rostock-e': 120 },
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'mrt-php-test-'))
+const dir = mkdtempSync(join(tmpdir(), 'mg3d-php-test-'))
 try {
   const feedPath = join(dir, 'feed.pb')
   const schedulePath = join(dir, 'schedule.json')

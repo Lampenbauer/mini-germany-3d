@@ -81,7 +81,7 @@ if (fromRepo !== expectedBbox) {
 }
 
 // Deployed layout: script and city.json copies side by side, no src/ around.
-const deployDir = mkdtempSync(join(tmpdir(), 'mrt-ais-deploy-'))
+const deployDir = mkdtempSync(join(tmpdir(), 'mg3d-ais-deploy-'))
 try {
   copyFileSync(join(root, 'server/api/ais.php'), join(deployDir, 'ais.php'))
   for (const city of CITIES) {

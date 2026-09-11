@@ -30,20 +30,20 @@ declare(strict_types=1);
 
 ini_set('serialize_precision', '-1');
 
-const MRT_WEBCAMS_URL = 'https://api.windy.com/webcams/api/v3/webcams';
-const MRT_WEBCAMS_CITY_DIRS = [
+const MG3D_WEBCAMS_URL = 'https://api.windy.com/webcams/api/v3/webcams';
+const MG3D_WEBCAMS_CITY_DIRS = [
     __DIR__ . '/cities',
     __DIR__ . '/../../src/cities',
 ];
-const MRT_WEBCAMS_DEFAULT_CITY = 'rostock';
-const MRT_WEBCAMS_TTL_SECONDS = 600;
-const MRT_WEBCAMS_PAGE_SIZE = 50;
-const MRT_WEBCAMS_MAX_CAMERAS = 200;
+const MG3D_WEBCAMS_DEFAULT_CITY = 'rostock';
+const MG3D_WEBCAMS_TTL_SECONDS = 600;
+const MG3D_WEBCAMS_PAGE_SIZE = 50;
+const MG3D_WEBCAMS_MAX_CAMERAS = 200;
 
 /** @return array<string, array{west:float,south:float,east:float,north:float,exclude:array<int,int>}> */
-function mrt_webcams_cities(): array
+function mg3d_webcams_cities(): array
 {
-    foreach (MRT_WEBCAMS_CITY_DIRS as $dir) {
+    foreach (MG3D_WEBCAMS_CITY_DIRS as $dir) {
         $files = glob($dir . '/*/city.json');
         if (!is_array($files) || $files === []) continue;
         sort($files);
@@ -72,7 +72,7 @@ function mrt_webcams_cities(): array
     return [];
 }
 
-function mrt_webcams_key(): string
+function mg3d_webcams_key(): string
 {
     $env = getenv('WINDY_KEY');
     if (is_string($env) && $env !== '') return trim($env);
@@ -92,7 +92,7 @@ function mrt_webcams_key(): string
  * @param array{west:float,south:float,east:float,north:float} $box
  * @return array{lat:float,lon:float,radiusKm:int}
  */
-function mrt_webcams_nearby(array $box): array
+function mg3d_webcams_nearby(array $box): array
 {
     $lat = ($box['south'] + $box['north']) / 2;
     $lon = ($box['west'] + $box['east']) / 2;
@@ -111,7 +111,7 @@ function mrt_webcams_nearby(array $box): array
  * @param array{west:float,south:float,east:float,north:float,exclude:array<int,int>} $box
  * @return array<int, array<string, mixed>>
  */
-function mrt_webcams_extract(array $raw, array $box): array
+function mg3d_webcams_extract(array $raw, array $box): array
 {
     $webcams = [];
     $excluded = array_flip($box['exclude'] ?? []);
@@ -150,14 +150,14 @@ function mrt_webcams_extract(array $raw, array $box): array
  * @param array{lat:float,lon:float,radiusKm:int} $nearby
  * @return array<int, mixed>
  */
-function mrt_webcams_fetch(string $apiKey, array $nearby): array
+function mg3d_webcams_fetch(string $apiKey, array $nearby): array
 {
     $pages = [];
     $offset = 0;
     $total = PHP_INT_MAX;
-    while ($offset < $total && $offset < MRT_WEBCAMS_MAX_CAMERAS) {
-        $url = MRT_WEBCAMS_URL . '?nearby=' . $nearby['lat'] . ',' . $nearby['lon'] . ',' . $nearby['radiusKm']
-            . '&limit=' . MRT_WEBCAMS_PAGE_SIZE . '&offset=' . $offset . '&include=images,location,urls';
+    while ($offset < $total && $offset < MG3D_WEBCAMS_MAX_CAMERAS) {
+        $url = MG3D_WEBCAMS_URL . '?nearby=' . $nearby['lat'] . ',' . $nearby['lon'] . ',' . $nearby['radiusKm']
+            . '&limit=' . MG3D_WEBCAMS_PAGE_SIZE . '&offset=' . $offset . '&include=images,location,urls';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -174,7 +174,7 @@ function mrt_webcams_fetch(string $apiKey, array $nearby): array
         foreach ($page as $cam) $pages[] = $cam;
         $total = is_int($data['total'] ?? null) ? $data['total'] : count($pages);
         if ($page === []) break;
-        $offset += MRT_WEBCAMS_PAGE_SIZE;
+        $offset += MG3D_WEBCAMS_PAGE_SIZE;
     }
     return $pages;
 }
@@ -182,32 +182,32 @@ function mrt_webcams_fetch(string $apiKey, array $nearby): array
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
-$slug = $_GET['city'] ?? MRT_WEBCAMS_DEFAULT_CITY;
-$cities = mrt_webcams_cities();
+$slug = $_GET['city'] ?? MG3D_WEBCAMS_DEFAULT_CITY;
+$cities = mg3d_webcams_cities();
 if (!is_string($slug) || !isset($cities[$slug])) {
     http_response_code(404);
     echo json_encode(['error' => 'Unknown city']);
     exit;
 }
-$apiKey = mrt_webcams_key();
+$apiKey = mg3d_webcams_key();
 if ($apiKey === '') {
     http_response_code(503);
     echo json_encode(['error' => 'No Windy API key configured (see header comment of webcams.php)']);
     exit;
 }
 
-$cacheFile = sys_get_temp_dir() . '/mrt-webcams-' . $slug . '.json';
+$cacheFile = sys_get_temp_dir() . '/mg3d-webcams-' . $slug . '.json';
 $cacheAge = is_file($cacheFile) ? time() - (int) filemtime($cacheFile) : PHP_INT_MAX;
-if ($cacheAge <= MRT_WEBCAMS_TTL_SECONDS) {
+if ($cacheAge <= MG3D_WEBCAMS_TTL_SECONDS) {
     readfile($cacheFile);
     exit;
 }
 
 try {
-    $raw = mrt_webcams_fetch($apiKey, mrt_webcams_nearby($cities[$slug]));
+    $raw = mg3d_webcams_fetch($apiKey, mg3d_webcams_nearby($cities[$slug]));
     $answer = json_encode([
         'servedAt' => (int) round(microtime(true) * 1000),
-        'webcams' => mrt_webcams_extract($raw, $cities[$slug]),
+        'webcams' => mg3d_webcams_extract($raw, $cities[$slug]),
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     file_put_contents($cacheFile, $answer, LOCK_EX);
     echo $answer;

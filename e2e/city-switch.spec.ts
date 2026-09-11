@@ -37,13 +37,13 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
   test.setTimeout(300_000)
   await page.goto(`/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}`)
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+    () => window.__mg3d?.ready === true && window.__mg3d.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
   await expect(page).toHaveTitle('Mini Rostock 3D')
   expect(inside(await cameraView(page), ROSTOCK)).toBe(true)
-  const rostockLines = await page.evaluate(() => window.__mrt!.lineIds())
+  const rostockLines = await page.evaluate(() => window.__mg3d!.lineIds())
   expect(rostockLines).toContain('FG')
 
   await page.getByRole('button', { name: 'Mini Rostock 3D' }).click()
@@ -53,9 +53,9 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
   // over on arrival, so this waits out the flight as well as the data.
   await page.waitForFunction(
     () =>
-      window.__mrt?.ready === true &&
-      window.__mrt.city() === 'kiel' &&
-      window.__mrt.vehicleCount() > 0,
+      window.__mg3d?.ready === true &&
+      window.__mg3d.city() === 'kiel' &&
+      window.__mg3d.vehicleCount() > 0,
     undefined,
     { timeout: 120_000 },
   )
@@ -63,7 +63,7 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
   await expect(page.getByTestId('app-title')).toHaveText('Mini Kiel 3D')
   // The city is in the path (lib/site-path.ts), under the language the interface speaks
   expect(new URL(page.url()).pathname).toBe('/en/kiel/')
-  const kielLines = await page.evaluate(() => window.__mrt!.lineIds())
+  const kielLines = await page.evaluate(() => window.__mg3d!.lineIds())
   expect(kielLines).toContain('F1')
   expect(kielLines).not.toContain('FG')
 
@@ -86,7 +86,7 @@ test('a link naming the city opens it', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto(`/kiel/?offline=1&welcome=0&time=08:30&paused=1#${CHEAP}`)
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.city() === 'kiel',
+    () => window.__mg3d?.ready === true && window.__mg3d.city() === 'kiel',
     undefined,
     { timeout: 120_000 },
   )
@@ -96,7 +96,7 @@ test('a link naming the city opens it', async ({ page }) => {
   await page.getByRole('button', { name: 'Mini Kiel 3D' }).click()
   await page.getByRole('option', { name: 'Switch to Rostock' }).click()
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.city() === 'rostock',
+    () => window.__mg3d?.ready === true && window.__mg3d.city() === 'rostock',
     undefined,
     { timeout: 120_000 },
   )

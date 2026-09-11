@@ -16,7 +16,7 @@ let snapshotsAt0830 = ''
 const tramSnapshotSignature = () =>
   page.evaluate(() =>
     JSON.stringify(
-      window.__mrt!.vehicles().map(({ id, lineId, nextStopName, lat, lon }) => [
+      window.__mg3d!.vehicles().map(({ id, lineId, nextStopName, lat, lon }) => [
         id,
         lineId,
         nextStopName,
@@ -36,7 +36,7 @@ test.beforeAll(async ({ browser }) => {
   // polyline carries just the same.
   await page.goto('/?offline=1&welcome=0&time=08:30&paused=1#routes=0')
   await page.waitForFunction(
-    () => window.__mrt?.ready === true && window.__mrt.vehicleCount() > 0,
+    () => window.__mg3d?.ready === true && window.__mg3d.vehicleCount() > 0,
     undefined,
     { timeout: 60_000 },
   )
@@ -50,10 +50,10 @@ test.afterAll(async () => {
 test.beforeEach(async () => {
   // Normalize the simulation state
   await page.evaluate(() => {
-    window.__mrt!.selectVehicle(null)
-    window.__mrt!.setPaused(true)
-    window.__mrt!.setSpeed(1)
-    window.__mrt!.setTime('08:30')
+    window.__mg3d!.selectVehicle(null)
+    window.__mg3d!.setPaused(true)
+    window.__mg3d!.setSpeed(1)
+    window.__mg3d!.setTime('08:30')
   })
 
   const timeInput = page.getByLabel('Set simulation time')
@@ -74,8 +74,8 @@ test('loads the app with map and control panel', async () => {
   // The panel used to carry these as badges; the facts are still worth
   // asserting, so they are read from the debug API instead. Offline mode
   // in particular is what this whole spec file depends on.
-  expect(await page.evaluate(() => window.__mrt!.tilesetStatus())).toBe('offline')
-  expect(await page.evaluate(() => window.__mrt!.dataSource)).toMatch(/^(osm|approximated)$/)
+  expect(await page.evaluate(() => window.__mg3d!.tilesetStatus())).toBe('offline')
+  expect(await page.evaluate(() => window.__mg3d!.dataSource)).toMatch(/^(osm|approximated)$/)
 })
 
 test('the data attribution opens in the app\u2019s own dialog', async () => {
@@ -115,9 +115,9 @@ test('reads the About dialog over a bare map, and hands the focus back', async (
 })
 
 test('shows active vehicles on the network lines', async () => {
-  const expected = await page.evaluate(() => window.__mrt!.lineIds())
+  const expected = await page.evaluate(() => window.__mg3d!.lineIds())
   const activeLineIds = await page.evaluate(() => [
-    ...new Set(window.__mrt!.vehicles().map((t) => t.lineId)),
+    ...new Set(window.__mg3d!.vehicles().map((t) => t.lineId)),
   ])
   // Active lines must be known lines; individual bus lines may have genuine
   // GTFS service gaps at the probe time, night-only lines (F1–F4) rest during
@@ -129,12 +129,12 @@ test('shows active vehicles on the network lines', async () => {
   )
 
   // Vehicles on visible lines are what the map actually draws
-  const count = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
+  const count = await page.evaluate(() => window.__mg3d!.visibleVehicleCount())
   expect(count).toBeGreaterThan(0)
 })
 
 test('renders OSM tunnel route sections at reduced opacity', async () => {
-  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  const source = await page.evaluate(() => window.__mg3d!.dataSource)
   test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
 
   const routeParts = await page.evaluate(() => {
@@ -199,23 +199,23 @@ test('a vehicle body is ghosted in a tunnel, solid past the portal, and the unde
   // file with it through the serial retry.
   test.setTimeout(300_000)
 
-  const source = await page.evaluate(() => window.__mrt!.dataSource)
+  const source = await page.evaluate(() => window.__mg3d!.dataSource)
   test.skip(source !== 'osm', 'The approximated fallback network has no OSM tunnel tags')
 
-  const transition = await page.evaluate(() => window.__mrt!.tunnelTransition())
+  const transition = await page.evaluate(() => window.__mg3d!.tunnelTransition())
   expect(transition).not.toBeNull()
 
   const setSimulationTime = async (seconds: number) => {
     const hours = String(Math.floor(seconds / 3600)).padStart(2, '0')
     const minutes = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')
     const secs = String(seconds % 60).padStart(2, '0')
-    await page.evaluate((time) => window.__mrt!.setTime(time), `${hours}:${minutes}:${secs}`)
+    await page.evaluate((time) => window.__mg3d!.setTime(time), `${hours}:${minutes}:${secs}`)
   }
   const opacity = (inTunnel: boolean) => () =>
     page.evaluate(
       ({ id, inTunnel }) => {
-        const snap = window.__mrt!.vehicles().find((tram) => tram.id === id)
-        return snap && snap.inTunnel === inTunnel ? window.__mrt!.vehicleOpacity(id) : null
+        const snap = window.__mg3d!.vehicles().find((tram) => tram.id === id)
+        return snap && snap.inTunnel === inTunnel ? window.__mg3d!.vehicleOpacity(id) : null
       },
       { id: transition!.id, inTunnel },
     )
@@ -240,20 +240,20 @@ test('a vehicle body is ghosted in a tunnel, solid past the portal, and the unde
 })
 
 test('line switch hides the vehicles of that line', async () => {
-  const before = await page.evaluate(() => window.__mrt!.visibleVehicleCount())
+  const before = await page.evaluate(() => window.__mg3d!.visibleVehicleCount())
   await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.visibleVehicleCount()))
+    .poll(() => page.evaluate(() => window.__mg3d!.visibleVehicleCount()))
     .toBeLessThan(before)
   await page.getByRole('switch', { name: 'Show Line 1' }).click()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.visibleVehicleCount()))
+    .poll(() => page.evaluate(() => window.__mg3d!.visibleVehicleCount()))
     .toBe(before)
 })
 
 test('selecting a vehicle opens the info card', async () => {
-  const tram = await page.evaluate(() => window.__mrt!.vehicles()[0])
-  await page.evaluate((id) => window.__mrt!.selectVehicle(id), tram.id)
+  const tram = await page.evaluate(() => window.__mg3d!.vehicles()[0])
+  await page.evaluate((id) => window.__mg3d!.selectVehicle(id), tram.id)
 
   const card = page.getByTestId('vehicle-card')
   await expect(card).toBeVisible()
@@ -284,21 +284,21 @@ test('night services keep running after midnight, daytime service resumes in the
   // and the around-the-clock Warnemünde ferry are still out. Their GTFS
   // departures are encoded as times past 24:00 and must wrap into the early
   // morning hours.
-  await page.evaluate(() => window.__mrt!.setTime('02:30'))
+  await page.evaluate(() => window.__mg3d!.setTime('02:30'))
   // Wait until the daytime vehicles from the previous simulation time are
   // gone: night buses and ferries are the only lines with an F-prefixed id.
   await expect
     .poll(() =>
-      page.evaluate(() => window.__mrt!.vehicles().every((tram) => tram.lineId.startsWith('F'))),
+      page.evaluate(() => window.__mg3d!.vehicles().every((tram) => tram.lineId.startsWith('F'))),
     )
     .toBe(true)
-  const nightCount = await page.evaluate(() => window.__mrt!.vehicleCount())
+  const nightCount = await page.evaluate(() => window.__mg3d!.vehicleCount())
   expect(nightCount).toBeGreaterThan(0)
 
   // 08:30: far more vehicles out than the handful of night services
-  await page.evaluate(() => window.__mrt!.setTime('08:30'))
+  await page.evaluate(() => window.__mg3d!.setTime('08:30'))
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.vehicleCount()))
+    .poll(() => page.evaluate(() => window.__mg3d!.vehicleCount()))
     .toBeGreaterThan(nightCount)
 })
 
@@ -311,18 +311,18 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
   // poll for observed movement and then measure the box drift – with frozen
   // boxes it grows to hundreds of meters within seconds at speed 120.
   await page.evaluate(() => {
-    window.__mrt!.setPaused(false)
-    window.__mrt!.setSpeed(120)
+    window.__mg3d!.setPaused(false)
+    window.__mg3d!.setSpeed(120)
   })
 
   const movedOnceWithBoxesAttached = async () => {
-    const before = await page.evaluate(() => window.__mrt!.vehicles()[0])
+    const before = await page.evaluate(() => window.__mg3d!.vehicles()[0])
     await expect
       .poll(
         () =>
           page.evaluate(
             ({ id, lat, lon }) => {
-              const t = window.__mrt!.vehicles().find((x) => x.id === id)
+              const t = window.__mg3d!.vehicles().find((x) => x.id === id)
               // At ×120 a trip can reach its terminus within seconds and
               // vanish from the list – that also proves movement.
               return t == null || t.lat !== lat || t.lon !== lon
@@ -332,7 +332,7 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
         { timeout: 30_000, intervals: [250, 500, 1000] },
       )
       .toBe(true)
-    expect(await page.evaluate(() => window.__mrt!.vehicleBoxDriftMeters())).toBeLessThan(5)
+    expect(await page.evaluate(() => window.__mg3d!.vehicleBoxDriftMeters())).toBeLessThan(5)
   }
 
   await movedOnceWithBoxesAttached()
@@ -341,18 +341,18 @@ test('vehicle boxes follow the simulation (no freezing/lagging)', async () => {
 
 test('time-lapse moves the vehicles', async () => {
   const before = await page.evaluate(() =>
-    JSON.stringify(window.__mrt!.vehicles().map((x) => x.id)),
+    JSON.stringify(window.__mg3d!.vehicles().map((x) => x.id)),
   )
   await page.evaluate(() => {
-    window.__mrt!.setPaused(false)
-    window.__mrt!.setSpeed(300)
+    window.__mg3d!.setPaused(false)
+    window.__mg3d!.setSpeed(300)
   })
   // After a few seconds at ×300 the set of active trips must have changed
   await expect
     .poll(
       () =>
         page.evaluate(
-          (prev) => JSON.stringify(window.__mrt!.vehicles().map((x) => x.id)) !== prev,
+          (prev) => JSON.stringify(window.__mg3d!.vehicles().map((x) => x.id)) !== prev,
           before,
         ),
       { timeout: 20_000 },
@@ -375,7 +375,7 @@ test('the clock can be set and restored to real time', async () => {
       { timeout: 45_000, intervals: [500, 1000] },
     )
     .toMatch(/^08:00/)
-  await expect.poll(() => page.evaluate(() => window.__mrt!.vehicleCount())).toBeGreaterThan(0)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.vehicleCount())).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: 'Now' }).click()
   // The field must not keep advertising a time the simulation left behind
@@ -397,7 +397,7 @@ test('the clock can be set and restored to real time', async () => {
       else if (part.type === 'second') s = parseInt(part.value, 10)
     }
     const now = h * 3600 + m * 60 + s
-    const d = Math.abs(window.__mrt!.secondsOfDay() - now)
+    const d = Math.abs(window.__mg3d!.secondsOfDay() - now)
     return Math.min(d, 86400 - d)
   })
   expect(diff).toBeLessThan(120)
@@ -417,7 +417,7 @@ test('pause button and camera reset are usable', async () => {
   // failed before. The camera is left alone in this file since.
   await page.getByRole('button', { name: 'Reset camera' }).click()
   await expect
-    .poll(() => page.evaluate(() => window.__mrt!.renderPacing().interacting), {
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().interacting), {
       timeout: 60_000,
     })
     .toBe(false)

@@ -60,7 +60,7 @@ export class PhotoGradeEffect {
 
   constructor(viewer: Viewer) {
     this.stage = new PostProcessStage({
-      name: 'mrt_photo_grade',
+      name: 'mg3d_photo_grade',
       fragmentShader: GRADE_SHADER,
       uniforms: {
         u_exposure: 1,

@@ -142,7 +142,7 @@ function gtfsRealtimeFilterPlugin(): Plugin {
 }
 
 /** Where the dev middleware records the AIS archive (see ais-archive.ts). */
-const AIS_ARCHIVE_DIR = join(tmpdir(), 'mrt-ais-archive')
+const AIS_ARCHIVE_DIR = join(tmpdir(), 'mg3d-ais-archive')
 
 /**
  * Dev/preview middleware for /api/ais: holds ONE aisstream.io WebSocket
@@ -242,7 +242,7 @@ function aisLivePlugin(): Plugin {
    * One recorded hour from `from` on – 404 where nothing was recorded,
    * 416 for a start beyond the end (nothing new). A closed hour is
    * complete and cacheable; an open one, and any tail, is not. Mirror of
-   * mrt_ais_archive_serve in api/ais.php.
+   * mg3d_ais_archive_serve in api/ais.php.
    */
   const serveArchiveHour = (res: ServerResponse, slug: string, hour: string, from: number): void => {
     const file = isArchiveHourKey(hour) ? archiveFilePath(AIS_ARCHIVE_DIR, slug, hour) : null

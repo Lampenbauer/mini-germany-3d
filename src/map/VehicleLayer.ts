@@ -783,7 +783,7 @@ export class VehicleLayer {
     return list
   }
 
-  /** Debug: current ground heights of the vehicles (see __mrt.groundHeights). */
+  /** Debug: current ground heights of the vehicles (see __mg3d.groundHeights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.vehicles.entries()].map(([id, record]) => ({
       id,
