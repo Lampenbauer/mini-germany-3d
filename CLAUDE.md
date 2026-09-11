@@ -806,11 +806,16 @@ and a ship under way on a 30 s grid, mostly every 60 s. ~450 m between fixes at
 15 kn is physics, not a bug. Never chase it with more polling.
 
 **Keys, never in the repo:** dev takes `AISSTREAM_KEY` / `WINDY_KEY` from
-`.env`; production reads `aisstream.io-api-key.txt` and `windy-api-key.txt` two
-levels above the docroot (see the header comments in
+`.env`; production reads `aisstream.io-api-key.txt` and `windy-api-key.txt`
+from the folder above the docroot – two levels up from the scripts in
+`api/`, which is how they look for it (see the header comments in
 [server/api/ais.php](server/api/ais.php) and
-[server/api/webcams.php](server/api/webcams.php)). Keys are never
-`VITE_`-prefixed.
+[server/api/webcams.php](server/api/webcams.php); the README's Deployment
+section draws the layout). Keys are never `VITE_`-prefixed. The webspace
+moved on 2026-09-11 from `apps/mini-germany-3d/` (docroot, key beside it
+in `apps/`) to `websites/mini-germany-3d/website/` (docroot) with the key
+and the archive in `websites/mini-germany-3d/` – nothing in the code
+changed for it, only `KAS_TARGET_DIR` and the domain's path in KAS.
 
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under

@@ -733,8 +733,32 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    (Settings → Secrets and variables → Actions): **`KAS_SSH_PASSWORD`** (the SSH
    password), **`KAS_SSH_HOST`** (the SSH host), **`KAS_SSH_USER`** (the SSH
    user), and **`KAS_TARGET_DIR`** (the document root on the webspace, with a
-   trailing slash). The Ion token is not among them – it is domain-restricted and
-   sits in the workflow in the clear.
+   trailing slash, as rsync sees it over SSH: relative to the SSH login
+   directory – `websites/mini-germany-3d/website/` – or absolute from the
+   server's root – `/www/htdocs/<account>/websites/mini-germany-3d/website/`.
+   Not with the leading slash KAS writes paths with: over SSH that is the
+   server's root, and the deploy fails with `mkdir "/websites/…" failed`.
+   rsync creates only the last folder of the path, so the ones above it
+   must exist). The Ion token is not among them – it is domain-restricted and
+   sits in the workflow in the clear. The webspace is laid out as one folder
+   per site with the document root one level down, and everything the site
+   reads or writes outside the deploy sits beside that root, never in it:
+
+   ```
+   websites/mini-germany-3d/            ← KAS_TARGET_DIR's parent
+   ├── aisstream.io-api-key.txt         # read by api/ais.php
+   ├── windy-api-key.txt                # fallback for api/webcams.php (the deploy
+   │                                    #   writes api/webcams-key.txt from WINDY_KEY)
+   ├── ais-archive/<slug>/*.ndjson      # written by api/ais.php, three days kept
+   └── website/                         ← KAS_TARGET_DIR, the domain points here
+       ├── index.html, assets/, …       # the build
+       └── api/                         # the PHP scripts and their city.json copies
+   ```
+
+   The PHP scripts find the folder above the root relative to themselves
+   (`api/../../`), so the layout is the only thing they assume: moving the
+   site means moving that folder as a whole and pointing `KAS_TARGET_DIR` and
+   the domain at the new `website/`.
 2. After a push to `main` – in particular after a PR merge – the deploy job waits
    for the CI job to succeed completely: typecheck, unit tests, PHP parity test,
    build, and E2E tests. Only then are `dist/` (an `index.html` per city and
@@ -747,7 +771,7 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    manual run of the CI workflow on `main` also goes through all tests first,
    which makes it suitable as a recovery deploy. The rsync deletes what it
    does not carry, which is why nothing the site writes at runtime lives
-   under the document root: the API keys sit two levels above it, and so
+   under the document root: the API keys sit in the folder above it, and so
    does the AIS archive `api/ais.php` records (`ais-archive/<slug>/`, created
    on first use; the temp directory stands in when that cannot be written).
 3. **Trying a branch out on the real hosting:** Actions → CI → `Run workflow`,
