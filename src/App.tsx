@@ -1025,6 +1025,12 @@ export default function App() {
   /** The lines pulled straight instead of drawn on the city (see LinearView). */
   const [linear, setLinear] = useState(false)
   const linearRef = useRef(false)
+  /**
+   * The camera path bar is on the map: opened, and not while the lines
+   * are pulled straight – the diagram has no camera to fly. The readings
+   * beside it change their shape for it (see the wrapper below).
+   */
+  const pathBarShown = cameraPathOpen && !linear
 
   const network = cityData?.network ?? null
 
@@ -3976,14 +3982,23 @@ export default function App() {
             actually wanted. On a phone the foot of the screen is the
             sheet's, so the readings go to the top, between the weather
             and the rail. */}
-        <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 flex flex-col items-center -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto">
-          {/* The camera path bar, a step above the readings: in their
-              wrapper, so the gap holds whatever height the group has.
-              Like the photo popover it opens from, it goes with the map
-              and not with the diagram, and a phone never gets it – the
-              button that opens it is not offered there. */}
-          {cameraPathOpen && !linear && (
-            <div className="mb-4 max-sm:hidden">
+        {/* The camera path bar shares the foot with the readings: while
+            it is up the two stand side by side on the same baseline, the
+            bar on the left and the readings folded into a column of icons
+            at its lower right – the bar wants the width, and a column of
+            three icons is what fits beside it. Like the photo popover it
+            opens from, the bar goes with the map and not with the
+            diagram, and a phone never gets it – the button that opens it
+            is not offered there, so the readings keep their row on a
+            phone. */}
+        <div
+          className={cn(
+            'pointer-events-none absolute bottom-8 left-1/2 z-10 flex -translate-x-1/2 max-sm:top-3 max-sm:bottom-auto',
+            pathBarShown ? 'items-end gap-3' : 'flex-col items-center',
+          )}
+        >
+          {pathBarShown && (
+            <div className="max-sm:hidden">
               <CameraPathBar {...cameraPathControls} onClose={() => setCameraPathOpen(false)} />
             </div>
           )}
@@ -3991,7 +4006,7 @@ export default function App() {
             value={mapView}
             onValueChange={(value) => selectView(value as MapView)}
             aria-label={t('view.readings')}
-            className="pointer-events-auto"
+            className={cn('pointer-events-auto', pathBarShown && 'sm:flex-col')}
           >
             {VIEW_TABS.map(({ value, labelKey, Icon }) => (
               // The diagram stays a desktop reading (see lib/viewport.ts)
@@ -4002,13 +4017,17 @@ export default function App() {
               >
                 <Icon aria-hidden />
                 {/* Named at every width, spelled out only where the three
-                    of them fit beside the panel. Centred at the foot of the
-                    map the group is ~377px wide, so its left edge clears
-                    the panel's 336 from about 1080px up; 1120 leaves a gap
-                    rather than a graze, and it is a width Tailwind has no
-                    name for. sr-only rather than hidden, so the label stays
-                    the button's own accessible name at every width. */}
-                <span className="sr-only min-[1120px]:not-sr-only">{t(labelKey)}</span>
+                    of them fit beside the panel – and never beside the
+                    camera path bar, where the readings are a column of
+                    icons. Centred at the foot of the map the group is
+                    ~377px wide, so its left edge clears the panel's 336
+                    from about 1080px up; 1120 leaves a gap rather than a
+                    graze, and it is a width Tailwind has no name for.
+                    sr-only rather than hidden, so the label stays the
+                    button's own accessible name at every width. */}
+                <span className={cn('sr-only', !pathBarShown && 'min-[1120px]:not-sr-only')}>
+                  {t(labelKey)}
+                </span>
               </SegmentedControlItem>
             ))}
           </SegmentedControl>

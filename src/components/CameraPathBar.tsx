@@ -3,11 +3,14 @@
  * The bar opens from the photo popover and sits above the map's readings,
  * where a shot is composed looking at the picture – and it fades to
  * half while the pointer is elsewhere, so the picture stays the thing
- * looked at; a hand over it, or the focus inside it, brings it back.
- * The app owns the path; only the duration's uncommitted text lives here.
+ * looked at; a hand over it, or the focus inside it, brings it back. A
+ * bar just opened stands at full opacity for a few seconds first
+ * (BAR_SETTLE_MS): it was asked for, and it should be read once before
+ * it steps back. The app owns the path; only the duration's uncommitted
+ * text and the settling live here.
  */
 
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Camera, Check, Clapperboard, Eye, Info, Play, Square, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,6 +49,9 @@ export interface CameraPathControls {
 export interface CameraPathBarProps extends CameraPathControls {
   onClose: () => void
 }
+
+/** How long a freshly opened bar stays fully opaque before it fades to half. */
+export const BAR_SETTLE_MS = 4000
 
 /** One face of the play button: its icon and its word, in the one grid cell both share. */
 const PLAY_FACE = 'col-start-1 row-start-1 flex items-center justify-center gap-1.5'
@@ -191,6 +197,12 @@ export function CameraPathBar(path: CameraPathBarProps) {
   const statusId = useId()
   const easeId = useId()
   const elapsed = path.progress * path.durationS
+  // Settled: the seconds after opening are over and the bar may fade
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(true), BAR_SETTLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
   const status = !path.start
     ? 'path.needStart'
     : !path.end
@@ -202,10 +214,15 @@ export function CameraPathBar(path: CameraPathBarProps) {
     <section
       aria-labelledby={titleId}
       data-testid="camera-path-bar"
-      // The same glass as the popovers and the rail, faded to half
-      // while the pointer is elsewhere (see the head of this file) –
-      // focus-within as well as hover, or a keyboard could never see it
-      className="bg-card/85 text-card-foreground border-border/60 pointer-events-auto flex w-xl max-w-[calc(100vw-7rem)] flex-col gap-3 rounded-lg border p-3 opacity-50 shadow-lg backdrop-blur-xl transition-opacity hover:opacity-100 focus-within:opacity-100"
+      // The same glass as the popovers and the rail, faded to half once
+      // settled while the pointer is elsewhere (see the head of this
+      // file) – focus-within as well as hover, or a keyboard could never
+      // see it. The fade out is slow, the way back under the pointer
+      // quick: a control should answer a hand at once.
+      className={cn(
+        'bg-card/85 text-card-foreground border-border/60 pointer-events-auto flex w-xl max-w-[calc(100vw-7rem)] flex-col gap-3 rounded-lg border p-3 shadow-lg backdrop-blur-xl transition-opacity duration-700 hover:opacity-100 hover:duration-150 focus-within:opacity-100 focus-within:duration-150',
+        settled && 'opacity-50',
+      )}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">

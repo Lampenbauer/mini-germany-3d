@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PhotoModePopover } from '@/components/PhotoModePopover'
-import { CameraPathBar, type CameraPathControls } from '@/components/CameraPathBar'
+import { BAR_SETTLE_MS, CameraPathBar, type CameraPathControls } from '@/components/CameraPathBar'
 import { config } from '@/config'
 import { setLanguage } from '@/lib/i18n'
 import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
@@ -16,6 +16,7 @@ import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib
 afterEach(() => {
   cleanup()
   setLanguage('en')
+  vi.useRealTimers()
 })
 
 function photo(settings: PhotoSettings = DEFAULT_PHOTO_SETTINGS, cameraPathOpen = false) {
@@ -278,12 +279,6 @@ describe('the camera path bar', () => {
     expect(screen.getByRole('button', { name: 'Play the camera path' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'View start' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Clear saved positions' })).toBeDisabled()
-    // Faded while the pointer is elsewhere, back under it or with the focus inside
-    expect(screen.getByTestId('camera-path-bar')).toHaveClass(
-      'opacity-50',
-      'hover:opacity-100',
-      'focus-within:opacity-100',
-    )
     // Radix marks a disabled thumb with data-disabled rather than aria-disabled
     expect(screen.getByRole('slider', { name: 'Position on the path' })).toHaveAttribute('data-disabled')
     fireEvent.click(screen.getByRole('button', { name: 'Save view as start' }))
@@ -320,6 +315,18 @@ describe('the camera path bar', () => {
     expect(screen.getByTestId('path-times')).toHaveTextContent('0:45/1:30')
     fireEvent.click(screen.getByRole('button', { name: 'Stop the camera path' }))
     expect(flying.onStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens at full opacity and fades to half a few seconds later, back under the pointer', () => {
+    vi.useFakeTimers()
+    bar()
+    const section = screen.getByTestId('camera-path-bar')
+    expect(section).not.toHaveClass('opacity-50')
+    act(() => vi.advanceTimersByTime(BAR_SETTLE_MS - 1))
+    expect(section).not.toHaveClass('opacity-50')
+    act(() => vi.advanceTimersByTime(1))
+    // Faded while the pointer is elsewhere, back under it or with the focus inside
+    expect(section).toHaveClass('opacity-50', 'hover:opacity-100', 'focus-within:opacity-100')
   })
 
   it('guides the next capture without requiring the end to be saved second', () => {

@@ -310,9 +310,14 @@ with elapsed/total together beside it; clearing drops only the saved
 positions, as the button's name says. The bar stands at half its
 opacity while the pointer is elsewhere and comes back under it or with
 the focus inside it (`focus-within`, or a keyboard could never see it) –
-the picture is the thing looked at while a shot is composed. The bar is
-centred a step (16 px) above the readings' radio group, as the first child of the
-group's wrapper so the gap holds whatever height the group has. It was
+the picture is the thing looked at while a shot is composed – but a bar
+just opened stays at full opacity for `BAR_SETTLE_MS` (4 s) first: it
+was asked for and should be read once before it steps back. The bar
+shares the foot of the map with the readings' radio group, both on the
+same baseline in one wrapper: while the bar is up (`pathBarShown` in
+`App.tsx`) the readings fold into a column of icons at its lower right,
+their labels `sr-only` at every width, and unfold into their row again
+when it closes. It was
 a column at the end of the photo popover, which covered a good part of
 the frame a shot was being set up in; the popover's last button (after
 the miniature switch, `aria-pressed` while the bar is up) opens and

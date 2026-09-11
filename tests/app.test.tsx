@@ -374,6 +374,13 @@ describe('App (UI shell)', () => {
     })
     await waitFor(() => expect(window.__mg3d!.cameraPath().path).not.toBeNull())
     await waitFor(() => expect(window.location.hash).toContain('path='))
+    // The bar is up, and the readings beside it are a column of icons
+    // on the same baseline: no spelled-out label, the group stacked
+    expect(screen.getByTestId('camera-path-bar')).toBeInTheDocument()
+    const readings = screen.getByRole('radiogroup', { name: 'View' })
+    expect(readings).toHaveClass('sm:flex-col')
+    expect(within(readings).getByText('Surface')).toHaveClass('sr-only')
+    expect(within(readings).getByText('Surface')).not.toHaveClass('min-[1120px]:not-sr-only')
     fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
     fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
     await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
@@ -383,6 +390,10 @@ describe('App (UI shell)', () => {
     // The seconds and the pace are settings, not places – they stay
     // for the next shot
     expect(screen.getByRole('button', { name: 'Photo mode' })).toBeInTheDocument()
+    // The bar stays up, emptied, like the seconds and the pace: it was
+    // opened by the reader, and the next shot is over the new city
+    expect(screen.getByTestId('camera-path-bar')).toBeInTheDocument()
+    expect(screen.getAllByText('Not saved')).toHaveLength(2)
   })
 
   it('asks for a city on a plain visit, keeps the map bare behind the door and jumps there', async () => {
