@@ -11,7 +11,9 @@ import { expect, test, type Page } from '@playwright/test'
  * nowhere else.
  *
  * On a cheap page each: routes, stops and labels off, the clock paused
- * so the ship stands where she is put.
+ * so the ship stands where she is put. The frames stay in the page and
+ * only the counts come out: a frame is four million numbers, and handing
+ * one over the wire took the CI runner half a minute.
  */
 
 let page: Page
@@ -85,9 +87,29 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0) =>
     { ...SHIP, sogKn, courseDeg, runMeters },
   )
 
-/** The rendered frame's pixels, read off the canvas after a render of its own. */
-const frame = () =>
+/**
+ * Whether the box ship wears her hull yet. The layer puts up a
+ * placeholder box and swaps in the glTF hull once that is loaded – a
+ * second locally, long enough on the CI runner that a frame taken right
+ * after the ship was put showed water where the next one showed a hull
+ * (2026-09-11). A picture meant to hold the hull still waits for it.
+ */
+const hullReady = () =>
   page.evaluate(() => {
+    const primitives = window.__cesiumViewer!.scene.primitives
+    for (let i = 0; i < primitives.length; i++) {
+      const primitive = primitives.get(i)
+      if (primitive.id === 'vessel:211000001' && primitive.ready === true) return true
+    }
+    return false
+  })
+
+/** Where the page keeps the frames the tests compare. */
+type FramesWindow = Window & { __mg3dFrames?: Record<string, ImageData> }
+
+/** Renders a frame of its own and keeps its pixels in the page under the name. */
+const captureFrame = (name: string) =>
+  page.evaluate((name) => {
     const viewer = window.__cesiumViewer!
     viewer.render()
     const source = viewer.canvas
@@ -96,27 +118,30 @@ const frame = () =>
     copy.height = source.height
     const ctx = copy.getContext('2d')!
     ctx.drawImage(source, 0, 0)
-    const { data } = ctx.getImageData(0, 0, source.width, source.height)
-    return { width: source.width, height: source.height, data: Array.from(data) }
-  })
+    const frames = ((window as FramesWindow).__mg3dFrames ??= {})
+    frames[name] = ctx.getImageData(0, 0, source.width, source.height)
+  }, name)
 
-/** How many pixels of a frame differ visibly between two frames, inside a box in CSS-fraction coordinates. */
-function differingPixels(
-  a: { width: number; height: number; data: number[] },
-  b: { width: number; height: number; data: number[] },
-  box: { x0: number; y0: number; x1: number; y1: number },
-): number {
-  let count = 0
-  for (let y = Math.floor(box.y0 * a.height); y < box.y1 * a.height; y++) {
-    for (let x = Math.floor(box.x0 * a.width); x < box.x1 * a.width; x++) {
-      const i = (y * a.width + x) * 4
-      const la = 0.2126 * a.data[i] + 0.7152 * a.data[i + 1] + 0.0722 * a.data[i + 2]
-      const lb = 0.2126 * b.data[i] + 0.7152 * b.data[i + 1] + 0.0722 * b.data[i + 2]
-      if (Math.abs(la - lb) > 6) count++
-    }
-  }
-  return count
-}
+/** How many pixels differ visibly between two kept frames, inside a box in CSS-fraction coordinates. */
+const differingPixels = (a: string, b: string, box: { x0: number; y0: number; x1: number; y1: number }) =>
+  page.evaluate(
+    ({ a, b, box }) => {
+      const frames = (window as FramesWindow).__mg3dFrames!
+      const fa = frames[a]
+      const fb = frames[b]
+      let count = 0
+      for (let y = Math.floor(box.y0 * fa.height); y < box.y1 * fa.height; y++) {
+        for (let x = Math.floor(box.x0 * fa.width); x < box.x1 * fa.width; x++) {
+          const i = (y * fa.width + x) * 4
+          const la = 0.2126 * fa.data[i] + 0.7152 * fa.data[i + 1] + 0.0722 * fa.data[i + 2]
+          const lb = 0.2126 * fb.data[i] + 0.7152 * fb.data[i + 1] + 0.0722 * fb.data[i + 2]
+          if (Math.abs(la - lb) > 6) count++
+        }
+      }
+      return count
+    },
+    { a, b, box },
+  )
 
 const slowPoll = { timeout: 120_000, intervals: [1000, 2000, 4000] }
 
@@ -139,14 +164,16 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.funnelSmoke()!.drawn), slowPoll)
     .toBe(0)
-  const cold = await frame()
+  await expect.poll(hullReady, slowPoll).toBe(true)
+  await captureFrame('cold')
 
   // Under way: one plume, and the shader drew it without a word from the loop
   await putShip(12)
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.funnelSmoke()!.drawn), slowPoll)
     .toBe(1)
-  const smoking = await frame()
+  await expect.poll(hullReady, slowPoll).toBe(true)
+  await captureFrame('smoking')
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
   // With no wind offline the plume trails dead aft: from the funnel aft
@@ -155,8 +182,8 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
   // are the same in both pictures
   const plume = { x0: 0.2, y0: 0.28, x1: 0.38, y1: 0.4 }
   const hull = { x0: 0.45, y0: 0.36, x1: 0.7, y1: 0.48 }
-  expect(differingPixels(cold, smoking, plume)).toBeGreaterThan(150)
-  expect(differingPixels(cold, smoking, hull)).toBeLessThan(50)
+  expect(await differingPixels('cold', 'smoking', plume)).toBeGreaterThan(150)
+  expect(await differingPixels('cold', 'smoking', hull)).toBeLessThan(50)
 
   // Gone with the ship
   await page.evaluate(() => window.__mg3d!.setAisVessels(null))
@@ -179,22 +206,22 @@ test('a ship under way leaves a wake behind her stern and nothing elsewhere', as
     ferries: 0,
     supported: true,
   })
-  const empty = await frame()
+  await captureFrame('empty')
 
   // Six metres a second east for the minute around the rendered instant
   await putShip(12, 90, 360)
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.wake()!.ships), slowPoll)
     .toBeGreaterThan(20)
-  const wake = await frame()
+  await captureFrame('wake')
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
   // The wash lies west of the stern – left of the hull in the frame – and
   // the water north-east of her, where no wake reaches, is untouched
   const wash = { x0: 0.3, y0: 0.47, x1: 0.45, y1: 0.55 }
   const quiet = { x0: 0.75, y0: 0.08, x1: 0.95, y1: 0.3 }
-  expect(differingPixels(empty, wake, wash)).toBeGreaterThan(300)
-  expect(differingPixels(empty, wake, quiet)).toBeLessThan(50)
+  expect(await differingPixels('empty', 'wake', wash)).toBeGreaterThan(300)
+  expect(await differingPixels('empty', 'wake', quiet)).toBeLessThan(50)
 
   // Gone with the ship
   await page.evaluate(() => window.__mg3d!.setAisVessels(null))

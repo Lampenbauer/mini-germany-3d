@@ -886,6 +886,13 @@ not get them in within a minute, twice in a row (2026-09-11,
 `renderPacing().tilesLoading` before comparing frames (the clouds, the
 ship effects) keeps the horizon out of the frame; measure with
 `scene.globe._surface._tilesToRender.length` before choosing a pose.
+The same runner is slow enough to show the other seam in a
+before/after picture: a ship put on the map wears a placeholder box
+until her glTF hull is in (`VesselLayer.attachModel`), and a frame
+taken a second after `setAisVessels` had water where the next one had
+the hull. The spec waits for the model (`hullReady`), and it keeps its
+frames in the page – four million numbers over the wire cost that
+runner half a minute per frame.
 
 ### `window.__mg3d`
 

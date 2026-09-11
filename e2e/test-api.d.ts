@@ -171,6 +171,12 @@ declare global {
          * primitives inside those, not the top-level length.
          */
         groundPrimitives: { length: number; get: (index: number) => object }
+        /**
+         * The scene's own primitives – the models among them carry the
+         * id they were made with (`vessel:<mmsi>`, see VesselLayer) and
+         * say whether they are ready to draw.
+         */
+        primitives: { length: number; get: (index: number) => { id?: unknown; ready?: boolean } }
       }
       entities: {
         values: {
