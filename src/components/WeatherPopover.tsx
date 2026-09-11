@@ -8,13 +8,15 @@
  * same city reads, which is why they are here rather than there.
  *
  * The button wears the icon of the sky in force and the temperature over
- * Rostock beside it, and lights up like the underground button whenever
+ * the city beside it, and lights up like the underground button whenever
  * that sky is not the one the session opens on – a hand-set sky is a
  * state worth seeing from outside the popover.
  *
- * The temperature stays the live reading whichever sky is picked: a
- * chosen sky is a way to look at the city, not a claim about the weather,
- * and inventing a temperature to go with it would be one.
+ * The temperature stays the real reading whichever sky is picked – the
+ * one for the moment the map shows, on the simulated clock like the live
+ * sky itself: a chosen sky is a way to look at the city, not a claim
+ * about the weather, and inventing a temperature to go with it would be
+ * one.
  *
  * Below the skies sits the switch for the volumetric clouds (see
  * map/CloudLayer.ts). It is not a sky: the cover the weather reports
@@ -50,7 +52,7 @@ export interface WeatherPopoverProps {
    * out with the reason rather than silently doing nothing.
    */
   liveWeatherAvailable: boolean
-  /** Live air temperature in °C, or null while there is none to show. */
+  /** Air temperature in °C as of the moment the map shows, or null while there is none to show. */
   temperatureC: number | null
   /** Whether the volumetric clouds are drawn (see CloudLayer). */
   showClouds: boolean

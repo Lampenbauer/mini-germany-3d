@@ -1,38 +1,127 @@
 /**
- * Live weather client for the rain and overcast overlays: polls the
- * Open-Meteo current-weather API (CC-BY 4.0, free, no key) for one point
- * – the center of the Rostock bounding box, see config.weather – and
- * reports the current precipitation in mm, the cloud cover in percent and
- * the temperature in °C. Errors report 0 mm – the map must never keep
- * raining on stale data.
+ * The weather over the city, for the rain, the overcast grade, the
+ * clouds' drift and the reading on the weather button: Open-Meteo's
+ * forecast API (CC-BY 4.0, free, no key) for one point – the centre of
+ * the city's box, see city.weather – on the quarter-hour grid its models
+ * run on, the last WEATHER_PAST_DAYS days and the rest of today in one
+ * request. The app takes the step of the simulated moment (weatherAt):
+ * a clock set into the past shows the sky of that quarter hour, and a
+ * day under the time-lapse clouds over and clears as the day did. No
+ * recording of our own, unlike the ships and the aircraft – the feed
+ * keeps its past, and the same series is what the live sky is the
+ * newest step of. A clock set ahead shows the present's sky: the rest of
+ * today in the answer is a forecast, and the map shows nothing it cannot
+ * vouch for (the ships and the aircraft stay in the present too). Errors
+ * report an empty series – the map must never keep raining on stale
+ * data.
  */
 
-export interface WeatherStatus {
-  state: 'connecting' | 'live' | 'error'
-  /** Current precipitation in mm (Open-Meteo 15-minutely current value). */
+/**
+ * How many days back the series reaches. The calendar offers two days
+ * behind today (DATE_PICKER_DAYS_BACK in ControlPanel.tsx – the days the
+ * ships' and the aircraft's recordings hold), and the feed counts its
+ * days in UTC: the earliest day's midnight in Berlin is 22:00 UTC of the
+ * evening before, so three UTC days cover the calendar's two.
+ */
+export const WEATHER_PAST_DAYS = 3
+/** The feed's grid, and what a series without a second step is assumed to run on. */
+export const WEATHER_STEP_MS = 900_000
+
+/** The weather as of one quarter hour. */
+export interface WeatherReading {
+  /** Precipitation in mm over the quarter hour. */
   precipitationMm: number
-  /**
-   * Current total cloud cover in percent (0–100). A response without a
-   * usable value reports 0 – an open sky is the harmless fallback, and
-   * unlike the rain it must not fail the whole poll.
-   */
+  /** Total cloud cover in percent (0–100); a step without a usable value reads as an open sky. */
   cloudCoverPercent: number
-  /**
-   * Current air temperature in °C, or null when the feed did not carry
-   * one (and after an error). Nothing in the scene is drawn from it – it
-   * is the number the scene button shows.
-   */
+  /** Air temperature in °C, or null when the feed did not carry one – the number the scene button shows. */
   temperatureC: number | null
   /**
    * Wind at 10 m: speed in m/s and the direction it blows from in degrees
    * (meteorological, 0 = north). The clouds drift with it (see
-   * map/CloudLayer.ts); a feed without it leaves them standing, which is
+   * map/CloudLayer.ts); a step without it leaves them standing, which is
    * a calm day rather than a failure.
    */
   windSpeedMps: number
   windFromDeg: number
+}
+
+/** The readings on the feed's grid: the one at `startMs`, then every `stepMs`. */
+export interface WeatherSeries {
+  startMs: number
+  stepMs: number
+  readings: WeatherReading[]
+}
+
+export const EMPTY_WEATHER_SERIES: WeatherSeries = { startMs: 0, stepMs: WEATHER_STEP_MS, readings: [] }
+
+export interface WeatherStatus {
+  state: 'connecting' | 'live' | 'error'
+  /** What the feed holds – empty until the first answer, and after an error. */
+  series: WeatherSeries
   lastSuccessAt: number | null
   lastError: string | null
+}
+
+/**
+ * The reading of the quarter hour a moment falls into, null where the
+ * series says nothing – before it begins, after it ends, and while it
+ * is empty. Nothing is interpolated: the sky is a grade, not a position.
+ */
+export function weatherAt(series: WeatherSeries, atMs: number): WeatherReading | null {
+  if (series.readings.length === 0 || series.stepMs <= 0) return null
+  const index = Math.floor((atMs - series.startMs) / series.stepMs)
+  return index >= 0 && index < series.readings.length ? series.readings[index] : null
+}
+
+/** A finite number, or null – the feed leaves a step it has no value for as null. */
+function finite(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : NaN
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * The series out of an Open-Meteo answer (`minutely_15` with
+ * `timeformat=unixtime`). The times and the precipitation have to be
+ * there and usable – a negative precipitation is a malformed answer, not
+ * a dry one – while a missing cloud cover reads as an open sky, a
+ * missing temperature as no number and a missing wind as a calm: none
+ * of them is worth failing the rain over.
+ */
+export function parseWeatherSeries(data: unknown): WeatherSeries {
+  const block = (data as { minutely_15?: Record<string, unknown> } | null)?.minutely_15
+  const times = block?.time
+  const precipitation = block?.precipitation
+  if (!Array.isArray(times) || times.length === 0 || !Array.isArray(precipitation) || precipitation.length !== times.length) {
+    throw new Error('Unexpected response format from the weather endpoint')
+  }
+  const column = (name: string): unknown[] => {
+    const values = block?.[name]
+    return Array.isArray(values) && values.length === times.length ? values : []
+  }
+  const cloudCover = column('cloud_cover')
+  const temperature = column('temperature_2m')
+  const windSpeed = column('wind_speed_10m')
+  const windFrom = column('wind_direction_10m')
+  const start = finite(times[0])
+  const second = times.length > 1 ? finite(times[1]) : null
+  if (start === null) throw new Error('Unexpected response format from the weather endpoint')
+  const stepMs = second !== null && second > start ? (second - start) * 1000 : WEATHER_STEP_MS
+  const readings: WeatherReading[] = []
+  for (let i = 0; i < times.length; i++) {
+    const mm = precipitation[i] === null ? 0 : finite(precipitation[i])
+    if (mm === null || mm < 0) throw new Error('Unexpected response format from the weather endpoint')
+    const cover = finite(cloudCover[i])
+    const speed = finite(windSpeed[i])
+    const from = finite(windFrom[i])
+    readings.push({
+      precipitationMm: mm,
+      cloudCoverPercent: cover !== null && cover >= 0 ? Math.min(100, cover) : 0,
+      temperatureC: finite(temperature[i]),
+      windSpeedMps: speed !== null && speed >= 0 ? speed : 0,
+      windFromDeg: from !== null ? ((from % 360) + 360) % 360 : 0,
+    })
+  }
+  return { startMs: start * 1000, stepMs, readings }
 }
 
 export type WeatherUpdateHandler = (status: WeatherStatus) => void
@@ -82,30 +171,12 @@ export const WEATHER_PRESETS: Record<
   rain: { precipitationMm: 1.5, cloudCoverPercent: 100, windSpeedMps: 8, windFromDeg: 240 },
 }
 
-/**
- * The live overlays only make sense near real time: the current weather
- * knows nothing about time-traveled simulation clocks. Both are instants
- * in epoch ms – the day counts as much as the hour, now that the clock
- * can be set to another day: tomorrow at this hour is not "now".
- */
-export function weatherIsCurrentAt(
-  simEpochMs: number,
-  realEpochMs: number,
-  maxDriftSeconds: number,
-): boolean {
-  return Math.abs(simEpochMs - realEpochMs) <= maxDriftSeconds * 1000
-}
-
 export class WeatherClient {
   private timer: number | null = null
   private stopped = false
   private status: WeatherStatus = {
     state: 'connecting',
-    precipitationMm: 0,
-    cloudCoverPercent: 0,
-    temperatureC: null,
-    windSpeedMps: 0,
-    windFromDeg: 0,
+    series: EMPTY_WEATHER_SERIES,
     lastSuccessAt: null,
     lastError: null,
   }
@@ -141,42 +212,18 @@ export class WeatherClient {
     try {
       const url =
         `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
-        `&current=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m` +
-        // Open-Meteo answers wind in km/h unless told otherwise
-        `&wind_speed_unit=ms`
+        `&minutely_15=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m` +
+        // The days the calendar reaches back, and today to its end – the
+        // present is the newest step that has come to pass
+        `&past_days=${WEATHER_PAST_DAYS}&forecast_days=1` +
+        // Open-Meteo answers wind in km/h unless told otherwise, and the
+        // times as ISO strings without a zone
+        `&wind_speed_unit=ms&timeformat=unixtime`
       const response = await fetch(url, { cache: 'no-store' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data = (await response.json()) as {
-        current?: {
-          precipitation?: unknown
-          cloud_cover?: unknown
-          temperature_2m?: unknown
-          wind_speed_10m?: unknown
-          wind_direction_10m?: unknown
-        }
-      }
-      const precipitation = Number(data?.current?.precipitation)
-      if (!Number.isFinite(precipitation) || precipitation < 0) {
-        throw new Error('Unexpected response format from the weather endpoint')
-      }
-      // Cloud cover is graceful: a feed that ever drops the field leaves the
-      // city under an open sky instead of failing the rain overlay with it.
-      const cloudCover = Number(data?.current?.cloud_cover)
-      // The temperature is graceful in the same way, and it is nothing but
-      // a label: a feed without one leaves the scene button showing its
-      // icon alone rather than failing the poll the sky depends on.
-      const temperature = Number(data?.current?.temperature_2m)
-      // The wind is graceful too: without it the clouds stand still
-      const windSpeed = Number(data?.current?.wind_speed_10m)
-      const windFrom = Number(data?.current?.wind_direction_10m)
       this.status = {
         state: 'live',
-        precipitationMm: precipitation,
-        cloudCoverPercent:
-          Number.isFinite(cloudCover) && cloudCover >= 0 ? Math.min(100, cloudCover) : 0,
-        temperatureC: Number.isFinite(temperature) ? temperature : null,
-        windSpeedMps: Number.isFinite(windSpeed) && windSpeed >= 0 ? windSpeed : 0,
-        windFromDeg: Number.isFinite(windFrom) ? ((windFrom % 360) + 360) % 360 : 0,
+        series: parseWeatherSeries(await response.json()),
         lastSuccessAt: Date.now(),
         lastError: null,
       }
@@ -186,10 +233,7 @@ export class WeatherClient {
       this.status = {
         ...this.status,
         state: 'error',
-        precipitationMm: 0,
-        cloudCoverPercent: 0,
-        temperatureC: null,
-        windSpeedMps: 0,
+        series: EMPTY_WEATHER_SERIES,
         lastError: String(error),
       }
       this.onUpdate(this.status)

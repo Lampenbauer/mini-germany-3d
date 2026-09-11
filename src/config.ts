@@ -32,12 +32,14 @@ export const config = {
     (import.meta.env?.VITE_GTFS_RT_URL as string | undefined) ?? '/api/realtime',
 
   /**
-   * Live precipitation and cloud cover for the rain and overcast overlays:
-   * the Open-Meteo forecast API (CC-BY 4.0, free, no key) – both values
-   * come from one request. An empty string disables the live weather.
-   * The weather is queried for a single point per city (city.weather) –
-   * the camera cannot leave the city's box, and a city is small enough
-   * that one value covers the visible map.
+   * Precipitation, cloud cover, temperature and wind for the rain and
+   * overcast overlays, the clouds' drift and the weather button: the
+   * Open-Meteo forecast API (CC-BY 4.0, free, no key), the last days on
+   * its quarter-hour grid in one request, so the sky follows the
+   * simulated clock (see lib/weather.ts). An empty string disables the
+   * live weather. The weather is queried for a single point per city
+   * (city.weather) – the camera cannot leave the city's box, and a city
+   * is small enough that one value covers the visible map.
    */
   weather: {
     url:
@@ -45,12 +47,6 @@ export const config = {
       'https://api.open-meteo.com/v1/forecast',
     /** Poll interval in ms (Open-Meteo updates its model every ~15 min). */
     pollIntervalMs: 600_000,
-    /**
-     * Rain and the overcast grade are only drawn while the simulation time
-     * is within this many seconds of the real clock – the live weather
-     * knows only "now", and time-traveled views must not show today's sky.
-     */
-    maxSimTimeDriftSeconds: 600,
     /**
      * Whether the volumetric clouds (see map/CloudLayer.ts) are drawn when
      * the app opens and the URL has no say. Off: they cost a ray march per

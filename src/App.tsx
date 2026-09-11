@@ -103,10 +103,12 @@ import { AisArchiveClient, aisReplayWanted, type AisArchiveHourStatus } from '@/
 import type { AisVessel } from '@/lib/ais-extract'
 import {
   defaultWeatherMode,
-  weatherIsCurrentAt,
+  EMPTY_WEATHER_SERIES,
+  weatherAt,
   WeatherClient,
   WEATHER_PRESETS,
   type WeatherMode,
+  type WeatherSeries,
 } from '@/lib/weather'
 import { WebcamsClient, type Webcam } from '@/lib/webcams'
 import { browserStorage, setWelcomeHidden, welcomeHidden, welcomeWanted } from '@/lib/welcome'
@@ -803,22 +805,20 @@ export default function App() {
   /**
    * The sky in force: precipitation in mm and cloud cover in percent.
    * forced = not the live weather but a value set on purpose (a picked
-   * sky, or the test API), which skips the near-real-time gate.
+   * sky, or the test API), which the UI tick leaves as set; the live
+   * values it refreshes from the series below every tick.
    */
   const rainRef = useRef({ mm: 0, forced: false })
   /** Cloud cover and the wind the clouds drift with (see CloudLayer). */
   const cloudRef = useRef({ percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 })
   /**
-   * What the weather client last reported, whichever sky is picked – so
+   * What the weather client last reported – the last days on the feed's
+   * quarter-hour grid (see lib/weather.ts) – whichever sky is picked, so
    * switching back to live shows the real weather at once instead of
-   * waiting out the poll interval.
+   * waiting out the poll interval. The UI tick reads the step of the
+   * simulated moment out of it.
    */
-  const liveWeatherRef = useRef({
-    precipitationMm: 0,
-    cloudCoverPercent: 0,
-    windSpeedMps: 0,
-    windFromDeg: 0,
-  })
+  const liveWeatherRef = useRef<WeatherSeries>(EMPTY_WEATHER_SERIES)
   /** Which sky is in force (see defaultWeatherMode for what it opens on). */
   const weatherModeRef = useRef<WeatherMode>(defaultWeatherMode(liveWeatherAvailable))
   /** Rain currently visible – keeps the render loop at animation rate. */
@@ -880,11 +880,11 @@ export default function App() {
   const autoPlayedRef = useRef(false)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>(weatherModeRef.current)
   /**
-   * Air temperature over the city in °C, straight from the weather client
-   * (every ten minutes), or null while there is none. The scene button
-   * shows it whichever sky is picked – unlike the sky it is not gated on
-   * the simulation clock, because it is a reading in a control rather
-   * than something drawn into the scene.
+   * Air temperature over the city in °C as of the moment the map shows
+   * (the weather series' step for the simulated clock, see the UI tick),
+   * or null while there is none. The scene button shows it whichever sky
+   * is picked: a picked sky is a way to look at the city, the reading
+   * stays the real one.
    */
   const [temperatureC, setTemperatureC] = useState<number | null>(null)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
@@ -1978,29 +1978,43 @@ export default function App() {
               // float jitter of a camera at rest would re-render the app
               // four times a second for nothing.
               setCameraHeading((wound) => windAngleTo(wound, Math.round(cameraView.heading)))
-              // Rain: only with live precipitation AND a sim clock near the
-              // real time – time travel must not show today's weather.
-              const nearRealTime = weatherIsCurrentAt(
-                clock.now(),
-                Date.now(),
-                config.weather.maxSimTimeDriftSeconds,
-              )
+              // The live sky as of the simulated moment: the quarter hour
+              // the feed keeps for it, the present's for a clock set ahead
+              // (the rest of today in the series is a forecast, and the map
+              // shows nothing it cannot vouch for – the ships and the
+              // aircraft stay in the present too). A moment the series
+              // does not reach – a day older than the calendar offers – is
+              // a dry, open sky, never today's weather on another day. A
+              // picked sky, and a value set by the test API, stand as set.
+              const reading = weatherAt(liveWeatherRef.current, Math.min(simMs, Date.now()))
+              if (weatherModeRef.current === 'live') {
+                if (!rainRef.current.forced) {
+                  rainRef.current = { mm: reading?.precipitationMm ?? 0, forced: false }
+                }
+                if (!cloudRef.current.forced) {
+                  cloudRef.current = {
+                    percent: reading?.cloudCoverPercent ?? 0,
+                    forced: false,
+                    windSpeedMps: reading?.windSpeedMps ?? 0,
+                    windFromDeg: reading?.windFromDeg ?? 0,
+                  }
+                }
+              }
+              // The reading on the weather button follows the same moment,
+              // whichever sky is picked; same-value updates bail out in React
+              setTemperatureC(reading?.temperatureC ?? null)
               // Below ground there is no weather: no drops falling around the
               // camera, and no overcast grade on a city seen from underneath.
               const weatherVisible = !undergroundRef.current
               const rain = rainRef.current
-              const rainNow =
-                weatherVisible && rain.mm > 0 && (rain.forced || nearRealTime) ? rain.mm : 0
+              const rainNow = weatherVisible && rain.mm > 0 ? rain.mm : 0
               map.setRain(rainNow)
               // Animation rate only while drops can be on screen – not with
               // the camera above the clouds the rain falls from
               rainActiveRef.current = rainNow > 0 && map.isRainVisible()
-              // Same gate for the overcast grade – a grey sky is as much
-              // "now" as the rain is.
+              // The overcast grade goes below ground with the rain
               const cloud = cloudRef.current
-              map.setCloudCover(
-                weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
-              )
+              map.setCloudCover(weatherVisible ? cloud.percent : 0)
               // The clouds drift with the wind on the simulated clock –
               // the layer asks for frames itself as the drift shows. At
               // real pace four advances a second are plenty; under the
@@ -2468,10 +2482,12 @@ export default function App() {
         aircraftArchiveRef.current = aircraftArchive
       }
 
-      // Rain overlay: live precipitation for the city (Open-Meteo).
-      // Offline mode stays dry (no network, deterministic E2E tests) and
-      // ?rain=0 opts out. Whether the rain is actually drawn is decided per
-      // UI tick (sim time must be near the real clock).
+      // The weather over the city (Open-Meteo): the last days on the
+      // feed's quarter-hour grid, refreshed every ten minutes. Offline
+      // mode stays dry (no network, deterministic E2E tests) and ?rain=0
+      // opts out. Which step is drawn is decided per UI tick, from the
+      // simulated clock; a picked sky outranks the live one until the
+      // viewer asks for it back (see handleWeatherMode).
       if (liveWeatherAvailable) {
         map.addWeatherCredit()
         weatherClient = new WeatherClient(
@@ -2479,23 +2495,7 @@ export default function App() {
           sessionCity.weather.longitude,
           sessionCity.weather.latitude,
           (status) => {
-            liveWeatherRef.current = {
-              precipitationMm: status.precipitationMm,
-              cloudCoverPercent: status.cloudCoverPercent,
-              windSpeedMps: status.windSpeedMps,
-              windFromDeg: status.windFromDeg,
-            }
-            setTemperatureC(status.temperatureC)
-            // A picked sky outranks the live one until the viewer asks for
-            // it back (see handleWeatherMode).
-            if (weatherModeRef.current !== 'live') return
-            rainRef.current = { mm: status.precipitationMm, forced: false }
-            cloudRef.current = {
-              percent: status.cloudCoverPercent,
-              forced: false,
-              windSpeedMps: status.windSpeedMps,
-              windFromDeg: status.windFromDeg,
-            }
+            liveWeatherRef.current = status.series
           },
         )
         weatherClient.start(config.weather.pollIntervalMs)
@@ -2628,12 +2628,7 @@ export default function App() {
       // its own first poll lands. A picked sky is a choice about the
       // scene rather than a claim about a place, so that one stays.
       setTemperatureC(null)
-      liveWeatherRef.current = {
-        precipitationMm: 0,
-        cloudCoverPercent: 0,
-        windSpeedMps: 0,
-        windFromDeg: 0,
-      }
+      liveWeatherRef.current = EMPTY_WEATHER_SERIES
       if (weatherModeRef.current === 'live') {
         rainRef.current = { mm: 0, forced: false }
         cloudRef.current = { percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 }
@@ -2916,24 +2911,19 @@ export default function App() {
 
   /**
    * Which sky to show. A picked one is written straight into the values
-   * the UI tick reads, marked as set on purpose so it survives a
-   * time-traveled clock; live puts the weather client's latest reading
-   * back, whatever the sky was in between. The map is not touched here –
-   * the tick applies both values a few times a second, and it is also
-   * what keeps the sky off while the camera sits underground.
+   * the UI tick reads, marked as set on purpose so the tick leaves it
+   * alone; live hands them back to the tick, which fills them from the
+   * weather series at the simulated moment, whatever the sky was in
+   * between. The map is not touched here – the tick applies both values
+   * a few times a second, and it is also what keeps the sky off while
+   * the camera sits underground.
    */
   const handleWeatherMode = useCallback((mode: WeatherMode) => {
     weatherModeRef.current = mode
     setWeatherMode(mode)
     if (mode === 'live') {
-      const live = liveWeatherRef.current
-      rainRef.current = { mm: live.precipitationMm, forced: false }
-      cloudRef.current = {
-        percent: live.cloudCoverPercent,
-        forced: false,
-        windSpeedMps: live.windSpeedMps,
-        windFromDeg: live.windFromDeg,
-      }
+      rainRef.current = { mm: 0, forced: false }
+      cloudRef.current = { percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 }
     } else {
       const preset = WEATHER_PRESETS[mode]
       rainRef.current = { mm: preset.precipitationMm, forced: true }

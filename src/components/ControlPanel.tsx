@@ -147,15 +147,18 @@ const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
 
 /**
  * How far ahead the day picker reaches. A week is as far as a timetable
- * can be trusted to stay what it is, and as far as a weather forecast
- * goes – should the live sky ever follow the simulated day.
+ * can be trusted to stay what it is. The sky does not follow the clock
+ * there: a forecast is not a fact, so a day ahead wears the present's
+ * weather, as it carries the present's ships and aircraft.
  */
 const DATE_PICKER_DAYS_AHEAD = 7
 /**
- * How far back: the two days whose harbour traffic the AIS archive still
- * holds (AIS_ARCHIVE_KEEP_HOURS in lib/ais-archive.ts – three days, this
- * one included). The timetable is the same on any day; the ships are
- * what a day in the past has to show.
+ * How far back: the two days whose harbour and air traffic the
+ * recordings still hold (ARCHIVE_KEEP_HOURS in lib/archive-hours.ts –
+ * three days, this one included) and whose weather the feed answers for
+ * (WEATHER_PAST_DAYS in lib/weather.ts). The timetable is the same on
+ * any day; the ships, the aircraft and the sky are what a day in the
+ * past has to show.
  */
 const DATE_PICKER_DAYS_BACK = 2
 

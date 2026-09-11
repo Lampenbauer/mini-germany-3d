@@ -1326,3 +1326,34 @@ slow model loads (ten minutes around the rendered instant), or the
 playback reaches the reckoning window and freezes before the pacing
 assertion runs. The replay itself is unit-tested against a fake
 endpoint (`tests/aircraft-archive.test.ts`), like the harbour's.
+
+---
+
+## Weather (Open-Meteo)
+
+**The sky follows the simulated clock, and nothing is recorded for it
+(since 2026-09-11).** Until then the live weather was one `current`
+reading, shown only within ten minutes of the real clock
+(`maxSimTimeDriftSeconds`, gone) – a clock set back an hour meant a dry,
+open sky over a harbour that was replaying its ships. Open-Meteo keeps
+its own past: the same forecast endpoint answers `past_days=` on the
+quarter-hour grid its models run on (`minutely_15`, the grid `current`
+is the newest step of – checked 2026-09-11, the two agree to the value),
+so [src/lib/weather.ts](src/lib/weather.ts) fetches the last
+`WEATHER_PAST_DAYS` days and the rest of today in one 16 kB request
+every ten minutes, and the UI tick in `App.tsx` takes the step of
+`min(simMs, now)` out of it (`weatherAt`) for the rain, the overcast
+grade, the clouds' wind and the temperature on the weather button.
+Decisions: three UTC days back, because the calendar's two Berlin days
+begin at 22:00 UTC of the evening before (`DATE_PICKER_DAYS_BACK`
+carries the reason); a clock set ahead shows the present's sky, never
+the forecast the answer also holds – a forecast is not a fact, and the
+ships and the aircraft stay in the present too; a moment the series
+does not reach is a dry, open sky, never today's weather on another
+day; nothing is interpolated between steps, the sky is a grade. A
+picked sky and the test API's `setRain`/`setCloudCover` are `forced`
+and the tick leaves them alone; switching back to live hands the values
+to the tick, which fills them within a quarter second. Offline there is
+no series (`liveWeatherAvailable` is false), which is what keeps every
+spec deterministic – `e2e/rain-gate.spec.ts` and `e2e/clouds.spec.ts`
+force their sky.
