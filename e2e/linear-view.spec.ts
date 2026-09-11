@@ -127,9 +127,11 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   await diagram.locator('circle[data-vehicle]').first().click()
   await expect(page.getByTestId('vehicle-card')).toBeVisible()
 
-  // The camera controls went with the map – the diagram has no camera to
-  // aim – but the readings stay: a view you cannot leave is no view.
+  // The camera controls and the layers went with the map – the diagram
+  // has no camera to aim and draws none of the layers – but the readings
+  // stay: a view you cannot leave is no view.
   await expect(page.getByRole('button', { name: 'Reset camera' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Layers' })).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Line diagram' })).toHaveAttribute(
     'aria-checked',
     'true',
@@ -148,6 +150,7 @@ test('the lines pull straight and the map comes back', async ({ page }) => {
   await expect(diagram).toBeHidden({ timeout: 10_000 })
   expect(await page.evaluate(() => window.location.hash)).not.toContain('view=linear')
   await expect(page.getByRole('button', { name: 'Reset camera' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Layers' })).toBeVisible()
 
   // The home view, read once the flight has actually landed rather than
   // while it is still easing: the pitch is the last component to arrive,

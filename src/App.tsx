@@ -3647,26 +3647,29 @@ export default function App() {
           {/* What is drawn on the map, above the block that aims the camera
               at it: routes, stops, the names, the webcams. Its own button
               rather than a fifth in the group below – that group is the
-              camera's, and none of this points anywhere. It stays in the
-              diagram too: the switches outlive the reading they were set
-              in, and the map is what they are set for. */}
-          <div className={RAIL_BOX}>
-            <LayersPopover
-              interfaceHidden={interfaceHidden}
-              showRoutes={showRoutes}
-              onToggleRoutes={handleToggleRoutes}
-              showStops={showStops}
-              onToggleStops={handleToggleStops}
-              showLabels={showLabels}
-              onToggleLabels={handleToggleLabels}
-              webcams={webcamChoices}
-              showWebcams={showWebcams}
-              webcamsDisabled={underground}
-              onToggleWebcams={handleToggleWebcams}
-              onFlyToWebcam={handleFlyToWebcam}
-              triggerClassName={GROUPED_CONTROL}
-            />
-          </div>
+              camera's, and none of this points anywhere. It goes with the
+              map in the diagram, as the camera's block does: nothing it
+              switches is on screen there. The switches themselves outlive
+              the reading, so the map comes back as it was left. */}
+          {!linear && (
+            <div className={RAIL_BOX}>
+              <LayersPopover
+                interfaceHidden={interfaceHidden}
+                showRoutes={showRoutes}
+                onToggleRoutes={handleToggleRoutes}
+                showStops={showStops}
+                onToggleStops={handleToggleStops}
+                showLabels={showLabels}
+                onToggleLabels={handleToggleLabels}
+                webcams={webcamChoices}
+                showWebcams={showWebcams}
+                webcamsDisabled={underground}
+                onToggleWebcams={handleToggleWebcams}
+                onFlyToWebcam={handleFlyToWebcam}
+                triggerClassName={GROUPED_CONTROL}
+              />
+            </div>
+          )}
           <div role="group" aria-label={t('view.controls')} className={RAIL_BOX}>
             {!linear && (
               <Tooltip>

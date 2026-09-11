@@ -173,9 +173,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   names, and the city's webcams listed under their switch – then the camera's
   own block: compass, 2D/3D pitch toggle, camera reset, the photo mode (the
   miniature look and the framing grid live in its popover), and full screen
-  last. The camera's block belongs to the map, so the diagram keeps only full
-  screen; the layers stay, because the switches outlive the reading they were
-  set in. Under it all, on its own, the question mark that opens the About
+  last. The camera's block and the layers belong to the map, so the diagram
+  keeps only full screen; the layer switches themselves outlive the reading,
+  and the map comes back as it was left. Under it all, on its own, the
+  question mark that opens the About
   dialog. Each tooltip names its shortcut in parentheses where the button has
   one – compass `(C)`, 2D `(2)` / 3D `(3)`, camera reset `(R)`, full screen
   `(F)`.
