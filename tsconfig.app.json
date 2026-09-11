@@ -28,5 +28,5 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src", "tests"],
-  "exclude": ["src/lib/ais-archive-fs.ts"]
+  "exclude": ["src/lib/archive-fs.ts"]
 }

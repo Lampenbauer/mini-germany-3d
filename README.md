@@ -898,8 +898,9 @@ src/
 │   ├── rt-extract.ts       # Shared realtime feed → delay-map extraction
 │   ├── ais.ts              # AIS client (polls /api/ais?city=…)
 │   ├── ais-extract.ts      # Shared aisstream message → vessel state extraction, the playback sampler
-│   ├── ais-archive.ts      # The AIS recording: hour files, the writer, the replay, the client
-│   ├── ais-archive-fs.ts   # …on disk, for the dev middleware and the parity script (Node only)
+│   ├── archive-hours.ts    # What a recording is made of: hour files, the replay edge, the chunk reader, the client
+│   ├── archive-fs.ts       # …on disk, for the dev middleware and the parity script (Node only)
+│   ├── ais-archive.ts      # The AIS recording: its lines, the writer, the replay
 │   ├── aircraft.ts         # ADS-B client (polls /api/aircraft?city=…)
 │   ├── aircraft-extract.ts # Shared adsb.fi answer → aircraft state extraction, the playback sampler
 │   ├── aircraft-info.ts    # Which body an ICAO type gets and how big it is; the card's words

@@ -1041,10 +1041,13 @@ timetable being the same service day throughout. Two traps: the archive
 directory is **above the docroot** beside the API keys (`ais-archive/`),
 because the deploy's `rsync --delete` empties the docroot nightly – never
 put it, or anything else written at runtime, under `dist/`; and
-`src/lib/ais-archive-fs.ts` is Node-only and excluded from
+`src/lib/archive-fs.ts` is Node-only and excluded from
 `tsconfig.app.json`, so a unit test cannot import it – the writer is
 tested against an in-memory store, the file store through the parity
-script. The first hours after a deploy are thin: the archive starts with
+script. The hour files, the replay edge, the chunk reader and the
+client that keeps the hours loaded live in `src/lib/archive-hours.ts`,
+apart from the harbour's own lines, writer and replay in
+`ais-archive.ts`, so a second recording can share them. The first hours after a deploy are thin: the archive starts with
 the first window after it, and a moment before that is an empty harbour.
 `__mg3d.aisReplay()` says whether the replay is on, which hours are held
 and how many ships the recording places at the simulated moment.

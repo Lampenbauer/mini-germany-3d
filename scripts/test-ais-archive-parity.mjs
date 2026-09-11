@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AisArchiveWriter } from '../src/lib/ais-archive.ts'
-import { archiveFileStore } from '../src/lib/ais-archive-fs.ts'
+import { archiveFileStore } from '../src/lib/archive-fs.ts'
 import { CITIES } from '../src/cities/definitions.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')

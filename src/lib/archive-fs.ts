@@ -1,20 +1,21 @@
 /**
- * The AIS archive on disk, for the dev middleware (vite.config.ts) and
+ * The recording on disk, for the dev middleware (vite.config.ts) and
  * the parity script: one directory per city, one file per UTC hour
- * (see ais-archive.ts for the format). Node only – the app never imports
+ * (see archive-hours.ts for the names, ais-archive.ts for the lines).
+ * Node only – the app never imports
  * this, and tsconfig.app.json leaves it out for the same reason; it is
  * type-checked through vite.config.ts in the node project.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { archiveFileName, type AisArchiveStore } from './ais-archive.ts'
+import { archiveFileName, type ArchiveStore } from './archive-hours.ts'
 
 export function archiveFilePath(dir: string, slug: string, hourKey: string): string {
   return join(dir, archiveFileName(slug, hourKey))
 }
 
-export function archiveFileStore(dir: string): AisArchiveStore {
+export function archiveFileStore(dir: string): ArchiveStore {
   return {
     has: (slug, hourKey) => existsSync(archiveFilePath(dir, slug, hourKey)),
     append: (slug, hourKey, text) => {

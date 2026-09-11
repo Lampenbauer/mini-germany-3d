@@ -17,8 +17,9 @@ import {
 } from 'vite'
 import { extractGtfsDelays } from './src/lib/rt-extract'
 import { aisStateVessels, type AisState } from './src/lib/ais-extract'
-import { AisArchiveWriter, archiveHourIsOpen, isArchiveHourKey } from './src/lib/ais-archive'
-import { archiveFilePath, archiveFileStore } from './src/lib/ais-archive-fs'
+import { AisArchiveWriter } from './src/lib/ais-archive'
+import { archiveHourIsOpen, isArchiveHourKey } from './src/lib/archive-hours'
+import { archiveFilePath, archiveFileStore } from './src/lib/archive-fs'
 import {
   adsbQuery,
   aircraftStateList,
@@ -153,6 +154,40 @@ function gtfsRealtimeFilterPlugin(): Plugin {
 const AIS_ARCHIVE_DIR = join(tmpdir(), 'mg3d-ais-archive')
 
 /**
+ * One recorded hour of one city from `from` on – 404 where nothing was
+ * recorded, 416 for a start beyond the end (nothing new). A closed hour
+ * is complete and cacheable; an open one, and any tail, is not. Mirror
+ * of mg3d_ais_archive_serve in api/ais.php.
+ */
+function serveArchiveHour(res: ServerResponse, dir: string, slug: string, hour: string, from: number): void {
+  const file = isArchiveHourKey(hour) ? archiveFilePath(dir, slug, hour) : null
+  if (file === null || !existsSync(file)) {
+    res.statusCode = 404
+    res.end(JSON.stringify({ error: 'No recording for this hour' }))
+    return
+  }
+  const size = statSync(file).size
+  if (!Number.isInteger(from) || from < 0 || from > size) {
+    res.statusCode = 416
+    res.setHeader('Content-Range', `bytes */${size}`)
+    res.end()
+    return
+  }
+  res.setHeader('Content-Type', 'application/x-ndjson')
+  res.setHeader(
+    'Cache-Control',
+    !archiveHourIsOpen(hour, Date.now()) && from === 0 ? 'public, max-age=86400' : 'no-store',
+  )
+  res.setHeader('Content-Length', String(size - from))
+  if (size === from) {
+    res.end()
+    return
+  }
+  // Exactly the bytes announced – the file may grow while they go out
+  createReadStream(file, { start: from, end: size - 1 }).pipe(res)
+}
+
+/**
  * Dev/preview middleware for /api/ais: holds ONE aisstream.io WebSocket
  * open (started lazily on the first request, reconnecting on drops),
  * subscribed to every city's bounding box at once – aisstream allows
@@ -237,47 +272,13 @@ function aisLivePlugin(): Plugin {
     const params = new URL(req.url, 'http://localhost').searchParams
     const hour = params.get('hour')
     if (hour !== null) {
-      serveArchiveHour(res, city.slug, hour, Number(params.get('from') ?? 0))
+      serveArchiveHour(res, AIS_ARCHIVE_DIR, city.slug, hour, Number(params.get('from') ?? 0))
       return
     }
     const now = Date.now()
     const box = city.boundingBox
     const vessels = aisStateVessels(state, now).filter((v) => containsLonLat(box, v.lon, v.lat))
     res.end(JSON.stringify({ timestamp: now, servedAt: now, vessels }))
-  }
-
-  /**
-   * One recorded hour from `from` on – 404 where nothing was recorded,
-   * 416 for a start beyond the end (nothing new). A closed hour is
-   * complete and cacheable; an open one, and any tail, is not. Mirror of
-   * mg3d_ais_archive_serve in api/ais.php.
-   */
-  const serveArchiveHour = (res: ServerResponse, slug: string, hour: string, from: number): void => {
-    const file = isArchiveHourKey(hour) ? archiveFilePath(AIS_ARCHIVE_DIR, slug, hour) : null
-    if (file === null || !existsSync(file)) {
-      res.statusCode = 404
-      res.end(JSON.stringify({ error: 'No recording for this hour' }))
-      return
-    }
-    const size = statSync(file).size
-    if (!Number.isInteger(from) || from < 0 || from > size) {
-      res.statusCode = 416
-      res.setHeader('Content-Range', `bytes */${size}`)
-      res.end()
-      return
-    }
-    res.setHeader('Content-Type', 'application/x-ndjson')
-    res.setHeader(
-      'Cache-Control',
-      !archiveHourIsOpen(hour, Date.now()) && from === 0 ? 'public, max-age=86400' : 'no-store',
-    )
-    res.setHeader('Content-Length', String(size - from))
-    if (size === from) {
-      res.end()
-      return
-    }
-    // Exactly the bytes announced – the file may grow while they go out
-    createReadStream(file, { start: from, end: size - 1 }).pipe(res)
   }
 
   return {

@@ -30,8 +30,29 @@
  * without a jump. Where the recording says nothing – a day before the
  * archive began, an hour the keeper did not hear – the harbour is
  * empty; nothing is invented (see aisReplayWanted for the rule).
+ *
+ * The hour files, the edge that sends the clock to the recording, the
+ * chunk reader and the client that keeps the hours loaded are not the
+ * harbour's alone: they live in archive-hours.ts, ready for the next
+ * recording; this module is the harbour's line shapes, writer and
+ * replay on top of them.
  */
 
+import {
+  ARCHIVE_HOUR_MS,
+  ARCHIVE_KEEP_HOURS,
+  ARCHIVE_SETTLE_MS,
+  ARCHIVE_TAIL_POLL_MS,
+  HourArchiveClient,
+  REPLAY_EDGE_MS,
+  archiveOldestKept,
+  archiveHourKey,
+  lastFixAtOrBefore,
+  parseArchiveChunk as parseChunk,
+  replayWanted,
+  type ArchiveHourStatus,
+  type ArchiveStore,
+} from './archive-hours.ts'
 import {
   AIS_EXPIRE_MS,
   AIS_PLAYBACK_DELAY_MS,
@@ -44,49 +65,26 @@ import {
 } from './ais-extract.ts'
 import { containsLonLat, type BoundingBox } from './city.ts'
 
-/**
- * How long the recording is kept: three days, the two the calendar
- * offers behind today plus today itself. Mirror of MG3D_AIS_ARCHIVE_KEEP_HOURS.
- */
-export const AIS_ARCHIVE_KEEP_HOURS = 72
-export const AIS_ARCHIVE_HOUR_MS = 3_600_000
-/**
- * A simulated moment this far behind the real clock is replayed from the
- * archive; anything nearer, and the future, is the live fleet. The live
- * picture is rendered AIS_PLAYBACK_DELAY_MS behind the real clock and the
- * replay the same span behind the simulated one, so at the edge both show
- * the same moment – the margin only has to cover the tail poll below.
- */
-export const AIS_REPLAY_EDGE_MS = 60_000
+export {
+  archiveFileName,
+  archiveHourIsOpen,
+  archiveHourKey,
+  archiveHourStart,
+  isArchiveHourKey,
+} from './archive-hours.ts'
+
+/** The shared hour-file rules under the harbour's names – see archive-hours.ts. */
+export const AIS_ARCHIVE_KEEP_HOURS = ARCHIVE_KEEP_HOURS
+export const AIS_ARCHIVE_HOUR_MS = ARCHIVE_HOUR_MS
+export const AIS_REPLAY_EDGE_MS = REPLAY_EDGE_MS
+export const AIS_ARCHIVE_TAIL_POLL_MS = ARCHIVE_TAIL_POLL_MS
+export const AIS_ARCHIVE_SETTLE_MS = ARCHIVE_SETTLE_MS
 /**
  * How far behind the sampled instant a replayed ship's track reaches:
  * the wake reads her track WAKE_LIFE_S back from there (map/Wake.ts),
  * and the fix before that can be a minute older still.
  */
 export const AIS_REPLAY_TRACK_LOOKBACK_MS = 90_000
-/** How often the hour still being written is asked for its new lines. */
-export const AIS_ARCHIVE_TAIL_POLL_MS = 20_000
-/**
- * The keeper stamps a fix as it hears it, so a window that runs across
- * the hour boundary still adds seconds to the hour just closed. An hour
- * counts as closed – complete, cacheable – this long after its end.
- * Mirror of MG3D_AIS_ARCHIVE_SETTLE_SECONDS.
- */
-export const AIS_ARCHIVE_SETTLE_MS = 60_000
-/** A failed fetch is tried again after this long. */
-const AIS_ARCHIVE_RETRY_MS = 30_000
-/**
- * How far ahead of the simulated moment the hours are fetched, at
- * least – ten simulated minutes, or ten real seconds of the clock's own
- * pace when the time-lapse runs faster than that (×120 covers two hours
- * in a minute; a file fetched a second before it is needed is late). The
- * pace is read off consecutive calls and capped at the fastest time-lapse
- * the app offers (?speed=600), so a clock scrubbed hours ahead in one
- * move reads as a fast clock, not as an absurd one.
- */
-const AIS_ARCHIVE_PREFETCH_MS = 10 * 60_000
-const AIS_ARCHIVE_PREFETCH_LEAD_MS = 10_000
-const AIS_ARCHIVE_MAX_PACE = 600
 
 /** One recorded fix: [mmsi, unix ms, lat, lon, sogKn, cogDeg, headingDeg, navStatus]. */
 export type AisArchiveFix = [
@@ -112,44 +110,12 @@ export interface AisArchiveStatic {
 
 export type AisArchiveLine = AisArchiveFix | AisArchiveStatic
 
-const HOUR_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}$/
-
-/** The hour file a moment belongs to, as its name: UTC "YYYY-MM-DDTHH". */
-export function archiveHourKey(ms: number): string {
-  return new Date(Math.floor(ms / AIS_ARCHIVE_HOUR_MS) * AIS_ARCHIVE_HOUR_MS).toISOString().slice(0, 13)
-}
-
-/** The start of a named hour in unix ms, null for anything that is not an hour name. */
-export function archiveHourStart(key: string): number | null {
-  if (!HOUR_KEY_PATTERN.test(key)) return null
-  const ms = Date.parse(`${key}:00:00Z`)
-  return Number.isNaN(ms) ? null : ms
-}
-
-export function isArchiveHourKey(key: string): boolean {
-  return archiveHourStart(key) !== null
-}
-
-/** The name of a city's hour file under the archive directory. */
-export function archiveFileName(slug: string, hourKey: string): string {
-  return `${slug}/${hourKey}.ndjson`
-}
-
-/**
- * Whether a named hour may still be written to – the file is refetched
- * for its tail while it is, and cached once it is not.
- */
-export function archiveHourIsOpen(key: string, nowMs: number): boolean {
-  const start = archiveHourStart(key)
-  return start !== null && start + AIS_ARCHIVE_HOUR_MS + AIS_ARCHIVE_SETTLE_MS > nowMs
-}
-
 /**
  * Whether the simulated moment is replayed from the archive rather than
- * shown live – see AIS_REPLAY_EDGE_MS.
+ * shown live – the edge both recordings share (replayWanted).
  */
 export function aisReplayWanted(simMs: number, nowMs: number): boolean {
-  return simMs < nowMs - AIS_REPLAY_EDGE_MS
+  return replayWanted(simMs, nowMs)
 }
 
 // ---------------------------------------------------------------------------
@@ -157,13 +123,7 @@ export function aisReplayWanted(simMs: number, nowMs: number): boolean {
 // ---------------------------------------------------------------------------
 
 /** Where the writer keeps its files; the file system in dev, a stub in the tests. */
-export interface AisArchiveStore {
-  /** Whether the hour file exists – a missing one gets the snapshot first. */
-  has(slug: string, hourKey: string): boolean
-  append(slug: string, hourKey: string, text: string): void
-  /** Deletes the city's hour files named before `oldestKept`. */
-  prune(slug: string, oldestKept: string): void
-}
+export type AisArchiveStore = ArchiveStore
 
 export interface AisArchiveCity {
   slug: string
@@ -261,7 +221,7 @@ export class AisArchiveWriter {
         this.store.append(city.slug, hourKey, lines)
         continue
       }
-      this.store.prune(city.slug, archiveHourKey(nowMs - AIS_ARCHIVE_KEEP_HOURS * AIS_ARCHIVE_HOUR_MS))
+      this.store.prune(city.slug, archiveOldestKept(nowMs))
       this.store.append(city.slug, hourKey, archiveSnapshot(state, nowMs, city.box))
     }
   }
@@ -271,29 +231,13 @@ export class AisArchiveWriter {
 // Reading
 // ---------------------------------------------------------------------------
 
-/**
- * The whole lines in a chunk of an hour file, and how many of its bytes
- * they took: a chunk fetched from a file still being written can end
- * mid-line, and that tail waits for the next fetch (which starts where
- * this one stopped). A line that does not parse is skipped – one corrupt
- * line must not cost the hour.
- */
+/** The lines of the harbour's recording in a chunk of an hour file – see archive-hours.ts. */
 export function parseArchiveChunk(bytes: Uint8Array): { lines: AisArchiveLine[]; consumed: number } {
-  let end = bytes.length - 1
-  while (end >= 0 && bytes[end] !== 0x0a) end--
-  const consumed = end + 1
-  const lines: AisArchiveLine[] = []
-  if (consumed === 0) return { lines, consumed }
-  for (const text of new TextDecoder().decode(bytes.subarray(0, consumed)).split('\n')) {
-    if (text === '') continue
-    try {
-      const line = JSON.parse(text) as unknown
-      if (isFix(line) || isStatic(line)) lines.push(line)
-    } catch {
-      // skipped, see above
-    }
-  }
-  return { lines, consumed }
+  return parseChunk(bytes, isArchiveLine)
+}
+
+function isArchiveLine(line: unknown): line is AisArchiveLine {
+  return isFix(line) || isStatic(line)
 }
 
 function isFix(line: unknown): line is AisArchiveFix {
@@ -320,23 +264,6 @@ interface ReplayVessel {
   static: AisArchiveStatic | null
   /** Sorted by time, no two at the same instant. */
   fixes: AisArchiveFix[]
-}
-
-/** The index of the last fix at or before `atMs`, −1 when there is none. */
-function lastFixAtOrBefore(fixes: AisArchiveFix[], atMs: number): number {
-  let low = 0
-  let high = fixes.length - 1
-  let found = -1
-  while (low <= high) {
-    const mid = (low + high) >> 1
-    if (fixes[mid][1] <= atMs) {
-      found = mid
-      low = mid + 1
-    } else {
-      high = mid - 1
-    }
-  }
-  return found
 }
 
 /**
@@ -424,31 +351,10 @@ export class AisReplay {
 }
 
 // ---------------------------------------------------------------------------
-// The client – keeps the hours around the simulated moment loaded
+// The client – the shared one, answering with ships
 // ---------------------------------------------------------------------------
 
-type HourStatus = 'loading' | 'loaded' | 'absent' | 'failed'
-
-interface HourEntry {
-  key: string
-  status: HourStatus
-  /** Whether any answer has come for this hour – a tail refresh is
-   *  'loading' again, but the hour is still there to replay. */
-  answered: boolean
-  lines: AisArchiveLine[]
-  /** Bytes of the file read so far – where the next tail fetch starts. */
-  consumed: number
-  /** When the last fetch started, for the tail poll and the retry. */
-  fetchedAt: number
-  /** Bumped when the entry is dropped, so a late answer finds nobody. */
-  generation: number
-}
-
-export interface AisArchiveHourStatus {
-  key: string
-  status: HourStatus
-  lines: number
-}
+export type AisArchiveHourStatus = ArchiveHourStatus
 
 export interface AisArchiveClientOptions {
   /** Ships not to replay – the ferries the map runs from a timetable. */
@@ -457,95 +363,33 @@ export interface AisArchiveClientOptions {
 }
 
 /**
- * Fetches the hour files around the simulated moment from the archive
- * endpoint and answers with the fleet as of that moment. Pull-driven:
- * `follow` is called every simulation tick with the moment, and does
- * nothing until an hour boundary is crossed or the hour still being
- * written is due for its tail. Hours out of reach are dropped; closed
- * hours come back from the browser cache, the endpoint marks them so.
+ * Keeps the hours around the simulated moment loaded from the AIS
+ * endpoint (HourArchiveClient in archive-hours.ts does the fetching) and
+ * answers with the fleet as of that moment.
  */
 export class AisArchiveClient {
-  private readonly url: string
-  private readonly hours = new Map<string, HourEntry>()
+  private readonly client: HourArchiveClient<AisArchiveLine>
   private readonly replay = new AisReplay()
   private readonly exclude: ReadonlySet<number> | undefined
-  private readonly fetchImpl: typeof fetch
-  private lastFollow: { simMs: number; nowMs: number } | null = null
-  private stopped = false
 
   constructor(url: string, options: AisArchiveClientOptions = {}) {
-    this.url = url
     this.exclude = options.exclude
-    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init))
+    this.client = new HourArchiveClient<AisArchiveLine>(url, {
+      isLine: isArchiveLine,
+      replay: this.replay,
+      playbackDelayMs: AIS_PLAYBACK_DELAY_MS,
+      fetch: options.fetch,
+    })
   }
 
-  /** Keeps the hours the moment needs on hand – see the class comment. */
+  /** Keeps the hours the moment needs on hand – every simulation tick. */
   follow(simMs: number, nowMs = Date.now()): void {
-    if (this.stopped) return
-    // The clock's pace, from the last two calls: what the prefetch lead
-    // is measured in. A clock standing still or scrubbed back counts as
-    // real pace.
-    let pace = 1
-    if (this.lastFollow && nowMs > this.lastFollow.nowMs) {
-      pace = (simMs - this.lastFollow.simMs) / (nowMs - this.lastFollow.nowMs)
-      pace = Math.min(AIS_ARCHIVE_MAX_PACE, Math.max(1, pace))
-    }
-    this.lastFollow = { simMs, nowMs }
-    const lead = Math.max(AIS_ARCHIVE_PREFETCH_MS, pace * AIS_ARCHIVE_PREFETCH_LEAD_MS)
-    // Every hour from the one the sampling reaches back into to the one
-    // the lead reaches ahead – two in the usual case, three around a
-    // boundary or under a fast time-lapse
-    const wanted = new Set<string>()
-    const firstHour = Math.floor((simMs - AIS_PLAYBACK_DELAY_MS) / AIS_ARCHIVE_HOUR_MS)
-    const lastHour = Math.floor((simMs + lead) / AIS_ARCHIVE_HOUR_MS)
-    for (let hour = firstHour; hour <= lastHour; hour++) {
-      wanted.add(archiveHourKey(hour * AIS_ARCHIVE_HOUR_MS))
-    }
-
-    let dropped = false
-    for (const [key, entry] of this.hours) {
-      if (wanted.has(key)) continue
-      entry.generation++
-      this.hours.delete(key)
-      dropped = true
-    }
-    if (dropped) this.rebuild()
-
-    for (const key of wanted) {
-      const entry = this.hours.get(key)
-      if (!entry) {
-        const fresh: HourEntry = {
-          key,
-          status: 'loading',
-          answered: false,
-          lines: [],
-          consumed: 0,
-          fetchedAt: nowMs,
-          generation: 0,
-        }
-        this.hours.set(key, fresh)
-        void this.load(fresh, nowMs)
-        continue
-      }
-      if (entry.status === 'loading') continue
-      const open = archiveHourIsOpen(key, nowMs)
-      const due =
-        entry.status === 'failed'
-          ? nowMs - entry.fetchedAt >= AIS_ARCHIVE_RETRY_MS
-          : open && nowMs - entry.fetchedAt >= AIS_ARCHIVE_TAIL_POLL_MS
-      if (due) void this.load(entry, nowMs)
-    }
+    this.client.follow(simMs, nowMs)
   }
 
-  /**
-   * Whether the hour of the moment has been answered for – loaded, absent
-   * or failed – so that `vesselsAt` says something. Until then the caller
-   * keeps whatever it was showing: a harbour blinking empty for the length
-   * of a fetch would be worse than the live picture standing a moment
-   * longer, at the edge the two are the same picture anyway.
-   */
+  /** Whether the hour of the moment has been answered for, so that `vesselsAt` says something. */
   ready(simMs: number): boolean {
-    return this.hours.get(archiveHourKey(simMs))?.answered === true
+    return this.client.ready(simMs)
   }
 
   /** The fleet as of the moment, from whatever hours are loaded. */
@@ -555,72 +399,10 @@ export class AisArchiveClient {
 
   /** Which hours are held and how – for the debug API and the tests. */
   status(): AisArchiveHourStatus[] {
-    return [...this.hours.values()]
-      .sort((a, b) => (a.key < b.key ? -1 : 1))
-      .map((entry) => ({ key: entry.key, status: entry.status, lines: entry.lines.length }))
+    return this.client.status()
   }
 
   stop(): void {
-    this.stopped = true
-    for (const entry of this.hours.values()) entry.generation++
-    this.hours.clear()
-    this.replay.clear()
-  }
-
-  private async load(entry: HourEntry, nowMs: number): Promise<void> {
-    const generation = entry.generation
-    // From where the last fetch stopped – also after a failed tail, whose
-    // lines are still held; only a fresh or an absent hour starts at 0.
-    const from = entry.consumed
-    entry.status = 'loading'
-    entry.fetchedAt = nowMs
-    let status: HourStatus = 'failed'
-    let bytes: Uint8Array | null = null
-    try {
-      // A tail is never cached; a whole hour may be, the endpoint decides.
-      const response = await this.fetchImpl(
-        from > 0 ? `${this.url}&hour=${entry.key}&from=${from}` : `${this.url}&hour=${entry.key}`,
-        { cache: from > 0 ? 'no-store' : 'default' },
-      )
-      if (response.status === 404) {
-        status = 'absent'
-      } else if (response.status === 416) {
-        // Nothing beyond what is held – the file has not grown
-        status = 'loaded'
-      } else if (response.ok) {
-        bytes = new Uint8Array(await response.arrayBuffer())
-        status = 'loaded'
-      }
-    } catch {
-      // failed – retried after AIS_ARCHIVE_RETRY_MS
-    }
-    if (this.stopped || entry.generation !== generation) return
-    entry.status = status
-    entry.answered = true
-    if (status === 'absent') {
-      entry.lines = []
-      entry.consumed = 0
-      this.rebuild()
-      return
-    }
-    if (bytes === null) return
-    const { lines, consumed } = parseArchiveChunk(bytes)
-    if (from === 0) {
-      entry.lines = lines
-      entry.consumed = consumed
-      this.rebuild()
-    } else {
-      entry.lines.push(...lines)
-      entry.consumed = from + consumed
-      this.replay.add(lines)
-    }
-  }
-
-  /** The replay from scratch, hours in order – after a drop or a whole hour landing. */
-  private rebuild(): void {
-    this.replay.clear()
-    for (const entry of [...this.hours.values()].sort((a, b) => (a.key < b.key ? -1 : 1))) {
-      if (entry.status === 'loaded') this.replay.add(entry.lines)
-    }
+    this.client.stop()
   }
 }
