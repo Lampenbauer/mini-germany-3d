@@ -1,6 +1,7 @@
 import { Cartesian3, Cartographic, Entity, Intersect, Matrix4, Primitive, type Viewer } from 'cesium'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AIS_PLAYBACK_DELAY_MS, type AisTrackPoint, type AisVessel } from '@/lib/ais-extract'
+import { FunnelSmoke } from '@/map/FunnelSmoke'
 import { ROUTE_PULSE_DURATION_MS } from '@/map/RoutesLayer'
 import { VesselLayer } from '@/map/VesselLayer'
 
@@ -51,12 +52,15 @@ function harness({
   cameraHeight = 1500,
   frustum = Intersect.INTERSECTING,
   clamp,
+  smoke,
 }: {
   cameraLon?: number
   cameraHeight?: number
   frustum?: Intersect
   /** The tiles under the ships: a height per pick and the load generation. */
   clamp?: { surface: (lon: number, lat: number) => number | undefined; generation: () => number }
+  /** The exhaust plumes the layer feeds (see FunnelSmoke), where the profile has them. */
+  smoke?: FunnelSmoke
 } = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
@@ -98,6 +102,7 @@ function harness({
     requestRender,
     waterSurfaceHeight: 37.75,
     noteCameraFlight: () => {},
+    ...(smoke ? { funnelSmoke: smoke } : {}),
     ...(clamp
       ? {
           clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
@@ -111,7 +116,7 @@ function harness({
         vessels: Map<number, { matrix: Matrix4; labelEntity: Entity; labelText: string }>
       }
     ).vessels.get(mmsi)
-  return { layer, record, removedPrimitives, removedEntities, requestRender, cameraCalls }
+  return { layer, record, removedPrimitives, removedEntities, requestRender, cameraCalls, viewer }
 }
 
 function positionOf(matrix: Matrix4): Cartographic {
@@ -312,6 +317,106 @@ describe('VesselLayer', () => {
     h.layer.setVisible(false)
     h.layer.setVisible(true)
     expect(h.record(211222290)!.labelEntity.show).toBe(false)
+  })
+
+  describe('the exhaust over the funnel', () => {
+    /** A 180 m box ship – the container hull – making 12 knots north-east. */
+    const boxship = (overrides: Partial<AisVessel> = {}) =>
+      vessel({
+        mmsi: 211000001,
+        typeCode: 70,
+        lengthM: 180,
+        widthM: 28,
+        sogKn: 12,
+        cogDeg: 45,
+        headingDeg: 45,
+        track: underWayTrack(),
+        ...overrides,
+      })
+    const smokeHost = { sunDirection: null, overcast: 0 }
+
+    it('starts the plume at the funnel of a hull that has one, trailing with her way', () => {
+      const smoke = new FunnelSmoke(smokeHost)
+      const h = harness({ cameraHeight: 600, smoke })
+      h.layer.sync([boxship()], NOW)
+      expect(smoke.drawn).toBe(1)
+      const plume = smoke.instanceAt(0)
+      // The funnel stands aft of amidships and above the deck: some fifty
+      // metres from the hull's origin, at the model's ceiling
+      const origin = Matrix4.getTranslation(h.record(211000001)!.matrix, new Cartesian3())
+      const offset = Cartesian3.distance(plume.anchor, origin)
+      expect(offset).toBeGreaterThan(40)
+      expect(offset).toBeLessThan(70)
+      expect(Cartographic.fromCartesian(plume.anchor).height).toBeGreaterThan(
+        Cartographic.fromCartesian(origin).height + 5,
+      )
+      // 12 knots on 045°: the puffs are left behind to the south-west
+      expect(plume.velocityEast).toBeCloseTo(12 * 0.514444 * Math.SQRT1_2, 3)
+      expect(plume.velocityNorth).toBeCloseTo(12 * 0.514444 * Math.SQRT1_2, 3)
+      expect(plume.intensity).toBe(1)
+      // The funnel of the stretched hull: 6 m across on the 40 m reference, 28 m here
+      expect(plume.size).toBeCloseTo(6 * (28 / 40), 5)
+      // A plume in view paces the ticks like a hull under way does
+      expect(h.layer.sync([boxship()], NOW + 33).anyMovingVesselInView).toBe(true)
+    })
+
+    it('shows none for a ship at her berth, a hull without a funnel, or one too far to see', () => {
+      const smoke = new FunnelSmoke(smokeHost)
+      const h = harness({ cameraHeight: 600, smoke })
+      h.layer.sync([boxship({ sogKn: 0.3, track: [] })], NOW)
+      expect(smoke.drawn).toBe(0)
+      // A yacht (type 36) has no funnel to smoke from
+      h.layer.sync([boxship({ typeCode: 36, lengthM: 14, widthM: 4 })], NOW)
+      expect(smoke.drawn).toBe(0)
+      // From five kilometres up the plume would be pixels
+      const far = harness({ cameraHeight: 5000, smoke })
+      far.layer.sync([boxship()], NOW)
+      expect(smoke.drawn).toBe(0)
+    })
+
+    it('goes with the hulls underground and comes back with them', () => {
+      const smoke = new FunnelSmoke(smokeHost)
+      const h = harness({ cameraHeight: 600, smoke })
+      h.layer.sync([boxship()], NOW)
+      expect(smoke.drawn).toBe(1)
+      h.layer.setVisible(false)
+      expect(smoke.drawn).toBe(0)
+      h.layer.sync([boxship()], NOW + 33)
+      expect(smoke.drawn).toBe(0)
+      h.layer.setVisible(true)
+      h.layer.sync([boxship()], NOW + 66)
+      expect(smoke.drawn).toBe(1)
+    })
+
+    it('asks for a frame once the puffs have moved a visible step, on the ships’ clock', () => {
+      const smoke = new FunnelSmoke(smokeHost)
+      const h = harness({ cameraHeight: 300, smoke })
+      // A screen to measure on: 800 px tall through a 34° lens, so that a
+      // metre at 300 m is four pixels (the harness otherwise counts every
+      // motion as visible)
+      const scene = h.viewer.scene as unknown as { canvas: { clientHeight: number } }
+      scene.canvas = { clientHeight: 800 }
+      ;(h.viewer.camera.frustum as { fovy?: number }).fovy = 0.6
+      // A ship that stands still on screen but has way on (a stale track):
+      // only the plume moves, and only it can ask for the frames
+      const standing = () => boxship({ track: [] })
+      // The plume's pace is capped against real time (see FunnelSmoke.advance)
+      const real = vi.spyOn(performance, 'now').mockReturnValue(0)
+      h.layer.sync([standing()], NOW)
+      h.layer.sync([standing()], NOW)
+      h.layer.markRendered()
+      h.requestRender.mockClear()
+      real.mockReturnValue(20)
+      h.layer.sync([standing()], NOW + 20)
+      // Two metres a second: 20 ms of plume is 4 cm, nothing to see yet
+      expect(h.requestRender).not.toHaveBeenCalled()
+      real.mockReturnValue(2_000)
+      h.layer.sync([standing()], NOW + 2_000)
+      expect(h.requestRender).toHaveBeenCalled()
+      // …and the layer's own clock is the plume's: a rendered frame resets it
+      h.layer.markRendered()
+      expect(smoke.metersSinceRendered).toBe(0)
+    })
   })
 
   describe('clamping to the tiles', () => {

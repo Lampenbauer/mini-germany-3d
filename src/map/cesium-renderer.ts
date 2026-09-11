@@ -92,6 +92,8 @@ export interface DrawCommand {
   vertexArray: VertexArray
   uniformMap: Record<string, () => unknown>
   renderState: RenderState
+  /** Instances drawn – settable per frame where the set changes (the funnel smoke). */
+  instanceCount: number
 }
 
 /** What a scene expects of an object in scene.primitives. */

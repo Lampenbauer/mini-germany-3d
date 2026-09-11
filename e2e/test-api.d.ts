@@ -96,6 +96,36 @@ declare global {
         supported: boolean
         driftMeters: { east: number; north: number }
       }
+      /** AIS backdrop vessels currently drawn. */
+      aisVesselCount: () => number
+      /** The ships' exhaust: plumes drawn, support, the plume's clock, the wind; null without the profile's knob. */
+      funnelSmoke: () => {
+        drawn: number
+        supported: boolean
+        plumeTime: number
+        wind: { east: number; north: number }
+      } | null
+      /** A fleet put on the map as if polled (see src/lib/ais-extract.ts for the record); null takes it away. */
+      setAisVessels: (
+        vessels:
+          | {
+              mmsi: number
+              name: string
+              lat: number
+              lon: number
+              sogKn: number | null
+              cogDeg: number | null
+              headingDeg: number | null
+              navStatus: number | null
+              typeCode: number
+              lengthM: number | null
+              widthM: number | null
+              draughtM: number | null
+              positionAt: number
+              track: [number, number, number, number | null, number | null, number | null][]
+            }[]
+          | null,
+      ) => void
       renderPacing: () => {
         animating: boolean
         rainActive: boolean

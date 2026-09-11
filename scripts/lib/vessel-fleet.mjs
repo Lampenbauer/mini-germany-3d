@@ -64,10 +64,18 @@ function bridgeFront(mesh, { w, y0, y1, z }) {
   box(mesh, 'glass', 0, (y0 + y1) / 2, z + 0.015, w, y1 - y0, 0.03)
 }
 
-/** Funnel: body drum with a dark cap. */
+/**
+ * Funnel: body drum with a dark cap. The mesh remembers where its top is
+ * (`mesh.funnel`, in this file's frame: z along the length, top the
+ * height of the cap's rim, width across the beam) – the exhaust plume
+ * the layer draws starts there (FunnelSmoke in src/map/), and
+ * VESSEL_MODELS in src/map/VesselLayer.ts carries the same point in the
+ * model frame Cesium hands the layer, pinned by tests/vessel-models.test.ts.
+ */
 function funnel(mesh, { y0, h, z, w = 2.4, l = 3.4 }) {
   box(mesh, 'body', 0, y0 + h / 2, z, w, h, l)
   box(mesh, 'chassis', 0, y0 + h + 0.25, z, w * 0.92, 0.5, l * 0.92)
+  mesh.funnel = { z, top: y0 + h + 0.5, width: w }
 }
 
 /**

@@ -55,6 +55,25 @@ describe('the generated backdrop fleet', () => {
         expect(spec.width).toBe(expected.width)
         expect(spec.height).toBe(expected.height)
       })
+
+      it('puts the exhaust plume on the funnel the mesh has, and nowhere on a hull without one', () => {
+        // The shipyard builds Y-up with +Z the bow; Cesium's glTF pipeline
+        // hands the layer a frame with x forward and z up – the funnel's
+        // z becomes the layer's x, its top the layer's z
+        const spec = VESSEL_MODELS[name]
+        const funnel = (mesh as { funnel?: { z: number; top: number; width: number } }).funnel
+        if (!funnel) {
+          expect(spec.funnel).toBeUndefined()
+          return
+        }
+        expect(spec.funnel).toBeDefined()
+        expect(spec.funnel!.x).toBeCloseTo(funnel.z, 5)
+        expect(spec.funnel!.z).toBeCloseTo(funnel.top, 5)
+        expect(spec.funnel!.width).toBeCloseTo(funnel.width, 5)
+        // Inside the hull's own box: aft of amidships, under the model's ceiling
+        expect(Math.abs(spec.funnel!.x)).toBeLessThan(expected.length / 2)
+        expect(spec.funnel!.z).toBeLessThanOrEqual(expected.height / 2)
+      })
     })
   }
 

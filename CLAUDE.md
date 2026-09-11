@@ -641,7 +641,7 @@ Consequences to keep in mind:
   any device reporting 2 GB or less – with a 2048 cascade (64 MB), no
   MSAA, a pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
   384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
-  instead of 3.5 and a 600-drop rain pool. `?tier=` forces either;
+  instead of 3.5, a 600-drop rain pool and no funnel smoke. `?tier=` forces either;
   `__mg3d.renderProfile()` and `__mg3d.shadowMap().size` show what is in
   force. The mobile numbers are a first cut, chosen for memory (a
   mid-range phone gives a tab well under a gigabyte) rather than
@@ -656,6 +656,35 @@ Consequences to keep in mind:
   URL knob; `__cesiumViewer.scene.msaaSamples = n` plus `__cesiumViewer.render()`
   changes it live (values 1, 2, 4, 8; the setter silently clamps to the driver's
   `gl.MAX_SAMPLES` and the multisample path is gated on `> 1`).
+
+### Animated effects are stateless shaders, not particle systems
+
+The ships under way trail exhaust since 2026-09-11
+([src/map/FunnelSmoke.ts](src/map/FunnelSmoke.ts)): one instanced
+DrawCommand after StopDiscs' pattern, twenty puffs per ship, and the
+vertex shader places every puff from (seed, time) alone – born at the
+funnel that many seconds ago, risen, carried by the apparent wind
+(the weather's wind minus the ship's speed, so the plume trails aft),
+grown and thinned. The reason it is built this way and not with
+Cesium's `ParticleSystem` is the event-driven rendering above: a
+particle system simulates from frame to frame, and after a 15-second
+heartbeat gap it lets every particle die and emits the whole gap's
+worth at once. A stateless plume is right in any frame whatever the
+last one was; the same argument applies to any animated effect added
+here. Its clock is the ships' (`VesselLayer.sync`'s `nowMs` – the wall
+clock live, the simulated one in a replay), so a pause holds it, and
+it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse.
+It asks for frames the way the ships and the clouds do – once its own
+motion since the frame last drawn is a visible step at the ship's
+distance – and it counts as a moving ship for the tick rate. Which
+hulls smoke is `VESSEL_MODELS[…].funnel` (five of thirteen; the
+shipyard's `mesh.funnel` is pinned against it in
+`tests/vessel-models.test.ts`), from `SMOKE_MIN_SOG_KN` over the ground,
+within `SMOKE_MAX_DISTANCE_M`. Offline the shader compiles and draws –
+`e2e/funnel-smoke.spec.ts` puts a ship on the map through
+`__mg3d.setAisVessels` and reads the plume off the canvas – and the
+primitive draws in the render pass only: no pick, and nothing in the
+offscreen passes, or a hull would be clamped onto its own smoke.
 
 ### The city handover is one frame – nothing may pile up in it
 
@@ -781,7 +810,9 @@ The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
-`cloudState()`, `tiltShiftState()`, `groundHeights()`.
+`cloudState()`, `funnelSmoke()`, `tiltShiftState()`, `groundHeights()`,
+`aisReplay()`; `setAisVessels(list)` puts a fleet on the map where no
+poll runs (offline, the tests).
 
 ---
 

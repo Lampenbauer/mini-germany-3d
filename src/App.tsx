@@ -191,6 +191,14 @@ export interface Mg3dTestApi {
   tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
   /** The volumetric clouds: cover, threshold, whether drawn (see CloudLayer). */
   cloudState: () => ReturnType<CesiumMap['cloudState']>
+  /** What the ships' exhaust is doing (see map/FunnelSmoke.ts); null in a profile without it. */
+  funnelSmoke: () => ReturnType<CesiumMap['funnelSmokeState']>
+  /**
+   * Puts a fleet on the map as if the AIS poll had delivered it – for the
+   * tests, which run offline where no poll exists. null takes it away
+   * again and hands the map back to the poll.
+   */
+  setAisVessels: (vessels: AisVessel[] | null) => void
   renderPacing: () => {
     /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
@@ -667,6 +675,8 @@ export default function App() {
    */
   const aisReplayRef = useRef(false)
   const [aisReplay, setAisReplay] = useState(false)
+  /** A fleet put on the map by the test API (see Mg3dTestApi.setAisVessels), null otherwise. */
+  const aisInjectedRef = useRef<AisVessel[] | null>(null)
   /** How many ships the layer was last handed – the count the panel shows. */
   const aisFleetCountRef = useRef(0)
   /**
@@ -1534,7 +1544,9 @@ export default function App() {
             const sim = simRef.current
             const snapshots = sim ? sim.snapshots() : []
             snapshotsRef.current = snapshots
-            const wantAis = aisAvailableRef.current && showAisVesselsRef.current
+            const wantAis =
+              (aisAvailableRef.current || aisInjectedRef.current !== null) &&
+              showAisVesselsRef.current
             // The switch coming back drops whatever was frozen: it emptied
             // the vessel list with it, and a stale freeze would put the old
             // harbor back up. The upgrade below re-freezes on fresh data.
@@ -1902,6 +1914,14 @@ export default function App() {
       },
       tiltShiftState: () => map.tiltShiftState(),
       cloudState: () => map.cloudState(),
+      funnelSmoke: () => map.funnelSmokeState(),
+      setAisVessels: (vessels: AisVessel[] | null) => {
+        aisInjectedRef.current = vessels
+        aisVesselsRef.current = vessels ?? []
+        // A paused clock holds the fleet it froze; the one put here is
+        // meant to be seen, so the next tick freezes this one instead
+        aisFrozen = null
+      },
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating = rainActiveRef.current

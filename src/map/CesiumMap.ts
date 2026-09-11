@@ -50,6 +50,7 @@ import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import { ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { BridgeDecks } from './bridge-decks'
+import { FunnelSmoke } from './FunnelSmoke'
 import {
   CLOUD_BASE_M,
   CLOUD_SHADOW_FUNCTION_GLSL,
@@ -702,6 +703,8 @@ export class CesiumMap {
   private readonly vehicleLayer: VehicleLayer
   /** Volumetric clouds and their shadow on the tiles (see CloudLayer). */
   private readonly clouds: CloudLayer
+  /** Exhaust over the funnels of the ships under way; null in the mobile profile (see FunnelSmoke). */
+  private readonly funnelSmoke: FunnelSmoke | null
   /** Unit sun direction in the earth-fixed frame (see updateNightFactor). */
   private sunDirection: Cartesian3 | null = null
   /** Exposure, white balance and picture grade (see PhotoGradeEffect). */
@@ -997,9 +1000,23 @@ export class CesiumMap {
         return map.effectivePixelRatio
       },
     })
+    // The plumes over the ships' funnels, lit like the clouds. The layer
+    // feeds them per tick; a phone's profile leaves them out.
+    this.funnelSmoke = this.profile.funnelSmoke
+      ? new FunnelSmoke({
+          get sunDirection() {
+            return map.sunDirection
+          },
+          get overcast() {
+            return map.overcast
+          },
+        })
+      : null
+    if (this.funnelSmoke) this.viewer.scene.primitives.add(this.funnelSmoke)
     this.vesselLayer = new VesselLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       obstacles: () => map.webcamsLayer.screenRects,
+      funnelSmoke: this.funnelSmoke ?? undefined,
       windowPosition: (position) => this.windowPosition(position),
       // Fallback water level: NHN 0 plus the calibrated offset plus a
       // lift that clears the tiles' wavy water mesh (see VesselLayer).
@@ -1918,9 +1935,15 @@ export class CesiumMap {
     this.clouds.setEnabled(enabled)
   }
 
-  /** The wind the clouds drift with: speed in m/s, direction it blows from. */
+  /** The wind the clouds drift with and the ships' exhaust leans into: speed in m/s, direction it blows from. */
   setWind(windSpeedMps: number, windFromDeg: number): void {
     this.clouds.setWind(windSpeedMps, windFromDeg)
+    this.funnelSmoke?.setWind(windSpeedMps, windFromDeg)
+  }
+
+  /** Debug/test: what the funnel smoke is doing (see FunnelSmoke.state); null in a profile without it. */
+  funnelSmokeState(): FunnelSmoke['state'] | null {
+    return this.funnelSmoke?.state ?? null
   }
 
   /**
@@ -2916,6 +2939,7 @@ export class CesiumMap {
     this.handler.destroy()
     this.weather.destroy()
     this.clouds.destroy()
+    this.funnelSmoke?.destroy()
     this.streetLamps.destroy()
     this.viewer.destroy()
   }

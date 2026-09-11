@@ -74,6 +74,12 @@ export interface RenderProfile {
   vehicleBodyRangeM: number
   /** Cap on the rain drop pool; undefined leaves the overlay's own default. */
   maxRainDrops: number | undefined
+  /**
+   * Whether the ships under way trail exhaust (see map/FunnelSmoke.ts):
+   * a translucent plume per ship, cheap on a desktop GPU, but fill rate
+   * is the scarce thing on a phone and the plumes ask for frames.
+   */
+  funnelSmoke: boolean
 }
 
 /** Touch screens with a shorter side under this many CSS pixels are phones or small tablets. */
@@ -106,6 +112,7 @@ export function renderProfileFor(tier: DeviceTier, deviceMemoryGb: number | unde
       tileTreeLimit: 100_000,
       vehicleBodyRangeM: 2_000,
       maxRainDrops: 600,
+      funnelSmoke: false,
     }
   }
   // navigator.deviceMemory is Chrome-only; elsewhere assume mid-range
@@ -121,6 +128,7 @@ export function renderProfileFor(tier: DeviceTier, deviceMemoryGb: number | unde
     tileTreeLimit: 300_000,
     vehicleBodyRangeM: 3_500,
     maxRainDrops: undefined,
+    funnelSmoke: true,
   }
 }
 

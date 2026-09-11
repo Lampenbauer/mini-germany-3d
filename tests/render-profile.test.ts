@@ -57,6 +57,7 @@ describe('the render profile', () => {
     // No reading (Safari, Firefox): mid-range assumed
     expect(renderProfileFor('desktop', undefined).tileCacheMb).toBe(1024)
     expect(big.maxRainDrops).toBeUndefined()
+    expect(big.funnelSmoke).toBe(true)
   })
 
   it('gives a phone less of everything, and the memory reading changes nothing there', () => {
@@ -70,6 +71,8 @@ describe('the render profile', () => {
     expect(small.tileTreeLimit).toBeLessThan(big.tileTreeLimit)
     expect(small.vehicleBodyRangeM).toBeLessThan(big.vehicleBodyRangeM)
     expect(small.maxRainDrops).toBeDefined()
+    // No exhaust plumes: fill rate, and the frames they ask for
+    expect(small.funnelSmoke).toBe(false)
     expect(renderProfileFor('mobile', undefined)).toEqual(small)
   })
 })
