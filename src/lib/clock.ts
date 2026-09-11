@@ -147,8 +147,9 @@ export class SimClock {
    * of day. What the day changes is the sun and, for a day in the past,
    * the ships (the AIS archive, see lib/ais-archive.ts) – and the
    * timetable does not change with it: the schedule is built for one
-   * service day (see schedule.json's meta.serviceDate), so a Sunday runs
-   * the weekday service.
+   * service day – the busiest of the weeks ahead, a typical weekday
+   * (scripts/fetch-gtfs-schedule.mjs) – so a Sunday runs the weekday
+   * service.
    */
   setDate(dateKey: string): void {
     this.anchorSim = berlinEpoch(dateKey, this.secondsOfDay())

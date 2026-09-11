@@ -107,16 +107,20 @@ describe('bundled schedule data', () => {
  * generation date defeats that guard: the file would differ every night,
  * so an unchanged timetable would still produce a commit, a push to main
  * and a deploy. Provenance is not lost by leaving it out – the commit
- * date records when the data was fetched, and more reliably.
+ * date records when the data was fetched, and more reliably. The
+ * schedule's chosen service day was such a field in GTFS's own dashless
+ * shape (meta.serviceDate, "20260910"), and slipped past the first
+ * version of this test for four weeks of nightly pipelines.
  */
 describe('the committed data files', () => {
-  it('carry no generation timestamp in their meta', () => {
+  it('carry no generation timestamp or service date in their meta', () => {
     expect(Object.keys(committedDataFiles).length).toBeGreaterThan(0)
     for (const [name, data] of Object.entries(committedDataFiles)) {
       const meta = (data as { meta?: Record<string, unknown> }).meta ?? {}
       expect(Object.keys(meta), name).not.toContain('generated')
+      expect(Object.keys(meta), name).not.toContain('serviceDate')
       for (const [key, value] of Object.entries(meta)) {
-        expect(String(value), `${name} meta.${key}`).not.toMatch(/^\d{4}-\d{2}-\d{2}$/)
+        expect(String(value), `${name} meta.${key}`).not.toMatch(/^\d{4}-?\d{2}-?\d{2}$/)
       }
     }
   })

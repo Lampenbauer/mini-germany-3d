@@ -34,7 +34,14 @@ Sunday nights, GTFS every night) refreshes the committed data files on a free
 hosted runner. Never design a step that needs a local run, a pre-downloaded
 extract or a cache on disk. Prefer on-demand fetching with in-memory caches,
 keep memory modest (a few hundred MB), and make regenerated files byte-stable
-across reruns so the "anything new?" short-circuit still works.
+across reruns so the "anything new?" short-circuit still works. Byte-stable
+means no date of any shape in the file: the schedule's chosen service day
+(`meta.serviceDate`, GTFS's dashless `20260910`) slipped past the
+meta-date test and set the full pipeline going nearly every night for four
+weeks – found 2026-09-11 with four cities whose nightly diff was that one
+line. A date belongs in the run's log and the data commit's message, where
+it now is. The feed download is cached under the feed's `Last-Modified`
+for the same reason: the feed changes weekly, the refresh runs nightly.
 
 **Typecheck with `npm run typecheck`** (= `tsc -b`), never `npx tsc --noEmit`.
 The root tsconfig is solution-style with project references; the `--noEmit`

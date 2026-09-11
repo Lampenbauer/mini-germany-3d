@@ -138,10 +138,35 @@ jobs:
       # intact – and every test below still validates the refreshed
       # dataset before anything is committed or deployed. One city's
       # failure does not cost the others their refresh.
+      # The feed is 280 MB and changes about weekly, while the refresh
+      # runs nightly: its Last-Modified is the cache key, so an unchanged
+      # feed is restored from the cache and only a new one is downloaded.
+      # No restore-keys – an older feed must never stand in for a newer
+      # one. Without an answer from the server the key is today's date:
+      # one download, kept for nothing, exactly what happened before.
+      - name: Which GTFS feed is current? (nightly or on request)
+        if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm
+        id: feed
+        run: |
+          modified="$(curl -sI --max-time 30 https://download.gtfs.de/germany/free/latest.zip \
+            | tr -d '\r' | awk -F': ' 'tolower($1) == "last-modified" { print $2 }')"
+          echo "Feed last modified: ${modified:-unknown}"
+          key="$(printf '%s' "${modified:-$(date -u +%F)}" | tr -c 'A-Za-z0-9' '-')"
+          echo "key=gtfs-feed-$key" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the GTFS feed (nightly or on request)
+        if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm
+        uses: actions/cache@v6
+        with:
+          path: scripts/.cache/gtfs.zip
+          key: ${{ steps.feed.outputs.key }}
+
       - name: Refresh network & schedule data (nightly or on request)
         if: github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm
         env:
           FORCE_OSM: ${{ inputs.refresh_osm }}
+          # The chosen service day per city, for the data commit's message
+          SERVICE_DAY_LOG: ${{ runner.temp }}/service-days.txt
         run: |
           cities="$(node --input-type=module -e "import { allCitySlugs } from './scripts/lib/city.mjs'; console.log(allCitySlugs().join(' '))")"
           echo "Cities: $cities"
@@ -174,9 +199,10 @@ jobs:
           else
             echo "OSM network refresh skipped – runs Sunday night, or on request via refresh_osm."
           fi
-          # The GTFS feed is downloaded once (scripts/.cache) and scanned
-          # per city. A city without trips keeps yesterday's schedule; a
-          # feed that serves no city at all fails the run, as it always did.
+          # The GTFS feed is downloaded once (scripts/.cache – or restored
+          # from the cache above) and scanned per city. A city without trips
+          # keeps yesterday's schedule; a feed that serves no city at all
+          # fails the run, as it always did.
           failed=0
           total=0
           for city in $cities; do
@@ -327,7 +353,15 @@ jobs:
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Nightly data refresh (OSM network and/or GTFS schedule)"
+            # The service day each schedule was cut from is not in the file
+            # (it moves with the calendar and would defeat the "anything
+            # new?" check above) – it is recorded here instead
+            {
+              echo "Nightly data refresh (OSM network and/or GTFS schedule)"
+              echo
+              echo "Service days chosen (the busiest of the next three weeks per city):"
+              cat "$RUNNER_TEMP/service-days.txt" 2>/dev/null || echo "(none – no GTFS refresh this run)"
+            } | git commit -F -
             git push origin HEAD:main
             echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi

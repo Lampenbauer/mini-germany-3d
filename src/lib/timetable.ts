@@ -250,7 +250,7 @@ export function buildTripsForDirection(
  * path, null for full-route trips.
  */
 export interface ScheduleJson {
-  meta?: { source?: string; serviceDate?: string }
+  meta?: { source?: string; serviceCount?: number }
   lines?: Record<
     string,
     Record<string, { departures: number[]; tripIds?: string[]; spans?: (number[] | null)[] }>

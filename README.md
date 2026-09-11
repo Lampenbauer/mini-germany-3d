@@ -799,9 +799,15 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
    one day).
 6. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
-   `npm run data:gtfs` for every city before the test steps, so the
-   day-specific GTFS departures (weekday vs. weekend service) stay current;
-   the rarely changing OSM geometry (`data:update` + `data:simplify` +
+   `npm run data:gtfs` for every city before the test steps, so the schedule
+   – one service day, the busiest of the next three weeks – follows the
+   feed and the calendar (a holiday timetable ending, a construction
+   timetable starting). The feed itself changes about weekly and is kept in
+   the Actions cache under its `Last-Modified`, so a night with the same
+   feed downloads nothing; and the schedules carry no date, so a night that
+   changed no departure is byte-identical and skips tests, build and
+   deploy – the service day each city was cut from goes into the data
+   commit's message instead. The rarely changing OSM geometry (`data:update` + `data:simplify` +
    `data:heights` + `data:lamps`, city by city) is only refreshed once a week
    (Sunday night). Route directions whose geometry is unchanged reuse the
    committed terrain heights (`PREV_NETWORK`), and lamps that did not move

@@ -1,7 +1,6 @@
 {
   "meta": {
     "source": "gtfs",
-    "serviceDate": "20260925",
     "serviceCount": 77,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
     "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns. Skipped 49 trips without a clear direction. No GTFS departures for line(s) 197 – they stay off the map (not running that day)."

@@ -15,17 +15,28 @@
  *                Alternatively the official VVW feed can be used here
  *                (registration: https://www.verkehrsverbund-warnow.de/service/open-data.html)
  *   GTFS_FILE  – local path to an already downloaded GTFS zip
+ *   SERVICE_DAY_LOG – a file the chosen service day is appended to, one
+ *                line per city (the nightly run puts them in its commit)
  *
  * From schedule.json the app uses the departure times at the starting point
  * of each line/direction; travel time between stops is still derived from
  * the route geometry. Mind the attribution (gtfs.de / DELFI).
+ *
+ * The schedule is one service day – the busiest of the next three weeks,
+ * a typical weekday (see the choice below). Which date that was is
+ * printed and logged, not written into the file: it moves with the
+ * calendar while the departures do not, and the nightly refresh only
+ * tests, builds and deploys when a city's data changed (ci.yml's
+ * "Anything new?"). Written into the file, the date alone set the whole
+ * pipeline going almost every night (found 2026-09-11: for four cities
+ * the night's diff was that one line).
  *
  * Implementation note: stop_times.txt of the Germany feed is several
  * gigabytes uncompressed – the file is therefore streamed line by line over
  * the byte buffer instead of being decoded as a single string.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
@@ -622,6 +633,9 @@ async function main(city, paths) {
     console.log(
       `Chosen service day: ${serviceDate} (${best.count} trips, ${activeServiceIds.size} active services)`,
     )
+    if (process.env.SERVICE_DAY_LOG) {
+      appendFileSync(process.env.SERVICE_DAY_LOG, `${city.slug}: ${serviceDate} (${best.count} trips)\n`)
+    }
   } else {
     // Fallback without calendar data: the single busiest service_id
     const tripsPerService = new Map()
@@ -974,7 +988,6 @@ async function main(city, paths) {
   const schedule = {
     meta: {
       source: 'gtfs',
-      serviceDate,
       serviceCount: activeServiceIds.size,
       attribution:
         'Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.',
