@@ -14,6 +14,7 @@ import {
   BoxGeometry,
   Cartesian2,
   Cartesian3,
+  Cartesian4,
   Color,
   ColorBlendMode,
   ColorGeometryInstanceAttribute,
@@ -52,6 +53,14 @@ import { tunnelOpacity } from './tunnel-view'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
+import { LIGHT_GREEN, LIGHT_RED, LIGHT_WHITE, NavLights } from './NavLights'
+import {
+  VESSEL_SIDELIGHT_ARC_DEG,
+  portLightSeen,
+  starboardLightSeen,
+  sternLightSeen,
+  viewBearingDeg,
+} from '@/lib/nav-lights'
 
 /**
  * A rendered line badge, shared by every vehicle of that line (and delay).
@@ -592,6 +601,27 @@ export const FERRY_FLOAT_LIFT = 1.1
  */
 const FERRY_CLAMP_BUDGET_PER_TICK = 3
 const FERRY_CLAMP_MOVE_M = 25
+/**
+ * A ferry's navigation lights are drawn out to this camera distance –
+ * the AIS fleet's hull range – at night, whenever she is on the map: a
+ * ferry in service keeps them on at the pier between crossings, unlike
+ * the AIS fleet, whose lights follow the ship's motion (see
+ * lib/nav-lights.ts for the rules and NavLights for the points).
+ */
+const FERRY_LIGHTS_RANGE_M = 20_000
+/** The lights' brightness below which none is drawn – by day a ferry shows none. */
+const FERRY_LIGHTS_MIN_NIGHT = 0.05
+
+const lightScratch = new Cartesian3()
+const lightWorldScratch = new Cartesian3()
+const axisScratch = new Cartesian4()
+const toCameraScratch = new Cartesian3()
+
+/** The dot product of a pose matrix's axis (0 forward, 1 port, 2 up) with a world vector. */
+function axisDot(matrix: Matrix4, column: 0 | 1 | 2, vector: Cartesian3): number {
+  Matrix4.getColumn(matrix, column, axisScratch)
+  return axisScratch.x * vector.x + axisScratch.y * vector.y + axisScratch.z * vector.z
+}
 
 /** Model consist for a vehicle; undefined keeps the colored box. */
 function modelSpecFor(snap: VehicleSnapshot): VehicleModelSpec | undefined {
@@ -670,6 +700,8 @@ export class VehicleLayer {
   private selectedId: string | null = null
   private followId: string | null = null
   private readonly followCamera: FollowCamera
+  /** The ferries' navigation lights (see NavLights); the land vehicles have none. */
+  private readonly lights: NavLights
   /** Until this time the approach flight runs and lookAt stays disengaged. */
   /**
    * Chase mode: the camera stays exactly behind the vehicle (heading
@@ -719,6 +751,12 @@ export class VehicleLayer {
     private readonly host: VehicleLayerHost,
   ) {
     this.followCamera = new FollowCamera(viewer, host)
+    this.lights = new NavLights(viewer)
+  }
+
+  /** The ferries' lights on at the last tick – the debug API's count. */
+  get lightCount(): number {
+    return this.lights.count
   }
 
   /**
@@ -804,7 +842,7 @@ export class VehicleLayer {
    * water, see RoutesLayer). Built per pick – three a tick at most.
    */
   private clampExclusions(record: VehicleRecord, snap: VehicleSnapshot): object[] {
-    const list: object[] = []
+    const list: object[] = [this.lights.primitive]
     for (let i = 0; i < record.group.length; i++) list.push(record.group.get(i))
     list.push(record.labelEntity)
     for (const entity of this.host.routeExclusions?.(snap.lineId) ?? []) list.push(entity)
@@ -880,6 +918,11 @@ export class VehicleLayer {
     let anyVehicleInView = false
     let clampBudget = FERRY_CLAMP_BUDGET_PER_TICK
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
+    // The ferries' lights, rebuilt every tick like their wakes
+    const lights = this.lights
+    lights.begin()
+    const night = this.host.nightFactor
+    const lightsOn = night >= FERRY_LIGHTS_MIN_NIGHT
     // The ferries' wakes are rebuilt every tick from the timetable's past
     // (see Wake); the clock they fade on is the real one here
     const wake = this.host.wake
@@ -1132,6 +1175,36 @@ export class VehicleLayer {
       // measures from the instance matrix, which is identity for these
       // boxes since the position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < bodyRange
+      // A ferry's navigation lights at night, screened as at sea (see
+      // VesselLayer for the same on the AIS fleet): red to port and green
+      // to starboard on the wheelhouse, white at the mast and the stern –
+      // the stern being whichever end of a double-ender is trailing
+      if (snap.mode === 'ferry' && lightsOn && show && cameraDistance < FERRY_LIGHTS_RANGE_M) {
+        const { length, width } = snap.vehicle
+        const at = (x: number, y: number, z: number) => {
+          lightScratch.x = x
+          lightScratch.y = y
+          lightScratch.z = z
+          return Matrix4.multiplyByPoint(record.matrix, lightScratch, lightWorldScratch)
+        }
+        Cartesian3.subtract(camera.positionWC, position, toCameraScratch)
+        const bearing = viewBearingDeg(
+          axisDot(record.matrix, 0, toCameraScratch),
+          axisDot(record.matrix, 1, toCameraScratch),
+        )
+        const id = `vehicle:${snap.id}`
+        if (portLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+          lights.add(at(0, width / 2 + 0.2, record.halfHeight * 0.6), LIGHT_RED, night, id)
+        }
+        if (starboardLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+          lights.add(at(0, -width / 2 - 0.2, record.halfHeight * 0.6), LIGHT_GREEN, night, id)
+        }
+        if (sternLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+          lights.add(at(-length / 2 + 0.3, 0, 0), LIGHT_WHITE, night, id)
+        } else {
+          lights.add(at(length * 0.15, 0, record.halfHeight + 0.4), LIGHT_WHITE, night, id)
+        }
+      }
       // A vehicle under the street is lit by nothing and casts nothing.
       // It is still DRAWN – ghosted, so the route stays followable – so
       // without this it threw a sunlit shadow onto the road above it.
@@ -1219,6 +1292,7 @@ export class VehicleLayer {
       }
     }
     wake?.commit()
+    lights.commit()
 
     return { anyVehicleInView, nearestBodyMeters, maxScreenMotionPx, maxTickMotionPx }
   }

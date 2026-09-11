@@ -2429,8 +2429,12 @@ export class CesiumMap {
   }
 
   /** Debug/test: the navigation lights on at the last tick, per fleet (see NavLights). */
-  navLightsState(): { aircraft: number } {
-    return { aircraft: this.aircraftLayer.lightCount }
+  navLightsState(): { aircraft: number; ships: number; ferries: number } {
+    return {
+      aircraft: this.aircraftLayer.lightCount,
+      ships: this.vesselLayer.lightCount,
+      ferries: this.vehicleLayer.lightCount,
+    }
   }
 
   setUnderground(underground: boolean): void {

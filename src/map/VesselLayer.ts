@@ -13,6 +13,13 @@
  * Same rendering approach as VehicleLayer: Primitive boxes with in-place
  * modelMatrix updates (Entity boxes rebuild geometry asynchronously and
  * freeze under continuous movement), a plain text label per vessel.
+ *
+ * At night every ship that moves shows her navigation lights (NavLights,
+ * the rules in lib/nav-lights.ts): red to port and green to starboard
+ * at the bridge, white at the masthead and the stern; a ship at anchor
+ * her anchor light; one lying at her berth nothing. Their places come
+ * from the hull's reference dimensions – the bridge just forward of the
+ * funnel where the hull has one – stretched with it.
  */
 
 import {
@@ -23,6 +30,7 @@ import {
   UniformType,
   Cartesian2,
   Cartesian3,
+  Cartesian4,
   Cartographic,
   Color,
   ColorBlendMode,
@@ -44,7 +52,16 @@ import {
   type Viewer,
 } from 'cesium'
 import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
+import {
+  VESSEL_SIDELIGHT_ARC_DEG,
+  portLightSeen,
+  starboardLightSeen,
+  sternLightSeen,
+  vesselLightsMode,
+  viewBearingDeg,
+} from '@/lib/nav-lights'
 import { cameraFramingScale } from './CameraLens'
+import { LIGHT_GREEN, LIGHT_RED, LIGHT_WHITE, NavLights } from './NavLights'
 import {
   keepNonOverlappingLabels,
   type LabelMetrics,
@@ -470,6 +487,40 @@ const hprScratch = new HeadingPitchRoll(0, 0, 0)
 const scaleScratch = new Cartesian3()
 const funnelScratch = new Cartesian3()
 const funnelWorldScratch = new Cartesian3()
+const lightScratch = new Cartesian3()
+const lightWorldScratch = new Cartesian3()
+const axisScratch = new Cartesian4()
+const toCameraScratch = new Cartesian3()
+
+/** The dot product of a pose matrix's axis (0 forward, 1 port, 2 up) with a world vector. */
+function axisDot(matrix: Matrix4, column: 0 | 1 | 2, vector: Cartesian3): number {
+  Matrix4.getColumn(matrix, column, axisScratch)
+  return axisScratch.x * vector.x + axisScratch.y * vector.y + axisScratch.z * vector.z
+}
+
+/**
+ * Where a hull's lights are, in the model frame (x forward, y port, z
+ * up) at the reference size: the sidelights at the bridge – just
+ * forward of the funnel where there is one, a fifth of the length aft
+ * of amidships otherwise – a hand outboard of the beam; the masthead
+ * light over the funnel, the highest point a hull has (the mast it
+ * really hangs on is not modelled, and a light in mid-air over the
+ * fo'c'sle read as a stray dot); the stern light at the stern; the
+ * anchor light on the fo'c'sle, a few metres over the deck.
+ */
+function vesselLightPoints(spec: (typeof VESSEL_MODELS)[string]) {
+  const bridgeX = spec.funnel ? spec.funnel.x + spec.length * 0.06 : -spec.length * 0.2
+  const bridgeZ = spec.funnel ? spec.funnel.z * 0.75 : spec.height * 0.25
+  return {
+    port: { x: bridgeX, y: spec.width / 2 + 0.2, z: bridgeZ },
+    starboard: { x: bridgeX, y: -spec.width / 2 - 0.2, z: bridgeZ },
+    masthead: { x: spec.funnel ? spec.funnel.x : -spec.length * 0.1, y: 0, z: spec.height / 2 + 0.2 },
+    stern: { x: -spec.length / 2 + 0.3, y: 0, z: 0 },
+    anchor: { x: spec.length * 0.4, y: 0, z: spec.height * 0.15 },
+  }
+}
+/** The lights' brightness below which none is drawn at all – by day a ship shows none. */
+const LIGHTS_MIN_NIGHT = 0.05
 
 /** Metres per second in a knot. */
 const KNOT_MPS = 0.514444
@@ -509,6 +560,10 @@ export class VesselLayer {
   private lastSyncMs = 0
   /** Counts rendered frames (see markRendered / VesselRecord.renderedStamp). */
   private renderStamp = 0
+  /** The fleet's navigation lights (see NavLights). */
+  private readonly lights: NavLights
+  /** 0 = day … 1 = full night, as last applied – the lights' brightness. */
+  private night = 0
   /** Lights the hulls' glazing at night (see WINDOW_GLOW_COLOR). */
   private readonly windowGlowShader = new CustomShader({
     uniforms: { u_windowGlow: { type: UniformType.FLOAT, value: 0 } },
@@ -529,6 +584,12 @@ export class VesselLayer {
     private readonly host: VesselLayerHost,
   ) {
     this.followCamera = new FollowCamera(viewer, host)
+    this.lights = new NavLights(viewer)
+  }
+
+  /** Lights on at the last tick – the debug API's count. */
+  get lightCount(): number {
+    return this.lights.count
   }
 
   /**
@@ -635,6 +696,9 @@ export class VesselLayer {
     }
     const wake = this.host.wake
     wake?.begin(nowMs)
+    const lights = this.lights
+    lights.begin()
+    const lightsOn = this.night >= LIGHTS_MIN_NIGHT
 
     let anyMovingVesselInView = false
     /**
@@ -854,6 +918,49 @@ export class VesselLayer {
         body.show = showBody
         this.host.requestRender()
       }
+      // The navigation lights, at night, by what she is doing (see
+      // lib/nav-lights.ts) – steady, so they ask for no frame of their
+      // own: the night ramp and the hull's motion bring the frames
+      if (lightsOn && showBody) {
+        // Moving by the speed she reports – steadier than the track,
+        // whose segments a berthed ship's GNSS wobble can push over the
+        // playback's threshold for a minute at a time, and which carries
+        // no motion at its ends; the track only where she reports none
+        const moving = vessel.sogKn !== null ? vessel.sogKn >= 0.5 : sample.underWay
+        const mode = vesselLightsMode(vessel.navStatus, moving)
+        if (mode !== 'off') {
+          const points = vesselLightPoints(spec)
+          const hScale = heightScale(lengthScale, widthScale)
+          const at = (point: { x: number; y: number; z: number }) => {
+            lightScratch.x = point.x * lengthScale
+            lightScratch.y = point.y * widthScale
+            lightScratch.z = point.z * hScale
+            return Matrix4.multiplyByPoint(record.matrix, lightScratch, lightWorldScratch)
+          }
+          const id = `vessel:${vessel.mmsi}`
+          if (mode === 'anchor') {
+            lights.add(at(points.anchor), LIGHT_WHITE, this.night, id)
+          } else {
+            // Screened as at sea: each light over its own arc, read off
+            // where the camera stands against her bow and her port side
+            Cartesian3.subtract(camera.positionWC, record.displayPosition, toCameraScratch)
+            const forwardDot = axisDot(record.matrix, 0, toCameraScratch)
+            const portDot = axisDot(record.matrix, 1, toCameraScratch)
+            const bearing = viewBearingDeg(forwardDot, portDot)
+            if (portLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+              lights.add(at(points.port), LIGHT_RED, this.night, id)
+            }
+            if (starboardLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+              lights.add(at(points.starboard), LIGHT_GREEN, this.night, id)
+            }
+            if (sternLightSeen(bearing, VESSEL_SIDELIGHT_ARC_DEG)) {
+              lights.add(at(points.stern), LIGHT_WHITE, this.night, id)
+            } else {
+              lights.add(at(points.masthead), LIGHT_WHITE, this.night, id)
+            }
+          }
+        }
+      }
       // A frame was drawn since this ship's last tick: that tick's pose is
       // on screen and is what motion is measured against from now on.
       if (record.renderedStamp !== this.renderStamp) {
@@ -944,6 +1051,7 @@ export class VesselLayer {
     }
     smoke?.commit()
     wake?.commit()
+    lights.commit()
     return {
       anyMovingVesselInView,
       nearestHullMeters,
@@ -953,9 +1061,10 @@ export class VesselLayer {
     }
   }
 
-  /** Day→night ramp for the window glow (driven by the map's sun state). */
+  /** Day→night ramp for the window glow and the lights (driven by the map's sun state). */
   applyNightFactor(night: number): void {
     this.windowGlowShader.setUniform('u_windowGlow', WINDOW_GLOW_MAX * night)
+    this.night = night
   }
 
   /**
@@ -981,6 +1090,7 @@ export class VesselLayer {
       this.host.wake?.begin(this.lastSyncMs)
       this.host.wake?.commit()
     }
+    this.lights.setVisible(visible)
     this.host.requestRender()
   }
 
@@ -1288,6 +1398,7 @@ export class VesselLayer {
   private clampExclusions(): object[] {
     if (this.clampExclusionsStale) {
       this.clampExclusionList.length = 0
+      this.clampExclusionList.push(this.lights.primitive)
       for (const r of this.vessels.values()) {
         if (r.model) this.clampExclusionList.push(r.model)
         if (r.primitive) this.clampExclusionList.push(r.primitive)

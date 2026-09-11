@@ -72,7 +72,7 @@ vi.mock('@/map/CesiumMap', () => {
       return 0
     }
     navLightsState() {
-      return { aircraft: 0 }
+      return { aircraft: 0, ships: 0, ferries: 0 }
     }
     hasAircraft() {
       return false

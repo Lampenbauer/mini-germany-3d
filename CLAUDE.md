@@ -1173,9 +1173,17 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   port, green starboard, white tail (steady), red beacons top and bottom
   (1.2 s period, 160 ms on – over 100 ms so a 100 ms tick catches it),
   white strobes at the tips (1.6 s, 120 ms) in flight only; nothing
-  parked; 35 % by day, full at night. The ships' rules (motion only – the nav
-  status is set by hand and stale both ways) are in the library too,
-  waiting for the ships. The screened lights show over
+  parked; 35 % by day, full at night. Ships: sidelights, masthead, stern
+  for a ship that MOVES, the anchor light lying still with status 1,
+  nothing otherwise, nothing by day. Motion is the only thing trusted:
+  the nav status is set by hand and stale in both directions – the
+  GRANDE INGHILTERRA came down the Elbe at 12 kn as "moored", and 139
+  of Hamburg's ships said "under way" at their berths against 40 that
+  moved (the tugs at Neumühlen among them, which lit up on the first
+  rule). Do not bring the status back as a reason for running lights.
+  The scheduled ferries (VehicleLayer) wear the same lights whenever
+  they are on the map at night, dwelling at the pier included – a ferry
+  in service keeps them on; `tests/cesium-ferry-float.test.ts` pins it. The screened lights show over
   their real arcs (112.5° sidelights at sea, 110° in the air, the stern
   and tail light the rest) – from the chase camera behind an aircraft
   the tail light and the strobes, never the red and green. A flash that

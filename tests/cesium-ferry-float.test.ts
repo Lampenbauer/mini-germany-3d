@@ -56,6 +56,8 @@ function harness(
     /** Where the timetable had a vehicle some seconds ago (Simulation.positionAt). */
     positionAt: (id: string, secondsAgo: number) => { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null
   },
+  /** 0 = day … 1 = full night, as the map reports it – the ferries' lights follow it. */
+  night = 0,
 ) {
   const viewer = {
     scene: {
@@ -71,7 +73,9 @@ function harness(
       resumeEvents: vi.fn(),
     },
     camera: {
-      positionWC: Cartesian3.fromDegrees(12.1, 54.0, 1500),
+      // Ahead of the ferry (she heads north) and high up – from where her
+      // screened lights show both sidelights and the masthead light
+      positionWC: Cartesian3.fromDegrees(12.1, 54.004, 1500),
       directionWC: new Cartesian3(0, 0, -1),
       upWC: new Cartesian3(0, 1, 0),
       frustum: {
@@ -94,7 +98,7 @@ function harness(
     },
     surfaceGeneration: () => generation,
     routeExclusions: () => [routeEntity],
-    nightFactor: 0,
+    nightFactor: night,
     pixelRatio: 1,
     offline: false,
     fixedGroundHeight: undefined,
@@ -196,5 +200,35 @@ describe('the ferries’ wake', () => {
     // only from the steps she was still under way
     expect(wake.drawn).toBeGreaterThan(0)
     expect(wake.drawn).toBeLessThan(WAKE_LIFE_S / WAKE_STEP_S - 2)
+  })
+})
+
+describe('ferries show their navigation lights at night', () => {
+  // The camera of the harness stands ahead of the ferry and high up, so it
+  // sees both sidelights and the masthead light, three points – and none
+  // by day
+  it('three of them from overhead at night, none by day, none for a tram', () => {
+    const night = harness(() => 37.9, undefined, 1)
+    night.layer.sync([snapshot('f', 'ferry'), snapshot('t', 'tram')], night.visible)
+    expect(night.layer.lightCount).toBe(3)
+    const day = harness(() => 37.9, undefined, 0)
+    day.layer.sync([snapshot('f', 'ferry')], day.visible)
+    expect(day.layer.lightCount).toBe(0)
+  })
+
+  it('keeps them on at the pier – a ferry in service is under way between crossings', () => {
+    const h = harness(() => 37.9, undefined, 1)
+    h.layer.sync([{ ...snapshot('f', 'ferry'), status: 'dwell' }], h.visible)
+    expect(h.layer.lightCount).toBe(3)
+  })
+
+  it('takes them down with the ferry, and with her line', () => {
+    const h = harness(() => 37.9, undefined, 1)
+    h.layer.sync([snapshot('f', 'ferry')], h.visible)
+    expect(h.layer.lightCount).toBe(3)
+    h.layer.sync([snapshot('f', 'ferry')], new Set())
+    expect(h.layer.lightCount).toBe(0)
+    h.layer.sync([], h.visible)
+    expect(h.layer.lightCount).toBe(0)
   })
 })

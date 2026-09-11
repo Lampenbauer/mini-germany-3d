@@ -38,8 +38,8 @@ test.afterAll(async () => {
  * runner's software renderer did not get in within a minute (2026-09-11);
  * from above, 20 to 30 do.
  */
-async function boot(pose: string) {
-  await page.goto(`/?offline=1&welcome=0&time=12:00&paused=1#${pose}&routes=0&stops=0&labels=0`)
+async function boot(pose: string, time = '12:00') {
+  await page.goto(`/?offline=1&welcome=0&time=${time}&paused=1#${pose}&routes=0&stops=0&labels=0`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 120_000 })
@@ -54,9 +54,9 @@ async function boot(pose: string) {
  * clock does between two frames: the plume follows the reported speed,
  * not the track, so the hull is the same in both pictures.
  */
-const putShip = (sogKn: number, courseDeg = 45, runMeters = 0) =>
+const putShip = (sogKn: number, courseDeg = 45, runMeters = 0, navStatus = 0) =>
   page.evaluate(
-    ({ lat, lon, sogKn, courseDeg, runMeters }) => {
+    ({ lat, lon, sogKn, courseDeg, runMeters, navStatus }) => {
       const now = Date.now()
       const rendered = now - 240_000
       const course = (courseDeg * Math.PI) / 180
@@ -71,7 +71,7 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0) =>
           sogKn,
           cogDeg: courseDeg,
           headingDeg: courseDeg,
-          navStatus: 0,
+          navStatus,
           typeCode: 70,
           lengthM: 180,
           widthM: 28,
@@ -84,7 +84,7 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0) =>
         },
       ])
     },
-    { ...SHIP, sogKn, courseDeg, runMeters },
+    { ...SHIP, sogKn, courseDeg, runMeters, navStatus },
   )
 
 /**
@@ -229,4 +229,31 @@ test('a ship under way leaves a wake behind her stern and nothing elsewhere', as
     .poll(() => page.evaluate(() => window.__mg3d!.wake()!.ships), slowPoll)
     .toBe(0)
   expect(pageErrors).toEqual([])
+})
+
+test('a ship under way at night shows her navigation lights, a moored one none, and by day nobody does', async () => {
+  test.setTimeout(300_000)
+  // At two in the morning, from her starboard quarter: the green
+  // sidelight is screened off from here, the masthead and the stern
+  // light are what a ship passing shows (see src/lib/nav-lights.ts)
+  await boot('lat=54.0986&lon=12.13238&height=380&heading=315&pitch=-60', '02:00')
+  await putShip(12)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.aisVesselCount()), slowPoll).toBe(1)
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll)
+    .toBeGreaterThan(0)
+  // Moored (status 5): the lights go out
+  await putShip(0, 45, 0, 5)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll).toBe(0)
+  // At anchor (status 1): the one anchor light
+  await putShip(0, 45, 0, 1)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll).toBe(1)
+  expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
+
+  // By day the same ship under way shows nothing
+  await boot('lat=54.0986&lon=12.13238&height=380&heading=315&pitch=-60')
+  await putShip(12)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.aisVesselCount()), slowPoll).toBe(1)
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => window.__mg3d!.navLights().ships)).toBe(0)
 })
