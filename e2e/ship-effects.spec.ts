@@ -250,10 +250,15 @@ test('a ship under way at night shows her navigation lights, a moored one none, 
   await expect.poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll).toBe(1)
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
-  // By day the same ship under way shows nothing
-  await boot('lat=54.0986&lon=12.13238&height=380&heading=315&pitch=-60')
+  // By day the same ship under way shows nothing – the clock set to noon
+  // on the same scene rather than a second boot, the street lamps going
+  // out being the sign that the day has reached the map
   await putShip(12)
-  await expect.poll(() => page.evaluate(() => window.__mg3d!.aisVesselCount()), slowPoll).toBe(1)
-  await page.waitForTimeout(1500)
-  expect(await page.evaluate(() => window.__mg3d!.navLights().ships)).toBe(0)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll).toBeGreaterThan(0)
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.streetLamps().alpha), slowPoll)
+    .toBeGreaterThan(0)
+  await page.evaluate(() => window.__mg3d!.setTime('12:00'))
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.streetLamps().alpha), slowPoll).toBe(0)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.navLights().ships), slowPoll).toBe(0)
 })

@@ -179,7 +179,7 @@ const en = {
   'welcome.eyebrow': 'Mini Germany 3D',
   'welcome.title': 'Which city would you like to see?',
   'welcome.lead':
-    'Trains weaving between buildings, ferries crossing the harbour, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic model of the city.',
+    'Trains weaving between buildings, ferries crossing the harbour, aircraft passing overhead, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic model of the city.',
   'welcome.invitation': 'Pick a city, follow a train, and take a look around.',
   'welcome.cities': 'Cities',
   'welcome.open': 'Open {name}',
@@ -330,7 +330,7 @@ const en = {
   'about.storyTab': 'The project',
   'about.detailsTab': 'Good to know',
   'about.projectTitle': 'The city, seen from above.',
-  'about.project': 'Mini Germany 3D brings a different view of the city to your browser: trains weaving between buildings, ships crossing the harbour, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic 3D model.',
+  'about.project': 'Mini Germany 3D brings a different view of the city to your browser: trains weaving between buildings, ships crossing the harbour, aircraft passing overhead, and everyday journeys seen from above. City by city, with the real lines, the real stops and the real timetable, drawn over a photorealistic 3D model.',
   'about.projectRealism': 'Nothing here is made up: what runs on the map runs in reality too, on the same route and at the same time. A line that pauses for the weekend pauses here as well.',
   'about.invitation': 'Pick a city, follow a train, and take a look around. I’m glad you’re here.',
   'about.whoTitle': 'Hello world 👋',
@@ -370,7 +370,7 @@ const en = {
   // The static pages under the map (lib/site-pages.ts): what a crawler
   // and a reader without WebGL get, one page per city and language.
   'page.description':
-    'Public transport in German cities, live on a photorealistic 3D map: the real lines, the real stops and today’s timetable.',
+    'Public transport in German cities, live on a photorealistic 3D map: the real lines, the real stops and today’s timetable, the ships in the harbour and the aircraft overhead as they really move.',
   'page.citySummary': 'The network in {name}: {summary}.',
   'page.cityDescription':
     '{summary} Live on a photorealistic 3D map, with the real stops and today’s timetable.',
@@ -549,7 +549,7 @@ const de: Record<MessageKey, string> = {
   'welcome.eyebrow': 'Mini Germany 3D',
   'welcome.title': 'Welche Stadt möchtest du sehen?',
   'welcome.lead':
-    'Bahnen zwischen Häusern, Schiffe im Hafen und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches Modell der Stadt.',
+    'Bahnen zwischen Häusern, Schiffe im Hafen, Flugzeuge am Himmel und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches Modell der Stadt.',
   'welcome.invitation': 'Such dir eine Stadt aus, folge einer Bahn und schau dich um.',
   'welcome.cities': 'Städte',
   'welcome.open': '{name} öffnen',
@@ -687,7 +687,7 @@ const de: Record<MessageKey, string> = {
   'about.storyTab': 'Das Projekt',
   'about.detailsTab': 'Gut zu wissen',
   'about.projectTitle': 'Die Stadt, von oben gesehen.',
-  'about.project': 'Mini Germany 3D holt einen anderen Blick auf die Stadt in deinen Browser: Bahnen zwischen Häusern, Schiffe im Hafen und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches 3D-Modell.',
+  'about.project': 'Mini Germany 3D holt einen anderen Blick auf die Stadt in deinen Browser: Bahnen zwischen Häusern, Schiffe im Hafen, Flugzeuge am Himmel und alltägliche Wege aus der Vogelperspektive. Stadt für Stadt, mit den echten Linien, den echten Haltestellen und dem echten Fahrplan, gezeichnet über ein fotorealistisches 3D-Modell.',
   'about.projectRealism': 'Nichts davon ist ausgedacht: Was auf der Karte fährt, fährt auch in Wirklichkeit, auf derselben Strecke und zur selben Zeit. Eine Linie, die am Wochenende pausiert, pausiert auch hier.',
   'about.invitation': 'Such dir eine Stadt aus, folge einer Bahn und schau dich um. Schön, dass du da bist.',
   'about.whoTitle': 'Hallo Welt 👋',
@@ -722,7 +722,7 @@ const de: Record<MessageKey, string> = {
   'keys.dismiss': 'Karte schließen, Verfolgung beenden',
   'keys.help': 'Dieses Fenster',
   'page.description':
-    'Der Nahverkehr deutscher Städte live auf einer fotorealistischen 3D-Karte: die echten Linien, die echten Haltestellen und der Fahrplan von heute.',
+    'Der Nahverkehr deutscher Städte live auf einer fotorealistischen 3D-Karte: die echten Linien, die echten Haltestellen und der Fahrplan von heute, dazu die Schiffe im Hafen und die Flugzeuge am Himmel, wie sie sich wirklich bewegen.',
   'page.citySummary': 'Das Netz in {name}: {summary}.',
   'page.cityDescription':
     '{summary} Live auf einer fotorealistischen 3D-Karte, mit den echten Haltestellen und dem Fahrplan von heute.',

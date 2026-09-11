@@ -132,6 +132,19 @@ test('aircraft put on the map get a body each, their plates, and leave with the 
   // Gone with the list
   await page.evaluate(() => window.__mg3d!.setAircraft(null))
   await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(0)
+
+  // And gone with a clock set two days back: there is no recording of
+  // the sky, so nothing is drawn – on the same scene, a boot being the
+  // dear thing here
+  await putAircraft()
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(2)
+  await page.evaluate(() => {
+    const today = window.__mg3d!.dateKey()
+    const day = new Date(`${today}T12:00:00Z`)
+    day.setUTCDate(day.getUTCDate() - 2)
+    window.__mg3d!.setDate(day.toISOString().slice(0, 10))
+  })
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(0)
   expect(pageErrors).toEqual([])
 })
 
@@ -162,40 +175,40 @@ test('a click-worthy aircraft is selectable and shared by its address', async ()
   expect(await page.evaluate(() => window.__mg3d!.selectedAircraftHex())).toBe(LIGHT.hex)
 })
 
-test('a clock set into the past empties the sky, and ?aircraft=0 opens with it off', async () => {
+test('?aircraft=0 opens with the traffic switched off', async () => {
   test.setTimeout(300_000)
-  await boot('/?offline=1&welcome=0#lat=54.08&lon=12.12&height=1500&heading=0&pitch=-45&routes=0&stops=0')
-  await putAircraft()
-  await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(2)
-
-  // Two days back: there is no recording of the sky, so nothing is drawn
-  await page.evaluate(() => {
-    const today = window.__mg3d!.dateKey()
-    const day = new Date(`${today}T12:00:00Z`)
-    day.setUTCDate(day.getUTCDate() - 2)
-    window.__mg3d!.setDate(day.toISOString().slice(0, 10))
-  })
-  await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(0)
-
-  // ?aircraft=0: the switch is off and the list put on the map is not drawn
+  // A boot of its own: the switch is read from the URL once. The list
+  // put on the map is not drawn – proved by a simulated second going by
+  // (a couple of ticks, on which the layer would have been synced)
+  // rather than by a fixed wait
   await boot('/?offline=1&welcome=0&aircraft=0#lat=54.08&lon=12.12&height=1500&heading=0&pitch=-45&routes=0&stops=0')
   await putAircraft()
-  await page.waitForTimeout(3000)
+  const since = await page.evaluate(() => window.__mg3d!.secondsOfDay())
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.secondsOfDay()), slowPoll)
+    .toBeGreaterThan(since + 1)
   expect(await page.evaluate(() => window.__mg3d!.aircraftCount())).toBe(0)
 })
 
 test('a followed aircraft leaving the box is watched from its edge, the camera stays inside', async () => {
   test.setTimeout(300_000)
-  // Rostock's box ends at 12.5272° east. An aircraft 470 m inside it,
-  // heading east at 15 m/s, crosses the edge half a minute into the test
+  // Rostock's box ends at 12.5272° east. An aircraft 180 m inside it,
+  // heading east at 30 m/s, crosses the edge six seconds into the test –
+  // near enough that the CI runner is not kept waiting, far enough for
+  // the chase to engage first. Its track is a straight line on the wall
+  // clock, so the test knows where it is at any moment without asking
+  // the map (flightLon below).
   const EDGE_LON = 12.5272
-  const AIRCRAFT = { hex: '4ca7b3', callsign: 'RYR7T', lat: 54.1, lon: 12.52 }
+  const SPEED_MPS = 30
+  const AIRCRAFT = { hex: '4ca7b3', callsign: 'RYR7T', lat: 54.1, lon: EDGE_LON - 0.0028 }
+  type FlightWindow = Window & { __mg3dFlight?: { rendered: number; lon0: number; dlon: number } }
   await boot('/?offline=1&welcome=0#lat=54.09&lon=12.5&height=1500&heading=90&pitch=-30&routes=0&stops=0')
   await page.evaluate(
-    ({ hex, callsign, lat, lon }) => {
+    ({ hex, callsign, lat, lon, speed }) => {
       const now = Date.now()
       const rendered = now - 12_000
-      const dlon = (15 * 300) / (111_320 * Math.cos((lat * Math.PI) / 180))
+      const dlon = (speed * 300) / (111_320 * Math.cos((lat * Math.PI) / 180))
+      ;(window as FlightWindow).__mg3dFlight = { rendered, lon0: lon - dlon, dlon }
       window.__mg3d!.setAircraft([
         {
           hex,
@@ -209,7 +222,7 @@ test('a followed aircraft leaving the box is watched from its edge, the camera s
           altGeomM: 2000,
           altBaroM: 1960,
           onGround: false,
-          gsKn: 30,
+          gsKn: speed / 0.514444,
           trackDeg: 90,
           headingDeg: 90,
           verticalRateMps: 0,
@@ -218,13 +231,13 @@ test('a followed aircraft leaving the box is watched from its edge, the camera s
           source: 'adsb',
           positionAt: now,
           track: [
-            [rendered - 300_000, lat, lon - dlon, 2000, 30, 90, 0],
-            [rendered + 300_000, lat, lon + dlon, 2000, 30, 90, 0],
+            [rendered - 300_000, lat, lon - dlon, 2000, speed / 0.514444, 90, 0],
+            [rendered + 300_000, lat, lon + dlon, 2000, speed / 0.514444, 90, 0],
           ],
         },
       ])
     },
-    AIRCRAFT,
+    { ...AIRCRAFT, speed: SPEED_MPS },
   )
   await expect.poll(() => page.evaluate(() => window.__mg3d!.aircraftCount()), slowPoll).toBe(1)
   await page.evaluate((hex) => window.__mg3d!.selectAircraft(hex), AIRCRAFT.hex)
@@ -237,12 +250,17 @@ test('a followed aircraft leaving the box is watched from its edge, the camera s
   await expect.poll(cameraLon, slowPoll).toBeGreaterThan(12.51)
 
   // The aircraft flies out over the edge; the camera follows it to the
-  // edge and stops there, still following – the card stays up – while
-  // the aircraft flies on another few hundred metres
+  // edge and stops there, still following – the card stays up. Judged
+  // once the aircraft is 200 m beyond the edge: a camera still chasing
+  // would be 60 m outside by then, well past the slack allowed
+  const flightLon = () =>
+    page.evaluate(() => {
+      const f = (window as FlightWindow).__mg3dFlight!
+      return f.lon0 + 2 * f.dlon * ((Date.now() - 12_000 - (f.rendered - 300_000)) / 600_000)
+    })
   await expect
-    .poll(cameraLon, { timeout: 150_000, intervals: [2000, 4000] })
-    .toBeGreaterThan(EDGE_LON - 0.002)
-  await page.waitForTimeout(15_000)
+    .poll(flightLon, { timeout: 120_000, intervals: [500, 1000] })
+    .toBeGreaterThan(EDGE_LON + 0.0031)
   expect(await cameraLon()).toBeLessThanOrEqual(EDGE_LON + 0.0005)
   expect(await cameraLon()).toBeGreaterThan(EDGE_LON - 0.002)
   await expect(page.getByRole('button', { name: 'Stop following' })).toBeVisible()

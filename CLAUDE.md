@@ -66,6 +66,35 @@ to an existing file goes there rather than into a new one, and an assertion
 per data point (`network.test.ts` once ran four `expect`s on 331 000 path
 points, 15 s) is counted instead.
 
+**Playwright specs are written and run as cheaply as they can be.** The
+e2e suite is the long pole of CI: one worker, software-rendered WebGL
+(SwiftShader) on GitHub's 2-vCPU runner, about three times slower than
+this Mac – 53 tests take 5 minutes here and ~15 of the ~18-minute run
+there. Every boot of the page costs 10–20 s on the runner before a test
+can start, and every second of real time a test waits for is a second
+of CI. So: one page per spec, booted in `beforeAll` and reused across
+its tests where a test does not need a fresh boot; boot with
+`routes=0&stops=0&labels=0` unless the test is about them, and paused
+where nothing has to move; put the map into the state under test
+through `__mg3d` (`setTime`, `setAisVessels`, `setAircraft`, injected
+delays) rather than waiting for it; place a subject where the test's
+poll catches it within seconds, not where it takes half a minute to
+arrive; poll with `expect.poll` and growing intervals, never a fixed
+`waitForTimeout` longer than a couple of seconds; keep frames and
+their pixels inside the page and bring only counts out (a frame is four
+million numbers, half a minute over the wire on the runner); and put a
+check into an existing spec when it fits there – a new spec is a new
+boot. Where the behaviour is pure, a unit test is the right place and
+costs milliseconds. Measure before restructuring, though: a boot is not
+always the dear part – `linear-view.spec.ts` boots seven times because
+a second pass through the morph on one scene cost 56 s more on CI than
+the boot it replaced. Measured 2026-09-11 (this Mac, headless
+SwiftShader): 53 tests in 4.3 minutes, the two newest specs the
+outliers at 44 s and 31 s until their fixed waits and second boots went
+– a negative is proved by a simulated second going by (`secondsOfDay`,
+`loopTicks`), a moving subject by its known position on the wall clock,
+never by sleeping.
+
 **A change is not finished when the code works.** Every change — a fix as much
 as a feature — ends with a sweep for what else already talks about the thing
 you touched. Grep for the name you changed, the flag you added, the number you
@@ -83,6 +112,17 @@ moved, and follow it into:
   often enough to be a trap, so no prose anywhere states it); the keyboard
   tab lists the shortcuts;
   the credits carry the licenses. A German table left behind is the usual miss.
+- **What Google, the welcome screen and the About dialog say the map is** —
+  a feature that changes what the map shows changes the prose that
+  describes it: the pages' descriptions and the front door's text in
+  [src/lib/site-pages.ts](src/lib/site-pages.ts) (`page.description`,
+  `page.cityDescription`, the mode words per city; the link previews in
+  `public/og/` if the picture's words change), the welcome screen's lead
+  (`welcome.lead`), and the About dialog's story (`about.project`, the
+  "what is live" and "what it is not" sections, `about.built`). Ask
+  whether the sentence a crawler or a first visitor reads is still the
+  whole truth, in both tables. The live ships were missing from all
+  three for weeks; the aircraft went in on the day they were added.
 - **Code comments elsewhere** — this codebase explains its decisions in prose
   next to them, so a constant that moves usually invalidates a sentence in
   another file that quotes its old value.
