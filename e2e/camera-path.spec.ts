@@ -65,9 +65,17 @@ test('flies from the start to the end on the wall clock, whatever the simulation
   await page.getByRole('button', { name: 'Play the camera path' }).click()
   expect(await page.evaluate(() => window.__mg3d!.cameraPath().playing)).toBe(true)
   await expect(page.getByRole('button', { name: 'Stop the camera path' })).toBeVisible()
+  // While the shot runs the whole picture is paced as if close up – the
+  // labels far out and the clouds must not step along under the flight
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().paceWholeView), { timeout: 10_000 })
+    .toBe(true)
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.cameraPath()), { timeout: 30_000 })
     .toMatchObject({ playing: false, progress: 1 })
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().paceWholeView), { timeout: 10_000 })
+    .toBe(false)
   const atEnd = await settledPose(page, beforeFlight)
   expect(atEnd.lat).toBeCloseTo(54.1, 3)
   expect(atEnd.lon).toBeCloseTo(12.14, 3)

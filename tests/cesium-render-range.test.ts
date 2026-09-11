@@ -58,7 +58,7 @@ function lens(fovDeg: number): PerspectiveFrustum {
   return frustum
 }
 
-function harness(fovDeg: number, cameraHeight: number) {
+function harness(fovDeg: number, cameraHeight: number, paceWholeView = false) {
   const primitives = new Set<unknown>()
   const entities = new Set<Entity>()
   const viewer = {
@@ -98,6 +98,7 @@ function harness(fovDeg: number, cameraHeight: number) {
     offline: true,
     fixedGroundHeight: 0,
     noteCameraFlight: () => {},
+    paceWholeView,
   })
   const visible = new Set(['1'])
   return { layer, primitives, entities, visible }
@@ -116,5 +117,15 @@ describe('the render range follows the lens', () => {
     const h = harness(config.camera.fovDeg, 25_000)
     const { anyVehicleInView } = h.layer.sync([snapshot('a')], h.visible)
     expect(anyVehicleInView).toBe(true)
+  })
+
+  it('reaches as far as the labels while the whole view is paced – the time-lapse, a camera path', () => {
+    // 25 km through the plain lens: out of the render range, inside the
+    // label range – under the time-lapse the label must not step along
+    const h = harness(60, 25_000, true)
+    expect(h.layer.sync([snapshot('a')], h.visible).anyVehicleInView).toBe(true)
+    // …and no further than the labels are drawn
+    const far = harness(60, 100_000, true)
+    expect(far.layer.sync([snapshot('a')], far.visible).anyVehicleInView).toBe(false)
   })
 })

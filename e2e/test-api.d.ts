@@ -137,6 +137,8 @@ declare global {
         intervalMs: number
         tickIntervalMs: number
         motionPxPerSecond: number
+        /** The whole picture paced as if close up – the time-lapse, a camera path. */
+        paceWholeView: boolean
       }
       tunnelTransition: () => {
         id: string

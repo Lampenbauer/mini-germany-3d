@@ -55,6 +55,7 @@ function harness({
   clamp,
   smoke,
   wake,
+  paceWholeView,
 }: {
   cameraLon?: number
   cameraHeight?: number
@@ -65,6 +66,8 @@ function harness({
   smoke?: FunnelSmoke
   /** The fleet's wakes (see Wake), where the profile has them. */
   wake?: Wake
+  /** The time-lapse or a camera path: every ship drawn counts as in view. */
+  paceWholeView?: boolean
 } = {}) {
   const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
@@ -108,6 +111,7 @@ function harness({
     noteCameraFlight: () => {},
     ...(smoke ? { funnelSmoke: smoke } : {}),
     ...(wake ? { wake } : {}),
+    ...(paceWholeView ? { paceWholeView } : {}),
     ...(clamp
       ? {
           clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
@@ -421,6 +425,24 @@ describe('VesselLayer', () => {
       // …and the layer's own clock is the plume's: a rendered frame resets it
       h.layer.markRendered()
       expect(smoke.metersSinceRendered).toBe(0)
+    })
+  })
+
+  describe('pacing far out', () => {
+    it('leaves a ship beyond the render range to the heartbeat, unless the whole view is paced', () => {
+      // Twenty kilometres up: beyond the 5 km render range of the plain
+      // lens (the harness wears none), inside the 35 km her name is drawn
+      const far = harness({ cameraHeight: 20_000 })
+      far.layer.sync([vessel({ track: underWayTrack() })], NOW)
+      far.requestRender.mockClear()
+      expect(far.layer.sync([vessel({ track: underWayTrack() })], NOW + 33).anyMovingVesselInView).toBe(false)
+      expect(far.requestRender).not.toHaveBeenCalled()
+      // The time-lapse: her name must not step along – she counts as in view
+      const paced = harness({ cameraHeight: 20_000, paceWholeView: true })
+      paced.layer.sync([vessel({ track: underWayTrack() })], NOW)
+      paced.requestRender.mockClear()
+      expect(paced.layer.sync([vessel({ track: underWayTrack() })], NOW + 33).anyMovingVesselInView).toBe(true)
+      expect(paced.requestRender).toHaveBeenCalled()
     })
   })
 

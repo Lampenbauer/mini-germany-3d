@@ -358,6 +358,16 @@ test('time-lapse moves the vehicles', async () => {
       { timeout: 20_000 },
     )
     .toBe(true)
+  // Under the time-lapse the whole picture is paced as if close up: the
+  // fleets count as in view wherever their labels are drawn, and the ticks
+  // come at the full rate
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 10_000 })
+    .toMatchObject({ paceWholeView: true, tickIntervalMs: 33 })
+  await page.evaluate(() => window.__mg3d!.setSpeed(1))
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.renderPacing().paceWholeView), { timeout: 10_000 })
+    .toBe(false)
 })
 
 test('the clock can be set and restored to real time', async () => {

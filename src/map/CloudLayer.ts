@@ -663,6 +663,20 @@ export class CloudLayer {
     this.renderedDriftNorth = this.driftNorth
   }
 
+  /**
+   * How fast the drift moves on screen, in CSS px per second of real
+   * time, for a clock running `simSpeed` times real time – zero for
+   * clouds nobody can see. What the app's tick pacing reads under the
+   * time-lapse, when the sky is the thing that moves (see App.tsx).
+   */
+  screenMotionPxPerSecond(simSpeed: number): number {
+    if (!this.visible()) return 0
+    const driftMps = Math.hypot(this.driftEastMps, this.driftNorthMps)
+    if (driftMps === 0) return 0
+    const pxPerMeter = cssPixelsPerMeterAtUnitDistance(this.viewer) / Math.max(1, this.distanceToSlab())
+    return driftMps * Math.max(0, simSpeed) * pxPerMeter
+  }
+
   /** Debug and tests. */
   get state(): {
     enabled: boolean

@@ -294,6 +294,23 @@ describe('CloudLayer', () => {
     expect(requestRender).toHaveBeenCalledTimes(1)
   })
 
+  it('tells the pacing how fast its drift moves on screen at the clock speed, nothing unseen', () => {
+    const { layer } = layerHarness({ skyInView: true })
+    layer.setCloudCover(50)
+    // A westerly of 5 m/s: 9 m/s at cloud level, 900 m up where a metre is 1.74 px
+    layer.setWind(5, 270)
+    expect(layer.screenMotionPxPerSecond(1)).toBeCloseTo(9 * 1.74, 0)
+    // Sixty times as fast under the time-lapse
+    expect(layer.screenMotionPxPerSecond(60)).toBeCloseTo(60 * 9 * 1.74, -1)
+    // A clock standing still moves nothing
+    expect(layer.screenMotionPxPerSecond(0)).toBe(0)
+    // …and neither does a sky out of the frame
+    const below = layerHarness({ skyInView: false })
+    below.layer.setCloudCover(50)
+    below.layer.setWind(5, 270)
+    expect(below.layer.screenMotionPxPerSecond(60)).toBe(0)
+  })
+
   it('does not ask for frames for clouds nobody can see', () => {
     // Below the base with the camera on the ground: the sky is out of frame
     const below = layerHarness({ skyInView: false })

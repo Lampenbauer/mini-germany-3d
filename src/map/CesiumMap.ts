@@ -720,6 +720,12 @@ export class CesiumMap {
   private readonly ferryWake: Wake | null
   /** Unit sun direction in the earth-fixed frame (see updateNightFactor). */
   private sunDirection: Cartesian3 | null = null
+  /**
+   * Whether the whole picture is to be paced as if close up (see
+   * setPaceWholeView): the fleets count as in view wherever their
+   * labels are drawn, not only within their render ranges.
+   */
+  private paceWholeView = false
   /** Exposure, white balance and picture grade (see PhotoGradeEffect). */
   private readonly grade: PhotoGradeEffect
   /** Miniature look: band blur and toy grade (see TiltShiftEffect). */
@@ -997,6 +1003,9 @@ export class CesiumMap {
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
       },
+      get paceWholeView() {
+        return map.paceWholeView
+      },
       // The ferries' wake, from where the timetable had them (built
       // below, after the vessel layer; read per tick, so the order is fine)
       get wake() {
@@ -1056,6 +1065,9 @@ export class CesiumMap {
       },
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
+      },
+      get paceWholeView() {
+        return map.paceWholeView
       },
     })
     this.webcamsLayer = new WebcamsLayer(this.viewer, {
@@ -1982,11 +1994,29 @@ export class CesiumMap {
   }
 
   /**
-   * Per UI tick: carries the cloud drift forward on the simulated clock.
+   * Per tick: carries the cloud drift forward on the simulated clock.
    * The layer asks for a frame itself once the drift shows on screen.
    */
   advanceClouds(simEpochMs: number): void {
     this.clouds.advance(simEpochMs)
+  }
+
+  /** How fast the clouds' drift moves on screen at a clock speed (CSS px/s), 0 unseen. */
+  cloudMotionPxPerSecond(simSpeed: number): number {
+    return this.clouds.screenMotionPxPerSecond(simSpeed)
+  }
+
+  /**
+   * Whether the whole picture moves and is to be paced as if close up –
+   * under the time-lapse and while a camera path plays, the app says.
+   * The fleets then count as in view wherever their labels are drawn
+   * (VehicleLayer, VesselLayer), where otherwise a vehicle or ship
+   * beyond its render range advances in the loop's slow heartbeat steps.
+   */
+  setPaceWholeView(paceWholeView: boolean): void {
+    if (paceWholeView === this.paceWholeView) return
+    this.paceWholeView = paceWholeView
+    this.requestRender()
   }
 
   /** Debug/test: what the cloud layer is doing (see CloudLayer.state). */

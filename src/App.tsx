@@ -216,6 +216,8 @@ export interface Mg3dTestApi {
     tickIntervalMs: number
     /** On-screen speed of the fastest vehicle or ship in view, CSS px/s. */
     motionPxPerSecond: number
+    /** Whether the whole picture is paced as if close up – the time-lapse, a camera path (see CesiumMap.setPaceWholeView). */
+    paceWholeView: boolean
   }
   /** Maximum distance between vehicle box and label in meters (must be ~0). */
   vehicleBoxDriftMeters: () => number
@@ -1475,6 +1477,8 @@ export default function App() {
      * motion earns, and no faster.
      */
     let lastMotionPxPerSecond = 0
+    /** The whole-view pacing as of the last tick decision (see renderPacing). */
+    let lastPaceWholeView = false
     let lastTickInterval = 33
     const motionThresholdPx = map.motionThresholdCssPx
     let loopTicks = 0
@@ -1519,17 +1523,32 @@ export default function App() {
           // whatever the fleet does.
           const diagramLive =
             (linearRef.current || morphRef.current > 0) && snapshotsRef.current.length > 0
+          // The time-lapse and a playing camera path move the whole
+          // picture: the fleets count as in view wherever their labels
+          // are drawn (see CesiumMap.setPaceWholeView), and the clouds'
+          // drift paces the ticks like a fleet does, so neither a label
+          // far out nor the sky steps along at the heartbeat's pace.
+          const paceWholeView = clock.speed > 1 || cameraPathPlayingRef.current
+          map.setPaceWholeView(paceWholeView)
+          const cloudPxPerSecond =
+            paceWholeView && !clock.paused ? map.cloudMotionPxPerSecond(clock.speed) : 0
           const fleetMoving =
-            !clock.paused && (lastAnyVehicleInView || lastMovingVesselInView || diagramLive)
+            !clock.paused &&
+            (lastAnyVehicleInView || lastMovingVesselInView || diagramLive || cloudPxPerSecond > 0)
           const tickInterval = !fleetMoving
             ? 500
             : hints?.interacting || diagramLive || map.isChasing()
               ? 33
               : Math.min(
                   100,
-                  Math.max(33, (1000 * motionThresholdPx) / Math.max(1e-6, lastMotionPxPerSecond)),
+                  Math.max(
+                    33,
+                    (1000 * motionThresholdPx) /
+                      Math.max(1e-6, lastMotionPxPerSecond, cloudPxPerSecond),
+                  ),
                 )
           lastTickInterval = tickInterval
+          lastPaceWholeView = paceWholeView
           if (now - lastSimTick >= tickInterval) {
             const tickDtMs = Math.max(1, now - lastSimTick)
             lastSimTick = now
@@ -1624,6 +1643,9 @@ export default function App() {
               aisDrawn = false
             }
             aisFleetCountRef.current = wantAis ? aisBackdrop.length : 0
+            // The sky under the time-lapse: carried forward every tick,
+            // not four times a second, or the clouds step like stop-motion
+            if (paceWholeView) map.advanceClouds(simMs)
             // A diagram full of dots is vehicles in view, whatever the map is
             // drawing: the tick rate below is what moves them, and at the
             // 2 fps of an empty map they would step rather than run. It buys
@@ -1743,9 +1765,11 @@ export default function App() {
                 weatherVisible && (cloud.forced || nearRealTime) ? cloud.percent : 0,
               )
               // The clouds drift with the wind on the simulated clock –
-              // the layer asks for frames itself as the drift shows
+              // the layer asks for frames itself as the drift shows. At
+              // real pace four advances a second are plenty; under the
+              // time-lapse the drift is carried per tick below instead.
               map.setWind(cloud.windSpeedMps, cloud.windFromDeg)
-              map.advanceClouds(simMs)
+              if (!paceWholeView) map.advanceClouds(simMs)
               const selId = selectedIdRef.current
               if (selId) {
                 const snap = snapshots.find((s) => s.id === selId) ?? null
@@ -1940,6 +1964,7 @@ export default function App() {
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
           tickIntervalMs: lastTickInterval,
           motionPxPerSecond: lastMotionPxPerSecond,
+          paceWholeView: lastPaceWholeView,
         }
       },
       vehicleBoxDriftMeters: () => map.getVehicleBoxDriftMeters(),

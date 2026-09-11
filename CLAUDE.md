@@ -616,6 +616,23 @@ chasing or with the diagram open; 500 ms paused or with nothing in view. Home
 view renders ~5–6 fps instead of 30; Berlin's main thread sits at 18–25 %
 instead of 99 %.
 
+**The time-lapse and a playing camera path pace the whole view (since
+2026-09-11).** "In view" is bounded by a render range – 20 km for a
+vehicle, 5 km for a ship, at the reference lens – while their labels are
+drawn out to 35 km, so a label between the two moves only when
+something else earns a frame: at real pace that is the deliberate
+economy, under the time-lapse it was stop-motion, and so were the
+clouds, whose drift was carried forward in the 250 ms UI block. So the
+loop sets `CesiumMap.setPaceWholeView(clock.speed > 1 ||
+cameraPathPlaying)`, and with it: both layers count a vehicle or ship as
+in view wherever its label is drawn (`host.paceWholeView`), the clouds'
+drift is carried per tick and paces the ticks like a fleet does
+(`CloudLayer.screenMotionPxPerSecond`), and the tick interval follows
+the fastest of the three. At ×1 nothing changes – the idle costs above
+were measured there and stay. `renderPacing().paceWholeView` says which
+mode is in force; `e2e/app.spec.ts` (time-lapse) and
+`e2e/camera-path.spec.ts` pin it.
+
 Consequences to keep in mind:
 
 - Motion alone only counts for in-view vehicles and ships — new per-tick visual

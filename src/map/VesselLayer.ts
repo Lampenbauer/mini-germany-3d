@@ -77,6 +77,13 @@ export interface VesselLayerHost {
   surfaceGeneration?(): number
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /**
+   * Whether every ship drawn counts as in view for the pacing – the
+   * time-lapse and a playing camera path (see CesiumMap.setPaceWholeView).
+   * Otherwise only those within the render range do, and a name further
+   * out advances in the loop's slow heartbeat steps.
+   */
+  readonly paceWholeView?: boolean
   /** Screen rectangles the names keep clear of (the webcam pictures). */
   obstacles?: () => readonly ScreenRect[]
   /** Window position of a world point (CSS px), undefined behind the camera. */
@@ -536,7 +543,11 @@ export class VesselLayer {
   ): boolean {
     if (!this.visible) return false
     const camera = this.viewer.camera
-    const renderRange = VESSEL_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    // Under the time-lapse and a camera path the whole picture moves: a
+    // ship counts as in view wherever her name is drawn
+    const renderRange = this.host.paceWholeView
+      ? NAME_VISIBLE_RANGE
+      : VESSEL_RENDER_RANGE_AT_REFERENCE * cameraFramingScale(camera)
     if (Cartesian3.distance(camera.positionWC, position) >= renderRange) return false
     Cartesian3.clone(position, this.frustumSphere.center)
     this.frustumSphere.radius = 80

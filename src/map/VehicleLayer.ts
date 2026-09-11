@@ -121,6 +121,13 @@ export interface VehicleLayerHost {
   readonly fixedGroundHeight: number | undefined
   /** A camera flight is starting – keeps the render loop at full rate. */
   noteCameraFlight(durationMs: number): void
+  /**
+   * Whether every vehicle drawn counts as in view for the pacing – the
+   * time-lapse and a playing camera path (see CesiumMap.setPaceWholeView).
+   * Otherwise only those within the render range do, and a label further
+   * out advances in the loop's slow heartbeat steps.
+   */
+  readonly paceWholeView?: boolean
   /** Screen rectangles the badges keep clear of (the webcam pictures). */
   obstacles?: () => readonly ScreenRect[]
   /** Window position of a world point (CSS px), undefined behind the camera. */
@@ -889,7 +896,11 @@ export class VehicleLayer {
     // lines' badges step aside (see startLineFocus).
     const focusedLine = this.focusedLine()
     const framingScale = cameraFramingScale(camera)
-    const renderRange = VEHICLE_RENDER_RANGE_AT_REFERENCE * framingScale
+    // Under the time-lapse and a camera path the whole picture moves: a
+    // vehicle counts as in view wherever its label is drawn
+    const renderRange = this.host.paceWholeView
+      ? VEHICLE_LABEL_VISIBLE_RANGE
+      : VEHICLE_RENDER_RANGE_AT_REFERENCE * framingScale
     const bodyRange =
       (this.host.vehicleBodyRangeM ?? VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE) * framingScale
     // Webcam pictures on screen – a badge that would sit on one steps aside
