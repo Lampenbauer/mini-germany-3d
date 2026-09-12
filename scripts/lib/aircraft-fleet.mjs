@@ -198,9 +198,25 @@ function roundProfile(w, h, yc) {
  * rather than poked through it (the first cockpit was a box, and it
  * broke through the nose taper on every side).
  */
-function body(mesh, material, profile, stations, yAnchor, capMaterials) {
-  const skin = createMesh()
+function body(mesh, material, profile, stations, yAnchor, capMaterials, mirrored = false) {
+  let skin = createMesh()
   extrude(skin, profile, stations, { material, yAnchor, capMaterials })
+  if (mirrored) {
+    // Non-planar quads need mirrored diagonals as well as mirrored points,
+    // or a projected pane can clear one cheek but intersect the other.
+    const symmetric = createMesh()
+    for (const [name, group] of skin.groups) {
+      for (let i = 0; i < group.indices.length; i += 3) {
+        const points = group.indices.slice(i, i + 3).map((index) => group.positions.slice(index * 3, index * 3 + 3))
+        if (points.some(([x]) => x < -1e-8)) continue
+        const [a, b, c] = points.map(([x, y, z]) => [Math.abs(x) < 1e-8 ? 0 : x, y, z])
+        tri(symmetric, name, a, b, c)
+        const reflect = ([x, y, z]) => [-x, y, z]
+        tri(symmetric, name, reflect(a), reflect(c), reflect(b))
+      }
+    }
+    skin = symmetric
+  }
   mergeMesh(mesh, smoothSurface(skin))
   const ring = (st) =>
     profile.map(([x, y]) => [x * (st.sx ?? 1), (y - yAnchor) * (st.sy ?? 1) + yAnchor + (st.yOff ?? 0), st.z])
@@ -280,7 +296,35 @@ const UPPER_DECK_FACES = [5, 10]
  * amidships around the centre line at yc. Returns the shell for the
  * glazing.
  */
-function fuselage(mesh, { length, w, h, yc, tailRise = 0.3, noseDroop = 0.26, taper = 0.22 }) {
+function fuselage(mesh, { length, w, h, yc, tailRise = 0.3, noseDroop = 0.26, taper = 0.22, jetNose = false }) {
+  // The jet forebody is sized by cabin width, not total aircraft length.
+  // Separate crown and belly heights give the windscreen a steeper rake,
+  // followed by a shallow radome shoulder and a round, full chin.
+  const nose = jetNose ? [
+    // Distance aft of the tip / width, half-width / width, crown and belly / height.
+    [1.6, 0.5, 0.5, -0.5],
+    [1.25, 0.5, 0.498, -0.495],
+    [1.0, 0.485, 0.47, -0.48],
+    [0.78, 0.456, 0.405, -0.455],
+    [0.60, 0.405, 0.28, -0.425],
+    [0.46, 0.36, 0.185, -0.39],
+    [0.32, 0.30, 0.13, -0.365],
+    [0.18, 0.225, 0.07, -0.31],
+    [0.075, 0.15, -0.005, -0.255],
+    [0.02, 0.08, -0.067, -0.20],
+    [0.004, 0.036, -0.101, -0.162],
+    [0, 0.002, -0.128, -0.132],
+  ].map(([aft, radius, top, bottom]) => ({
+    z: length / 2 - w * aft, sx: radius * 2, sy: top - bottom, yOff: h * (top + bottom) / 2,
+  })) : [
+    { z: length * 0.3 },
+    { z: length * 0.38, sx: 0.985, sy: 0.985, yOff: -h * noseDroop * 0.05 },
+    { z: length * 0.44, sx: 0.86, sy: 0.82, yOff: -h * noseDroop * 0.35 },
+    { z: length * 0.475, sx: 0.6, sy: 0.55, yOff: -h * noseDroop * 0.72 },
+    { z: length * 0.49, sx: 0.36, sy: 0.32, yOff: -h * noseDroop * 0.92 },
+    { z: length * 0.498, sx: 0.14, sy: 0.12, yOff: -h * noseDroop },
+    { z: length / 2, sx: 0.025, sy: 0.025, yOff: -h * noseDroop },
+  ]
   return body(
     mesh,
     'airframe',
@@ -291,15 +335,12 @@ function fuselage(mesh, { length, w, h, yc, tailRise = 0.3, noseDroop = 0.26, ta
       { z: -length / 2 + length * taper * 0.45, sx: 0.5, sy: 0.6, yOff: h * tailRise * 0.6 },
       { z: -length / 2 + length * taper, sx: 0.86, sy: 0.92, yOff: h * tailRise * 0.2 },
       { z: -length * 0.12 },
-      { z: length * 0.3 },
-      { z: length * 0.38, sx: 0.985, sy: 0.985, yOff: -h * noseDroop * 0.05 },
-      { z: length * 0.44, sx: 0.86, sy: 0.82, yOff: -h * noseDroop * 0.35 },
-      { z: length * 0.475, sx: 0.6, sy: 0.55, yOff: -h * noseDroop * 0.72 },
-      { z: length * 0.49, sx: 0.36, sy: 0.32, yOff: -h * noseDroop * 0.92 },
-      { z: length * 0.498, sx: 0.14, sy: 0.12, yOff: -h * noseDroop },
-      { z: length / 2, sx: 0.025, sy: 0.025, yOff: -h * noseDroop },
+      ...nose,
     ],
     yc,
+    // No cap materials: the nose closes on the stations themselves
+    undefined,
+    jetNose,
   )
 }
 
@@ -315,6 +356,81 @@ function cockpit(mesh, shell, length) {
   const zTo = length * 0.455
   glaze(mesh, shell, [4, 11], zFrom, zTo, { panes: 3, band: [0.55, 1] })
   glaze(mesh, shell, [5, 10], zFrom, zTo, { panes: 3, band: [0, 0.8] })
+}
+
+/**
+ * Six cockpit panes, authored in front and side elevations and projected
+ * onto the forebody. The broad windscreens reach the
+ * centre pillar; the narrower side panes wrap around the cheeks. Build
+ * one side and mirror its vertices AND winding: opposite angular bands
+ * have opposite height directions, so repeating their offsets is not a
+ * reflection (the old strip cockpit had mismatched heights on each side).
+ */
+function jetCockpit(mesh, shell, { length, w, h, yc }) {
+  const rings = shell.stations.filter((st) => st.z >= length / 2 - w * 1.6 - 1e-6)
+    .map((st) => shell.ringAt(st.z))
+  const triangles = []
+  for (let s = 0; s + 1 < rings.length; s++) {
+    for (let i = 0; i < SIDES; i++) {
+      const j = (i + 1) % SIDES
+      const a = rings[s][i]
+      const b = rings[s][j]
+      const c = rings[s + 1][j]
+      const d = rings[s + 1][i]
+      triangles.push([a, b, c], [a, c, d])
+    }
+  }
+  // Perimeter order: inner lower, outer lower, outer upper, inner upper.
+  const panes = [
+    [[0.018, 0.175], [0.25, 0.165], [0.225, 0.305], [0.018, 0.315]],
+  ]
+  // Side windows are drawn in side elevation: nearly level sills and
+  // upright rear pillars, rather than curved strips climbing the crown.
+  const sidePanes = [
+    [[0.89, 0.155], [0.568, 0.165], [0.742, 0.305], [0.89, 0.29]],
+    [[1.08, 0.15], [0.93, 0.155], [0.93, 0.29], [1.08, 0.28]],
+  ]
+  const glass = createMesh()
+  for (const [index, corners] of [...panes, ...sidePanes].entries()) {
+    const axis = index === 0 ? 0 : 2
+    const depth = index === 0 ? 2 : 0
+    const outline = corners.map(([u, v]) => [index === 0 ? u * w : length / 2 - u * w, yc + v * h])
+    for (const triangle of triangles) {
+      if (triangle.some(([x]) => x < -1e-8)) continue
+      const normal = cross(sub(triangle[1], triangle[0]), sub(triangle[2], triangle[0]))
+      if (normal[depth] <= 1e-10) continue
+      // Clip the actual shell triangle against the pane's four projected
+      // edges. Unlike a sampled grid, this preserves every station and
+      // facet bend, so even the jumbo's large panes never cut into the skin.
+      let polygon = triangle
+      for (let edge = 0; edge < outline.length && polygon.length; edge++) {
+        const a = outline[edge]
+        const b = outline[(edge + 1) % outline.length]
+        const distance = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[axis] - a[0])
+        const clipped = []
+        for (let i = 0; i < polygon.length; i++) {
+          const p = polygon[i]
+          const q = polygon[(i + 1) % polygon.length]
+          const dp = distance(p)
+          const dq = distance(q)
+          if (dp >= 0) clipped.push(p)
+          if ((dp >= 0) !== (dq >= 0)) clipped.push(lerp(p, q, dp / (dp - dq)))
+        }
+        polygon = clipped
+      }
+      const lifted = polygon.map((p) => p.map((v, k) => v + (k === depth ? GLASS_PROUD : 0)))
+      const reflect = ([x, y, z]) => [-x, y, z]
+      for (let i = 1; i + 1 < lifted.length; i++) {
+        const a = lifted[0]
+        const b = lifted[i]
+        const c = lifted[i + 1]
+        if (Math.hypot(...cross(sub(b, a), sub(c, a))) < 1e-10) continue
+        tri(glass, 'aircraftGlass', a, b, c)
+        tri(glass, 'aircraftGlass', reflect(a), reflect(c), reflect(b))
+      }
+    }
+  }
+  mergeMesh(mesh, smoothSurface(glass))
 }
 
 /**
@@ -352,9 +468,9 @@ function portholeRow(mesh, shell, zFrom, zTo, { pitch = 0.53, w = 0.3, h = 0.42,
 }
 
 /** Subtle door outlines and handles on the shell, below the window row. */
-function cabinDoors(mesh, shell, length, height) {
+function cabinDoors(mesh, shell, length, height, frontZ = length * 0.345) {
   for (const side of [1, -1]) {
-    for (const z of [-length * 0.22, length * 0.345]) {
+    for (const z of [-length * 0.22, frontZ]) {
       const face = side > 0 ? 4 : 11
       const at = (dz, f) => {
         const p = shell.pointAt(z + dz, face + f)
@@ -534,8 +650,8 @@ function jetliner(name, { fuselageW, fuselageH, engines, engineDiameter, pitch, 
   // Fuselage bottom a little over a fifth of the height off the ground –
   // where the door sills of every airliner are
   const yc = ground + height * 0.22 + fuselageH / 2
-  const shell = fuselage(mesh, { length, w: fuselageW, h: fuselageH, yc })
-  cockpit(mesh, shell, length)
+  const shell = fuselage(mesh, { length, w: fuselageW, h: fuselageH, yc, jetNose: true })
+  jetCockpit(mesh, shell, { length, w: fuselageW, h: fuselageH, yc })
   cabinDoors(mesh, shell, length, fuselageH)
   portholeRow(mesh, shell, -length * 0.16, length * 0.31, { pitch })
   if (doubleDeck) portholeRow(mesh, shell, -length * 0.14, length * 0.27, { pitch, faces: UPPER_DECK_FACES, at: 0.35 })
@@ -675,9 +791,10 @@ export function aircraftBizjet() {
   const fuselageW = 2.7
   const fuselageH = 2.7
   const yc = ground + height * 0.2 + fuselageH / 2
-  const shell = fuselage(mesh, { length, w: fuselageW, h: fuselageH, yc, tailRise: 0.35, taper: 0.28 })
-  cockpit(mesh, shell, length)
-  cabinDoors(mesh, shell, length, fuselageH)
+  const shell = fuselage(mesh, { length, w: fuselageW, h: fuselageH, yc, tailRise: 0.35, taper: 0.28, jetNose: true })
+  jetCockpit(mesh, shell, { length, w: fuselageW, h: fuselageH, yc })
+  // Leave a solid pillar between the wider cockpit and the entry door.
+  cabinDoors(mesh, shell, length, fuselageH, length / 2 - fuselageW * 1.45)
   portholeRow(mesh, shell, -length * 0.12, length * 0.28, { pitch: 0.95, w: 0.36, h: 0.46 })
   const wingY = yc - fuselageH * 0.3
   const rootChord = length * 0.2
@@ -990,7 +1107,8 @@ export function aircraftHelicopter() {
   const rings = [[-0.14, 0.55], [0.14, 0.55], [0.14, 0.43], [-0.14, 0.43]].map(([x, r]) => ngon(x, tailCentre[1], tailCentre[2], r, 'x'))
   for (let k = 0; k < 4; k++) {
     for (let i = 0; i < SIDES; i++) {
-      const j = (i + 1) % SIDES, next = (k + 1) % 4
+      const j = (i + 1) % SIDES
+      const next = (k + 1) % 4
       quad(shroud, 'hullBlue', rings[k][i], rings[k][j], rings[next][j], rings[next][i])
     }
   }

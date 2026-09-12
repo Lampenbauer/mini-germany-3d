@@ -1340,8 +1340,18 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   at caps and thin trailing edges. Glass stays ON the actual shell
   (`shell.pointAt` uses the original sixteen-sector angular coordinates
   independently of the mesh resolution); small portholes remain dots at
-  map distance. Rotors and propellers remain translucent discs, the
-  helicopter's tail rotor has an open shroud. Aircraft stay below 12,000
+  map distance. The four jets use a width-scaled forebody with separate
+  crown and belly profiles: a raked cockpit above a blunt, rounded
+  radome, not a continuous taper to a point. `jetCockpit` projects six
+  pane contours from front/side elevations onto that shell. Mirror the
+  triangles and normals as well as the window positions; opposite
+  angular bands do not have the same height direction, so repeating one
+  side's offsets on the other is not a reflection (the first strip
+  cockpit had mismatched heights on each side, 2026-09-12).
+  `tests/aircraft-models.test.ts` checks the six connected panes, the
+  centre pillar and the mirrored normals. Rotors and propellers remain
+  translucent discs, the helicopter's tail rotor has an open shroud.
+  Aircraft stay below 12,000
   triangles and 650 kB each (smaller types have a tighter budget).
   The retractable gear remains its own `mesh.parts.gear` / glTF `gear`
   node, which `AircraftLayer` shows only within `GEAR_DOWN_AGL_M` (600 m)

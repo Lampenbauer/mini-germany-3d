@@ -27,6 +27,56 @@ describe('the generated aircraft fleet', () => {
       const glb = toGlb(mesh, { name })
       const expected = AIRCRAFT_DIMS[name as keyof typeof AIRCRAFT_DIMS]
 
+      if (['aircraft-narrowbody', 'aircraft-widebody', 'aircraft-jumbo', 'aircraft-bizjet'].includes(name)) {
+        it('has six outward-facing cockpit panes mirrored across the centre pillar', () => {
+          const glass = mesh.groups.get('aircraftGlass')!
+          const key = (values: number[]) => values.map((v) => Math.round(v * 1e6)).join(',')
+          const vertices = new Map<string, number[]>()
+          const neighbours = new Map<string, Set<string>>()
+          for (let i = 0; i < glass.positions.length; i += 3) {
+            const p = glass.positions.slice(i, i + 3)
+            if (p[2] <= expected.length * 0.36) continue
+            vertices.set(key(p), [...p, ...glass.normals.slice(i, i + 3)])
+            neighbours.set(key(p), new Set())
+          }
+          expect(vertices.size).toBeGreaterThan(0)
+          let badMirrors = 0
+          let inward = 0
+          for (const [x, y, z, nx, ny, nz] of vertices.values()) {
+            const mirror = vertices.get(key([-x, y, z]))
+            if (!mirror || key(mirror.slice(3)) !== key([-nx, ny, nz])) badMirrors++
+            if (nx * x < -1e-6 || nz < -1e-6) inward++
+          }
+          expect(badMirrors).toBe(0)
+          expect(inward).toBe(0)
+          // Weld coincident vertices, then count connected glass islands.
+          // A window split by white facet seams is more than one pane.
+          for (let i = 0; i < glass.indices.length; i += 3) {
+            const keys = glass.indices.slice(i, i + 3).map((v) => key(glass.positions.slice(v * 3, v * 3 + 3)))
+            if (!keys.every((k) => neighbours.has(k))) continue
+            for (const a of keys) {
+              for (const b of keys) neighbours.get(a)!.add(b)
+            }
+          }
+          let panes = 0
+          const remaining = new Set(vertices.keys())
+          while (remaining.size) {
+            panes++
+            const stack = [remaining.values().next().value!]
+            while (stack.length) {
+              const at = stack.pop()!
+              if (!remaining.delete(at)) continue
+              stack.push(...neighbours.get(at)!)
+            }
+          }
+          expect(panes).toBe(6)
+          // The windscreens approach the centre line but retain a solid pillar.
+          const inner = Math.min(...[...vertices.values()].map(([x]) => Math.abs(x)))
+          expect(inner).toBeGreaterThan(0.03)
+          expect(inner).toBeLessThan(0.15)
+        })
+      }
+
       it('matches its reference dimensions', () => {
         const min = [Infinity, Infinity, Infinity]
         const max = [-Infinity, -Infinity, -Infinity]
