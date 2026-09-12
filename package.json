@@ -1,8 +1,8 @@
 {
   "name": "mini-germany-3d",
   "private": true,
-  "version": "0.1.0",
-  "description": "Ein Echtzeit-3D-Karten-Erlebnis für den Nahverkehr deutscher Städte – inspiriert von mini-tokyo-3d, gebaut mit CesiumJS und Google Photorealistic 3D Tiles.",
+  "version": "1.0.0",
+  "description": "The public transport of German cities live on a photorealistic 3D map – the real lines, stops and timetables, plus live ships and aircraft – inspired by mini-tokyo-3d, built with CesiumJS and Google Photorealistic 3D Tiles.",
   "type": "module",
   "scripts": {
     "dev": "vite",
