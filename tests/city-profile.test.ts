@@ -142,8 +142,12 @@ describe('buildCityProfile', () => {
     const profile = buildCityProfile(loadRostockNetwork(), rostockSchedule)
     expect(profile.modes.map((m) => m.mode)).toEqual(['tram', 'train', 'bus', 'ferry'])
     expect(profile.lines.total).toBeGreaterThan(30)
-    // Line 2 has no GTFS departures and stays off the map (schedule meta)
-    expect(profile.lines.running).toBeLessThan(profile.lines.total)
+    // Whether every line runs is the feed's business: tram 2 had no departures
+    // while its tracks were rebuilt and came back in the nightly refresh of
+    // 2026-09-12 (36 of 36), which is why the idle case is pinned on the
+    // synthetic schedule above and not here
+    expect(profile.lines.running).toBeGreaterThan(30)
+    expect(profile.lines.running).toBeLessThanOrEqual(profile.lines.total)
     expect(profile.stopPositions).toBeGreaterThan(500)
     // ~424 line kilometres, of which a few hundred metres under the Hbf
     expect(profile.lineMeters).toBeGreaterThan(350_000)
