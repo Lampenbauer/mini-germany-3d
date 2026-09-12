@@ -28,10 +28,19 @@
   </Files>
 </IfModule>
 
+# The procedural models (public/models/*.glb) are served as what they
+# are – Apache's own table does not know the extension, and a type it
+# does not know is application/octet-stream, which no rule below would
+# compress.
+AddType model/gltf-binary .glb
+
 # Compression for text resources – the AIS archive's hour files
-# (application/x-ndjson, see api/ais.php) shrink to a fifth
+# (application/x-ndjson, see api/ais.php) shrink to a fifth – and for the
+# models: a mesh of repeated fittings deflates to a fifth as well (the
+# detailed fleet of 2026-09-12 is 7.9 MB raw, 1.7 MB on the wire), which
+# is what makes a harbour city's first visit bearable on a phone.
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json application/x-ndjson image/svg+xml
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json application/x-ndjson image/svg+xml model/gltf-binary
 </IfModule>
 
 # The Windy API key the deploy writes next to api/webcams.php (from the

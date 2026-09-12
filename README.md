@@ -868,9 +868,12 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    what keeps previewing a pushed branch from costing a second full run. When
    there is none, it builds and tests normally. `main`'s artifacts are kept 30
    days as the rollback target for `restore_production`, everything else 3.
-5. The deployed `.htaccess` maps `/api/realtime` to the PHP script and sets cache
+5. The deployed `.htaccess` maps `/api/realtime` to the PHP script, sets cache
    headers (hashed assets one year, `index.html` no-cache, Cesium static files
-   one day).
+   one day) and deflates what compresses – the text types, the archives'
+   NDJSON and the models' GLB, which it also types as `model/gltf-binary`
+   (Apache does not know the extension by itself): the fleet's 7.9 MB travel
+   as 1.7 MB.
 6. **Nightly data refresh:** A scheduled run (02:30 UTC) additionally executes
    `npm run data:gtfs` for every city before the test steps, so the schedule
    – one service day, the busiest of the next three weeks – follows the
