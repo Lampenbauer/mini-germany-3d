@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { AIRCRAFT } from '../scripts/lib/aircraft-fleet.mjs'
+import { VESSELS } from '../scripts/lib/vessel-fleet.mjs'
 import { FLEET, HEIGHTS } from '../scripts/lib/vehicle-fleet.mjs'
 import {
   MATERIALS,
@@ -138,9 +140,10 @@ describe('the generated fleet', () => {
         expect(min[1]).toBeCloseTo(-expected.height / 2, 5)
       })
 
-      it('stays low-poly and self-contained', () => {
-        expect(triangleCount(mesh)).toBeLessThan(800)
-        expect(glb.byteLength).toBeLessThan(64 * 1024)
+      it('stays within its geometry and file-size budget', () => {
+        const ferry = name.startsWith('ferry-')
+        expect(triangleCount(mesh)).toBeLessThan(ferry ? 4500 : 800)
+        expect(glb.byteLength).toBeLessThan((ferry ? 240 : 64) * 1024)
       })
 
       it('is a well-formed binary glTF', () => {
@@ -186,6 +189,9 @@ describe('the generated fleet', () => {
           const axis = n.findIndex((v) => Math.abs(Math.abs(v) - 1) < 1e-6)
           if (axis === -1) continue
           const [pa, pb, pc] = [p(a), p(b), p(c)]
+          // A smooth vertex normal may be axial on a curved surface;
+          // only triangles actually lying on that plane belong here.
+          if (Math.abs(pa[axis] - pb[axis]) > 1e-7 || Math.abs(pa[axis] - pc[axis]) > 1e-7) continue
           const u = (axis + 1) % 3
           const w = (axis + 2) % 3
           const key = `${axis}:${pa[axis].toFixed(5)}`
@@ -241,6 +247,31 @@ describe('the generated fleet', () => {
           }
         }
       }
+    }
+  })
+
+  it('exports finite unit normals agreeing with the triangle winding across the detailed fleets', () => {
+    // Smooth normals and concave engine intakes cannot be checked against
+    // the model's centroid. Check against each triangle's own winding.
+    for (const [name, build] of Object.entries({ ...AIRCRAFT, ...VESSELS, 'ferry-fg': FLEET['ferry-fg'], 'ferry-fw': FLEET['ferry-fw'] })) {
+      const mesh = build()
+      let invalid = 0
+      for (const part of [mesh, ...Object.values(mesh.parts)]) for (const g of part.groups.values()) {
+        for (let i = 0; i < g.positions.length; i += 3) {
+          if (!g.positions.slice(i, i + 3).every(Number.isFinite)) invalid++
+          if (Math.abs(Math.hypot(...g.normals.slice(i, i + 3)) - 1) > 1e-5) invalid++
+        }
+        for (let i = 0; i < g.indices.length; i += 3) {
+          const [a, b, c] = g.indices.slice(i, i + 3).map((j) => j * 3)
+          const u = [0, 1, 2].map((k) => g.positions[b + k] - g.positions[a + k])
+          const v = [0, 1, 2].map((k) => g.positions[c + k] - g.positions[a + k])
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+          if (Math.hypot(...n) < 1e-9) continue
+          const agreement = n.reduce((sum, value, k) => sum + value * (g.normals[a + k] + g.normals[b + k] + g.normals[c + k]), 0)
+          if (agreement <= 0) invalid++
+        }
+      }
+      expect(invalid, name).toBe(0)
     }
   })
 

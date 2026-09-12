@@ -6,7 +6,7 @@ import { VESSEL_MODELS, archetypeFor } from '@/map/VesselLayer'
 /**
  * The AIS backdrop fleet, same contract as the vehicle fleet test: every
  * archetype stays inside its reference bounding box (the layer stretches
- * exactly these dimensions to the reported ship size), stays low-poly,
+ * exactly these dimensions to the reported ship size), stays within its geometry budget,
  * and the layer's spec agrees with the shipyard's reference dimensions.
  */
 
@@ -36,12 +36,12 @@ describe('the generated backdrop fleet', () => {
         expect(min[1]).toBeCloseTo(-expected.height / 2, 5)
       })
 
-      it('stays low-poly and self-contained', () => {
-        // The box ship's deck load is many stacks rather than one slab,
-        // and that is worth a bigger budget on the one hull
-        const budget = name === 'vessel-container' ? 2000 : 800
+      it('stays within its geometry and file-size budget', () => {
+        // Individual containers and cruise decks carry more detail than
+        // the small craft; all models remain shared, self-contained GLBs.
+        const budget = name === 'vessel-container' ? 36000 : name === 'vessel-passenger' ? 18000 : 8500
         expect(triangleCount(mesh)).toBeLessThan(budget)
-        expect(glb.byteLength).toBeLessThan((budget / 800) * 64 * 1024)
+        expect(glb.byteLength).toBeLessThan(budget * 60)
       })
 
       it('keeps everything on deck inside the hull\u2019s plan', () => {

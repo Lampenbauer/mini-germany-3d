@@ -31,6 +31,36 @@ import {
   windowBand,
 } from './vehicle-mesh.mjs'
 
+import { ellipsoid, mergeMesh, rod, roundedBox, smoothSurface } from './model-detail.mjs'
+
+/** Round bilges and a fuller transition to each end of a double-ended ferry. */
+function ferryHull(mesh, { length, width, yBase, deck, taper, end, material }) {
+  const profile = [[0.7, 0], [0.88, 0.08], [0.98, 0.3], [1, 0.7], [1, 0.96], [0.98, 1]]
+  const section = [...profile, ...profile.toReversed().map(([x, y]) => [-x, y])].map(([x, y]) => [x * width / 2, yBase + y * (deck - yBase)])
+  const tip = (z, f) => ({ z, sx: end + (1 - end) * Math.sqrt(1 - f * f), sy: 1 - 0.1 * f * f })
+  const fractions = [1, 0.96, 0.85, 0.65, 0.35, 0]
+  const stations = [...fractions.map((f) => tip(-length / 2 + taper * (1 - f), f)), ...fractions.toReversed().map((f) => tip(length / 2 - taper * (1 - f), f))]
+  const shell = createMesh()
+  extrude(shell, section, stations, { material, yAnchor: yBase })
+  mergeMesh(mesh, smoothSurface(shell, 50))
+  // Fender tubes on both long sides, where the ferry meets a landing.
+  for (const side of [-1, 1]) {
+    rod(mesh, 'bellows', [side * (width / 2 - 0.04), deck - 0.24, -length / 2 + taper], [side * (width / 2 - 0.04), deck - 0.24, length / 2 - taper], 0.055, 12)
+    for (const z of [-length * 0.24, length * 0.24]) {
+      rod(mesh, 'steel', [side * width * 0.39, deck + 0.03, z], [side * width * 0.39, deck + 0.37, z], 0.07)
+    }
+  }
+}
+
+function ferryRail(mesh, x, y, z0, z1, height = 0.65) {
+  for (const h of [height * 0.5, height]) rod(mesh, 'steel', [x, y + h, z0], [x, y + h, z1], 0.022, 8)
+  const count = Math.ceil((z1 - z0) / 1.4)
+  for (let i = 0; i <= count; i++) {
+    const z = z0 + (z1 - z0) * i / count
+    rod(mesh, 'steel', [x, y, z], [x, y + height, z], 0.022, 8)
+  }
+}
+
 /** Overall heights (rail to roof gear) – the layer's halfHeight. */
 export const HEIGHTS = { tram: 3.6, train: 4.3, bus: 3.1, subway: 3.4 }
 
@@ -321,24 +351,13 @@ export function ferryGehlsdorf() {
   const hullTop = yBase + 1.2
 
   // Hull: dark, pointed at both ends
-  const hull = bodyProfile(width, yBase, hullTop, 0.14)
-  extrude(
-    mesh,
-    hull,
-    [
-      { z: -length / 2, sx: 0.3, sy: 0.85 },
-      { z: -length / 2 + 2.6 },
-      { z: length / 2 - 2.6 },
-      { z: length / 2, sx: 0.3, sy: 0.85 },
-    ],
-    { material: 'chassis', yAnchor: yBase },
-  )
+  ferryHull(mesh, { length, width, yBase, deck: hullTop, taper: 2.6, end: 0.3, material: 'chassis' })
 
   // Cabin: white, glazed on all four sides
   const cabinW = 5.0
   const cabinL = 12
   const cabinTop = hullTop + 1.6
-  box(mesh, 'body', 0, (hullTop + cabinTop) / 2, 0, cabinW, cabinTop - hullTop, cabinL)
+  roundedBox(mesh, 'body', 0, (hullTop + cabinTop) / 2, 0, cabinW, cabinTop - hullTop, cabinL)
   windowBand(mesh, cabinW, hullTop + 0.4, cabinTop - 0.25, -cabinL / 2 + 0.4, cabinL / 2 - 0.4, {
     panes: 4,
   })
@@ -348,7 +367,7 @@ export function ferryGehlsdorf() {
 
   // Wheelhouse amidships, glazed all round, roof flush with the height cap
   const whTop = H / 2
-  box(mesh, 'body', 0, (cabinTop + whTop) / 2, 0, 2.6, whTop - cabinTop, 2.8)
+  roundedBox(mesh, 'body', 0, (cabinTop + whTop) / 2, 0, 2.6, whTop - cabinTop, 2.8)
   for (const side of [-1, 1]) {
     box(mesh, 'glass', side * (2.6 / 2 + 0.015), (cabinTop + whTop) / 2 + 0.05, 0, 0.03, 0.42, 2.2)
     box(mesh, 'glass', 0, (cabinTop + whTop) / 2 + 0.05, side * (2.8 / 2 + 0.015), 2.0, 0.42, 0.03)
@@ -359,6 +378,12 @@ export function ferryGehlsdorf() {
   for (const dir of [-1, 1]) {
     box(mesh, 'roof', 0, cabinTop + 0.03, dir * (cabinL / 2 / 2 + 0.85), cabinW * 0.9, 0.06, cabinL / 2 - 1.75)
   }
+  for (const side of [-1, 1]) {
+    ferryRail(mesh, side * width * 0.43, hullTop + 0.05, -7.1, -6.1)
+    ferryRail(mesh, side * width * 0.43, hullTop + 0.05, 6.1, 7.1)
+    ellipsoid(mesh, 'body', [side * 1.65, cabinTop + 0.18, -3.8], [0.24, 0.16, 0.65], 16, 8)
+  }
+  for (const z of [-3, 3]) roundedBox(mesh, 'roof', 0, cabinTop + 0.13, z, 0.7, 0.12, 0.9)
   return mesh
 }
 
@@ -379,18 +404,7 @@ export function ferryBreitling() {
   const deck = yBase + 1.7
 
   // Hull with double-ended taper
-  const hull = bodyProfile(width, yBase, deck, 0.2)
-  extrude(
-    mesh,
-    hull,
-    [
-      { z: -length / 2, sx: 0.5, sy: 0.9 },
-      { z: -length / 2 + 4 },
-      { z: length / 2 - 4 },
-      { z: length / 2, sx: 0.5, sy: 0.9 },
-    ],
-    { material: 'body', yAnchor: yBase },
-  )
+  ferryHull(mesh, { length, width, yBase, deck: deck, taper: 4, end: 0.5, material: 'body' })
   // Car deck plate between the ramps (its underside sits inside the hull)
   box(mesh, 'chassis', 0, deck - 0.02, 0, width - 1.4, 0.06, length - 9.6)
 
@@ -418,13 +432,13 @@ export function ferryBreitling() {
 
   // Bulwarks along the open deck, inset from the hull sides
   for (const side of [-1, 1]) {
-    box(mesh, 'body', side * (width / 2 - 0.35), deck + 0.35, 0, 0.25, 0.8, length - 10)
+    roundedBox(mesh, 'body', side * (width / 2 - 0.35), deck + 0.35, 0, 0.25, 0.8, length - 10)
   }
 
   // Deckhouse on the starboard side with the bridge on top
   const houseX = width / 2 - 1.6
   const houseTop = deck + 2.3
-  box(mesh, 'body', houseX, (deck + houseTop) / 2, 0, 2.4, houseTop - deck, 12)
+  roundedBox(mesh, 'body', houseX, (deck + houseTop) / 2, 0, 2.4, houseTop - deck, 12)
   // windowBand() centers its panes on the vehicle axis – this house is
   // offset to one side, so its glazing is placed by hand
   for (const side of [-1, 1]) {
@@ -433,13 +447,25 @@ export function ferryBreitling() {
     }
   }
   const bridgeTop = houseTop + 1.5
-  box(mesh, 'body', houseX, (houseTop + bridgeTop) / 2, 0, 2.8, bridgeTop - houseTop, 4.6)
+  roundedBox(mesh, 'body', houseX, (houseTop + bridgeTop) / 2, 0, 2.8, bridgeTop - houseTop, 4.6)
   for (const dz of [-1, 1]) {
     box(mesh, 'glass', houseX, (houseTop + bridgeTop) / 2 + 0.1, dz * (4.6 / 2 + 0.015), 2.2, 0.6, 0.03)
   }
   box(mesh, 'roof', houseX, bridgeTop + 0.03, 0, 2.6, 0.06, 4.2)
   // Mast up to the height cap
   box(mesh, 'chassis', houseX, (bridgeTop + H / 2) / 2 + 0.03, 0, 0.12, H / 2 - bridgeTop - 0.06, 0.12)
+  for (const side of [-1, 1]) ferryRail(mesh, side * (width / 2 - 0.38), deck + 0.78, -length / 2 + 5.2, length / 2 - 5.2, 0.6)
+  // Lane paint stays on the deck; ramp stiffeners follow the raised ramp.
+  for (const x of [-2.4, 0.2]) {
+    for (let z = -12; z < 12; z += 3) box(mesh, 'hullWhite', x, deck + 0.018, z, 0.08, 0.006, 1.4)
+  }
+  for (const dir of [-1, 1]) {
+    for (let i = 1; i < 6; i++) {
+      const t = i / 6, z = dir * (length / 2 - 4.7 + 4.3 * t)
+      rod(mesh, 'steel', [-3.4, deck - 0.02 + 1.52 * t + 0.018, z], [3.4, deck - 0.02 + 1.52 * t + 0.018, z], 0.018, 8)
+    }
+  }
+  ellipsoid(mesh, 'body', [houseX, bridgeTop + 0.15, 1.3], [0.26, 0.12, 0.26], 16, 8)
   return mesh
 }
 

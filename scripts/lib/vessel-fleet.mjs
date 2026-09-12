@@ -1,11 +1,9 @@
 /**
- * Low-poly hulls for the AIS backdrop fleet, in the same visual language
- * as the Rostock vehicle fleet (see vehicle-fleet.mjs, especially the two
- * ferries): flat-shaded prism hulls, boxy superstructures, glass bands,
- * muted PBR palette. One archetype per AIS ship-type group – the layer
- * picks by type code and stretches the model to the vessel's reported
- * dimensions, so a 90 m reference coaster becomes the 199 m CEMLUNA or a
- * 60 m bunker barge by scaling, not by new geometry.
+ * Detailed hulls for the AIS fleet: smoothly shaded rounded bilges and
+ * full bows, bevelled deckhouses, rails and mooring equipment, individual
+ * containers and vessel-specific working gear. Muted PBR materials keep
+ * the fleet at home in the photorealistic tiles. Each archetype is stretched
+ * to the vessel's reported dimensions by the layer.
  *
  * Conventions as everywhere: 1 unit = 1 m, Y-up, +Z is the bow, origin
  * mid-length at half the total height, the waterline at y = -height/2.
@@ -13,7 +11,16 @@
  * src/map/VesselLayer.ts and the model tests.
  */
 
-import { MATERIALS, bodyProfile, box, createMesh, extrude, windowBand } from './vehicle-mesh.mjs'
+import { MATERIALS, box as sharpBox, createMesh, extrude, quad, windowBand } from './vehicle-mesh.mjs'
+
+import { ellipsoid, mergeMesh, rod, roundedBox, smoothSurface } from './model-detail.mjs'
+
+// Keep glazing planar; a narrow bevel on painted enclosures catches the sun.
+function box(mesh, material, x, y, z, w, h, l) {
+  if (['body', 'hullWhite'].includes(material) && Math.min(w, h, l) > 0.3) {
+    roundedBox(mesh, material, x, y, z, w, h, l, Math.min(0.16, h * 0.07))
+  } else sharpBox(mesh, material, x, y, z, w, h, l)
+}
 
 void MATERIALS // palette lives in vehicle-mesh; imported for doc proximity
 
@@ -35,16 +42,6 @@ export const VESSEL_DIMS = {
 }
 
 /**
- * Ship hull: raked bow at +Z, near-full transom at -Z, both slightly
- * lifted so the taper reads as flare instead of a scoop. `taper` is the
- * share of the length the bow narrows over – a fifth as a rule, less
- * on a hull that carries its full beam nearly to the stem, as a box
- * ship or a cruise ship does. Anything set on the deck near the bow
- * has to fit inside that taper: a box wider than the hull under it
- * stands proud of the side like a flight deck (seen on the tanker and
- * the container ship, 2026-09-11) – check with hullHalfWidthAt.
- */
-/**
  * The stations a hull is extruded through, stern first: the transom, a
  * rounded run into the parallel body, the parallel body, and the bow –
  * a quarter-ellipse in plan from full beam down to the stem, so the
@@ -60,9 +57,7 @@ function hullStations({ length, bow, stern, taper }) {
     { z: -length / 2 + length * 0.04, sx: stern + (1 - stern) * 0.7, sy: 0.96 },
     { z: -length / 2 + length * 0.12 },
     { z: taperStart },
-    bowAt(0.45),
-    bowAt(0.75),
-    bowAt(0.92),
+    ...[0.2, 0.4, 0.58, 0.72, 0.83, 0.91, 0.96, 0.985].map(bowAt),
     { z: length / 2, sx: bow, sy: 0.94 },
   ]
 }
@@ -71,8 +66,52 @@ function hull(mesh, { length, width, yBase, depth, material, bow = 0.22, stern =
   // The mesh remembers its hull's plan, so the model test can hold every
   // part of the ship inside it (hullHalfWidthAt)
   mesh.hull = { length, width, bow, stern, taper }
-  const profile = bodyProfile(width, yBase, yBase + depth, Math.min(0.3, width * 0.05))
-  extrude(mesh, profile, hullStations({ length, bow, stern, taper }), { material, yAnchor: yBase })
+  const x = width / 2
+  // A rounded bilge below near-vertical topsides. The sheer and full bow
+  // still use the same stations as the deck and its fittings.
+  const starboard = [[0.72, 0], [0.83, 0.04], [0.93, 0.16], [0.985, 0.38], [1, 0.7], [1, 0.98], [0.985, 1]]
+  const profile = [...starboard.map(([w, h]) => [x * w, yBase + depth * h]), ...starboard.toReversed().map(([w, h]) => [-x * w, yBase + depth * h])]
+  const skin = createMesh()
+  extrude(skin, profile, hullStations({ length, bow, stern, taper }), { material, yAnchor: yBase })
+  mergeMesh(mesh, smoothSurface(skin, 50))
+  // A narrow boot stripe and deck-edge cap tie the hull to its waterline.
+  deckPlate(mesh, 'hullRed', { length, width, yBase, depth: depth * 0.22, bow, stern, taper, inset: 0.947, thickness: Math.min(0.16, depth * 0.08) })
+  deckPlate(mesh, 'steel', { length, width, yBase, depth, bow, stern, taper, inset: 0.985, thickness: 0.055 })
+  deckFittings(mesh, { length, width, yBase, depth, bow, stern, taper })
+}
+
+/** Railed side decks, mooring bollards and foredeck windlass, fitted to the hull plan. */
+function deckFittings(mesh, spec) {
+  const { length, width, depth, yBase } = spec
+  const stations = hullStations(spec)
+  const railHeight = Math.min(1.05, width * 0.17)
+  const radius = Math.min(0.045, width * 0.006)
+  // Follow the sheer, including the stern and bow, and stop inside the stem.
+  for (const side of [-1, 1]) {
+    const points = stations.map((st) => [side * hullHalfWidthAt(st.z, spec) * 0.96, yBase + depth * (st.sy ?? 1) + 0.075, st.z * 0.985])
+    for (let i = 0; i + 1 < points.length; i++) {
+      const a = points[i]
+      const b = points[i + 1]
+      const count = Math.max(1, Math.ceil((b[2] - a[2]) / Math.max(2.5, length / 30)))
+      for (let j = 0; j < count; j++) {
+        const t = j / count
+        const p = a.map((v, k) => v + (b[k] - v) * t)
+        rod(mesh, 'steel', p, [p[0], p[1] + railHeight, p[2]], radius, 8)
+      }
+      for (const h of [railHeight * 0.5, railHeight]) rod(mesh, 'steel', [a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]], radius * 0.8, 8)
+    }
+    for (const z of [-length * 0.39, length * 0.37]) {
+      const x = side * hullHalfWidthAt(z, spec) * 0.67
+      const y = yBase + depth + 0.1
+      for (const dz of [-1, 1]) {
+        const bz = z + dz * Math.min(0.3, width * 0.05)
+        rod(mesh, 'chassis', [x, y, bz], [x, y + Math.min(0.6, width * 0.08), bz], Math.min(0.16, width * 0.025))
+      }
+    }
+  }
+  const winchZ = length * 0.405
+  const y = yBase + depth + 0.24
+  rod(mesh, 'steel', [-width * 0.08, y, winchZ], [width * 0.08, y, winchZ], Math.min(0.35, width * 0.045), 16)
 }
 
 /** Half the hull's beam at a length z, as hull() builds it – for fitting the deck furniture. */
@@ -127,7 +166,12 @@ function house(mesh, { w, y0, h, z, l, panes = 3 }) {
 
 /** Bridge front glazing (thin glass sheet on the forward face). */
 function bridgeFront(mesh, { w, y0, y1, z }) {
-  box(mesh, 'glass', 0, (y0 + y1) / 2, z + 0.015, w, y1 - y0, 0.03)
+  const panes = Math.max(3, Math.round(w / 1.4))
+  const gap = Math.min(0.12, w * 0.018)
+  const paneW = (w - gap * (panes - 1)) / panes
+  for (let i = 0; i < panes; i++) {
+    box(mesh, 'glass', -w / 2 + paneW / 2 + i * (paneW + gap), (y0 + y1) / 2, z + 0.025, paneW, y1 - y0, 0.03)
+  }
 }
 
 /**
@@ -139,8 +183,8 @@ function bridgeFront(mesh, { w, y0, y1, z }) {
  * model frame Cesium hands the layer, pinned by tests/vessel-models.test.ts.
  */
 function funnel(mesh, { y0, h, z, w = 2.4, l = 3.4 }) {
-  box(mesh, 'body', 0, y0 + h / 2, z, w, h, l)
-  box(mesh, 'chassis', 0, y0 + h + 0.25, z, w * 0.92, 0.5, l * 0.92)
+  roundedBox(mesh, 'body', 0, y0 + h / 2, z, w, h, l, Math.min(w, l) * 0.18)
+  roundedBox(mesh, 'chassis', 0, y0 + h + 0.25, z, w * 0.92, 0.5, l * 0.92, 0.1)
   mesh.funnel = { z, top: y0 + h + 0.5, width: w }
 }
 
@@ -150,10 +194,10 @@ function funnel(mesh, { y0, h, z, w = 2.4, l = 3.4 }) {
  */
 function railing(mesh, { w, y0, h, z, l, posts = 5 }) {
   for (const side of [-1, 1]) {
-    box(mesh, 'chassis', (side * w) / 2, y0 + h, z, 0.06, 0.06, l)
+    for (const rise of [h * 0.5, h]) rod(mesh, 'steel', [side * w / 2, y0 + rise, z - l / 2], [side * w / 2, y0 + rise, z + l / 2], 0.025, 8)
     for (let i = 0; i < posts; i++) {
       const pz = z - l / 2 + (l * (i + 0.5)) / posts
-      box(mesh, 'chassis', (side * w) / 2, y0 + h / 2, pz, 0.05, h, 0.05)
+      rod(mesh, 'steel', [side * w / 2, y0, pz], [side * w / 2, y0 + h, pz], 0.025, 8)
     }
   }
 }
@@ -170,8 +214,8 @@ const CONTAINER_LIVERIES = ['boxRed', 'boxBlue', 'boxGreen', 'boxGrey', 'boxOran
  * between them – in two forty-foot slots along the bay, each stack its
  * own box in its own livery and a tier or two short here and there, so
  * the load reads as a mosaic of many containers and not as one slab.
- * One box per stack and slot: a single container is two and a half
- * metres wide and vanishes at map distance, a stack does not.
+ * Each slot has two individual containers per tier, separated by seams;
+ * the exposed sides carry folded corrugations and the ends door bars.
  */
 function containerBay(mesh, { z, length, deck, beam, tiers, seed }) {
   const gap = 0.35
@@ -186,7 +230,36 @@ function containerBay(mesh, { z, length, deck, beam, tiers, seed }) {
       const n = (seed * 31 + k * 7 + slot * 13) % 97
       const short = (n % 4 === 0 ? 1 : 0) + (n % 9 === 0 ? 1 : 0)
       const h = Math.max(2, tiers - short) * CONTAINER_TIER_M
-      box(mesh, CONTAINER_LIVERIES[n % CONTAINER_LIVERIES.length], x, deck + 0.3 + h / 2, zc, CONTAINER_STACK_W, h, slotL)
+      for (let tier = 0; tier < Math.round(h / CONTAINER_TIER_M); tier++) {
+        for (const half of [-1, 1]) {
+          const cx = x + half * CONTAINER_STACK_W * 0.25
+          const cy = deck + 0.3 + (tier + 0.5) * CONTAINER_TIER_M
+          const cw = CONTAINER_STACK_W / 2 - 0.06
+          const ch = CONTAINER_TIER_M - 0.09
+          const material = CONTAINER_LIVERIES[(n + tier * 3 + (half + 1)) % CONTAINER_LIVERIES.length]
+          sharpBox(mesh, material, cx, cy, zc, cw, ch, slotL - 0.08)
+          // Recessed door split on the exposed bay ends, a quiet steel line.
+          sharpBox(mesh, 'steel', cx, cy, zc + slotL / 2 - 0.025, 0.035, ch * 0.88, 0.018)
+          if ((k === 0 && half < 0) || (k === across - 1 && half > 0)) {
+            for (let rib = 1; rib < 12; rib++) {
+              const rx = cx + half * (cw / 2 + 0.008)
+              const rz = zc - slotL / 2 + slotL * rib / 12
+              // Small folded ribs retain the container's own paint.
+              const a = [rx, cy - ch * 0.47, rz - 0.04]
+              const b = [rx + half * 0.035, cy - ch * 0.47, rz]
+              const c = [rx, cy - ch * 0.47, rz + 0.04]
+              const up = (p) => [p[0], cy + ch * 0.47, p[2]]
+              if (half > 0) {
+                quad(mesh, material, a, up(a), up(b), b)
+                quad(mesh, material, b, up(b), up(c), c)
+              } else {
+                quad(mesh, material, b, up(b), up(a), a)
+                quad(mesh, material, c, up(c), up(b), b)
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -252,6 +325,8 @@ export function vesselContainer() {
   funnel(mesh, { y0: bridgeY, h: height / 2 - 1.2 - bridgeY, z: houseZ - 10, w: 6, l: 9 })
   // Foremast on the fo'c'sle, capped under the model's own ceiling
   box(mesh, 'chassis', 0, deck + 5, length / 2 - 9, 0.7, 10, 0.7)
+  railing(mesh, { w: width * 0.9, y0: bridgeY + 3.95, h: 0.8, z: houseZ, l: 8, posts: 5 })
+  ellipsoid(mesh, 'body', [0, bridgeY + 4.6, houseZ], [0.7, 0.65, 0.7], 16, 8)
   return mesh
 }
 
@@ -289,6 +364,7 @@ export function vesselBarge() {
   box(mesh, 'chassis', 0, whTop + 0.45, houseZ + 1, 0.12, 0.7, 0.12)
   // Fo'c'sle locker, set back where the bow is still wide enough for it
   box(mesh, 'body', 0, deck + 0.55, length / 2 - 5.5, width * 0.4, 0.9, 4)
+  for (let z = -20; z < 24; z += 5.5) box(mesh, 'roof', 0, deck + 1.44, z, width * 0.82, 0.12, 0.15)
   return mesh
 }
 
@@ -313,28 +389,15 @@ export function vesselDredger() {
     box(mesh, 'body', (side * width * 0.8) / 2, deck + 1.3, hopperZ, width * 0.14, 2.4, hopperL)
   }
   box(mesh, 'bellows', 0, deck + 0.7, hopperZ, width * 0.62, 1.2, hopperL)
-  // Suction pipe stowed along the starboard side on its gantry: a square
-  // profile walked through its stations, dipping a little toward the
+  // Round suction pipe stowed along the starboard side on its gantry,
+  // dipping a little toward the
   // bow but never below the deck, and ending before the bow's taper –
   // the first version raked it six metres down and out through the
   // hull's side where the hull had already narrowed (seen 2026-09-11).
   const pipeX = width * 0.44
   const pipeR = 0.9
-  extrude(
-    mesh,
-    [
-      [pipeX - pipeR, deck + 1],
-      [pipeX + pipeR, deck + 1],
-      [pipeX + pipeR, deck + 1 + 2 * pipeR],
-      [pipeX - pipeR, deck + 1 + 2 * pipeR],
-    ],
-    [
-      { z: -length * 0.16 },
-      { z: length * 0.1, yOff: -0.3 },
-      { z: length * 0.26, yOff: -0.8, sx: 0.8 },
-    ],
-    { material: 'chassis', yAnchor: deck },
-  )
+  const pipePoints = [[pipeX, deck + 1.9, -length * 0.16], [pipeX, deck + 1.6, length * 0.1], [pipeX * 0.8, deck + 1.1, length * 0.26]]
+  for (let i = 0; i + 1 < pipePoints.length; i++) rod(mesh, 'chassis', pipePoints[i], pipePoints[i + 1], pipeR, 20)
   for (const z of [-length * 0.12, length * 0.16]) {
     box(mesh, 'chassis', pipeX, deck + 2.6, z, 0.5, 5, 0.5) // gantry davits
     box(mesh, 'chassis', pipeX, deck + 5, z, 0.5, 0.4, 3)
@@ -350,6 +413,7 @@ export function vesselDredger() {
   box(mesh, 'roof', 0, houseTop + 2.7, houseZ - 0.5, width * 0.7, 0.2, 6.6)
   funnel(mesh, { y0: deck, h: height / 2 - 1 - deck, z: -length / 2 + 7, w: 3, l: 4.5 })
   box(mesh, 'chassis', 0, houseTop + 3.6, houseZ - 0.5, 0.4, 1.8, 0.4) // radar mast
+  for (const z of [-12, 16]) rod(mesh, 'steel', [pipeX, deck + 4.8, z], [pipeX - 2.3, deck + 0.4, z + 1.6], 0.12)
   return mesh
 }
 
@@ -389,6 +453,9 @@ export function vesselTender() {
   // box to the reported ship, and a mast poking out of it would scale too
   const mastTop = height / 2 - 0.1
   box(mesh, 'chassis', 0, (cabTop + mastTop) / 2, cabZ + cabL * 0.3, 0.1, mastTop - cabTop, 0.1)
+  for (const z of [-3, 3]) {
+    for (const side of [-1, 1]) roundedBox(mesh, 'deckTeak', side * 1.3, cabTop + 0.34, z, 0.42, 0.35, 2)
+  }
   return mesh
 }
 
@@ -422,6 +489,11 @@ export function vesselPilot() {
   box(mesh, 'chassis', 0, (whTop + mastTop) / 2, houseZ - 0.6, 0.12, mastTop - whTop, 0.12)
   box(mesh, 'chassis', 0, mastTop - 0.35, houseZ - 0.6, 1.6, 0.12, 0.2)
   railing(mesh, { w: width * 0.84, y0: deck + 0.1, h: 0.8, z: -length * 0.3, l: length * 0.3, posts: 3 })
+  for (const side of [-1, 1]) {
+    for (const z of [-6, -3, 0, 3]) ellipsoid(mesh, 'bellows', [side * width * 0.475, deck - 0.16, z], [0.09, 0.24, 0.45], 12, 8)
+  }
+  ellipsoid(mesh, 'body', [0, whTop + 0.24, houseZ + 0.5], [0.32, 0.24, 0.32], 16, 8)
+  bridgeFront(mesh, { w: width * 0.46, y0: whTop - 1.35, y1: whTop - 0.25, z: houseZ + 0.4 - 1.7 - 0.06 })
   return mesh
 }
 
@@ -452,6 +524,9 @@ export function vesselCargo() {
   funnel(mesh, { y0: bridgeY, h: height / 2 - 0.5 - bridgeY, z: houseZ - 5.2 })
   // Mast on the fo'c'sle
   box(mesh, 'chassis', 0, deck + 2.6, length / 2 - 4, 0.3, 4.4, 0.3)
+  for (const z of [16, 2]) {
+    for (let i = -4; i <= 4; i++) box(mesh, 'roof', 0, deck + 1.84, z + i * 1.2, width * 0.59, 0.06, 0.12)
+  }
   return mesh
 }
 
@@ -467,8 +542,16 @@ export function vesselTanker() {
   hull(mesh, { length, width, yBase, depth: 5, material: 'chassis', bow: 0.32, taper: 0.17 })
   deckPlate(mesh, 'hullRed', { length, width, yBase, depth: 5, bow: 0.32, taper: 0.17, thickness: 0.18 }) // rust-red deck
   // Center pipeline with the midship manifold and its crossover
-  box(mesh, 'roof', 0, deck + 0.55, 6, 1.2, 0.7, length * 0.62)
-  box(mesh, 'roof', 0, deck + 0.7, 8, width * 0.6, 0.5, 2.2)
+  for (const x of [-0.48, 0.48]) {
+    rod(mesh, 'steel', [x, deck + 0.65, 6 - length * 0.31], [x, deck + 0.65, 6 + length * 0.31], 0.23, 16)
+  }
+  rod(mesh, 'steel', [-width * 0.3, deck + 0.7, 8], [width * 0.3, deck + 0.7, 8], 0.25, 16)
+  for (const z of [-14, -2, 10, 22]) {
+    for (const side of [-1, 1]) {
+      rod(mesh, 'steel', [side * width * 0.25, deck + 0.2, z], [side * width * 0.25, deck + 0.45, z], 0.85, 16)
+      rod(mesh, 'steel', [side * width * 0.25, deck + 0.6, z], [side * width * 0.25, deck + 1.7, z], 0.1)
+    }
+  }
   box(mesh, 'body', 0, deck + 1.1, length / 2 - 8, width * 0.3, 1.0, 4.5) // fo'c'sle locker
   const houseZ = -length / 2 + 9
   house(mesh, { w: width * 0.72, y0: deck + 0.2, h: 4.2, z: houseZ, l: 9, panes: 3 })
@@ -497,10 +580,10 @@ export function vesselPassenger() {
   // Two stepped white bands, each with a long window row
   const band1Top = deck + 7
   box(mesh, 'body', 0, (deck + band1Top) / 2, -length * 0.01, width * 0.88, band1Top - deck, length * 0.74)
-  windowBand(mesh, width * 0.88, deck + 3.2, deck + 5.4, -length * 0.36, length * 0.34, { panes: 10 })
+  for (const y of [deck + 1.1, deck + 4.4]) windowBand(mesh, width * 0.88, y, y + 1.05, -length * 0.36, length * 0.34, { panes: 42 })
   const band2Top = band1Top + 7
   box(mesh, 'body', 0, (band1Top + band2Top) / 2, -5, width * 0.8, band2Top - band1Top, length * 0.66)
-  windowBand(mesh, width * 0.8, band1Top + 2.6, band1Top + 4.8, -length * 0.36, length * 0.26, { panes: 9 })
+  for (const y of [band1Top + 1.1, band1Top + 4.4]) windowBand(mesh, width * 0.8, y, y + 1.05, -length * 0.35, length * 0.26, { panes: 38 })
   // Bridge: full beam, glazed front, on the forward end of band 2
   const bridgeY = band2Top
   box(mesh, 'body', 0, bridgeY + 1.6, length * 0.24, width * 0.92, 3.2, 8)
@@ -509,6 +592,14 @@ export function vesselPassenger() {
   box(mesh, 'roof', 0, bridgeY + 3.25, length * 0.24, width * 0.88, 0.1, 7.6)
   box(mesh, 'roof', 0, band2Top + 0.05, -8, width * 0.74, 0.1, length * 0.6)
   funnel(mesh, { y0: band2Top, h: height / 2 - 0.6 - band2Top, z: -length * 0.28, w: 4.5, l: 7 })
+  for (const side of [-1, 1]) {
+    for (const z of [-35, -20, -5, 10]) {
+      ellipsoid(mesh, 'safetyOrange', [side * width * 0.425, band1Top + 0.4, z], [0.85, 0.85, 3.6], 20, 10)
+      rod(mesh, 'steel', [side * width * 0.38, band1Top + 1.4, z], [side * width * 0.44, band1Top + 1.4, z], 0.12)
+    }
+  }
+  for (const z of [-16, 9]) ellipsoid(mesh, 'body', [0, band2Top + 1.0, z], [1.2, 1.0, 1.2], 20, 10)
+  railing(mesh, { w: width * 0.75, y0: band2Top + 0.15, h: 1, z: -10, l: length * 0.55, posts: 22 })
   return mesh
 }
 
@@ -531,6 +622,11 @@ export function vesselTug() {
   bridgeFront(mesh, { w: width * 0.4, y0: whTop - 1.4, y1: whTop - 0.3, z: 3.4 })
   box(mesh, 'roof', 0, whTop + 0.05, 1.6, width * 0.44, 0.1, 3.4)
   box(mesh, 'chassis', 0, whTop + 0.35, 1.0, 0.25, 0.7, 0.25) // mast, capped at H/2
+  rod(mesh, 'steel', [-1.2, deck + 0.7, -6], [1.2, deck + 0.7, -6], 0.6, 20)
+  for (const side of [-1, 1]) {
+    for (const z of [-7, -3, 1, 5]) ellipsoid(mesh, 'bellows', [side * width * 0.475, deck - 0.08, z], [0.12, 0.4, 0.5], 12, 8)
+  }
+  bridgeFront(mesh, { w: width * 0.4, y0: whTop - 1.4, y1: whTop - 0.3, z: -0.25 })
   return mesh
 }
 
@@ -550,6 +646,12 @@ export function vesselFishing() {
   // Mast with the boom raked aft over the working deck
   box(mesh, 'chassis', 0, deck + (height / 2 - deck) / 2 + 0.2, length / 2 - 5.2, 0.28, height / 2 - deck - 0.4, 0.28)
   box(mesh, 'chassis', 0, deck + 2.6, length / 2 - 7.4, 0.16, 0.16, 4.6)
+  rod(mesh, 'steel', [-1, deck + 0.9, 0], [1, deck + 0.9, 0], 0.6, 16)
+  for (const z of [1.8, 3]) {
+    for (const x of [-0.7, 0.7]) roundedBox(mesh, 'boxGrey', x, deck + 0.35, z, 1.1, 0.55, 0.85)
+  }
+  rod(mesh, 'steel', [0, height / 2 - 0.2, length / 2 - 5.2], [0, deck + 2.65, length / 2 - 9.6], 0.018, 6)
+  bridgeFront(mesh, { w: width * 0.5, y0: whTop - 1.0, y1: whTop - 0.25, z: -length / 2 + 1.6 - 0.06 })
   return mesh
 }
 
@@ -566,6 +668,12 @@ export function vesselSail() {
   // Rig: mast just forward of midship, boom aft of it
   box(mesh, 'chassis', 0, deck + (height / 2 - deck) / 2, 0.9, 0.16, height / 2 - deck, 0.16)
   box(mesh, 'chassis', 0, deck + 1.5, 0.9 - length * 0.17, 0.12, 0.12, length * 0.32)
+  for (const side of [-1, 1]) {
+    rod(mesh, 'steel', [0, height / 2 - 0.2, 0.9], [side * 1.45, deck + 0.12, -0.7], 0.012, 6)
+    rod(mesh, 'steel', [0, deck + 6, 0.9], [side * 0.9, deck + 6, 0.9], 0.028, 8)
+  }
+  rod(mesh, 'steel', [0, height / 2 - 0.2, 0.9], [0, deck + 0.12, length * 0.45], 0.014, 6)
+  roundedBox(mesh, 'deckTeak', 0, deck + 0.12, -3.2, 1.7, 0.18, 2.5)
   return mesh
 }
 
@@ -576,13 +684,28 @@ export function vesselMotor() {
   const yBase = -height / 2
   const deck = yBase + 1.4
   hull(mesh, { length, width, yBase, depth: 1.4, material: 'hullWhite', bow: 0.1, stern: 0.85 })
+  const cabin = createMesh()
   // Raked cabin with a wraparound glass band
   const cabTop = deck + 1.6
-  box(mesh, 'hullWhite', 0, (deck + cabTop) / 2, 0.6, width * 0.8, cabTop - deck, length * 0.5)
+  box(cabin, 'hullWhite', 0, (deck + cabTop) / 2, 0.6, width * 0.8, cabTop - deck, length * 0.5)
   windowBand(mesh, width * 0.8, deck + 0.7, cabTop - 0.2, 0.6 - length * 0.22, 0.6 + length * 0.22, { panes: 2 })
   bridgeFront(mesh, { w: width * 0.66, y0: deck + 0.7, y1: cabTop - 0.2, z: 0.6 + length * 0.25 })
-  box(mesh, 'roof', 0, cabTop + 0.04, 0.6, width * 0.72, 0.08, length * 0.44)
-  box(mesh, 'chassis', 0, cabTop + 0.5, -0.6, 0.9, 0.9, 0.14) // radar arch
+  box(cabin, 'roof', 0, cabTop + 0.04, 0.6, width * 0.72, 0.08, length * 0.44)
+  box(cabin, 'chassis', 0, cabTop + 0.5, -0.6, 0.9, 0.9, 0.14) // radar arch
+  for (const g of cabin.groups.values()) {
+    for (let i = 0; i < g.positions.length; i += 3) {
+      const rise = Math.max(0, g.positions[i + 1] - deck)
+      g.positions[i + 2] -= rise * 0.35
+      // Inverse-transpose of the shear keeps the glazing reflections aligned.
+      const nx = g.normals[i], ny = g.normals[i + 1] + 0.35 * g.normals[i + 2], nz = g.normals[i + 2]
+      const norm = Math.hypot(nx, ny, nz)
+      g.normals.splice(i, 3, nx / norm, ny / norm, nz / norm)
+    }
+  }
+  mergeMesh(mesh, cabin)
+  roundedBox(mesh, 'deckTeak', 0, deck + 0.06, -length * 0.36, width * 0.62, 0.1, 2.2)
+  roundedBox(mesh, 'body', 0, cabTop + 0.18, -0.7, 1.8, 0.28, 1.3)
+  ellipsoid(mesh, 'body', [0, cabTop + 0.8, -0.6], [0.27, 0.2, 0.27], 16, 8)
   return mesh
 }
 
@@ -598,6 +721,9 @@ export function vesselGeneric() {
   box(mesh, 'body', 0, (deck + whTop) / 2, -length / 2 + 3.6, width * 0.6, whTop - deck, 3.4)
   windowBand(mesh, width * 0.6, whTop - 0.9, whTop - 0.2, -length / 2 + 2.2, -length / 2 + 4.8, { panes: 1 })
   bridgeFront(mesh, { w: width * 0.48, y0: whTop - 0.9, y1: whTop - 0.2, z: -length / 2 + 5.3 })
+  rod(mesh, 'steel', [-0.7, deck + 0.6, 1], [0.7, deck + 0.6, 1], 0.35, 16)
+  roundedBox(mesh, 'boxGrey', 0, deck + 0.32, 3.7, 1.5, 0.5, 1.2)
+  bridgeFront(mesh, { w: width * 0.48, y0: whTop - 0.9, y1: whTop - 0.2, z: -length / 2 + 1.9 - 0.06 })
   return mesh
 }
 

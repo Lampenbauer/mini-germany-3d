@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates the low-poly vehicle models into public/models/*.glb.
+ * Generates the procedural transport models into public/models/*.glb.
  *
  *   npm run models:build
  *

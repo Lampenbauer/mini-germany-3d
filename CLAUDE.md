@@ -668,6 +668,20 @@ where the hull is wide enough (`hullHalfWidthAt` says how wide), and
 `tests/vessel-models.test.ts` measures every vertex above the keel
 against the hull's plan and allows a hand's breadth.
 
+Since 2026-09-12 all thirteen AIS hulls and both scheduled ferry models
+have smooth rounded bilges, finer bow stations, railings, mooring fittings
+and bevelled enclosures. The larger ships carry individual container tiers
+and corrugations, passenger-deck windows and lifeboats, round pipes and
+working gear. `scripts/lib/model-detail.mjs` supplies the curved
+primitives and the crease-angle smoothing; the road/rail mesh helpers
+are untouched and the palette only gained entries, so the vehicle GLBs
+came out byte-identical – the build is byte-stable, and a change to the
+helpers is proved by rebuilding and comparing the files.
+Keep fittings within the existing reference bounds and the hull's plan;
+funnel anchors, navigation lights and waterline origins remain unchanged.
+The geometry tests budget 36,000 triangles for the container ship, 18,000
+for the passenger ship, 8,500 for the other AIS craft and 4,500 for a ferry.
+
 ### Switching cities at runtime
 
 A city switch is a swap, not a reload. `CesiumMap.clearCity` takes the routes,
@@ -1319,27 +1333,22 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   `tests/aircraft-models.test.ts` pins the GLB bounds against
   `ARCHETYPE_SIZE` and `AIRCRAFT_DIMS`. Surface vehicles (emitter
   category C) are dropped in the extraction: the map has no body for a
-  follow-me car. Rounder than the vehicles on purpose (the user asked,
-  2026-09-11: "ein wenig mehr Polygone ist in Ordnung"): sixteen-sided
-  fuselages, nacelles and wheels, up to ~1700 triangles, the budget in
-  the test 2500. The first cockpit was a box and broke through the nose
-  taper on every side – glass is laid ON the shell now (`glaze` in the
-  workshop: the extrusion's ring at any length, interpolated as its faces
-  are), never as a solid poked into it. The first glazing was also big
-  rectangular panes and a dark wrap-around cockpit, which the user read
-  as a WWII bomber (2026-09-11): the cabin windows are a row of small
-  octagonal portholes at an airliner's frame pitch (`portholeRow`, one
-  fan of nine vertices each – most of a model's triangles), the cockpit
-  a narrow band of three panes a side from 20° to 55° above the centre
-  line, and the nose drops away under it (`noseDroop`) as an airliner's
-  does. Keep the windows small: at map distance a window is a dot. Rotors and propellers are
-  see-through discs (`rotor` material, alpha 0.3 – the one translucent
-  material; `toGlb` writes alphaMode BLEND for an alpha under 1). The
-  retractable gear is a glTF node of its own (`mesh.parts.gear`, `toGlb`
-  writes every part as a node), which `AircraftLayer` shows only within
-  `GEAR_DOWN_AGL_M` (600 m) of the city's ground – an airliner at cruise
-  with its wheels out read as a toy. The vehicle and vessel GLBs came out
-  byte-identical through the writer change; keep it that way.
+  follow-me car. Since 2026-09-12 the aircraft have smooth 32-sided
+  fuselages and nacelles, profiled wings and fins, recessed engine intakes
+  with fans, door outlines and satin PBR materials. `model-detail.mjs`
+  holds the shared curved geometry and normal smoothing; keep hard edges
+  at caps and thin trailing edges. Glass stays ON the actual shell
+  (`shell.pointAt` uses the original sixteen-sector angular coordinates
+  independently of the mesh resolution); small portholes remain dots at
+  map distance. Rotors and propellers remain translucent discs, the
+  helicopter's tail rotor has an open shroud. Aircraft stay below 12,000
+  triangles and 650 kB each (smaller types have a tighter budget).
+  The retractable gear remains its own `mesh.parts.gear` / glTF `gear`
+  node, which `AircraftLayer` shows only within `GEAR_DOWN_AGL_M` (600 m)
+  of the city's ground. The light single's gear and helicopter skids are
+  fixed. `e2e/aircraft.spec.ts` checks cruise → approach → climb on the
+  actual loaded GLB as well as the navigation lights. Road and rail
+  vehicle GLBs must stay byte-identical when changing these helpers.
 - **Lights.** [NavLights](src/map/NavLights.ts) is one
   PointPrimitiveCollection per layer, pooled, fed begin/add/commit per
   tick like the plumes; what is on comes from the clock alone

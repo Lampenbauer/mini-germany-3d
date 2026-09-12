@@ -47,6 +47,14 @@ export const MATERIALS = {
   boxOrange: { color: [0.58, 0.3, 0.11, 1], metallic: 0.05, roughness: 0.8 },
   boxRust: { color: [0.4, 0.25, 0.16, 1], metallic: 0.05, roughness: 0.85 },
   boxGrey: { color: [0.5, 0.52, 0.52, 1], metallic: 0.05, roughness: 0.8 },
+  /** Fleet details: coated aluminium, satin wing panels and exposed metal. */
+  airframe: { color: [0.86, 0.875, 0.88, 1], metallic: 0.12, roughness: 0.3 },
+  wingMetal: { color: [0.57, 0.61, 0.65, 1], metallic: 0.3, roughness: 0.42 },
+  engineMetal: { color: [0.42, 0.46, 0.5, 1], metallic: 0.8, roughness: 0.27 },
+  aircraftGlass: { color: [0.027, 0.055, 0.075, 1], metallic: 0.22, roughness: 0.12 },
+  steel: { color: [0.43, 0.47, 0.48, 1], metallic: 0.65, roughness: 0.38 },
+  deckTeak: { color: [0.34, 0.27, 0.19, 1], metallic: 0, roughness: 0.87 },
+  safetyOrange: { color: [0.68, 0.22, 0.055, 1], metallic: 0, roughness: 0.6 },
 }
 
 /**

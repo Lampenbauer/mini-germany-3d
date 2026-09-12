@@ -50,10 +50,10 @@ describe('the generated aircraft fleet', () => {
       })
 
       it('stays within its polygon budget and self-contained', () => {
-        // The portholes are most of it: an octagon a window, a window
-        // every half metre, two rows on the double-decker
-        expect(triangleCount(mesh)).toBeLessThan(3500)
-        expect(glb.byteLength).toBeLessThan(170 * 1024)
+        // Smooth shells, profiled wings and recessed engines; the four
+        // engines and second window deck give the jumbo the larger budget.
+        expect(triangleCount(mesh)).toBeLessThan(name === 'aircraft-jumbo' ? 12000 : 8500)
+        expect(glb.byteLength).toBeLessThan(650 * 1024)
       })
 
       it('uses only palette materials', () => {

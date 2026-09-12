@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { Model } from 'cesium'
 
 /**
  * The air traffic (src/map/AircraftLayer.ts): offline there is no feed,
@@ -43,9 +44,9 @@ async function boot(url: string) {
 }
 
 /** Two aircraft as the feed would report them a few seconds ago, level, moving east. */
-const putAircraft = () =>
+const putAircraft = (airlinerAltitude = 10_800) =>
   page.evaluate(
-    ({ AIRLINER, LIGHT }) => {
+    ({ AIRLINER, LIGHT, airlinerAltitude }) => {
       const now = Date.now()
       const rendered = now - 12_000
       const one = (
@@ -82,9 +83,9 @@ const putAircraft = () =>
           [rendered + 300_000, a.lat, a.lon + 0.02, altM, gsKn, 90, 0],
         ] as [number, number, number, number | null, number | null, number | null, number | null][],
       })
-      window.__mg3d!.setAircraft([one(AIRLINER, 10_800, 450, 'A388', 'A5'), one(LIGHT, 400, 90, 'C172', 'A1')])
+      window.__mg3d!.setAircraft([one(AIRLINER, airlinerAltitude, 450, 'A388', 'A5'), one(LIGHT, 400, 90, 'C172', 'A1')])
     },
-    { AIRLINER, LIGHT },
+    { AIRLINER, LIGHT, airlinerAltitude },
   )
 
 /** Whether the aircraft's glTF body is in and ready to draw. */
@@ -132,6 +133,22 @@ test('aircraft put on the map get a body each, their plates, and leave with the 
     .poll(() => page.evaluate(() => window.__mg3d!.navLights().aircraft), slowPoll)
     .toBeGreaterThan(0)
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
+
+  // The regenerated GLB must still expose the actual gear node to Cesium:
+  // hidden at cruise, shown on approach, hidden again after climbing.
+  const gearShown = () => page.evaluate((hex) => {
+    const primitives = window.__cesiumViewer!.scene.primitives
+    for (let i = 0; i < primitives.length; i++) {
+      const model = primitives.get(i) as Model
+      if (model.id === `aircraft:${hex}` && model.ready) return model.getNode('gear')?.show
+    }
+    return null
+  }, AIRLINER.hex)
+  await expect.poll(gearShown, slowPoll).toBe(false)
+  await putAircraft(400)
+  await expect.poll(gearShown, slowPoll).toBe(true)
+  await putAircraft()
+  await expect.poll(gearShown, slowPoll).toBe(false)
 
   // Gone with the list
   await page.evaluate(() => window.__mg3d!.setAircraft(null))
