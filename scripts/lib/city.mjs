@@ -46,6 +46,7 @@ export function cityPaths(slug) {
     lamps: resolve(dir, 'street-lamps.json'),
     airfieldLights: resolve(dir, 'airfield-lights.json'),
     buoys: resolve(dir, 'buoys.json'),
+    lighthouses: resolve(dir, 'lighthouses.json'),
     /** The city limits as a polygon (written by add-city); optional. */
     limits: resolve(dir, 'limits.json'),
   }

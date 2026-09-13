@@ -10,6 +10,7 @@ import { prepareNetwork } from '@/data/network'
 import type { NetworkJson, PreparedNetwork } from '@/data/network-types'
 import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { BuoyData } from '@/data/buoys'
+import type { LighthouseData } from '@/data/lighthouses'
 import type { StreetLampData } from '@/data/street-lamps'
 import type { City } from '@/lib/city'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -29,6 +30,8 @@ export interface CityData {
   airfieldLights: AirfieldLightData | null
   /** OSM buoys on the water; null until the pipeline has run data:buoys for the city. */
   buoys: BuoyData | null
+  /** OSM lighthouses and pier lights; null until the pipeline has run data:lighthouses for the city. */
+  lighthouses: LighthouseData | null
 }
 
 const networks = import.meta.glob<NetworkJson>('./*/network.json', { import: 'default' })
@@ -36,16 +39,18 @@ const schedules = import.meta.glob<ScheduleJson>('./*/schedule.json', { import: 
 const lamps = import.meta.glob<StreetLampData>('./*/street-lamps.json', { import: 'default' })
 const airfieldLights = import.meta.glob<AirfieldLightData>('./*/airfield-lights.json', { import: 'default' })
 const buoys = import.meta.glob<BuoyData>('./*/buoys.json', { import: 'default' })
+const lighthouses = import.meta.glob<LighthouseData>('./*/lighthouses.json', { import: 'default' })
 
 export async function loadCityData(slug: string): Promise<CityData> {
   const city = cityBySlug(slug)
   if (!city) throw new Error(`Unknown city "${slug}"`)
-  const [networkJson, schedule, lampData, airfieldLightData, buoyData] = await Promise.all([
+  const [networkJson, schedule, lampData, airfieldLightData, buoyData, lighthouseData] = await Promise.all([
     networks[`./${slug}/network.json`]?.(),
     schedules[`./${slug}/schedule.json`]?.(),
     lamps[`./${slug}/street-lamps.json`]?.(),
     airfieldLights[`./${slug}/airfield-lights.json`]?.(),
     buoys[`./${slug}/buoys.json`]?.(),
+    lighthouses[`./${slug}/lighthouses.json`]?.(),
   ])
   if (!networkJson) throw new Error(`City "${slug}" has no network.json – run the data pipeline`)
   return {
@@ -55,5 +60,6 @@ export async function loadCityData(slug: string): Promise<CityData> {
     lamps: lampData ?? null,
     airfieldLights: airfieldLightData ?? null,
     buoys: buoyData ?? null,
+    lighthouses: lighthouseData ?? null,
   }
 }

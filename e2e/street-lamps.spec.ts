@@ -25,7 +25,7 @@ test('street lamps follow the sun and the underground view', async ({ page }) =>
   const alpha = () => page.evaluate(() => window.__mg3d!.streetLamps().alpha)
 
   // Daytime: nothing is built, and nothing is drawn
-  await page.goto(`/?offline=1&welcome=0&time=12:00&paused=1&rain=0&buoys=0${VIEW}`)
+  await page.goto(`/?offline=1&welcome=0&time=12:00&paused=1&rain=0&seamarks=0${VIEW}`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })
@@ -72,7 +72,7 @@ test('street lamps follow the sun and the underground view', async ({ page }) =>
 test('?lamps=0 leaves the street and the airfield lighting out entirely', async ({ page }) => {
   test.setTimeout(240_000)
 
-  await page.goto(`/?offline=1&welcome=0&time=23:30&paused=1&rain=0&lamps=0&buoys=0${VIEW}`)
+  await page.goto(`/?offline=1&welcome=0&time=23:30&paused=1&rain=0&lamps=0&seamarks=0${VIEW}`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, {
     timeout: 120_000,
   })

@@ -30,7 +30,7 @@ export function loadRostockNetwork(): PreparedNetwork {
 
 /** Every committed data file, by path – the nightly refresh rewrites these. */
 export const committedDataFiles = import.meta.glob<unknown>(
-  '../src/cities/*/{network,schedule,street-lamps,airfield-lights,buoys}.json',
+  '../src/cities/*/{network,schedule,street-lamps,airfield-lights,buoys,lighthouses}.json',
   { eager: true, import: 'default' },
 )
 

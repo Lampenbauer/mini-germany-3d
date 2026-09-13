@@ -838,12 +838,50 @@ Main's), Lübeck 131 (24), Schwerin 127 (3), Kiel 126 (49), Bremen 112
 (38), Cologne 103 (0 – the Rhine's), Stuttgart 97 (0), Munich 50 (2),
 Hanover 22 (0). Over the real tiles the marks were seen floating on
 the Breitling's water by day and lit at night (headed Chromium, the
-day the layer was built). `?buoys=0` leaves them
-out; `ship-effects`, `clouds`, `rain-gate` and `street-lamps` boot so
-because their frames are compared or their scene is low over the
-Warnow. `__mg3d.buoys()` counts them; `tests/cesium-buoys-layer.test.ts`
+day the layer was built). `?seamarks=0` leaves them out
+with the lighthouses; `ship-effects`, `clouds`, `rain-gate` and
+`street-lamps` boot so because their frames are compared or their
+scene is low over the Warnow. `__mg3d.buoys()` counts them; `tests/cesium-buoys-layer.test.ts`
 pins the cells, the clamps and the lights with a model double
 (`host.loadModel`), `e2e/app.spec.ts` brings the camera down to them.
+
+**The lighthouses have no model: the light stands on the tiles' own
+tower (since 2026-09-13).** `data:lighthouses`
+([scripts/fetch-lighthouses.mjs](scripts/fetch-lighthouses.mjs), the
+selection in `scripts/lib/lighthouses.mjs`, tested) takes the
+`man_made=lighthouse` and `seamark:type=light_major|light_minor` nodes
+and ways of the box that name a lit sector – the tagging is untidy
+(Warnemünde's tower is a `landmark` building way, the mole lights are
+`beacon_lateral`, a leading light front is `man_made=beacon`, and half
+of Kiel's `light_minor` carry no light at all: those stay dark, no
+guessing), a tower mapped as node and building way is one light, and
+the sectors come with their bearings "from seaward" (from the vessel
+to the light), elevation and range; a directional light with an
+`orientation` is a ±2° sector, a fog sector is left out.
+[LighthousesLayer](src/map/LighthousesLayer.ts) sets each light on the
+top the clamp pick finds (the highest thing at the position is the
+lantern), two picks a tick within 3 km of the camera, with OSM's
+elevation over the water as the floor where the mesh lost a thin mast
+(a pick 3 m and more under the charted height is the pier, not the
+mast), and at that elevation over the fallback water until a pick
+answers or for good offline (10 m without one). The colour shown is
+the sector the camera stands in ([seamark-lights.ts](src/lib/seamark-lights.ts),
+pure, tested) – outside every sector the light is obscured, as at sea –
+repainted per frame only where the sector or the night level changed.
+Major (light_major, or a range of ten miles and more): 7 px, fading to
+half by 40 km; minor: 4 px, the lanterns' fade. Steady, for the same
+reason as the buoys. A floodlight or spotlight on a tower is a work
+light, not a mark, and is left out of the sectors – Warnemünde's mole
+lights carry theirs as the unnumbered set, ahead of the green and the
+red, and showed white until then (2026-09-13). Counted the same day:
+Bremen 188 (the Weser's), Hamburg 151 (the Elbe's), Berlin 61, Lübeck
+54, Wilhelmshaven 35, Rostock 9, Kiel 8, Munich 4, Frankfurt 1, none in
+Cologne, Hanover, Schwerin and Stuttgart. Seen over the real tiles at
+night: the Warnemünde tower's white on its lantern from the sea, dark
+from the town, the mole heads green and red either way.
+`__mg3d.lighthouses()` counts them;
+`tests/cesium-lighthouses-layer.test.ts` pins the towers, the floor,
+the sectors and the night with the buoys' kind of double.
 
 Vehicles at 08:30 (the number each `tests/<slug>.test.ts` pins): Berlin 685,
 Hamburg 458, Rostock/Cologne/Munich ~370, Stuttgart 257, Bremen 223,

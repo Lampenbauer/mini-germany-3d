@@ -19,8 +19,8 @@ let page: Page
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
-  // No buoys: the frames compared below must differ by the clouds alone
-  await page.goto('/?offline=1&welcome=0&time=12:00&paused=1&buoys=0#routes=0&stops=0&labels=0')
+  // No seamarks: the frames compared below must differ by the clouds alone
+  await page.goto('/?offline=1&welcome=0&time=12:00&paused=1&seamarks=0#routes=0&stops=0&labels=0')
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 })
 

@@ -101,6 +101,8 @@ declare global {
         heightSpanM: number
         heightsOverFallbackM: number[]
       }
+      /** The lighthouses and pier lights: registered, clamped, shown towards the camera, and the night level (see src/map/LighthousesLayer.ts). */
+      lighthouses: () => { lights: number; clamped: number; shown: number; alpha: number }
       /** The photo mode as set – the shape of src/lib/photo-settings.ts, the knobs the specs read. */
       photoSettings: () => {
         fovDeg: number

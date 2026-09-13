@@ -73,6 +73,7 @@ import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { BuoysLayer } from './BuoysLayer'
+import { LighthousesLayer } from './LighthousesLayer'
 import { expandClampExclusions, type ExpansionCache } from './clamp-exclusions'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -85,6 +86,7 @@ import type { PreparedNetwork } from '@/data/network-types'
 import type { StreetLampData } from '@/data/street-lamps'
 import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { BuoyData } from '@/data/buoys'
+import type { LighthouseData } from '@/data/lighthouses'
 import type { VehicleSnapshot } from '@/engine/simulation'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
@@ -726,6 +728,8 @@ export class CesiumMap {
   private readonly airfieldLights: AirfieldLightsLayer
   /** The buoys on the water, clamped to the tiles and lit at night (see BuoysLayer). */
   private readonly buoys: BuoysLayer
+  /** The lighthouses and pier lights on the tiles' towers, lit at night (see LighthousesLayer). */
+  private readonly lighthouses: LighthousesLayer
   /** The point collections of the clamp exclusion lists, expanded to their points (see clamp-exclusions.ts). */
   private readonly clampExpansions: ExpansionCache = new WeakMap()
   /** The visibility over the city in metres, as the app's weather has it – null while unknown. */
@@ -1012,6 +1016,22 @@ export class CesiumMap {
     // The buoys float on the tiles' water like the ships, from the same
     // fallback surface, and their lanterns burn on the airfield's level
     this.buoys = new BuoysLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      get waterSurfaceHeight() {
+        return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
+      },
+      surfaceGeneration: () => this.surfaceGeneration,
+      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      get nightFactor() {
+        return map.nightFactor
+      },
+      get visibilityM() {
+        return map.visibilityM
+      },
+    })
+    // The lighthouses stand on the tiles' own towers; OSM's elevations
+    // over the water are measured from the same surface the ships ride
+    this.lighthouses = new LighthousesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get waterSurfaceHeight() {
         return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
@@ -1754,6 +1774,7 @@ export class CesiumMap {
     this.streetLamps.clear()
     this.airfieldLights.clear()
     this.buoys.clear()
+    this.lighthouses.clear()
     this.nearestVehicleMeters = Number.POSITIVE_INFINITY
     // The ships leave with the city on the app's next tick (see above), and
     // the shadow gate lets go of the last hull now rather than one tick late.
@@ -2215,6 +2236,7 @@ export class CesiumMap {
     this.stops.update()
     this.bridgeDecks.update()
     this.buoys.sync()
+    this.lighthouses.sync()
     const info = this.vehicleLayer.sync(snapshots, visibleLines)
     this.nearestVehicleMeters = info.nearestBodyMeters
     this.applyShadowState()
@@ -2495,6 +2517,7 @@ export class CesiumMap {
     this.streetLamps.setUnderground(underground)
     this.airfieldLights.setUnderground(underground)
     this.buoys.setUnderground(underground)
+    this.lighthouses.setUnderground(underground)
     // No weather below ground – the clouds and their shadow go with the sky
     this.clouds.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
@@ -2600,6 +2623,11 @@ export class CesiumMap {
    */
   addBuoys(data: BuoyData): void {
     this.buoys.add(data)
+  }
+
+  /** Registers the city's lighthouses and pier lights (see LighthousesLayer). */
+  addLighthouses(data: LighthouseData): void {
+    this.lighthouses.add(data)
   }
 
   /** The visibility the weather reports, for the airfield lighting by day (see AirfieldLightsLayer). */
@@ -2869,6 +2897,7 @@ export class CesiumMap {
     this.streetLamps.update()
     this.airfieldLights.update()
     this.buoys.update()
+    this.lighthouses.update()
     this.webcamsLayer.update()
     this.lens.update()
     this.tiltShift.update()
@@ -3163,6 +3192,11 @@ export class CesiumMap {
     return this.buoys.info
   }
 
+  /** Debug/tests: the lighthouses registered, clamped to their towers, shown towards the camera, and the level. */
+  getLighthouseInfo(): LighthousesLayer['info'] {
+    return this.lighthouses.info
+  }
+
   /**
    * Screen position of a stop's disc in CSS pixels, or null when off
    * screen or unknown – the stop-card E2E clicks the real disc with it.
@@ -3222,6 +3256,7 @@ export class CesiumMap {
     this.streetLamps.destroy()
     this.airfieldLights.destroy()
     this.buoys.destroy()
+    this.lighthouses.destroy()
     this.viewer.destroy()
   }
 }

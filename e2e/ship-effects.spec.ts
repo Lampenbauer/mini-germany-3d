@@ -39,9 +39,9 @@ test.afterAll(async () => {
  * from above, 20 to 30 do.
  */
 async function boot(pose: string, time = '12:00') {
-  // No buoys: the Warnow has a dozen within reach of these poses, and a
-  // model landing between two frames would be the difference measured
-  await page.goto(`/?offline=1&welcome=0&time=${time}&paused=1&buoys=0#${pose}&routes=0&stops=0&labels=0`)
+  // No seamarks: the Warnow has a dozen buoys within reach of these poses,
+  // and a model landing between two frames would be the difference measured
+  await page.goto(`/?offline=1&welcome=0&time=${time}&paused=1&seamarks=0#${pose}&routes=0&stops=0&labels=0`)
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.renderPacing()), { timeout: 120_000 })
