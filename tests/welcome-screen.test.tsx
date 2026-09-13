@@ -35,6 +35,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
 
 function door(overrides: Partial<WelcomeScreenProps> = {}) {
   const onPick = vi.fn()
+  const onLegal = vi.fn()
   render(
     <WelcomeScreen
       open
@@ -42,10 +43,11 @@ function door(overrides: Partial<WelcomeScreenProps> = {}) {
       picked={null}
       hideNextTime={false}
       onPick={onPick}
+      onLegal={onLegal}
       {...overrides}
     />,
   )
-  return { onPick }
+  return { onPick, onLegal }
 }
 
 describe('when the welcome screen opens', () => {
@@ -130,6 +132,22 @@ describe('the welcome screen', () => {
     expect(box).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Open Kiel' }))
     expect(onPick).toHaveBeenLastCalledWith('kiel', true)
+  })
+
+  it('offers the legal pages at its foot – real links, taken over by the app on a plain click', () => {
+    const { onLegal } = door()
+    const legal = screen.getByRole('navigation', { name: 'Legal' })
+    const imprint = within(legal).getByRole('link', { name: 'Legal notice' })
+    const privacy = within(legal).getByRole('link', { name: 'Privacy' })
+    // The pages under the map, in the language the screen speaks
+    expect(imprint).toHaveAttribute('href', '/en/imprint/')
+    expect(privacy).toHaveAttribute('href', '/en/privacy/')
+    fireEvent.click(privacy)
+    expect(onLegal).toHaveBeenLastCalledWith('privacy')
+    // A modified click is left to the browser: a new tab with the page
+    onLegal.mockClear()
+    fireEvent.click(imprint, { metaKey: true })
+    expect(onLegal).not.toHaveBeenCalled()
   })
 
   it('turns the picked card into a spinner and takes the other cards out of reach', () => {

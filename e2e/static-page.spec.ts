@@ -36,6 +36,16 @@ test('a city page reads without a single script', async ({ page }) => {
   await expect(staticPage).toContainText('Kiel in numbers')
   await expect(staticPage.locator('a[href="/en/rostock/"]')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.lang)).toBe('en')
+
+  // The legal pages: linked from every page's foot, readable the same
+  // way, and asking the crawlers to leave them out
+  await expect(staticPage.locator('a[href="/en/imprint/"]')).toBeVisible()
+  await page.goto('/impressum/?offline=1')
+  await expect(page).toHaveTitle('Impressum – Mini Germany 3D')
+  await expect(staticPage.locator('h1')).toHaveText('Impressum')
+  await expect(staticPage).toContainText('§ 18 Abs. 2 MStV')
+  await expect(staticPage.locator('a[href="/datenschutz/"]')).toBeVisible()
+  expect(await page.locator('meta[name="robots"]').getAttribute('content')).toBe('noindex, follow')
 })
 
 test('without WebGL the notice stands over the page instead of a white screen', async ({ page }) => {

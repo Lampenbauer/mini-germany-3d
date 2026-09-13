@@ -7,11 +7,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { LegalLinks } from '@/components/LegalDialog'
 import { NetworkIllustration } from '@/components/NetworkIllustration'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { t, type MessageKey } from '@/lib/i18n'
+import type { LegalKind } from '@/lib/site-path'
 
 const MINI_TOKYO_URL = 'https://minitokyo3d.com'
 const LEGIBLE_CITIES_URL = 'https://richc117.github.io/legible-cities/'
@@ -86,7 +88,12 @@ function Outward(props: { href: string; children: React.ReactNode }) {
   )
 }
 
-export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function AboutDialog(props: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** The legal notice or the privacy notice, asked for from the dialog's foot. */
+  onLegal: (kind: LegalKind) => void
+}) {
   // This controlled dialog also opens via ?, so it has no Radix DialogTrigger.
   const returnFocus = useRef<HTMLElement | null>(null)
 
@@ -259,6 +266,15 @@ export function AboutDialog(props: { open: boolean; onOpenChange: (open: boolean
             </TabsContent>
           </ScrollArea>
         </Tabs>
+        {/* The site's legal pages, at the foot under every tab and not
+            as a tab: the tabs are about the map, these two are about the
+            site. They open the LegalDialog over this one. */}
+        <div className="flex shrink-0 justify-end border-t border-border px-8 py-3 max-sm:px-6">
+          <LegalLinks
+            linkClassName="text-[11px] font-normal text-muted-foreground opacity-75 hover:text-foreground focus-visible:outline-ring"
+            onOpen={props.onLegal}
+          />
+        </div>
       </DialogContent>
     </Dialog>
   )

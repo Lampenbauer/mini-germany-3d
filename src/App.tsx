@@ -71,7 +71,7 @@ import {
   renderProfileFor,
   type RenderProfile,
 } from '@/lib/render-profile'
-import { formatSitePath, parseSitePath } from '@/lib/site-path'
+import { formatSitePath, parseSitePath, type LegalKind } from '@/lib/site-path'
 import { narrowViewport } from '@/lib/viewport'
 import { hoverUnavailable, watchPointerIdle } from '@/lib/pointer-idle'
 import { cityApiUrl } from '@/lib/city-api'
@@ -90,6 +90,7 @@ import type { MapView } from '@/lib/map-view'
 import { AboutDialog } from '@/components/AboutDialog'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { CreditsDialog } from '@/components/CreditsDialog'
+import { LegalDialog } from '@/components/LegalDialog'
 import {
   DEFAULT_PHOTO_SETTINGS,
   isDefaultPhotoSettings,
@@ -992,6 +993,25 @@ export default function App() {
   /** Cesium's credits, opened from the "Data attribution" link it draws. */
   const [creditsOpen, setCreditsOpen] = useState(false)
   /**
+   * The legal notice or the privacy notice (components/LegalDialog),
+   * opened from the welcome screen's foot or the About dialog's – and
+   * opened at the start when the address is one of their pages
+   * (`/impressum/`, `/en/privacy/` – see lib/site-path.ts): the page
+   * under the map carries the same text for a reader without the app,
+   * and with the app the dialog is where it is read. The path names no
+   * city, so the welcome screen stands behind it as on a plain visit –
+   * and the notice opens a commit after it, from an effect, not in the
+   * first render with it: two modal dialogs mounted together each hide
+   * the other from assistive technology (Radix marks everything but
+   * the newest aria-hidden), and neither could be read. Opened a tick
+   * later it is what a click on the door's link would have opened.
+   */
+  const [legalOpen, setLegalOpen] = useState<LegalKind | null>(null)
+  useEffect(() => {
+    const legal = parseSitePath(window.location.pathname).legal
+    if (legal) setLegalOpen(legal)
+  }, [])
+  /**
    * The welcome screen, the front door on a plain visit (see
    * lib/welcome.ts for when). While it is open the map is built and the
    * world loads behind it, but no city session runs – no data, no
@@ -1048,7 +1068,7 @@ export default function App() {
   // The welcome screen covers everything, so nothing under it is laid
   // out or updated either – behind it the interface is not just unseen,
   // it has no city to show yet.
-  const interfaceHidden = uiHidden || aboutOpen || creditsOpen || welcomeShown
+  const interfaceHidden = uiHidden || aboutOpen || creditsOpen || legalOpen !== null || welcomeShown
   /** Lends Cesium's own credit list to the dialog while it is open. */
   const borrowCreditList = useCallback((host: HTMLElement | null) => {
     mapRef.current?.borrowCreditList(host)
@@ -4009,7 +4029,11 @@ export default function App() {
         cities={CITY_CHOICES}
         hideNextTime={welcomeBoot.hidden}
         onPick={handleWelcomePick}
+        onLegal={setLegalOpen}
       />
+      {/* The legal pages' dialog, outside the wrapper like the welcome
+          screen: it opens over the door as well as over the map. */}
+      <LegalDialog kind={legalOpen} onOpenChange={(open) => !open && setLegalOpen(null)} />
 
       <div className={cn('contents', interfaceHidden && 'hidden')} data-testid="ui-overlay">
         {/* The notices (sonner): top centre, over the map's middle, where
@@ -4051,7 +4075,7 @@ export default function App() {
             Its JSX sits here, its DOM does not: Radix portals a dialog to
             the body, which is what lets opening one hide this wrapper –
             the map is left bare behind the dialog rather than under it. */}
-        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} onLegal={setLegalOpen} />
 
         {/* The credits behind Cesium's "Data attribution" link, in this
             interface's dialog rather than in Cesium's own lightbox. */}

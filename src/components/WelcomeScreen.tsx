@@ -2,9 +2,11 @@ import { useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
+import { LegalLinks } from '@/components/LegalDialog'
 import { NetworkIllustration } from '@/components/NetworkIllustration'
 import { cityChoiceIcons, type CityChoice } from '@/components/ControlPanel'
 import { sortCitiesByName, t } from '@/lib/i18n'
+import type { LegalKind } from '@/lib/site-path'
 import { cn } from '@/lib/utils'
 
 /**
@@ -55,6 +57,8 @@ export interface WelcomeScreenProps {
   /** Whether the checkbox starts ticked (the screen forced open over a kept wish). */
   hideNextTime: boolean
   onPick: (slug: string, hideNextTime: boolean) => void
+  /** The legal notice or the privacy notice, asked for from the foot of the screen. */
+  onLegal: (kind: LegalKind) => void
 }
 
 export function WelcomeScreen(props: WelcomeScreenProps) {
@@ -158,7 +162,9 @@ export function WelcomeScreen(props: WelcomeScreenProps) {
               })}
             </ul>
 
-            <footer className="border-t border-white/12 pt-6 max-sm:pt-5">
+            {/* The checkbox on the left, the two legal links on the right,
+                on one line – they wrap under it where the line is short. */}
+            <footer className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-t border-white/12 pt-6 max-sm:pt-5">
               <label className={cn('flex w-fit items-center gap-3 text-sm font-[550]', loading ? 'opacity-60' : 'cursor-pointer')}>
                 <Checkbox
                   checked={hideNextTime}
@@ -172,6 +178,11 @@ export function WelcomeScreen(props: WelcomeScreenProps) {
                 />
                 {t('welcome.skip')}
               </label>
+              <LegalLinks
+                className="ml-auto"
+                linkClassName={cn('text-xs font-normal opacity-75 hover:opacity-100 focus-visible:outline-brand-light', INK_SOFT)}
+                onOpen={props.onLegal}
+              />
             </footer>
           </div>
         </DialogPrimitive.Content>

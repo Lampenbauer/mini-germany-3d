@@ -8,11 +8,13 @@ import {
   citySummary,
   escapeHtml,
   homePage,
+  legalPage,
   ogImagePath,
   pageFor,
   sitemap,
   type StaticPage,
 } from '@/lib/site-pages'
+import { OPERATOR, legalText } from '@/lib/legal'
 
 /** The index.html the pages are applied to, reduced to what applyPage reads. */
 const SHELL =
@@ -44,9 +46,13 @@ describe('the pages under the map', () => {
       expect(de.body).toContain(`href="/${city.slug}/"`)
       expect(en.body).toContain(`href="/en/${city.slug}/"`)
     }
-    // Each names the other language's page
+    // Each names the other language's page, and the two legal pages
     expect(de.body).toContain('href="/en/" hreflang="en"')
     expect(en.body).toContain('href="/" hreflang="de"')
+    expect(de.body).toContain('<a href="/impressum/">Impressum</a>')
+    expect(de.body).toContain('<a href="/datenschutz/">Datenschutz</a>')
+    expect(en.body).toContain('<a href="/en/imprint/">Legal notice</a>')
+    expect(en.body).toContain('<a href="/en/privacy/">Privacy</a>')
     // Köln sorts under K in German, Cologne under C in English
     expect(de.body).toContain('Köln')
     expect(en.body).toContain('Cologne')
@@ -79,7 +85,42 @@ describe('the pages under the map', () => {
     expect(rostock.body).toContain('href="/kiel/"')
     expect(rostock.body).not.toContain('<a href="/rostock/">')
     expect(rostock.body).toContain('href="/en/rostock/" hreflang="en"')
+    expect(rostock.body).toContain('<a href="/impressum/">Impressum</a>')
     expect(rostock.body).not.toContain('<script')
+  })
+
+  it('serves the legal notice and the privacy notice as pages, out of the index', async () => {
+    const imprint = (await pageFor('/impressum/'))!
+    const privacy = (await pageFor('/en/privacy/'))!
+    expect(imprint.path).toBe('/impressum/')
+    expect(imprint.city).toBeNull()
+    expect(imprint.lang).toBe('de')
+    expect(imprint.title).toBe('Impressum – Mini Germany 3D')
+    expect(imprint.alternates).toEqual({ de: '/impressum/', en: '/en/imprint/' })
+    expect(imprint.noindex).toBe(true)
+    // The provider's details, the address block line by line
+    expect(imprint.body).toContain(`${OPERATOR.name}<br />${OPERATOR.street}<br />${OPERATOR.place}`)
+    expect(imprint.body).toContain(OPERATOR.email)
+    expect(imprint.body).toContain('§ 18 Abs. 2 MStV')
+    // The other language's word is read too; the page is the prefix's language
+    expect((await pageFor('/en/datenschutz/'))!.path).toBe('/en/privacy/')
+    expect(privacy.path).toBe('/en/privacy/')
+    expect(privacy.lang).toBe('en')
+    expect(privacy.title).toBe('Privacy – Mini Germany 3D')
+    // Every section of the text, with its heading
+    for (const section of legalText('privacy', 'en').sections) expect(privacy.body).toContain(`<h2>${section.heading}</h2>`)
+    expect(privacy.body).toContain('The German version is the binding one.')
+    // The way back, and each page links the other
+    expect(privacy.body).toContain('<a href="/en/">All cities</a>')
+    expect(privacy.body).toContain('<a href="/en/imprint/">Legal notice</a>')
+    expect(privacy.body).toContain('href="/datenschutz/" hreflang="de"')
+    // The crawlers are asked to leave both out – on the page, and by the sitemap
+    const html = applyPage(SHELL, imprint)
+    expect(html).toContain('<meta name="robots" content="noindex, follow" />')
+    expect(html).toContain('<title>Impressum – Mini Germany 3D</title>')
+    expect(applyPage(SHELL, rostock)).not.toContain('name="robots"')
+    expect(sitemap([homePage('de'), imprint, legalPage('privacy', 'de'), rostock])).not.toContain('impressum')
+    expect(sitemap([homePage('de'), imprint, legalPage('privacy', 'de'), rostock]).match(/<url>/g)).toHaveLength(2)
   })
 
   it('names no page for a slug this build does not know', async () => {

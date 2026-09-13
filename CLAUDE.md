@@ -505,8 +505,38 @@ write moves the path. The welcome screen decides on the path too
 load; only the hash is applied live (`applyHash`), and a hash naming no
 city keeps the city on screen rather than jumping to the default. A slug
 must never be one of `RESERVED_PATH_SEGMENTS` (`en`, `api`, `assets`,
-`cesium`, `models`, `og`) – `tests/cities.test.ts` pins it, and the
-parser names no city for them.
+`cesium`, `models`, `og`, and the legal pages' four words below) –
+`tests/cities.test.ts` pins it, and the parser names no city for them.
+
+**The legal notice and the privacy notice are one text in two places
+(since 2026-09-13).** [src/lib/legal.ts](src/lib/legal.ts) holds both,
+in both languages, with the provider's details (`OPERATOR`) at its top –
+the one place a name or address is written. The app shows them in
+[LegalDialog](src/components/LegalDialog.tsx), a sibling of the Credits
+dialog and deliberately *not* a fourth tab of the About dialog (the user's
+call: the tabs are about the map, these are about the site); the links
+stand at the foot of the welcome screen, right of the checkbox on its
+line, and at the foot of the About dialog under every tab. The same text
+is a page under the map – `/impressum/`, `/datenschutz/`, `/en/imprint/`,
+`/en/privacy/` (`LEGAL_PATH_SEGMENTS`, `formatLegalPath`; either word
+reads in either place, the prefix says the language) – linked from every
+page's foot, because a crawler and a WebGL-less reader never see the
+dialog; the pages carry `noindex, follow` and stay out of the sitemap
+(the user's wish; `StaticPage.noindex`). The app's links are real `href`s
+that a plain click turns into the dialog (`LegalLinks`), and an address
+that names a page opens the dialog over the door – from an effect, a
+commit *after* the welcome screen: two Radix modals mounted in one commit
+each mark the other `aria-hidden`, and neither can be read (found by
+`tests/app.test.tsx`). What the privacy notice says about the browser's
+own requests (Google's tiles through Cesium ion, Open-Meteo, Windy's
+pictures), about what goes through this site's API (aisstream, adsb.fi,
+gtfs.de), about localStorage and about there being no cookies has to
+stay true: a new third-party request from the browser, a cookie or an
+analytics script is a change to `legal.ts` as much as to the code, and
+to the German text first – it is the binding one, the English says so.
+The email in `OPERATOR` is written obfuscated on purpose (the user's
+call); the log retention in the hosting section ("nach kurzer Zeit")
+should be read against the hoster's AVV.
 
 **The clock rides in the hash as it was set, never as it runs (since
 2026-09-13).** `date=YYYY-MM-DD` is the day picked in the panel's

@@ -9,6 +9,13 @@
  * which the error boundary sends here (components/ErrorBoundary.tsx).
  * The app hides the page the moment it starts (main.tsx).
  *
+ * Two more pages are the legal notice and the privacy notice
+ * (lib/legal.ts), in both languages, linked from every page's foot –
+ * the law wants them reachable from wherever the site is read, and a
+ * reader without the app reads it here. They ask the crawlers to keep
+ * them out of the index (`noindex, follow`, the user's wish) and stay
+ * out of the sitemap for the same reason.
+ *
  * Everything on the page is what the city card states and nothing more
  * (city-profile.ts – facts the sources state, no simulation results,
  * and the same two carefully named measures: stop positions, line
@@ -49,7 +56,8 @@ import {
   type MessageKey,
 } from '@/lib/i18n'
 import { formatServiceTime } from '@/lib/line-profile'
-import { formatSitePath, parseSitePath } from '@/lib/site-path'
+import { legalText, type LegalText } from '@/lib/legal'
+import { formatLegalPath, formatSitePath, parseSitePath, type LegalKind } from '@/lib/site-path'
 import { APP_CLASS, STATIC_PAGE_ID } from '@/lib/static-page'
 import { TRANSIT_MODES, type TransitMode } from '@/lib/transit-mode'
 
@@ -77,6 +85,8 @@ export interface StaticPage {
   alternates: Record<Lang, string>
   /** The preview picture a shared link shows, as a site path. */
   ogImage: string
+  /** Whether the page asks the crawlers to leave it out of their index – the legal pages do. */
+  noindex: boolean
   /** The static content: the root element with the id static-page.ts names, and everything in it. */
   body: string
 }
@@ -291,14 +301,34 @@ const PAGE_STYLE =
   `#${STATIC_PAGE_ID} .cities span{color:#a1a1aa}` +
   `#${STATIC_PAGE_ID} footer{margin-top:2.5rem;border-top:1px solid #27272a;padding-top:1rem;color:#a1a1aa}`
 
-/** The other language's link, and the way back to the front door from a city. */
-function pageFooter(page: Pick<StaticPage, 'lang' | 'city' | 'alternates'>): string {
+/**
+ * The other language's link, the way back to the front door from any
+ * page but the front door, and the two legal pages – on every page,
+ * the legal ones included (each links the other).
+ */
+function pageFooter(page: Pick<StaticPage, 'lang' | 'city' | 'alternates'> & { legal?: LegalKind }): string {
   const other: Lang = page.lang === 'de' ? 'en' : 'de'
   const links = [
     `<a href="${page.alternates[other]}" hreflang="${other}" lang="${other}">${escapeHtml(t('page.otherLanguage'))}</a>`,
   ]
-  if (page.city) links.push(`<a href="${formatSitePath(page.lang, null)}">${escapeHtml(t('page.allCities'))}</a>`)
+  if (page.city || page.legal) links.push(`<a href="${formatSitePath(page.lang, null)}">${escapeHtml(t('page.allCities'))}</a>`)
+  links.push(
+    `<a href="${formatLegalPath(page.lang, 'imprint')}">${escapeHtml(t('legal.imprint'))}</a>`,
+    `<a href="${formatLegalPath(page.lang, 'privacy')}">${escapeHtml(t('legal.privacy'))}</a>`,
+  )
   return `<footer>${links.join(' · ')}</footer>`
+}
+
+/** A legal text's sections as HTML; an address block keeps its line breaks. */
+function legalSections(text: LegalText): string {
+  return text.sections
+    .map(
+      (section) =>
+        `<section><h2>${escapeHtml(section.heading)}</h2>` +
+        section.paragraphs.map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br />')}</p>`).join('') +
+        `</section>`,
+    )
+    .join('')
 }
 
 /** Wraps a page's sections in the root element the app hides, with the stylesheet first. */
@@ -333,6 +363,34 @@ export function homePage(lang: Lang): StaticPage {
       description: t('page.description'),
       alternates,
       ogImage: ogImagePath(null, lang),
+      noindex: false,
+      body,
+    }
+  })
+}
+
+/** A legal page: the notice's text under the site's eyebrow, kept out of the index. */
+export function legalPage(kind: LegalKind, lang: Lang): StaticPage {
+  return withLanguage(lang, () => {
+    const text = legalText(kind, lang)
+    const alternates = { de: formatLegalPath('de', kind), en: formatLegalPath('en', kind) }
+    const body = wrap(
+      lang,
+      `<header><p class="eyebrow"><a href="${formatSitePath(lang, null)}">${escapeHtml(t('welcome.eyebrow'))}</a></p>` +
+        `<h1>${escapeHtml(text.title)}</h1>` +
+        `<p class="lead">${escapeHtml(text.lead)}</p></header>` +
+        legalSections(text) +
+        pageFooter({ lang, city: null, legal: kind, alternates }),
+    )
+    return {
+      path: alternates[lang],
+      lang,
+      city: null,
+      title: `${text.title} – ${t('about.title')}`,
+      description: text.lead,
+      alternates,
+      ogImage: ogImagePath(null, lang),
+      noindex: true,
       body,
     }
   })
@@ -371,6 +429,7 @@ export function cityPage(
       description: t('page.cityDescription', { summary }),
       alternates,
       ogImage: ogImagePath(city, lang),
+      noindex: false,
       body,
     }
   })
@@ -392,6 +451,7 @@ export function headTags(page: StaticPage): string {
       (lang) => `<link rel="alternate" hreflang="${lang}" href="${SITE_ORIGIN}${page.alternates[lang]}" />`,
     ),
     `<link rel="alternate" hreflang="x-default" href="${SITE_ORIGIN}${page.alternates.de}" />`,
+    ...(page.noindex ? [`<meta name="robots" content="noindex, follow" />`] : []),
     `<meta name="theme-color" content="${THEME_COLOR}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="Mini Germany 3D" />`,
@@ -432,9 +492,10 @@ export function applyPage(html: string, page: StaticPage): string {
     .replace(BODY_REGION, (_, open: string, close: string) => `${open}\n    ${page.body}\n    ${close}`)
 }
 
-/** The sitemap: every page, each with its alternates. */
+/** The sitemap: every page that wants indexing, each with its alternates. */
 export function sitemap(pages: readonly StaticPage[]): string {
   const entries = pages
+    .filter((page) => !page.noindex)
     .map(
       (page) =>
         `  <url>\n    <loc>${SITE_ORIGIN}${page.path}</loc>\n` +
@@ -472,9 +533,13 @@ function cityPages(city: City): Promise<Record<Lang, StaticPage>> {
   return pages
 }
 
-/** Every page of the site: the front door and each city, in both languages. */
+/** Every page of the site: the front door, the two legal pages and each city, in both languages. */
 export async function allPages(): Promise<StaticPage[]> {
-  const pages: StaticPage[] = PAGE_LANGS.map((lang) => homePage(lang))
+  const pages: StaticPage[] = PAGE_LANGS.flatMap((lang) => [
+    homePage(lang),
+    legalPage('imprint', lang),
+    legalPage('privacy', lang),
+  ])
   // One city at a time: a city's data is a few megabytes parsed, and
   // thirteen of them in flight at once would be that many times over.
   for (const city of CITIES) {
@@ -485,13 +550,15 @@ export async function allPages(): Promise<StaticPage[]> {
 }
 
 /**
- * The page a path is served with: a city's, the front door's, or none
- * for a path that is neither (a wrong slug – the app opens the default
- * city there, the dev server serves the bare index.html).
+ * The page a path is served with: a city's, a legal page, the front
+ * door's, or none for a path that is none of these (a wrong slug – the
+ * app opens the default city there, the dev server serves the bare
+ * index.html).
  */
 export async function pageFor(pathname: string): Promise<StaticPage | null> {
-  const { lang, city } = parseSitePath(pathname)
+  const { lang, city, legal } = parseSitePath(pathname)
   const pageLang: Lang = lang ?? 'de'
+  if (legal !== null) return legalPage(legal, pageLang)
   if (city === null) return homePage(pageLang)
   if (!isCitySlug(city)) return null
   const own = await cityPages(CITIES.find((c) => c.slug === city)!)

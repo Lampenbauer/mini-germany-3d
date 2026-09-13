@@ -131,8 +131,8 @@ describe('the cities this build knows', () => {
     // shadow it, and the path parser must read every slug back whole
     for (const city of CITIES) {
       expect(RESERVED_PATH_SEGMENTS).not.toContain(city.slug)
-      expect(parseSitePath(formatSitePath('de', city.slug))).toEqual({ lang: null, city: city.slug })
-      expect(parseSitePath(formatSitePath('en', city.slug))).toEqual({ lang: 'en', city: city.slug })
+      expect(parseSitePath(formatSitePath('de', city.slug))).toEqual({ lang: null, city: city.slug, legal: null })
+      expect(parseSitePath(formatSitePath('en', city.slug))).toEqual({ lang: 'en', city: city.slug, legal: null })
     }
   })
 

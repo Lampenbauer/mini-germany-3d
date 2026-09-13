@@ -485,6 +485,28 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('app-title')).toHaveTextContent('Mini Kiel 3D')
   })
 
+  it('opens the legal page’s notice over the door when its address is the one visited', async () => {
+    window.history.replaceState(null, '', '/impressum/')
+    render(<App />)
+    // The path names no city: the door stands, and the notice over it
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    expect(window.__mg3d!.welcomeOpen()).toBe(true)
+    // A commit after the door, so that the door is what it hides from a
+    // screen reader and not the other way round as well
+    const notice = await screen.findByRole('dialog', { name: 'Legal notice' })
+    expect(notice).toHaveAttribute('data-testid', 'legal-dialog')
+    expect(screen.getByTestId('welcome-screen').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'true')
+    expect(notice.closest('[aria-hidden]')).toBeNull()
+    fireEvent.click(within(notice).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByTestId('legal-dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('welcome-screen')).toBeInTheDocument()
+    // The door's own links open it again
+    fireEvent.click(within(screen.getByTestId('welcome-screen')).getByRole('link', { name: 'Privacy' }))
+    expect(screen.getByRole('dialog', { name: 'Privacy' })).toBeInTheDocument()
+    // No city was picked, so no path was written over the page's
+    expect(window.location.pathname).toBe('/impressum/')
+  })
+
   it('writes the German path when the interface speaks German, and keeps the boot options', async () => {
     setLanguage('de')
     window.history.replaceState(null, '', '/en/kiel/?welcome=0&offline=1')
