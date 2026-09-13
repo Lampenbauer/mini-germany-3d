@@ -51,7 +51,7 @@ describe('the device tier', () => {
 describe('the render profile', () => {
   it('gives the desktop the numbers the map was tuned with, the cache by memory', () => {
     const big = renderProfileFor('desktop', 8)
-    expect(big).toMatchObject({ shadowMapSize: 8192, msaaSamples: 2, maxPixelRatio: 2, tileSseCssPx: 6 })
+    expect(big).toMatchObject({ shadowMapSize: 8192, msaaSamples: 1, maxPixelRatio: 2, tileSseCssPx: 6 })
     expect(big.tileCacheMb).toBe(2048)
     expect(renderProfileFor('desktop', 4).tileCacheMb).toBe(1024)
     // No reading (Safari, Firefox): mid-range assumed
@@ -64,7 +64,9 @@ describe('the render profile', () => {
     const small = renderProfileFor('mobile', 8)
     const big = renderProfileFor('desktop', 8)
     expect(small.shadowMapSize).toBeLessThan(big.shadowMapSize)
+    // No multisampling on either tier
     expect(small.msaaSamples).toBe(1)
+    expect(big.msaaSamples).toBe(1)
     expect(small.maxPixelRatio).toBeLessThan(big.maxPixelRatio)
     expect(small.tileSseCssPx).toBeGreaterThan(big.tileSseCssPx)
     expect(small.tileCacheMb + small.tileOverflowMb).toBeLessThan(1024)

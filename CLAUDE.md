@@ -985,7 +985,8 @@ path (`/berlin/`). The dev build inflates React (jsxDEV).
 
 Baseline 2026-09-05 (M5 Pro, 1600×1000 CSS at DPR 2, SSE 6 CSS px, real Google
 tiles). MSAA was still 4 then, which is what the "MSAA 4" column costs — the app
-runs 2× since, so a frame today is cheaper than the totals below:
+ran 2× from 2026-09-08 and none since 2026-09-13, so a frame today is that
+column cheaper than the totals below:
 
 | view | GPU/frame | CPU in `viewer.render()` | of which shadows | MSAA 4 | sky atmosphere |
 |---|---|---|---|---|---|
@@ -1063,8 +1064,8 @@ Consequences to keep in mind:
   ([src/lib/render-profile.ts](src/lib/render-profile.ts)) handed in by
   `App.tsx`: two tiers, `desktop` with every number as measured here and
   `mobile` – a touch screen whose shorter side is under 900 CSS px, or
-  any device reporting 2 GB or less – with a 2048 cascade (64 MB), no
-  MSAA, a pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
+  any device reporting 2 GB or less – with a 2048 cascade (64 MB), a
+  pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
   384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
   instead of 3.5, a 600-drop rain pool and no ship effects (smoke,
   wakes). `?tier=` forces either;
@@ -1074,13 +1075,30 @@ Consequences to keep in mind:
   measured frame by frame – measure on a phone before tuning them, with
   `renderPacing()` and `tileMemory()`, the same way the desktop's were.
   A new rendering knob goes into the profile, not beside it.
-- **MSAA is 2×** since 2026-09-08 (`msaaSamples` in the `Viewer` options), down
-  from Cesium's default of 4. It was the most expensive item in a frame — 11.7 of
-  the home view's 19 GPU ms — and the sampling rate is spent almost entirely on
-  this map's own strokes: 4× against 1× differs in 17 % of the pixels, 4× against
-  2× in only 14 %, nearly all of it route-polyline edges. There is no `?msaa=`
-  URL knob; `__cesiumViewer.scene.msaaSamples = n` plus `__cesiumViewer.render()`
-  changes it live (values 1, 2, 4, 8; the setter silently clamps to the driver's
+- **MSAA is off on both tiers** since 2026-09-13 (`msaaSamples: 1` in both
+  profiles – the user's call for the desktop, which had run at 2× since
+  2026-09-08, down from Cesium's default of 4). At 4× it was the most expensive
+  item in a frame — 11.7 of the home view's 19 GPU ms — and the sampling rate is
+  spent almost entirely on this map's own strokes: 4× against 1× differs in 17 %
+  of the pixels, 4× against 2× in only 14 %, nearly all of it route-polyline
+  edges, which alias now. What the second sample cost, measured 2026-09-13 the
+  way the section above describes (headed Chromium, real tiles, timer queries,
+  `scene.msaaSamples` toggled 1 → 2 → 1 → 2 on one scene, medians of 40
+  frames, 3200×2000 buffer at DPR 2, clock paused, ships and aircraft off):
+
+  | view | GPU 1× | GPU 2× | CPU in `render()` 1× / 2× |
+  |---|---|---|---|
+  | Rostock home 12:00 | 5.1 · 5.9 ms | 9.7 · 9.3 ms | 4.4 · 4.5 / 4.5 · 4.8 ms |
+  | Rostock centre, 300 m, shadows on | 10.0 · 10.1 ms | 14.8 · 14.8 ms | 6.9 · 6.1 / 6.2 · 6.4 ms |
+  | Berlin home 08:30 | 5.9 · 7.2 ms | 12.1 · 12.9 ms | 5.1 · 6.7 / 6.2 · 6.4 ms |
+  | Rostock home at DPR 1 | 3.8 · 4.3 ms | 7.9 · 6.9 ms | 6.0 · 6.0 / 6.2 · 6.1 ms |
+
+  So the second sample is 4–6 GPU ms a frame at DPR 2 – it doubles the home
+  view's GPU time – and nothing on the CPU: the JS side of a frame does not
+  know how many samples the framebuffer has, and the ±1 ms between the two
+  runs of each setting is the tiles loading behind. There is no `?msaa=` URL knob;
+  `__cesiumViewer.scene.msaaSamples = n` plus `__cesiumViewer.render()` changes
+  it live (values 1, 2, 4, 8; the setter silently clamps to the driver's
   `gl.MAX_SAMPLES` and the multisample path is gated on `> 1`).
 
 ### Animated effects are stateless shaders, not particle systems

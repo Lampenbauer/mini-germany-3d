@@ -902,15 +902,15 @@ export class CesiumMap {
       fullscreenButton: false,
       infoBox: false,
       selectionIndicator: false,
-      // Multisampling at 2×, down from Cesium's default of 4. MSAA is the
-      // single most expensive thing in a frame here – 11.7 of the 19 ms
-      // the home view costs on the GPU – and almost all of it is spent on
-      // this map's own strokes rather than on the tiles: 4× against 1×
-      // differs in 17 % of the pixels, 4× against 2× in only 14 %, nearly
-      // all of that the edges of the route polylines. The second sample is
-      // what turns a staircase into a line; the third and fourth refine an
-      // edge that already reads as straight. A phone draws at 1: its
-      // fill rate is the scarce thing there (see lib/render-profile.ts).
+      // Multisampling off (1) on both tiers since 2026-09-13, the user's
+      // call for the desktop too after a week at 2×. Cesium's default is
+      // 4, and MSAA was the single most expensive thing in a frame here –
+      // 11.7 of the 19 ms the home view cost on the GPU at 4× – almost all
+      // of it spent on this map's own strokes rather than on the tiles:
+      // 4× against 1× differs in 17 % of the pixels, 4× against 2× in only
+      // 14 %, nearly all of that the edges of the route polylines. The
+      // number lives in the profile (lib/render-profile.ts); at 1 the
+      // multisample path is not taken at all.
       msaaSamples: this.profile.msaaSamples,
       // Render at native device resolution: Cesium's default is CSS-pixel
       // resolution, which leaves labels and edges visibly pixelated on

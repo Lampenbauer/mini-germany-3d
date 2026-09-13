@@ -42,7 +42,12 @@ export interface RenderProfile {
    * and a phone's screen is small enough that the coarser edge reads.
    */
   shadowMapSize: number
-  /** Multisampling; 1 turns the multisample path off entirely. */
+  /**
+   * Multisampling; 1 turns the multisample path off entirely – which it
+   * is on both tiers since 2026-09-13 (the user's call for the desktop
+   * too, after a week at 2×; see the note in CesiumMap). The knob stays
+   * in the profile, where a rendering number belongs.
+   */
   msaaSamples: number
   /**
    * The device pixel ratio the drawing buffer follows, at most. Phones
@@ -121,7 +126,7 @@ export function renderProfileFor(tier: DeviceTier, deviceMemoryGb: number | unde
   return {
     tier,
     shadowMapSize: 8192,
-    msaaSamples: 2,
+    msaaSamples: 1,
     maxPixelRatio: 2,
     tileSseCssPx: 6,
     tileCacheMb: memoryGb >= 8 ? 2048 : 1024,
