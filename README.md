@@ -1143,7 +1143,7 @@ they are in view.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
 - Street lamps (after `npm run data:lamps`), airfield lighting (after `npm run data:airfield-lights`), buoys and lighthouses (after `npm run data:buoys` / `data:lighthouses`): © OpenStreetMap contributors, ODbL 1.0
 - Webcam pictures: [Windy.com](https://www.windy.com/webcams) Webcams API – shown as delivered, each linked to its windy.com page, with the courtesy line in the credit display, as Windy's terms ask
-- Air traffic: [adsb.fi](https://adsb.fi) open data – for personal, non-commercial use, cited with a link in the credit display while aircraft are on the map, as its terms ask
+- Air traffic: [adsb.fi](https://adsb.fi) open data – for personal, non-commercial use, cited with a link in the credits dialog while aircraft are on the map, as its terms ask (its terms name no place for the citation, so it stays off the map's edge; Windy's courtesy line is the one that has to stand in the corner)
 - Terrain heights (after `npm run data:heights` / `data:lamps` / `data:airfield-lights`):
   © [Mapterhorn](https://mapterhorn.com/attribution), built from
   © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from

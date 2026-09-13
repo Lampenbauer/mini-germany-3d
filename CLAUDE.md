@@ -1682,7 +1682,9 @@ ships. Decisions, taken with the user, that should not be re-litigated:
 - **The source is adsb.fi's open data API** (`opendata.adsb.fi/api/v3`),
   a readsb aggregator with second-by-second updates, no key, one request
   a second for personal use, and a link asked for in return (the layer's
-  static credit). OpenSky was the alternative and lost on resolution (10 s
+  static credit – in the credits dialog only since 2026-09-13, not on
+  screen: the terms name no place, unlike Windy's, whose courtesy line
+  has to stand in the corner of the map and does). OpenSky was the alternative and lost on resolution (10 s
   anonymous, 5 s registered, credits per day). Both sides keep the rate
   limit for every city together: a 4 s per-city TTL and upstream calls
   spaced a second apart, in PHP through the lock file's mtime. If adsb.fi

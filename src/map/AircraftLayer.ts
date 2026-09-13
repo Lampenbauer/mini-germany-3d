@@ -387,7 +387,7 @@ export class AircraftLayer {
   private lastSyncMs = 0
   /** Counts rendered frames (see markRendered / AircraftRecord.renderedStamp). */
   private renderStamp = 0
-  /** adsb.fi's line in the credits, while any aircraft is drawn – its terms ask for it. */
+  /** adsb.fi's line in the credits, while any aircraft is drawn – its terms ask for a citation with a link. */
   private credit: Credit | null = null
   /** The position lights, beacons and strobes of every aircraft drawn (see NavLights). */
   private readonly lights: NavLights
@@ -1087,7 +1087,14 @@ export class AircraftLayer {
     this.aircraft.delete(hex)
   }
 
-  /** The line adsb.fi's terms ask for, shown while any aircraft is on the map. */
+  /**
+   * The citation adsb.fi's terms ask for – "cite adsb.fi and include a
+   * link to our home page", nothing about where – kept while any
+   * aircraft is on the map. In the credits dialog only (the lightbox
+   * behind the map's "Data attribution" link), not on screen: Windy's
+   * terms want their courtesy in the corner of the map, adsb.fi's do
+   * not, and one line at the foot of the map is enough (2026-09-13).
+   */
   private applyCredit(): void {
     const display = this.viewer.creditDisplay
     if (!display) return
@@ -1095,7 +1102,7 @@ export class AircraftLayer {
     if (wanted && !this.credit) {
       this.credit = new Credit(
         '<a href="https://adsb.fi" target="_blank" rel="noopener">Aircraft: adsb.fi</a>',
-        true,
+        false,
       )
       display.addStaticCredit(this.credit)
     } else if (!wanted && this.credit) {
