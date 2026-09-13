@@ -168,7 +168,7 @@ export const config = {
    * for the flight from one city to the next.
    */
   cameraLimits: {
-    maxHeightMeters: 25_000,
+    maxHeightMeters: 30_000,
   },
 
   /**

@@ -16,7 +16,7 @@ import rostockLampsJson from '@/cities/rostock/street-lamps.json'
 
 export const rostock: City = cityBySlug('rostock')!
 
-/** THE Rostock rectangle: the city limits plus 15 km on every side. */
+/** THE Rostock rectangle: the city limits plus 20 km on every side. */
 export const rostockBoundingBox = rostock.boundingBox
 
 export const rostockNetwork = rostockNetworkJson as unknown as NetworkJson

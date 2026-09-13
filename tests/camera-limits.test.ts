@@ -5,7 +5,7 @@ import { padBoundingBox } from '@/lib/city'
 import { rostockBoundingBox } from './cities'
 import { boundingBoxCameraLimits, clampCameraPose } from '@/map/camera-limits'
 
-const MAX_HEIGHT_M = 25_000
+const MAX_HEIGHT_M = 30_000
 
 /** A fence 100 km around a straight north–south route at 12.1 °E. */
 function testLimits() {

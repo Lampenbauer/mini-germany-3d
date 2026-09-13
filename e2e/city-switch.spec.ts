@@ -74,7 +74,7 @@ test('the picker flies from Rostock to Kiel', async ({ page }) => {
     .poll(
       async () => {
         const view = await cameraView(page)
-        return inside(view, KIEL) && view.height <= 25_000 + 1
+        return inside(view, KIEL) && view.height <= 30_000 + 1
       },
       { timeout: 60_000 },
     )

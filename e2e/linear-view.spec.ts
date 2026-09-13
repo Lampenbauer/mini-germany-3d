@@ -352,7 +352,7 @@ test('the underground tab is reachable from the diagram', async ({ page }) => {
 
   // ... and the camera came home for it. Leaving the diagram lands at the
   // city's home view whichever reading was picked: the plan it was left
-  // on is 25 km straight down, where the tunnels are nothing to see.
+  // on is up to 30 km straight down, where the tunnels are nothing to see.
   await expect
     .poll(async () => (await cameraPose(page)).pitch, { timeout: 30_000 })
     .toBeGreaterThan(CITY.home.pitch - 0.5)

@@ -9,12 +9,12 @@
     "east": 8.8004049,
     "north": 50.2271424
   },
-  "paddingMeters": 15000,
+  "paddingMeters": 20000,
   "boundingBox": {
-    "west": 8.2611,
-    "south": 49.8803,
-    "east": 9.012,
-    "north": 50.3622
+    "west": 8.1903,
+    "south": 49.8353,
+    "east": 9.0828,
+    "north": 50.4072
   },
   "home": {
     "longitude": 8.68,

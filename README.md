@@ -227,10 +227,10 @@ VITE_CESIUM_ION_TOKEN=your-token
   little further than that angle needs. The line flight needs none of it – Cesium
   derives that distance from the frustum itself.
 - **Map bounds:** The camera stays inside the city's bounding box – the city
-  limits (an OSM boundary relation) widened by 15 km on every side, the one
+  limits (an OSM boundary relation) widened by 20 km on every side, the one
   rectangle the data pipeline, the AIS subscription, the PHP proxy and the
   camera share (`boundingBox` in the city's `city.json`, typed by
-  `src/lib/city.ts`) – and does not zoom out beyond 25 km altitude: there is
+  `src/lib/city.ts`) – and does not zoom out beyond 30 km altitude: there is
   nothing outside that this map could show, and every place the camera visits
   pulls its own 3D tiles. A shared link pointing further away opens at the
   border (see `config.cameraLimits`). Only the flight from one city to the
@@ -329,7 +329,8 @@ src/cities/kiel/
 place (typed and validated by `src/lib/city.ts`):
 
 - **`cityBounds`, `paddingMeters`, `boundingBox`** – the city limits from OSM
-  (`osmRelation`) and the padded rectangle everything works with. The limits
+  (`osmRelation`) and the padded rectangle everything works with (`add-city`
+  pads 20 km unless `--padding` says otherwise). The limits
   are those of the relation's *largest outer ring*, not the relation's own
   bounding box: an administrative boundary can include an exclave far away
   (an island 100 km out at sea), and `out bb` would stretch the box across
@@ -671,7 +672,7 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   ferry 4; ferries are matched via the pier names in `route_long_name` or the
   pier coordinates). Departure times and direction detection use each trip's
   first/last stop **within the city limits** (`cityBounds`, without the
-  padding – with the 15 km the first stop of a Rostock S2/S3 would be Schwaan
+  padding – with the 20 km the first stop of a Rostock S2/S3 would be Schwaan
   or Laage), so trips cut at the limits depart the network at their real
   local times. City relevance is established via the stop coordinates; a
   per-line agency overview in the log reveals route-number collisions. Lines

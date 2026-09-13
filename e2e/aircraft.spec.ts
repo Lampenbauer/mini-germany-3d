@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { Model } from 'cesium'
+import { cityBySlug } from '../src/cities/definitions'
 
 /**
  * The air traffic (src/map/AircraftLayer.ts): offline there is no feed,
@@ -218,17 +219,19 @@ test('?aircraft=0 opens with the traffic switched off', async () => {
 
 test('a followed aircraft leaving the box is watched from its edge, the camera stays inside', async () => {
   test.setTimeout(300_000)
-  // Rostock's box ends at 12.5272° east. An aircraft 180 m inside it,
-  // heading east at 30 m/s, crosses the edge six seconds into the test –
-  // near enough that the CI runner is not kept waiting, far enough for
-  // the chase to engage first. Its track is a straight line on the wall
-  // clock, so the test knows where it is at any moment without asking
-  // the map (flightLon below).
-  const EDGE_LON = 12.5272
+  // Rostock's box ends where its definition says (12.6048° east). An
+  // aircraft 180 m inside it, heading east at 30 m/s, crosses the edge
+  // six seconds into the test – near enough that the CI runner is not
+  // kept waiting, far enough for the chase to engage first. Its track is
+  // a straight line on the wall clock, so the test knows where it is at
+  // any moment without asking the map (flightLon below).
+  const EDGE_LON = cityBySlug('rostock')!.boundingBox.east
   const SPEED_MPS = 30
   const AIRCRAFT = { hex: '4ca7b3', callsign: 'RYR7T', lat: 54.1, lon: EDGE_LON - 0.0028 }
   type FlightWindow = Window & { __mg3dFlight?: { rendered: number; lon0: number; dlon: number } }
-  await boot('/?offline=1&welcome=0#lat=54.09&lon=12.5&height=1500&heading=90&pitch=-30&routes=0&stops=0')
+  // The camera starts 1.8 km inside the edge, looking east
+  const startLon = (EDGE_LON - 0.0272).toFixed(4)
+  await boot(`/?offline=1&welcome=0#lat=54.09&lon=${startLon}&height=1500&heading=90&pitch=-30&routes=0&stops=0`)
   await page.evaluate(
     ({ hex, callsign, lat, lon, speed }) => {
       const now = Date.now()
@@ -273,7 +276,7 @@ test('a followed aircraft leaving the box is watched from its edge, the camera s
   // The chase engages: the camera comes to the aircraft, inside the box
   const cameraLon = () =>
     page.evaluate(() => (window.__cesiumViewer!.camera.positionCartographic.longitude * 180) / Math.PI)
-  await expect.poll(cameraLon, slowPoll).toBeGreaterThan(12.51)
+  await expect.poll(cameraLon, slowPoll).toBeGreaterThan(EDGE_LON - 0.0172)
 
   // The aircraft flies out over the edge; the camera follows it to the
   // edge and stops there, still following – the card stays up. Judged

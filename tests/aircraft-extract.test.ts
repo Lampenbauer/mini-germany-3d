@@ -276,7 +276,8 @@ describe('aircraftPlaybackSample', () => {
 
 describe('adsbQuery', () => {
   it('asks for the circle around the box that reaches its corner, and a margin beyond', () => {
-    // Frankfurt's box, 53 km on a side: 21 nm to the corner from its centre
+    // A box 53 km on a side (Frankfurt's, with the 15 km padding it had
+    // until 2026-09-13): 21 nm to the corner from its centre
     expect(
       adsbQuery({ west: 8.2648, south: 49.8811, east: 9.0083, north: 50.3615 }),
     ).toEqual({ lat: 50.1213, lon: 8.6366, distNm: 21 + AIRCRAFT_MARGIN_NM })

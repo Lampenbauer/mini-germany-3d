@@ -5,7 +5,7 @@
  * city.json skeleton to src/cities/<slug>/ – the pipeline
  * (data:update, data:gtfs, …) takes it from there.
  *
- *   node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 15000]
+ *   node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 20000]
  *   node scripts/add-city.mjs kiel 27021
  *   node scripts/add-city.mjs kiel 27021 --limits-only    (refresh limits.json only)
  *
@@ -40,7 +40,12 @@ import { CITIES_DIR } from './lib/city.mjs'
 import { postOverpass } from './lib/overpass.mjs'
 import { compactPath } from './lib/simplify.mjs'
 
-const DEFAULT_PADDING_METERS = 15000
+/**
+ * How far the box reaches past the city limits on every side – 20 km
+ * since 2026-09-13 (15 km before; every city in the build was re-padded
+ * with it, see CLAUDE.md).
+ */
+const DEFAULT_PADDING_METERS = 20000
 /** Douglas–Peucker tolerance for the stored limits ring, in meters. */
 const LIMITS_TOLERANCE_METERS = 15
 
@@ -147,7 +152,7 @@ async function main() {
   const [slug, relationArg] = positional
   const relationId = Number(relationArg)
   if (!slug || !/^[a-z][a-z0-9-]*$/.test(slug) || !Number.isInteger(relationId)) {
-    console.error('Usage: node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 15000]')
+    console.error('Usage: node scripts/add-city.mjs <slug> <osm-relation-id> [--name "Name"] [--padding 20000]')
     process.exit(2)
   }
   const dir = resolve(CITIES_DIR, slug)

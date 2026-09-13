@@ -64,8 +64,8 @@ describe('windyNearby', () => {
     const { lat, lon, radiusKm } = windyNearby(rostockBoundingBox)
     expect(lat).toBeCloseTo(54.1477, 3)
     expect(lon).toBeCloseTo(12.1469, 3)
-    // Half the diagonal of a ~50 × 52 km box
-    expect(radiusKm).toBeGreaterThan(33)
-    expect(radiusKm).toBeLessThan(38)
+    // Half the diagonal of a ~60 × 62 km box
+    expect(radiusKm).toBeGreaterThan(41)
+    expect(radiusKm).toBeLessThan(46)
   })
 })

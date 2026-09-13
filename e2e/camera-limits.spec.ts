@@ -3,7 +3,7 @@ import { cityBySlug } from '../src/cities/definitions'
 
 /**
  * The camera leash (see src/map/camera-limits.ts): the view stays inside
- * the Rostock bounding box and does not zoom out past 25 km.
+ * the Rostock bounding box and does not zoom out past 30 km.
  *
  * Nothing here is read off the screen, so the scene is raised as cheaply
  * as it can be: routes, stops and labels off. Under SwiftShader those are
@@ -17,9 +17,9 @@ import { cityBySlug } from '../src/cities/definitions'
  * the app applies an edited pose without a reload (see camera-hash.spec.ts).
  */
 
-/** The fence in degrees: the city limits widened by 15 km. */
+/** The fence in degrees: the city limits widened by 20 km. */
 const FENCE = cityBySlug('rostock')!.boundingBox
-const MAX_HEIGHT = 25_000
+const MAX_HEIGHT = 30_000
 /** Slack for the assertions – the camera may sit right on the border. */
 const SLACK = 0.01
 /** Layers off – see the note above. */

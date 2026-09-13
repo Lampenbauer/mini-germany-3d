@@ -562,6 +562,22 @@ Rostock is the default. The README's [Cities](README.md#cities) section document
 `city.json` field by field and the `add-city` → pipeline sequence. What follows
 is what the data itself taught.
 
+**The box is the limits plus 20 km on every side, and the camera ceiling
+is 30 km (since 2026-09-13; 15 km and 25 km before).** `add-city` pads
+`DEFAULT_PADDING_METERS`, every city carries its own `paddingMeters`, and
+the ceiling is `config.cameraLimits.maxHeightMeters`. The cities in the
+build were re-padded the same day by rewriting `paddingMeters` and the
+recomputed `boundingBox` in each `city.json` (`tests/cities.test.ts`
+names the numbers when a box is off) – and nothing else, because the
+box is what the lamps, the airfield lights, a `clip: "box"` network and
+the AIS subscription are fetched for, and those files are the nightly
+pipeline's: the band between 15 and 20 km stays empty until the OSM run
+after the change fills it (accepted by the user). Widen a box only with
+that in mind, and never as a side effect. The camera leash, the AIS box
+and the cloud slab follow the JSON at once; a spec that needs an edge
+reads it from the definition (`cityBySlug(…).boundingBox`) rather than
+pinning the number.
+
 ### Terrain
 
 Heights come from **Mapterhorn** tiles (Terrarium WebP, decoded with sharp) at
@@ -656,14 +672,16 @@ apron's floodlight masts (`tower:type=lighting`, inside the
 masts burn on match nights) as the kind `flood`, with a terrain height
 like the lamps', into `airfield-lights.json`; Sunday nights with the
 rest of the OSM data, heights reused through `PREV_AIRFIELD_LIGHTS`.
-Counted 2026-09-13, per box: Frankfurt ~10 200, Berlin ~6 400 (BER,
-Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and Finkenwerder),
-Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich ~1 700 (edge
-and taxiway lights not mapped yet), Bremen ~1 000, Lübeck ~1 000,
-Wilhelmshaven ~300, Rostock 21 (Laage's, the rest of them south of the
-box), Kiel 2 – sparse light is real light, as with the lamps;
-Schwerin's box holds no airfield (Parchim lies outside) and gets an
-empty list, so every city has the file. Closed airfields
+Counted 2026-09-13, per box – the 15 km boxes of that morning; the
+20 km ones since reach more (all of Laage in Rostock's, Parchim in
+Schwerin's) from the first OSM run after: Frankfurt ~10 200, Berlin
+~6 400 (BER, Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and
+Finkenwerder), Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich
+~1 700 (edge and taxiway lights not mapped yet), Bremen ~1 000, Lübeck
+~1 000, Wilhelmshaven ~300, Rostock 21 (Laage's, the rest of them south
+of the 15 km box), Kiel 2 – sparse light is real light, as with the
+lamps; Schwerin's 15 km box held no airfield (Parchim lay outside) and
+got an empty list, so every city has the file. Closed airfields
 need no rule: the mappers took Tegel's and Tempelhof's lights down with
 the airports. [AirfieldLightsLayer](src/map/AirfieldLightsLayer.ts)
 draws them as one PointPrimitiveCollection per city – points, not the

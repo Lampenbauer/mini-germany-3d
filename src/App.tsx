@@ -3329,8 +3329,8 @@ export default function App() {
           // asked for rather than arriving and then changing.
           if (next === 'underground') setUndergroundView(true)
           // Home either way. The plan view the diagram was left on is
-          // 25 km straight down – a working position, not a place to be
-          // put down in, and under the city it sees nothing at all.
+          // up to 30 km straight down – a working position, not a place
+          // to be put down in, and under the city it sees nothing at all.
           mapRef.current?.setCameraHome()
         })
         return
