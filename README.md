@@ -259,7 +259,11 @@ VITE_CESIUM_ION_TOKEN=your-token
   restore waits a minute and a half for her and then gives up quietly. The
   Routes/Stops layer toggles, the miniature look and the pause state ride along
   as `routes=0`, `stops=0`, `tiltshift=1`, `paused=1` whenever they deviate from
-  the defaults (layers on, miniature look off, clock running); the city is the
+  the defaults (layers on, miniature look off, clock running), and so does the
+  clock as it was set in the panel – the day picked in the calendar and the
+  time typed into the field, as `date=2026-09-14&time=08:30` – as entered,
+  never as the clock runs: the link opens on the moment that was set and the
+  address bar does not tick with the simulation. The city is the
   path's (`/kiel/`), where a crawler and a link preview can see it.
 
 ### Useful URL parameters
@@ -268,7 +272,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 |-----------|--------|
 | `?offline=1` | No ion/Google access, wireframe globe (basis of the tests) |
 | `?speed=60` | Initial time-lapse factor (1–600) |
-| `?time=08:30` | Set the simulation time (Europe/Berlin) |
+| `?time=08:30` | Set the simulation time at start (Europe/Berlin) – a boot flag, kept in the search string; what is typed into the panel goes into the hash instead (`time=` below) and wins over it |
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it; a path under `/en/` counts as English) |
@@ -290,6 +294,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `#path=lat,lon,height,heading,pitch;…&dur=20&ease=linear` | The camera path (see the feature table): two or more keyframes and the seconds from the first to the last; it eases in and out unless `ease=linear` asks for a constant pace – maintained by the camera path bar |
 | `?play=1` | Fly the camera path the hash carries once the city is up (once, for the city the link opened on) |
 | `#…&view=linear` / `#…&view=underground` | Which reading of the network to open on – the lines pulled straight, or the city from underneath. The surface is the map itself and needs no word |
+| `#…&date=2026-09-14&time=08:30` | The clock as set in the panel: the day picked in the calendar and the time typed into the field, either on its own. Written as entered – the hash keeps the entry, not the running clock, so it does not tick with the simulation – and a link opens the clock on that moment with the panel showing it; "Now" takes both out again |
 | `…&routes=0&stops=0&labels=0&webcams=0&clouds=1&tiltshift=1&paused=1` | Layer toggles, the 3D clouds, the miniature look and the pause state (only present when they deviate from the defaults: layers off, clouds on, miniature look on, paused) |
 
 ## Tests
@@ -951,7 +956,7 @@ src/
 │   ├── future-notice.ts    # When to say that a clock set ahead leaves the ships and aircraft live
 │   ├── timetable.ts        # Headway timetable synthesis + trip states (dwell/moving)
 │   ├── tunnels.ts          # Tunnel meter-ranges → path pieces / mirroring
-│   ├── camera-hash.ts      # Camera pose, selection and switches ↔ URL hash
+│   ├── camera-hash.ts      # Camera pose, selection, switches and the clock as set ↔ URL hash
 │   ├── site-path.ts        # Where a page stands: /<slug>/ per city, /en/ for English
 │   ├── site-pages.ts       # What a page shows without the map: the city as plain HTML,
 │   │                       # the head's tags, the sitemap (rendered by the prerender plugin)

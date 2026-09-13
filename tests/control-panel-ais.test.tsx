@@ -29,6 +29,8 @@ function panel(overrides: Partial<ControlPanelProps> = {}) {
     paused: false,
     onSpeedChange: vi.fn(),
     onTogglePause: vi.fn(),
+    pickedDate: null,
+    enteredTime: null,
     onSetTime: vi.fn(),
     onResetTime: vi.fn(),
     onSetDate: vi.fn(),

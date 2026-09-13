@@ -386,10 +386,20 @@ test('the clock can be set and restored to real time', async () => {
     )
     .toMatch(/^08:00/)
   await expect.poll(() => page.evaluate(() => window.__mg3d!.vehicleCount())).toBeGreaterThan(0)
+  // The time typed is in the hash as typed (the ?time= of the boot stays
+  // in the search string), and stays 08:00 there while the clock runs on
+  // from it – the address bar does not tick with the simulation
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('&time=08:00')
+  await page.evaluate(() => window.__mg3d!.setTime('08:45'))
+  await page.getByRole('button', { name: 'Resume simulation' }).click()
+  await page.getByRole('button', { name: 'Pause simulation' }).click()
+  expect(await page.evaluate(() => window.location.hash)).toContain('&time=08:00')
 
   await page.getByRole('button', { name: 'Now' }).click()
-  // The field must not keep advertising a time the simulation left behind
+  // The field must not keep advertising a time the simulation left behind,
+  // and neither may the link
   await expect(timeInput).toHaveValue('')
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('time=')
   const diff = await page.evaluate(() => {
     const fmt = new Intl.DateTimeFormat('de-DE', {
       timeZone: 'Europe/Berlin',

@@ -543,13 +543,72 @@ describe('App (UI shell)', () => {
     fireEvent.change(input, { target: { value: '08:00' } })
     expect(window.__mg3d!.secondsOfDay()).toBeGreaterThanOrEqual(8 * 3600)
     expect(window.__mg3d!.secondsOfDay()).toBeLessThan(8 * 3600 + 5)
+    // The time typed goes into the URL as typed …
+    expect(window.location.hash).toContain('&time=08:00')
+    // … and stays what was typed while the clock runs on from it: moved
+    // by anything but the field, and written again, the hash still says
+    // 08:00 – a link that ticked would never be the same twice
+    window.__mg3d!.setTime('09:30')
+    fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
+    expect(window.location.hash).toContain('&time=08:00')
+    expect(window.location.hash).not.toContain('09:30')
+    fireEvent.click(screen.getByRole('button', { name: 'Resume simulation' }))
+    // The field emptied withdraws the entry and leaves the clock alone
+    fireEvent.change(input, { target: { value: '' } })
+    expect(window.location.hash).not.toContain('time=')
+    expect(window.__mg3d!.secondsOfDay()).toBeGreaterThanOrEqual(9.5 * 3600)
+    fireEvent.change(input, { target: { value: '08:00' } })
+    expect(window.location.hash).toContain('&time=08:00')
 
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     const realNow = berlinSecondsOfDay(Date.now())
     const diff = Math.abs(window.__mg3d!.secondsOfDay() - realNow)
     expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
-    // The field goes back to its default: it must not keep showing 08:00
+    // The field goes back to its default: it must not keep showing 08:00,
+    // and neither may the URL
     expect(input).toHaveValue('')
+    expect(window.location.hash).not.toContain('time=')
+  })
+
+  it('opens on the day and the time a link carries, and shows them in the panel', async () => {
+    const tomorrow = berlinDateKey(Date.now() + 86_400_000)
+    window.history.replaceState(
+      null,
+      '',
+      `/?welcome=0#lat=54.08&lon=12.13&height=3000&heading=0&pitch=-38&date=${tomorrow}&time=06:15`,
+    )
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(window.__mg3d!.dateKey()).toBe(tomorrow)
+    expect(window.__mg3d!.secondsOfDay()).toBeGreaterThanOrEqual(6 * 3600 + 15 * 60)
+    expect(window.__mg3d!.secondsOfDay()).toBeLessThan(6 * 3600 + 15 * 60 + 5)
+    // The panel shows what the link set, as if it had been typed here
+    expect(screen.getByLabelText('Set simulation time')).toHaveValue('06:15')
+    expect(
+      screen.getByRole('button', { name: 'Set simulation date (two days back to a week ahead)' }),
+    ).toHaveTextContent(`${parseInt(tomorrow.slice(8), 10)}.`)
+    // … and the hash keeps carrying it, unchanged by the running clock
+    fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
+    expect(window.location.hash).toContain(`&date=${tomorrow}&time=06:15&paused=1`)
+  })
+
+  it('takes an edited entry off the address bar: a half named is set, a half gone is the real clock', async () => {
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    const tomorrow = berlinDateKey(Date.now() + 86_400_000)
+    // A hashchange comes from outside – a typed edit, a history step
+    window.location.hash = `#lat=54.08&lon=12.13&height=3000&date=${tomorrow}&time=22:00`
+    fireEvent(window, new HashChangeEvent('hashchange'))
+    expect(window.__mg3d!.dateKey()).toBe(tomorrow)
+    expect(window.__mg3d!.secondsOfDay()).toBeGreaterThanOrEqual(22 * 3600)
+    expect(screen.getByLabelText('Set simulation time')).toHaveValue('22:00')
+    // The time taken out again: the day stays, the time of day is the real one
+    window.location.hash = `#lat=54.08&lon=12.13&height=3000&date=${tomorrow}`
+    fireEvent(window, new HashChangeEvent('hashchange'))
+    expect(window.__mg3d!.dateKey()).toBe(tomorrow)
+    const diff = Math.abs(window.__mg3d!.secondsOfDay() - berlinSecondsOfDay(Date.now()))
+    expect(Math.min(diff, 86400 - diff)).toBeLessThan(5)
+    expect(screen.getByLabelText('Set simulation time')).toHaveValue('')
   })
 
   it('sets the simulated day from the calendar, two days back to a week ahead, and Now brings it back', async () => {
@@ -580,8 +639,11 @@ describe('App (UI shell)', () => {
     const secondsBefore = window.__mg3d!.secondsOfDay()
     fireEvent.click(tomorrowButton)
     expect(window.__mg3d!.dateKey()).toBe(tomorrow)
-    // The time of day stays: only the day moved
+    // The time of day stays: only the day moved – and the day picked is
+    // in the URL, the time (not typed) is not
     expect(Math.abs(window.__mg3d!.secondsOfDay() - secondsBefore)).toBeLessThan(2)
+    expect(window.location.hash).toContain(`&date=${tomorrow}`)
+    expect(window.location.hash).not.toContain('time=')
     // The trigger now names the day picked, and the calendar closed itself
     expect(trigger).toHaveTextContent(shortDay(tomorrow))
     expect(screen.queryByRole('grid')).not.toBeInTheDocument()
@@ -597,8 +659,9 @@ describe('App (UI shell)', () => {
     expect(trigger).toHaveTextContent(shortDay(twoDaysAgo))
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     expect(window.__mg3d!.dateKey()).toBe(today)
-    // … and gives the day up again with the clock, back to today
+    // … and gives the day up again with the clock, back to today, off the URL
     expect(trigger).toHaveTextContent(shortDay(today))
+    expect(window.location.hash).not.toContain('date=')
   })
 
   it('brings a running time-lapse back to real pace along with the real time', () => {

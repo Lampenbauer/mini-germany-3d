@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { de, enGB } from 'react-day-picker/locale'
 import {
@@ -90,11 +90,20 @@ export interface ControlPanelProps {
   paused: boolean
   onSpeedChange: (speed: number) => void
   onTogglePause: () => void
-  /** Set the simulation time to "HH:MM". */
+  /**
+   * The clock as the reader set it, shown in the field and on the date
+   * button: the day picked in the calendar ("YYYY-MM-DD") and the time
+   * typed ("HH:MM"), null for a half still on the real clock. The app
+   * owns both – they ride in the URL hash as entered (lib/camera-hash.ts),
+   * and a link that carries them opens the panel showing them.
+   */
+  pickedDate: string | null
+  enteredTime: string | null
+  /** Set the simulation time to "HH:MM"; '' withdraws the entry (the clock runs on). */
   onSetTime: (hhmm: string) => void
   /** Set the simulated calendar day, "YYYY-MM-DD" (two days back to a week ahead). */
   onSetDate: (dateKey: string) => void
-  /** Reset the simulation time to the real clock. */
+  /** Reset the simulation time to the real clock, giving up the day and the time entered. */
   onResetTime: () => void
   lines: LineToggleInfo[]
   onToggleLine: (lineId: string) => void
@@ -263,18 +272,9 @@ export function ControlPanel(props: ControlPanelProps) {
   // on, and the map is what a visitor came for. Read once, when made.
   const [collapsed, setCollapsed] = useState(narrowViewport)
   const [cityOpen, setCityOpen] = useState(false)
-  /**
-   * The time field is uncontrolled – the native picker owns its value. "Now"
-   * therefore has to clear it explicitly, otherwise the field keeps showing a
-   * time the simulation left behind.
-   */
-  const timeInputRef = useRef<HTMLInputElement>(null)
-  // The day picked in the calendar – undefined while none has been, which
-  // is to say the simulation is on today. Kept that way rather than seeded
-  // with today's date so that midnight moves it on its own, the way the
-  // range below moves. Whether the calendar is open: it closes itself on a
-  // pick, as shadcn's does.
-  const [pickedDate, setPickedDate] = useState<Date | undefined>(undefined)
+  // Whether the calendar is open: it closes itself on a pick, as shadcn's
+  // does. The day picked and the time typed are the app's (pickedDate,
+  // enteredTime): they go into the URL, and a link brings them back.
   const [dateOpen, setDateOpen] = useState(false)
   // The picker's range: two days back to a week ahead, as calendar days in
   // the timetable's zone. Re-read on every render – the panel renders once
@@ -288,10 +288,11 @@ export function ControlPanel(props: ControlPanelProps) {
   const maxDay = localDay(berlinDateKey(Date.now() + DATE_PICKER_DAYS_AHEAD * 86_400_000))
   const calendarLocale = getLanguage() === 'de' ? de : enGB
   // The day the simulation stands on: the one picked, or today until one
-  // is. The button carries it from the start rather than the word "Date" –
-  // a select shows what is selected, and something is, whether or not the
-  // viewer put it there.
-  const shownDay = pickedDate ?? today
+  // is – null rather than seeded with today's date, so that midnight moves
+  // it on its own, the way the range above moves. The button carries it
+  // from the start rather than the word "Date" – a select shows what is
+  // selected, and something is, whether or not the viewer put it there.
+  const shownDay = props.pickedDate ? localDay(props.pickedDate) : today
   // That day on the button, in the one shape every language gets here:
   // "12. Sep 2026". A named month cannot be read the wrong way round,
   // which an all-numeric date can (08/09 is two different days on either
@@ -578,7 +579,6 @@ export function ControlPanel(props: ControlPanelProps) {
                       disabled={{ before: minDay, after: maxDay }}
                       onSelect={(day) => {
                         if (!day) return
-                        setPickedDate(day)
                         props.onSetDate(format(day, 'yyyy-MM-dd'))
                         setDateOpen(false)
                       }}
@@ -586,28 +586,26 @@ export function ControlPanel(props: ControlPanelProps) {
                   </PopoverContent>
                 </Popover>
                 <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+                {/* Controlled by the entry: the native picker yields a whole
+                    time or nothing, and nothing withdraws the entry while
+                    the clock runs on – so the field never shows a time the
+                    URL does not carry, and "Now" empties it through the app. */}
                 <Input
-                  ref={timeInputRef}
                   type="time"
                   aria-label={t('sim.setTime')}
                   className="h-full w-17 shrink-0 appearance-none rounded-l-none border-0 bg-transparent px-2 text-center shadow-none focus-visible:ring-0 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
-                  onChange={(e) => {
-                    if (e.target.value) props.onSetTime(e.target.value)
-                  }}
+                  value={props.enteredTime ?? ''}
+                  onChange={(e) => props.onSetTime(e.target.value)}
                 />
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                onClick={() => {
-                  // Back to the real clock – the time field emptied, so it
-                  // does not keep advertising a time no longer set, and the
-                  // day given up, which puts today back on the date button.
-                  if (timeInputRef.current) timeInputRef.current.value = ''
-                  setPickedDate(undefined)
-                  props.onResetTime()
-                }}
+                // Back to the real clock – the app gives up the time and the
+                // day with it, which empties the field and puts today back
+                // on the date button.
+                onClick={props.onResetTime}
               >
                 <TimerReset aria-hidden />
                 {t('sim.now')}

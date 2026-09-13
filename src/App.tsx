@@ -50,7 +50,9 @@ import {
   parseVehicleHash,
   parseVesselHash,
   parseAircraftHash,
+  formatTimeEntry,
   type CameraView,
+  type HashUiState,
 } from '@/lib/camera-hash'
 import {
   DEFAULT_DURATION_S,
@@ -71,7 +73,7 @@ import { formatSitePath, parseSitePath } from '@/lib/site-path'
 import { narrowViewport } from '@/lib/viewport'
 import { hoverUnavailable, watchPointerIdle } from '@/lib/pointer-idle'
 import { cityApiUrl } from '@/lib/city-api'
-import { parseTimeOfDay, SimClock } from '@/lib/clock'
+import { berlinDateKey, berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
 import { FUTURE_NOTICE_DURATION_MS, FutureNotice } from '@/lib/future-notice'
 import { isInTunnel } from '@/lib/tunnels'
 import {
@@ -501,6 +503,20 @@ const WELCOME_LINGER_MAX_MS = 10_000
  * card picked while the city loads behind it, gone.
  */
 type WelcomePhase = 'open' | 'loading' | 'closed'
+
+/**
+ * The clock as the reader set it: the calendar's day and the field's
+ * time, each null while that half is on the real clock. What the panel
+ * shows and what the hash carries – as entered, never as the clock runs
+ * (see HashUiState.date).
+ */
+type ClockEntry = Pick<HashUiState, 'date' | 'time'>
+const REAL_CLOCK: ClockEntry = { date: null, time: null }
+
+/** The time of day an entry puts the clock on, in seconds since midnight – the real one for none. */
+function entrySecondsOfDay(time: string | null): number {
+  return (time ? parseTimeOfDay(time) : null) ?? berlinSecondsOfDay(Date.now())
+}
 
 function readUrlOptions(): UrlOptions {
   const params = new URLSearchParams(window.location.search)
@@ -1007,6 +1023,7 @@ export default function App() {
   const speedRef = useRef(1)
   speedRef.current = speed
   const [paused, setPaused] = useState(false)
+  const [clockEntry, setClockEntry] = useState<ClockEntry>(REAL_CLOCK)
   const [clockText, setClockText] = useState('--:--:--')
   // Nothing renders these any more – they exist so the map's basemap and
   // the realtime feed stay observable to the E2E suite (see __mg3d below),
@@ -1104,6 +1121,7 @@ export default function App() {
   const showCloudsRef = useRef(showClouds)
   const photoRef = useRef(photo)
   const pausedRef = useRef(paused)
+  const clockEntryRef = useRef(clockEntry)
 
   const applyRouteVisibility = useCallback(() => {
     const map = mapRef.current
@@ -1323,7 +1341,8 @@ export default function App() {
     document.documentElement.lang = getLanguage()
 
     // Layer/pause state restored from a shared URL. The ?paused search
-    // param stays the boot flag (tests); the hash marks a user pause.
+    // param stays the boot flag (tests); the hash marks a user pause – and
+    // ?time= the same: the hash's date= and time= are the panel's entries.
     const uiState = parseUiStateHash(window.location.hash)
     const startPaused = urlOpts.paused || uiState.paused
     const clock = new SimClock(Date.now(), urlOpts.speed)
@@ -1332,6 +1351,13 @@ export default function App() {
     // the UI tick asks it, once a session like the clock itself
     const futureNotice = new FutureNotice()
     if (urlOpts.timeSec !== null) clock.setSecondsOfDay(urlOpts.timeSec)
+    // The clock as the link set it, over the boot flag: the day picked and
+    // the time typed go to the clock and back onto the panel, and stay in
+    // the hash as they are while the clock runs on from them.
+    if (uiState.date) clock.setDate(uiState.date)
+    if (uiState.time) clock.setSecondsOfDay(entrySecondsOfDay(uiState.time))
+    clockEntryRef.current = { date: uiState.date, time: uiState.time }
+    setClockEntry(clockEntryRef.current)
     if (startPaused) clock.setPaused(true)
     setSpeed(urlOpts.speed)
     setPaused(startPaused)
@@ -1415,6 +1441,8 @@ export default function App() {
           weather: weatherModeRef.current,
           clouds: showCloudsRef.current,
           tiltShift: photoRef.current.tiltShift.enabled,
+          date: clockEntryRef.current.date,
+          time: clockEntryRef.current.time,
           paused: pausedRef.current,
         }) +
         // The camera path rides along in either form (lib/camera-path.ts)
@@ -1554,6 +1582,16 @@ export default function App() {
         photoRef.current = withTiltShift(photoRef.current, tiltShiftOn)
         setPhoto(photoRef.current)
         map.setPhotoSettings(photoRef.current)
+      }
+      // The clock as set by hand, where the hash's entry differs from the
+      // one made: a half named is set, a half gone is back on the real
+      // clock – today, the real time of day – the way "Now" takes both.
+      const entry = clockEntryRef.current
+      if (ui.date !== entry.date) clock.setDate(ui.date ?? berlinDateKey(Date.now()))
+      if (ui.time !== entry.time) clock.setSecondsOfDay(entrySecondsOfDay(ui.time))
+      if (ui.date !== entry.date || ui.time !== entry.time) {
+        clockEntryRef.current = { date: ui.date, time: ui.time }
+        setClockEntry(clockEntryRef.current)
       }
       // Any of the three, the same way the tabs pick them
       if (ui.view !== currentViewRef.current()) selectViewRef.current(ui.view)
@@ -3100,14 +3138,37 @@ export default function App() {
     void toggleFullscreen(document.documentElement)
   }, [])
 
-  const handleSetTime = useCallback((hhmm: string) => {
-    const sec = parseTimeOfDay(hhmm)
-    if (sec !== null) clockRef.current?.setSecondsOfDay(sec)
+  /**
+   * The clock entry as the panel changed it: onto the panel, into the
+   * hash – at once, like a pause, not on the camera's debounce.
+   */
+  const updateClockEntry = useCallback((change: Partial<ClockEntry>) => {
+    clockEntryRef.current = { ...clockEntryRef.current, ...change }
+    setClockEntry(clockEntryRef.current)
+    writeHashRef.current()
   }, [])
 
-  const handleSetDate = useCallback((dateKey: string) => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) clockRef.current?.setDate(dateKey)
-  }, [])
+  const handleSetTime = useCallback(
+    (hhmm: string) => {
+      const sec = hhmm ? parseTimeOfDay(hhmm) : null
+      // Not a time: nothing set. Nothing at all – the field emptied: the
+      // entry withdrawn and the clock left running where it is; the way
+      // back to the present is "Now".
+      if (hhmm && sec === null) return
+      if (sec !== null) clockRef.current?.setSecondsOfDay(sec)
+      updateClockEntry({ time: sec === null ? null : formatTimeEntry(sec) })
+    },
+    [updateClockEntry],
+  )
+
+  const handleSetDate = useCallback(
+    (dateKey: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return
+      clockRef.current?.setDate(dateKey)
+      updateClockEntry({ date: dateKey })
+    },
+    [updateClockEntry],
+  )
 
   const handleResetTime = useCallback(() => {
     const clock = clockRef.current
@@ -3119,7 +3180,10 @@ export default function App() {
       clock.setSpeed(1)
       setSpeed(1)
     }
-  }, [])
+    // The day and the time entered are given up with it – off the panel
+    // and out of the URL
+    updateClockEntry(REAL_CLOCK)
+  }, [updateClockEntry])
 
   const handleToggleFollow = useCallback(() => {
     const id = selectedIdRef.current
@@ -3879,6 +3943,8 @@ export default function App() {
             paused={paused}
             onSpeedChange={handleSpeedChange}
             onTogglePause={handleTogglePause}
+            pickedDate={clockEntry.date}
+            enteredTime={clockEntry.time}
             onSetTime={handleSetTime}
             onSetDate={handleSetDate}
             onResetTime={handleResetTime}

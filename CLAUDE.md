@@ -508,6 +508,29 @@ must never be one of `RESERVED_PATH_SEGMENTS` (`en`, `api`, `assets`,
 `cesium`, `models`, `og`) – `tests/cities.test.ts` pins it, and the
 parser names no city for them.
 
+**The clock rides in the hash as it was set, never as it runs (since
+2026-09-13).** `date=YYYY-MM-DD` is the day picked in the panel's
+calendar, `time=HH:MM` the time typed into its field, each written the
+moment it is entered and left alone while the simulation runs on from
+it – the user asked for exactly this: a link that ticked would never be
+the same twice, and the moment they set is the one they mean. The
+entry lives in `App.tsx` (`clockEntry`, `ClockEntry` =
+`Pick<HashUiState, 'date' | 'time'>`; a ref for the writer, state for
+the panel) and the panel only shows it – `ControlPanel` lost its own
+`pickedDate` and the uncontrolled time input for it, so a link's entry
+appears in the field and on the date button as if typed there. Rules
+that follow: `?time=` in the search string stays the boot flag every
+spec uses and makes no entry (the hash's wins over it at boot); the
+test API's `setTime`/`setDate` move the clock and make no entry either
+(`e2e/app.spec.ts` normalises the clock through them and empties the
+field with `fill('')`); an emptied field withdraws the entry and leaves
+the clock where it is; "Now" (and `n`) clears both halves with the
+speed; an edited hash whose half went missing puts that half back on
+the real clock (today, the real time of day) – the same way the layer
+switches read an absent key. `tests/app.test.tsx` pins all of it,
+`tests/camera-hash.test.ts` the spelling (a bare `8:30` reads back as
+`08:30`, seconds only when given, Feb 30 is no day).
+
 **Every page is built twice: once by the app, once by the build.** The
 prerender plugin in [vite.config.ts](vite.config.ts) runs
 [src/lib/site-pages.ts](src/lib/site-pages.ts) through Vite's module

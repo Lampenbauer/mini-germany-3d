@@ -1,4 +1,5 @@
 import { config } from '@/config'
+import { berlinDateKey, berlinEpoch, parseTimeOfDay } from '@/lib/clock'
 import { isMapView, type MapView } from '@/lib/map-view'
 import { isWeatherMode, type WeatherMode } from '@/lib/weather'
 
@@ -129,12 +130,13 @@ export function parseStopHash(hash: string): string | null {
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
  * the Routes/Stops/Labels layer toggles, the sky, the webcams and the
- * clouds, the miniature look and the pause state. Apart from the sky –
- * which every link names, so that it opens on the one it was copied from
- * – only deviations from the defaults (all layers on, the miniature look
- * at config.camera.miniatureDefault, clock running) appear in the URL,
- * so default sessions keep short hashes. The city the rest refers to is
- * the path's (lib/site-path.ts).
+ * clouds, the miniature look, the clock as it was set by hand, and the
+ * pause state. Apart from the sky – which every link names, so that it
+ * opens on the one it was copied from – only deviations from the
+ * defaults (all layers on, the miniature look at
+ * config.camera.miniatureDefault, the real clock, running) appear in the
+ * URL, so default sessions keep short hashes. The city the rest refers
+ * to is the path's (lib/site-path.ts).
  */
 export interface HashUiState {
   /**
@@ -165,7 +167,42 @@ export interface HashUiState {
   clouds: boolean
   /** The miniature look, as it is – the hash carries it only when it deviates. */
   tiltShift: boolean
+  /**
+   * The clock as the reader SET it – the day picked in the panel's
+   * calendar ("YYYY-MM-DD") and the time typed into its field ("HH:MM",
+   * seconds only when they were given) – null for a half still on the
+   * real clock. The entry, never the running clock: a hash that ticked
+   * with the simulation would be a link that is never the same twice
+   * and an address bar that never rests, and what the reader meant was
+   * the moment they set, which is what the link opens on. The `?time=`
+   * search parameter stays the boot flag it is (the tests) and makes no
+   * entry; the panel's does, and wins over it.
+   */
+  date: string | null
+  time: string | null
   paused: boolean
+}
+
+/** A "YYYY-MM-DD" that is a real calendar day (Feb 30 is not one). */
+function isDateKey(text: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) && berlinDateKey(berlinEpoch(text, 0)) === text
+}
+
+/**
+ * A time of day (seconds since midnight) as the hash and the panel's
+ * field spell it: "HH:MM", or "HH:MM:SS" where the seconds are not zero.
+ */
+export function formatTimeEntry(sec: number): string {
+  const hh = String(Math.floor(sec / 3600)).padStart(2, '0')
+  const mm = String(Math.floor((sec % 3600) / 60)).padStart(2, '0')
+  const ss = sec % 60
+  return ss === 0 ? `${hh}:${mm}` : `${hh}:${mm}:${String(ss).padStart(2, '0')}`
+}
+
+/** A typed time in that spelling; anything that is not a time of day is null. */
+export function normalizeTimeEntry(text: string | null | undefined): string | null {
+  const sec = text ? parseTimeOfDay(text) : null
+  return sec === null ? null : formatTimeEntry(sec)
 }
 
 /** Suffix appended to a camera or vehicle hash ('' when all defaults). */
@@ -183,6 +220,8 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.weather ? `&weather=${state.weather}` : '') +
     clouds +
     tilt +
+    (state.date ? `&date=${state.date}` : '') +
+    (state.time ? `&time=${state.time}` : '') +
     (state.paused ? '&paused=1' : '')
   )
 }
@@ -192,6 +231,7 @@ export function parseUiStateHash(hash: string): HashUiState {
   const params = new URLSearchParams(raw)
   const tilt = params.get('tiltshift')
   const clouds = params.get('clouds')
+  const date = params.get('date')
   return {
     // An unknown or missing reading is the map itself
     view: isMapView(params.get('view')) ? (params.get('view') as MapView) : 'surface',
@@ -204,6 +244,10 @@ export function parseUiStateHash(hash: string): HashUiState {
     weather: isWeatherMode(params.get('weather')) ? (params.get('weather') as WeatherMode) : null,
     clouds: clouds === '1' ? true : clouds === '0' ? false : config.weather.clouds3dDefault,
     tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
+    // A day that is no day, a time that is no time: no entry, as if the
+    // hash had named none
+    date: date !== null && isDateKey(date) ? date : null,
+    time: normalizeTimeEntry(params.get('time')),
     paused: params.get('paused') === '1',
   }
 }

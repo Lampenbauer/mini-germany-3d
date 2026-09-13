@@ -3,6 +3,7 @@ import {
   formatCameraHash,
   formatStopHash,
   formatUiStateHash,
+  normalizeTimeEntry,
   formatVehicleHash,
   formatVesselHash,
   parseCameraHash,
@@ -156,6 +157,8 @@ describe('layer and pause state in the hash', () => {
         webcamsHidden: false,
         clouds: cloudsDefault,
         tiltShift: miniatureDefault,
+        date: null,
+        time: null,
         paused: false,
       }),
     ).toBe('')
@@ -169,6 +172,8 @@ describe('layer and pause state in the hash', () => {
         webcamsHidden: false,
         clouds: cloudsDefault,
         tiltShift: !miniatureDefault,
+        date: null,
+        time: null,
         paused: true,
       }),
     ).toBe(`&routes=0&stops=0&labels=0${tiltDeviation}&paused=1`)
@@ -184,6 +189,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: cloudsDefault,
       tiltShift: miniatureDefault,
+      date: null,
+      time: null,
       paused: false,
     }
     expect(formatUiStateHash(state)).toBe('')
@@ -205,6 +212,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: cloudsDefault,
       tiltShift: miniatureDefault,
+      date: null,
+      time: null,
       paused: false,
     }
     // Live is a pick like any other: written out, not left implied
@@ -229,6 +238,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: cloudsDefault,
       tiltShift: miniatureDefault,
+      date: null,
+      time: null,
       paused: false,
     }
     expect(formatUiStateHash({ ...state, view: 'linear' })).toBe('&view=linear')
@@ -252,6 +263,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: cloudsDefault,
       tiltShift: !miniatureDefault,
+      date: null,
+      time: null,
       paused: true,
     })
     const withCamera = formatCameraHash(view) + suffix
@@ -266,6 +279,8 @@ describe('layer and pause state in the hash', () => {
         webcamsHidden: false,
         clouds: cloudsDefault,
         tiltShift: !miniatureDefault,
+        date: null,
+        time: null,
         paused: true,
       })
     }
@@ -284,6 +299,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: cloudsDefault,
       tiltShift: miniatureDefault,
+      date: null,
+      time: null,
       paused: false,
     })
   })
@@ -301,6 +318,8 @@ describe('layer and pause state in the hash', () => {
       webcamsHidden: false,
       clouds: !cloudsDefault,
       tiltShift: miniatureDefault,
+      date: null,
+      time: null,
       paused: false,
     }
     expect(formatUiStateHash(flipped)).toBe(cloudsDefault ? '&clouds=0' : '&clouds=1')
@@ -310,6 +329,48 @@ describe('layer and pause state in the hash', () => {
   it('reads the miniature look from either spelling, whatever the default', () => {
     expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=1').tiltShift).toBe(true)
     expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=0').tiltShift).toBe(false)
+  })
+
+  it('carries the clock as it was set – the day picked and the time typed – and only that', () => {
+    const state: HashUiState = {
+      view: 'surface',
+      weather: null,
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      webcamsHidden: false,
+      clouds: cloudsDefault,
+      tiltShift: miniatureDefault,
+      date: null,
+      time: null,
+      paused: false,
+    }
+    // Either half on its own, both together, the pause after them
+    expect(formatUiStateHash({ ...state, time: '08:30' })).toBe('&time=08:30')
+    expect(formatUiStateHash({ ...state, date: '2026-09-14' })).toBe('&date=2026-09-14')
+    expect(formatUiStateHash({ ...state, date: '2026-09-14', time: '08:30', paused: true })).toBe(
+      '&date=2026-09-14&time=08:30&paused=1',
+    )
+    const parsed = parseUiStateHash('#lat=54&lon=12&height=100&date=2026-09-14&time=08:30')
+    expect(parsed.date).toBe('2026-09-14')
+    expect(parsed.time).toBe('08:30')
+    // The real clock is what an absent entry means
+    expect(parseUiStateHash('#lat=54&lon=12&height=100')).toMatchObject({ date: null, time: null })
+  })
+
+  it('spells a typed time the way the field does, and drops what is no day or no time', () => {
+    // A bare hour, a time with seconds: the field's own spelling
+    expect(parseUiStateHash('#time=8:30').time).toBe('08:30')
+    expect(parseUiStateHash('#time=08:30:00').time).toBe('08:30')
+    expect(parseUiStateHash('#time=08:30:15').time).toBe('08:30:15')
+    expect(normalizeTimeEntry('7:05')).toBe('07:05')
+    expect(normalizeTimeEntry('')).toBeNull()
+    // Not a time of day, not a day of any calendar
+    expect(parseUiStateHash('#time=25:00').time).toBeNull()
+    expect(parseUiStateHash('#time=noon').time).toBeNull()
+    expect(parseUiStateHash('#date=2026-02-30').date).toBeNull()
+    expect(parseUiStateHash('#date=14.09.2026').date).toBeNull()
+    expect(parseUiStateHash('#date=2026-09-14T08:30').date).toBeNull()
   })
 })
 
