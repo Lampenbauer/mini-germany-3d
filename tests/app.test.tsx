@@ -168,6 +168,7 @@ import App from '@/App'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { loadRostockNetwork } from './cities'
 import { berlinDateKey, berlinSecondsOfDay } from '@/lib/clock'
+import { DEFAULT_PHOTO_SETTINGS } from '@/lib/photo-settings'
 import { setLanguage } from '@/lib/i18n'
 
 // The welcome screen stands between a plain visit and the map (see
@@ -590,6 +591,83 @@ describe('App (UI shell)', () => {
     // … and the hash keeps carrying it, unchanged by the running clock
     fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
     expect(window.location.hash).toContain(`&date=${tomorrow}&time=06:15&paused=1`)
+  })
+
+  it('writes a traffic category switched off as a whole into the URL, and a link switches it off again', async () => {
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    const busSwitch = screen.getByRole('switch', { name: 'Show all Bus lines' })
+    expect(busSwitch).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(busSwitch)
+    expect(busSwitch).toHaveAttribute('aria-checked', 'false')
+    expect(window.location.hash).toContain('&hide=bus&')
+    // A single line is not in the URL – a category is; the trams
+    // switched off one by one are, once the last one is
+    const tramSwitch = screen.getByRole('switch', { name: 'Show all Tram lines' })
+    const tramGroup = tramSwitch.closest<HTMLElement>('.flex-col')!
+    const tramLineSwitches = within(tramGroup)
+      .getAllByRole('switch')
+      .filter((element) => element !== tramSwitch)
+    expect(tramLineSwitches.length).toBeGreaterThan(1)
+    for (const lineSwitch of tramLineSwitches.slice(0, -1)) fireEvent.click(lineSwitch)
+    expect(window.location.hash).toContain('&hide=bus&')
+    expect(window.location.hash).not.toContain('tram')
+    fireEvent.click(tramLineSwitches.at(-1)!)
+    expect(tramSwitch).toHaveAttribute('aria-checked', 'false')
+    expect(window.location.hash).toContain('&hide=tram,bus&')
+    fireEvent.click(busSwitch)
+    fireEvent.click(tramSwitch)
+    expect(window.location.hash).not.toContain('hide=')
+    cleanup()
+
+    // A link with the trams and both fleets off: the tram lines start
+    // hidden, and the fleets stay off in the URL though this build has
+    // no row for them (offline, in the tests – see aisAvailable)
+    window.history.replaceState(null, '', '/?welcome=0#lat=54.08&lon=12.13&height=3000&hide=tram,ais,aircraft')
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(screen.getByRole('switch', { name: 'Show all Tram lines' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('switch', { name: 'Show all Bus lines' })).toHaveAttribute('aria-checked', 'true')
+    await waitFor(() => expect(window.__mg3d!.vehicleCount()).toBeGreaterThan(0))
+    expect(window.__mg3d!.visibleVehicleCount()).toBeLessThan(window.__mg3d!.vehicleCount())
+    fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
+    expect(window.location.hash).toContain('&hide=tram,ais,aircraft&')
+    // The category outlives the city, as the layer switches do: Kiel has
+    // no trams, keeps the word for the next city, and its own buses show
+    fireEvent.click(screen.getByRole('button', { name: 'Mini Rostock 3D' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Switch to Kiel' }))
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    expect(screen.getByRole('switch', { name: 'Show all Bus lines' })).toHaveAttribute('aria-checked', 'true')
+    await waitFor(() => expect(window.location.hash).toContain('&hide=tram,ais,aircraft&'))
+  })
+
+  it('carries the photo mode in the URL knob by knob, and opens on it', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?welcome=0#lat=54.08&lon=12.13&height=3000&tiltshift=1&fov=40&con=1.2&bok=4',
+    )
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    const opened = window.__mg3d!.photoSettings()
+    expect(opened.tiltShift.enabled).toBe(true)
+    expect(opened.fovDeg).toBe(40)
+    expect(opened.contrast).toBe(1.2)
+    expect(opened.tiltShift.highlightGain).toBe(4)
+    expect(opened.saturation).toBe(1)
+    // A knob turned goes into the URL as the value it stands at
+    fireEvent.click(screen.getByRole('button', { name: 'Photo mode' }))
+    const contrast = screen.getByRole('slider', { name: 'Contrast' })
+    contrast.focus()
+    fireEvent.keyDown(contrast, { key: 'ArrowRight' })
+    expect(window.__mg3d!.photoSettings().contrast).toBeCloseTo(1.21, 6)
+    expect(window.location.hash).toContain('&tiltshift=1&fov=40&con=1.21&bok=4')
+    // Back to the defaults: every knob leaves the URL with it
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }))
+    expect(window.__mg3d!.photoSettings()).toEqual(DEFAULT_PHOTO_SETTINGS)
+    for (const key of ['tiltshift=', 'fov=', 'con=', 'bok=']) {
+      expect(window.location.hash).not.toContain(key)
+    }
   })
 
   it('takes an edited entry off the address bar: a half named is set, a half gone is the real clock', async () => {

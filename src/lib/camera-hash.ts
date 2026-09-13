@@ -1,6 +1,8 @@
 import { config } from '@/config'
 import { berlinDateKey, berlinEpoch, parseTimeOfDay } from '@/lib/clock'
 import { isMapView, type MapView } from '@/lib/map-view'
+import { formatPhotoHash, parsePhotoHash, type PhotoSettings } from '@/lib/photo-settings'
+import { TRANSIT_MODES, type TransitMode } from '@/lib/transit-mode'
 import { isWeatherMode, type WeatherMode } from '@/lib/weather'
 
 /**
@@ -128,15 +130,35 @@ export function parseStopHash(hash: string): string | null {
 }
 
 /**
+ * What the panel's traffic list can switch off as a whole: a transit
+ * mode (every line of it), the AIS ships, the aircraft. In the hash as
+ * `hide=tram,bus,ais` – one key, the categories off in this order, and
+ * absent while everything is on. A single line switched off is not in
+ * the URL: a category is a choice about the map, a line a choice about
+ * the moment.
+ */
+export const TRAFFIC_CATEGORIES = [...TRANSIT_MODES, 'ais', 'aircraft'] as const
+export type TrafficCategory = (typeof TRAFFIC_CATEGORIES)[number]
+
+export function isTrafficCategory(value: unknown): value is TrafficCategory {
+  return typeof value === 'string' && (TRAFFIC_CATEGORIES as readonly string[]).includes(value)
+}
+
+/** The modes among the categories switched off – what the line switches of a city have to follow. */
+export function hiddenModes(hidden: ReadonlySet<TrafficCategory>): Set<TransitMode> {
+  return new Set(TRANSIT_MODES.filter((mode) => hidden.has(mode)))
+}
+
+/**
  * UI state that rides along in either hash form (camera pose or vehicle):
  * the Routes/Stops/Labels layer toggles, the sky, the webcams and the
- * clouds, the miniature look, the clock as it was set by hand, and the
- * pause state. Apart from the sky – which every link names, so that it
- * opens on the one it was copied from – only deviations from the
- * defaults (all layers on, the miniature look at
- * config.camera.miniatureDefault, the real clock, running) appear in the
- * URL, so default sessions keep short hashes. The city the rest refers
- * to is the path's (lib/site-path.ts).
+ * clouds, the traffic categories switched off, the photo mode, the clock
+ * as it was set by hand, and the pause state. Apart from the sky – which
+ * every link names, so that it opens on the one it was copied from –
+ * only deviations from the defaults (all layers on, every category on,
+ * the photo mode as the app opens, the real clock, running) appear in
+ * the URL, so default sessions keep short hashes. The city the rest
+ * refers to is the path's (lib/site-path.ts).
  */
 export interface HashUiState {
   /**
@@ -165,8 +187,21 @@ export interface HashUiState {
    * config.weather.clouds3dDefault (clouds=1 or clouds=0).
    */
   clouds: boolean
-  /** The miniature look, as it is – the hash carries it only when it deviates. */
-  tiltShift: boolean
+  /**
+   * The traffic categories switched off in the panel (see
+   * TRAFFIC_CATEGORIES) – the modes as a whole, the AIS ships, the
+   * aircraft. The boot flags ?ais=0 and ?aircraft=0 set the two fleets
+   * off as well; the hash then names them, as it names a boot pause.
+   */
+  hiddenTraffic: ReadonlySet<TrafficCategory>
+  /**
+   * The photo mode, whole – the miniature switch (tiltshift=1/0, only
+   * when it deviates from config.camera.miniatureDefault), the grid and
+   * every knob that stands off its default under a short key of its own
+   * (see formatPhotoHash in lib/photo-settings.ts). A hash naming none
+   * of it is the photo mode the app opens on.
+   */
+  photo: PhotoSettings
   /**
    * The clock as the reader SET it – the day picked in the panel's
    * calendar ("YYYY-MM-DD") and the time typed into its field ("HH:MM",
@@ -207,19 +242,19 @@ export function normalizeTimeEntry(text: string | null | undefined): string | nu
 
 /** Suffix appended to a camera or vehicle hash ('' when all defaults). */
 export function formatUiStateHash(state: HashUiState): string {
-  const tilt =
-    state.tiltShift === config.camera.miniatureDefault ? '' : state.tiltShift ? '&tiltshift=1' : '&tiltshift=0'
   const clouds =
     state.clouds === config.weather.clouds3dDefault ? '' : state.clouds ? '&clouds=1' : '&clouds=0'
+  const hidden = TRAFFIC_CATEGORIES.filter((category) => state.hiddenTraffic.has(category))
   return (
     (state.view === 'surface' ? '' : `&view=${state.view}`) +
     (state.routesHidden ? '&routes=0' : '') +
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
     (state.webcamsHidden ? '&webcams=0' : '') +
+    (hidden.length > 0 ? `&hide=${hidden.join(',')}` : '') +
     (state.weather ? `&weather=${state.weather}` : '') +
     clouds +
-    tilt +
+    formatPhotoHash(state.photo) +
     (state.date ? `&date=${state.date}` : '') +
     (state.time ? `&time=${state.time}` : '') +
     (state.paused ? '&paused=1' : '')
@@ -229,9 +264,12 @@ export function formatUiStateHash(state: HashUiState): string {
 export function parseUiStateHash(hash: string): HashUiState {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const params = new URLSearchParams(raw)
-  const tilt = params.get('tiltshift')
   const clouds = params.get('clouds')
   const date = params.get('date')
+  // A category the panel does not know is simply not one
+  const hiddenTraffic = new Set<TrafficCategory>(
+    (params.get('hide') ?? '').split(',').filter(isTrafficCategory),
+  )
   return {
     // An unknown or missing reading is the map itself
     view: isMapView(params.get('view')) ? (params.get('view') as MapView) : 'surface',
@@ -243,7 +281,8 @@ export function parseUiStateHash(hash: string): HashUiState {
     // show the one named is the caller's business (see hashWeatherMode).
     weather: isWeatherMode(params.get('weather')) ? (params.get('weather') as WeatherMode) : null,
     clouds: clouds === '1' ? true : clouds === '0' ? false : config.weather.clouds3dDefault,
-    tiltShift: tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault,
+    hiddenTraffic,
+    photo: parsePhotoHash(params),
     // A day that is no day, a time that is no time: no entry, as if the
     // hash had named none
     date: date !== null && isDateKey(date) ? date : null,

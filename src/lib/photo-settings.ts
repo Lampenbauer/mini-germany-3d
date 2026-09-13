@@ -168,6 +168,127 @@ export function isNeutralGrade(grade: PhotoGrade): boolean {
   )
 }
 
+/** How far a slider turns, and by what. */
+export interface KnobRange {
+  min: number
+  max: number
+  step: number
+}
+
+/** The knobs on the settings object itself – the lens and the grade. */
+export type GradeKnob = 'fovDeg' | 'exposureEv' | 'whiteBalanceK' | 'contrast' | 'saturation' | 'vignette'
+/** The knobs of the miniature effect. */
+export type TiltShiftKnob = Exclude<keyof TiltShiftSettings, 'enabled'>
+
+/**
+ * The range each knob turns over: the popover's slider runs over it,
+ * and a value that reaches the settings from outside – the URL hash –
+ * is held inside it, so a link can set a knob anywhere the slider goes
+ * and nowhere else.
+ */
+export const KNOB_RANGES: Record<GradeKnob | TiltShiftKnob, KnobRange> = {
+  fovDeg: { min: 25, max: 60, step: 1 },
+  exposureEv: { min: -2, max: 2, step: 0.1 },
+  whiteBalanceK: { min: 3000, max: 10_000, step: 100 },
+  contrast: { min: 0.5, max: 1.5, step: 0.01 },
+  saturation: { min: 0, max: 2, step: 0.01 },
+  vignette: { min: 0, max: 1, step: 0.01 },
+  maxBlurRadius: { min: 0, max: 0.06, step: 0.002 },
+  bandHalfHeight: { min: 0, max: 0.5, step: 0.01 },
+  bandFeather: { min: 0.02, max: 1, step: 0.02 },
+  focusY: { min: 0, max: 1, step: 0.01 },
+  highlightGain: { min: 1, max: 6, step: 0.1 },
+  sharpen: { min: 0, max: 1, step: 0.05 },
+}
+
+/**
+ * The knobs in the URL hash (see lib/camera-hash.ts): a short key each –
+ * the reader asked for short names and the value in full – and only
+ * where a knob stands off its default, so a picture shot as the app
+ * opens adds nothing to the link. The miniature switch keeps its own
+ * key (tiltshift=1/0, written when it deviates from
+ * config.camera.miniatureDefault) and the grid its (grid=1); the lens is
+ * written against the look's own – the switch brings its lens along
+ * (withTiltShift), so tiltshift=1 alone opens on the long lens and fov=
+ * appears only for a focal length set by hand. The effect's knobs are
+ * written whether the effect is on or off: they keep their values
+ * across the switch, and a link should keep them too.
+ */
+const GRADE_HASH_KEYS: Record<GradeKnob, string> = {
+  fovDeg: 'fov',
+  exposureEv: 'ev',
+  whiteBalanceK: 'wb',
+  contrast: 'con',
+  saturation: 'sat',
+  vignette: 'vig',
+}
+const TILT_SHIFT_HASH_KEYS: Record<TiltShiftKnob, string> = {
+  maxBlurRadius: 'blur',
+  bandHalfHeight: 'band',
+  bandFeather: 'fthr',
+  focusY: 'foc',
+  highlightGain: 'bok',
+  sharpen: 'shp',
+}
+const GRADE_KNOBS = Object.keys(GRADE_HASH_KEYS) as GradeKnob[]
+const TILT_SHIFT_KNOBS = Object.keys(TILT_SHIFT_HASH_KEYS) as TiltShiftKnob[]
+
+/** A knob's value as the hash spells it: the slider's own decimals, nothing behind them. */
+function knobText(value: number): string {
+  return String(Number(value.toFixed(4)))
+}
+
+/** The suffix the hash carries for the photo mode ('' with every knob at its default). */
+export function formatPhotoHash(settings: PhotoSettings): string {
+  const d = DEFAULT_PHOTO_SETTINGS
+  const ts = settings.tiltShift
+  let out =
+    ts.enabled === d.tiltShift.enabled ? '' : ts.enabled ? '&tiltshift=1' : '&tiltshift=0'
+  if (settings.grid) out += '&grid=1'
+  for (const knob of GRADE_KNOBS) {
+    const own = knob === 'fovDeg' ? lensFovDeg(ts.enabled) : d[knob]
+    if (settings[knob] !== own) out += `&${GRADE_HASH_KEYS[knob]}=${knobText(settings[knob])}`
+  }
+  for (const knob of TILT_SHIFT_KNOBS) {
+    if (ts[knob] !== d.tiltShift[knob]) out += `&${TILT_SHIFT_HASH_KEYS[knob]}=${knobText(ts[knob])}`
+  }
+  return out
+}
+
+/** A knob's value as a hash names it, held inside the slider's range; null where it names none. */
+function knobValue(text: string | null, range: KnobRange): number | null {
+  if (text === null || text.trim() === '') return null
+  const value = Number(text)
+  if (!Number.isFinite(value)) return null
+  return Math.min(range.max, Math.max(range.min, value))
+}
+
+/**
+ * The photo mode a hash opens on: the defaults, the miniature switch as
+ * named (its lens along with it), then every knob the hash names.
+ */
+export function parsePhotoHash(params: URLSearchParams): PhotoSettings {
+  const tilt = params.get('tiltshift')
+  const enabled = tilt === '1' ? true : tilt === '0' ? false : config.camera.miniatureDefault
+  const settings = withTiltShift(DEFAULT_PHOTO_SETTINGS, enabled)
+  const tiltShift = { ...settings.tiltShift }
+  if (params.get('grid') === '1') settings.grid = true
+  for (const knob of GRADE_KNOBS) {
+    const value = knobValue(params.get(GRADE_HASH_KEYS[knob]), KNOB_RANGES[knob])
+    if (value !== null) settings[knob] = value
+  }
+  for (const knob of TILT_SHIFT_KNOBS) {
+    const value = knobValue(params.get(TILT_SHIFT_HASH_KEYS[knob]), KNOB_RANGES[knob])
+    if (value !== null) tiltShift[knob] = value
+  }
+  return { ...settings, tiltShift }
+}
+
+/** Whether two settings put every knob in the same place. */
+export function isSamePhotoSettings(a: PhotoSettings, b: PhotoSettings): boolean {
+  return formatPhotoHash(a) === formatPhotoHash(b)
+}
+
 /** Whether every knob stands where the app opens with it. */
 export function isDefaultPhotoSettings(settings: PhotoSettings): boolean {
   const d = DEFAULT_PHOTO_SETTINGS

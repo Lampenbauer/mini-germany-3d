@@ -33,6 +33,7 @@ import {
   DEFAULT_TILT_SHIFT_SETTINGS,
   focalLengthMm,
   isDefaultPhotoSettings,
+  KNOB_RANGES,
   lensFovDeg,
   withTiltShift,
   type PhotoSettings,
@@ -207,9 +208,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 // the other way its own lens is what "default" means.
                 defaultValue={lensFovDeg(settings.tiltShift.enabled)}
                 format={(fov) => `${Math.round(focalLengthMm(fov))} mm · ${Math.round(fov)}°`}
-                min={25}
-                max={60}
-                step={1}
+                {...KNOB_RANGES.fovDeg}
                 inverted
                 onChange={(fovDeg) => set('fovDeg', fovDeg)}
               />
@@ -218,9 +217,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_PHOTO_SETTINGS.exposureEv}
                 value={settings.exposureEv}
                 format={(ev) => `${signed(ev, 1)} EV`}
-                min={-2}
-                max={2}
-                step={0.1}
+                {...KNOB_RANGES.exposureEv}
                 onChange={(exposureEv) => set('exposureEv', exposureEv)}
               />
               <Knob
@@ -228,9 +225,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_PHOTO_SETTINGS.whiteBalanceK}
                 value={settings.whiteBalanceK}
                 format={(kelvin) => `${kelvin} K`}
-                min={3000}
-                max={10_000}
-                step={100}
+                {...KNOB_RANGES.whiteBalanceK}
                 onChange={(whiteBalanceK) => set('whiteBalanceK', whiteBalanceK)}
               />
             </Section>
@@ -241,9 +236,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_PHOTO_SETTINGS.contrast}
                 value={settings.contrast}
                 format={(contrast) => signed(Math.round((contrast - 1) * 100), 0)}
-                min={0.5}
-                max={1.5}
-                step={0.01}
+                {...KNOB_RANGES.contrast}
                 onChange={(contrast) => set('contrast', contrast)}
               />
               <Knob
@@ -251,9 +244,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_PHOTO_SETTINGS.saturation}
                 value={settings.saturation}
                 format={(saturation) => signed(Math.round((saturation - 1) * 100), 0)}
-                min={0}
-                max={2}
-                step={0.01}
+                {...KNOB_RANGES.saturation}
                 onChange={(saturation) => set('saturation', saturation)}
               />
               <Knob
@@ -261,9 +252,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_PHOTO_SETTINGS.vignette}
                 value={settings.vignette}
                 format={percent}
-                min={0}
-                max={1}
-                step={0.01}
+                {...KNOB_RANGES.vignette}
                 onChange={(vignette) => set('vignette', vignette)}
               />
             </Section>
@@ -288,9 +277,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.maxBlurRadius}
                     value={settings.tiltShift.maxBlurRadius}
                     format={(radius) => `${(radius * 100).toFixed(1)} %`}
-                    min={0}
-                    max={0.06}
-                    step={0.002}
+                    {...KNOB_RANGES.maxBlurRadius}
                     onChange={(maxBlurRadius) => setTiltShift('maxBlurRadius', maxBlurRadius)}
                   />
                   <Knob
@@ -298,9 +285,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.bandHalfHeight}
                     value={settings.tiltShift.bandHalfHeight}
                     format={percent}
-                    min={0}
-                    max={0.5}
-                    step={0.01}
+                    {...KNOB_RANGES.bandHalfHeight}
                     onChange={(bandHalfHeight) => setTiltShift('bandHalfHeight', bandHalfHeight)}
                   />
                   <Knob
@@ -308,9 +293,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.bandFeather}
                     value={settings.tiltShift.bandFeather}
                     format={percent}
-                    min={0.02}
-                    max={1}
-                    step={0.02}
+                    {...KNOB_RANGES.bandFeather}
                     onChange={(bandFeather) => setTiltShift('bandFeather', bandFeather)}
                   />
                   <Knob
@@ -318,9 +301,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.focusY}
                     value={settings.tiltShift.focusY}
                     format={percent}
-                    min={0}
-                    max={1}
-                    step={0.01}
+                    {...KNOB_RANGES.focusY}
                     onChange={(focusY) => setTiltShift('focusY', focusY)}
                   />
                   <Knob
@@ -328,9 +309,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.highlightGain}
                     value={settings.tiltShift.highlightGain}
                     format={(gain) => `${gain.toFixed(1)}×`}
-                    min={1}
-                    max={6}
-                    step={0.1}
+                    {...KNOB_RANGES.highlightGain}
                     onChange={(highlightGain) => setTiltShift('highlightGain', highlightGain)}
                   />
                   <Knob
@@ -338,9 +317,7 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
                 defaultValue={DEFAULT_TILT_SHIFT_SETTINGS.sharpen}
                     value={settings.tiltShift.sharpen}
                     format={percent}
-                    min={0}
-                    max={1}
-                    step={0.05}
+                    {...KNOB_RANGES.sharpen}
                     onChange={(sharpen) => setTiltShift('sharpen', sharpen)}
                   />
                 </>

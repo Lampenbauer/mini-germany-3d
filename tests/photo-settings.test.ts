@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
 import {
   DEFAULT_PHOTO_SETTINGS,
+  DEFAULT_TILT_SHIFT_SETTINGS,
   focalLengthMm,
   fovDegFromFocalLength,
   isDefaultPhotoSettings,
   isNeutralGrade,
+  KNOB_RANGES,
   lensFovDeg,
   NEUTRAL_WHITE_BALANCE_K,
   whiteBalanceGain,
   withTiltShift,
+  type GradeKnob,
+  type TiltShiftKnob,
 } from '@/lib/photo-settings'
 
 const luminance = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -44,6 +48,22 @@ describe('photo settings', () => {
     expect(isNeutralGrade({ ...DEFAULT_PHOTO_SETTINGS, whiteBalanceK: 6400 })).toBe(false)
     expect(isNeutralGrade({ ...DEFAULT_PHOTO_SETTINGS, vignette: 0.01 })).toBe(false)
     expect(isNeutralGrade({ ...DEFAULT_PHOTO_SETTINGS, contrast: 1, saturation: 1 })).toBe(true)
+  })
+})
+
+describe('knob ranges', () => {
+  it('hold every default and both lenses inside the slider – a link can reach nothing the slider cannot', () => {
+    for (const [knob, range] of Object.entries(KNOB_RANGES)) {
+      const value =
+        knob in DEFAULT_TILT_SHIFT_SETTINGS
+          ? DEFAULT_TILT_SHIFT_SETTINGS[knob as TiltShiftKnob]
+          : DEFAULT_PHOTO_SETTINGS[knob as GradeKnob]
+      expect(value, knob).toBeGreaterThanOrEqual(range.min)
+      expect(value, knob).toBeLessThanOrEqual(range.max)
+      expect(range.step, knob).toBeGreaterThan(0)
+    }
+    expect(lensFovDeg(true)).toBeGreaterThanOrEqual(KNOB_RANGES.fovDeg.min)
+    expect(lensFovDeg(false)).toBeLessThanOrEqual(KNOB_RANGES.fovDeg.max)
   })
 })
 

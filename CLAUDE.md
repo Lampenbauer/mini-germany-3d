@@ -531,6 +531,34 @@ switches read an absent key. `tests/app.test.tsx` pins all of it,
 `tests/camera-hash.test.ts` the spelling (a bare `8:30` reads back as
 `08:30`, seconds only when given, Feb 30 is no day).
 
+**The traffic categories and the photo knobs ride in the hash too
+(since 2026-09-13), and single lines do not.** `hide=tram,bus,ais,aircraft`
+is one key for what the panel's traffic list has switched off as a
+whole – a mode is off when none of its lines shows, whether the group
+switch or the lines one by one did it (`noteHiddenModes` in `App.tsx`
+derives it after every toggle), the two fleets from their switches – in
+`TRAFFIC_CATEGORIES` order, so the hash is stable. A single line
+switched off is deliberately not in the URL (the user's call). The
+modes live in `hiddenModesRef`, apart from the line set, because they
+outlive the city like the layer switches: a city arriving puts its
+lines of those modes up hidden, and a mode the city does not have keeps
+its place for the next one. The photo mode travels whole:
+`HashUiState.photo` is a `PhotoSettings`, `tiltshift=1/0` stays the
+miniature switch's key, and every other knob off its default is written
+under a short key with the value in full (the user asked for short
+names) – the table is `formatPhotoHash`/`parsePhotoHash` in
+[photo-settings.ts](src/lib/photo-settings.ts), beside `KNOB_RANGES`,
+which the popover's sliders and the parser's clamp both read, so a link
+can put a knob anywhere the slider goes and nowhere else. The lens is
+measured against the look's own (`lensFovDeg(tiltShift.enabled)`):
+`tiltshift=1` alone opens on the long lens, `fov=` only names a focal
+length set by hand. The map is built with the miniature flag alone and
+gets the knobs through `setPhotoSettings` right after – before the
+first frame, where `CameraLens.setFovDeg` writes the lens without a
+dolly walk. `__mg3d.photoSettings()` reads them back; `e2e/camera-hash.spec.ts`
+opens a link with `hide=bus&con=1.2` and takes both away with an edited
+hash.
+
 **Every page is built twice: once by the app, once by the build.** The
 prerender plugin in [vite.config.ts](vite.config.ts) runs
 [src/lib/site-pages.ts](src/lib/site-pages.ts) through Vite's module

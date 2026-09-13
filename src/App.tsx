@@ -51,8 +51,10 @@ import {
   parseVesselHash,
   parseAircraftHash,
   formatTimeEntry,
+  hiddenModes,
   type CameraView,
   type HashUiState,
+  type TrafficCategory,
 } from '@/lib/camera-hash'
 import {
   DEFAULT_DURATION_S,
@@ -88,7 +90,14 @@ import type { MapView } from '@/lib/map-view'
 import { AboutDialog } from '@/components/AboutDialog'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
 import { CreditsDialog } from '@/components/CreditsDialog'
-import { DEFAULT_PHOTO_SETTINGS, withTiltShift, type PhotoSettings } from '@/lib/photo-settings'
+import {
+  DEFAULT_PHOTO_SETTINGS,
+  isDefaultPhotoSettings,
+  isSamePhotoSettings,
+  withTiltShift,
+  type PhotoSettings,
+} from '@/lib/photo-settings'
+import type { TransitMode } from '@/lib/transit-mode'
 import { buildInterchangeIndex } from '@/lib/interchange'
 import {
   buildCityActivity,
@@ -221,6 +230,8 @@ export interface Mg3dTestApi {
    * judge a frame (see tilt-shift.spec.ts).
    */
   tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
+  /** The photo mode as set – every knob (see lib/photo-settings.ts). */
+  photoSettings: () => PhotoSettings
   /** The volumetric clouds: cover, threshold, whether drawn (see CloudLayer). */
   cloudState: () => ReturnType<CesiumMap['cloudState']>
   /** What the ships' exhaust is doing (see map/FunnelSmoke.ts); null in a profile without it. */
@@ -727,6 +738,15 @@ export default function App() {
   const clockRef = useRef<SimClock | null>(null)
   const simRef = useRef<Simulation | null>(null)
   const visibleLinesRef = useRef<Set<string>>(new Set())
+  /**
+   * The transit modes switched off as a whole – every line of the mode
+   * hidden, by the group switch or one line at a time. Kept apart from
+   * the line set because it outlives the city: a city arriving finds its
+   * lines of these modes hidden, as the layer switches reach it, and a
+   * mode the city does not have keeps its place for the next one. In the
+   * hash as hide=… (lib/camera-hash.ts) together with the two fleets.
+   */
+  const hiddenModesRef = useRef<Set<TransitMode>>(new Set())
   const selectedIdRef = useRef<string | null>(null)
   const selectedStopIdRef = useRef<string | null>(null)
   const selectedMmsiRef = useRef<number | null>(null)
@@ -794,6 +814,8 @@ export default function App() {
   const currentViewRef = useRef<() => MapView>(() => 'surface')
   /** Picks a reading, so the viewer effect can reach selectView. */
   const selectViewRef = useRef<(view: MapView) => void>(() => {})
+  /** Switches the traffic categories as an edited hash names them (see applyHiddenTraffic). */
+  const applyHiddenTrafficRef = useRef<(hidden: ReadonlySet<TrafficCategory>) => void>(() => {})
   /** Raises the diagram without a morph, for a link that opens into it. */
   const showLinearRef = useRef<() => void>(() => {})
   /** A boot hash asked for a reading before there was a map to show it in. */
@@ -1387,9 +1409,22 @@ export default function App() {
       showLabelsRef.current = false
       setShowLabels(false)
     }
-    if (uiState.tiltShift !== photoRef.current.tiltShift.enabled) {
-      photoRef.current = withTiltShift(photoRef.current, uiState.tiltShift)
+    if (!isSamePhotoSettings(uiState.photo, photoRef.current)) {
+      photoRef.current = uiState.photo
       setPhoto(photoRef.current)
+    }
+    // The traffic switched off: the modes wait for the city's lines (the
+    // session effect reads hiddenModesRef as it puts them up), the two
+    // fleets are switched before their pollers start – like the boot
+    // flags ?ais=0 and ?aircraft=0, which the hash may repeat.
+    hiddenModesRef.current = hiddenModes(uiState.hiddenTraffic)
+    if (uiState.hiddenTraffic.has('ais') && showAisVesselsRef.current) {
+      showAisVesselsRef.current = false
+      setShowAisVessels(false)
+    }
+    if (uiState.hiddenTraffic.has('aircraft') && showAircraftRef.current) {
+      showAircraftRef.current = false
+      setShowAircraft(false)
     }
     // A shared link may open into any of the three readings. Neither of
     // the other two can go up here: the diagram has no network to lay out
@@ -1407,6 +1442,13 @@ export default function App() {
     // the search string is left as it came, it holds the boot options.
     let hashTimeout = 0
     let lastHashWriteAt = -Infinity
+    /** The categories off as the hash names them: the modes, then the two fleets. */
+    const hiddenTrafficNow = (): Set<TrafficCategory> => {
+      const hidden = new Set<TrafficCategory>(hiddenModesRef.current)
+      if (!showAisVesselsRef.current) hidden.add('ais')
+      if (!showAircraftRef.current) hidden.add('aircraft')
+      return hidden
+    }
     const writeHash = () => {
       window.clearTimeout(hashTimeout)
       hashTimeout = 0
@@ -1440,7 +1482,8 @@ export default function App() {
           webcamsHidden: !showWebcamsRef.current,
           weather: weatherModeRef.current,
           clouds: showCloudsRef.current,
-          tiltShift: photoRef.current.tiltShift.enabled,
+          hiddenTraffic: hiddenTrafficNow(),
+          photo: photoRef.current,
           date: clockEntryRef.current.date,
           time: clockEntryRef.current.time,
           paused: pausedRef.current,
@@ -1526,7 +1569,11 @@ export default function App() {
     if (stage && stageResize) stageResize.observe(stage)
     if (stageResize && panelRef.current) stageResize.observe(panelRef.current)
 
-    // Apply the layer visibility restored from the hash to the fresh map
+    // Apply the layer visibility restored from the hash to the fresh map,
+    // and the photo mode with it: the map was built with the miniature
+    // switch alone, the knobs go on before the first frame (the lens
+    // without a walk – see CameraLens.setFovDeg).
+    if (!isDefaultPhotoSettings(photoRef.current)) map.setPhotoSettings(photoRef.current)
     if (uiState.stopsHidden) map.setStopsVisible(false)
     if (uiState.labelsHidden) map.setLabelsVisible(false)
     if (uiState.webcamsHidden) map.setWebcamsVisible(false)
@@ -1577,12 +1624,14 @@ export default function App() {
         setShowLabels(labelsVisible)
         map.setLabelsVisible(mapNetworkDrawnRef.current && labelsVisible)
       }
-      const tiltShiftOn = ui.tiltShift
-      if (tiltShiftOn !== photoRef.current.tiltShift.enabled) {
-        photoRef.current = withTiltShift(photoRef.current, tiltShiftOn)
+      if (!isSamePhotoSettings(ui.photo, photoRef.current)) {
+        photoRef.current = ui.photo
         setPhoto(photoRef.current)
         map.setPhotoSettings(photoRef.current)
       }
+      // The traffic categories, through the same handlers the panel's
+      // switches use; a hash naming none has everything on
+      applyHiddenTrafficRef.current(ui.hiddenTraffic)
       // The clock as set by hand, where the hash's entry differs from the
       // one made: a half named is set, a half gone is back on the real
       // clock – today, the real time of day – the way "Now" takes both.
@@ -2310,6 +2359,7 @@ export default function App() {
         return renderTimes.length / 5
       },
       tiltShiftState: () => map.tiltShiftState(),
+      photoSettings: () => photoRef.current,
       cloudState: () => map.cloudState(),
       funnelSmoke: () => map.funnelSmokeState(),
       wake: () => map.wakeState(),
@@ -2489,12 +2539,19 @@ export default function App() {
       simRef.current = sim
       map.setGroundReference(medianStopNhn(data.network))
 
-      const allLines = new Set(data.network.lines.map((l) => l.id))
-      visibleLinesRef.current = allLines
-      setVisibleLines(new Set(allLines))
+      // Every line shows, except those of a mode switched off as a whole
+      // (hiddenModesRef – a link's hide=, or the switch as it stood in
+      // the city before)
+      const shownLines = new Set(
+        data.network.lines.filter((l) => !hiddenModesRef.current.has(l.mode)).map((l) => l.id),
+      )
+      visibleLinesRef.current = shownLines
+      setVisibleLines(new Set(shownLines))
 
       map.addRoutes(data.network)
       map.addStops(data.network)
+      // Stops no shown line serves stay off with their lines
+      if (shownLines.size !== data.network.lines.length) map.setVisibleLines(shownLines)
       // Night-time street lighting. Nothing is built until the pools would
       // actually show, so a daytime session pays nothing for this.
       if (urlOpts.lamps && data.lamps) map.addStreetLamps(data.lamps)
@@ -2906,6 +2963,28 @@ export default function App() {
     )
   }, [])
 
+  /**
+   * The modes switched off as a whole, as the line switches leave them:
+   * a mode of the city none of whose lines shows is off, one with a line
+   * showing is on – whether the group switch or the lines one by one did
+   * it. A mode the city does not have is left as it stands (see
+   * hiddenModesRef). Then the URL, at once: a category is a switch like
+   * the layers, not a pose to settle.
+   */
+  const noteHiddenModes = useCallback((visible: ReadonlySet<string>) => {
+    const shown = new Set<TransitMode>()
+    const present = new Set<TransitMode>()
+    for (const line of cityDataRef.current?.network.lines ?? []) {
+      present.add(line.mode)
+      if (visible.has(line.id)) shown.add(line.mode)
+    }
+    for (const mode of present) {
+      if (shown.has(mode)) hiddenModesRef.current.delete(mode)
+      else hiddenModesRef.current.add(mode)
+    }
+    writeHashRef.current()
+  }, [])
+
   const handleToggleLine = useCallback(
     (lineId: string) => {
       setVisibleLines((prev) => {
@@ -2920,10 +2999,11 @@ export default function App() {
         // Stops no shown line serves disappear along with their lines
         mapRef.current?.setVisibleLines(next)
         applyLinearLines()
+        noteHiddenModes(next)
         return next
       })
     },
-    [applyLinearLines],
+    [applyLinearLines, noteHiddenModes],
   )
 
   /** Show/hide several lines at once (group switches in the panel). */
@@ -2939,10 +3019,11 @@ export default function App() {
         visibleLinesRef.current = next
         mapRef.current?.setVisibleLines(next)
         applyLinearLines()
+        noteHiddenModes(next)
         return next
       })
     },
-    [applyLinearLines],
+    [applyLinearLines, noteHiddenModes],
   )
 
   const handleToggleRoutes = useCallback(
@@ -3015,8 +3096,8 @@ export default function App() {
     photoRef.current = settings
     setPhoto(settings)
     mapRef.current?.setPhotoSettings(settings)
-    // Only the miniature switch is in the hash; the writer skips a URL
-    // that has not changed.
+    // Every knob off its default is in the hash (formatPhotoHash); the
+    // writer skips a URL that has not changed.
     writeHashRef.current()
   }, [])
 
@@ -3096,6 +3177,8 @@ export default function App() {
         aisClientRef.current?.stop()
         if (selectedMmsiRef.current !== null) selectVessel(null)
       }
+      // The switch rides in the hash (hide=ais)
+      writeHashRef.current()
     },
     [selectVessel],
   )
@@ -3117,9 +3200,42 @@ export default function App() {
         aircraftClientRef.current?.stop()
         if (selectedHexRef.current !== null) selectAircraft(null)
       }
+      writeHashRef.current()
     },
     [selectAircraft],
   )
+
+  /**
+   * The traffic categories as an edited hash names them (see applyHash):
+   * a mode of the city on screen through the group switch's own handler,
+   * the two fleets through theirs – where the hash differs from what is
+   * on. A mode the city does not have is remembered for the next one, as
+   * the switch would be.
+   */
+  const applyHiddenTraffic = useCallback(
+    (hidden: ReadonlySet<TrafficCategory>) => {
+      const lines = cityDataRef.current?.network.lines ?? []
+      const byMode = new Map<TransitMode, string[]>()
+      for (const line of lines) byMode.set(line.mode, [...(byMode.get(line.mode) ?? []), line.id])
+      for (const mode of hiddenModes(hidden)) {
+        if (!byMode.has(mode)) hiddenModesRef.current.add(mode)
+      }
+      for (const mode of [...hiddenModesRef.current]) {
+        if (!hidden.has(mode) && !byMode.has(mode)) hiddenModesRef.current.delete(mode)
+      }
+      for (const [mode, ids] of byMode) {
+        const wantOn = !hidden.has(mode)
+        const isOn = ids.some((id) => visibleLinesRef.current.has(id))
+        if (wantOn !== isOn) handleSetLinesVisible(ids, wantOn)
+      }
+      const aisOn = !hidden.has('ais')
+      if (aisOn !== showAisVesselsRef.current) handleToggleAisVessels(aisOn)
+      const aircraftOn = !hidden.has('aircraft')
+      if (aircraftOn !== showAircraftRef.current) handleToggleAircraft(aircraftOn)
+    },
+    [handleSetLinesVisible, handleToggleAisVessels, handleToggleAircraft],
+  )
+  applyHiddenTrafficRef.current = applyHiddenTraffic
 
   /**
    * Full screen is state the browser owns: Escape and F11 change it behind

@@ -57,14 +57,16 @@ test('pose, layers and the miniature look are written, restored, kept through a 
   const written = await page.evaluate(() => window.location.href)
 
   // The link to open next: what the app wrote, with the pose swapped for
-  // one of our own so the restore can be measured, and the miniature look
-  // on – the deviation from the default lens, so it is in the hash too.
+  // one of our own so the restore can be measured, the buses off as a
+  // category, the miniature look on – the deviation from the default
+  // lens, so it is in the hash too – and a contrast set by hand under
+  // its short key.
   const posed = written.replace(
     /#lat=[^&]+&lon=[^&]+&height=[^&]+&heading=[^&]+&pitch=[^&]+/,
     '#lat=54.0901&lon=12.1405&height=3000&heading=0&pitch=-45',
   )
   expect(posed).not.toBe(written)
-  const sharedUrl = `${posed}&tiltshift=1`
+  const sharedUrl = `${posed}&hide=bus&tiltshift=1&con=1.2`
 
   // Changing only the hash of the same URL would be a same-document
   // navigation. The stop-over destroys the first Cesium instance and forces
@@ -89,6 +91,12 @@ test('pose, layers and the miniature look are written, restored, kept through a 
     'false',
   )
   await page.keyboard.press('Escape')
+  // ... the buses as a category, and the picture knob for knob
+  await expect(page.getByRole('switch', { name: 'Show all Bus lines' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  expect(await page.evaluate(() => window.__mg3d!.photoSettings().contrast)).toBe(1.2)
   // ... and the boot flag ?paused=1 was in the URL anyway – the button
   // shows Resume
   await expect(page.getByRole('button', { name: 'Resume simulation' })).toBeVisible()
@@ -132,6 +140,13 @@ test('pose, layers and the miniature look are written, restored, kept through a 
     'aria-checked',
     'true',
   )
+  // The same for the category and the knob: the edited hash names
+  // neither, so the buses are back and the contrast is as rendered
+  await expect(page.getByRole('switch', { name: 'Show all Bus lines' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  expect(await page.evaluate(() => window.__mg3d!.photoSettings().contrast)).toBe(1)
   expect(
     await page.evaluate(
       () => (window as unknown as { __stillTheSamePage?: boolean }).__stillTheSamePage,

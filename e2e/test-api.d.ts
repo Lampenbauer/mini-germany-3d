@@ -90,6 +90,25 @@ declare global {
       stopCameraPath: () => void
       /** The miniature effect: on, how much the pose carries, passes compiled. */
       tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
+      /** The photo mode as set – the shape of src/lib/photo-settings.ts, the knobs the specs read. */
+      photoSettings: () => {
+        fovDeg: number
+        grid: boolean
+        exposureEv: number
+        whiteBalanceK: number
+        contrast: number
+        saturation: number
+        vignette: number
+        tiltShift: {
+          enabled: boolean
+          maxBlurRadius: number
+          bandHalfHeight: number
+          bandFeather: number
+          focusY: number
+          highlightGain: number
+          sharpen: number
+        }
+      }
       /** The volumetric clouds: cover, threshold, whether drawn, drift. */
       cloudState: () => {
         enabled: boolean

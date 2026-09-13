@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_PHOTO_SETTINGS,
+  KNOB_RANGES,
+  withTiltShift,
+  type PhotoSettings,
+} from '@/lib/photo-settings'
+import {
   formatCameraHash,
   formatStopHash,
   formatUiStateHash,
@@ -156,7 +162,8 @@ describe('layer and pause state in the hash', () => {
         labelsHidden: false,
         webcamsHidden: false,
         clouds: cloudsDefault,
-        tiltShift: miniatureDefault,
+        hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
         date: null,
         time: null,
         paused: false,
@@ -171,7 +178,8 @@ describe('layer and pause state in the hash', () => {
         labelsHidden: true,
         webcamsHidden: false,
         clouds: cloudsDefault,
-        tiltShift: !miniatureDefault,
+        hiddenTraffic: new Set(),
+        photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
         date: null,
         time: null,
         paused: true,
@@ -188,7 +196,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
@@ -211,7 +220,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
@@ -237,7 +247,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
@@ -262,7 +273,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: true,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: !miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
       date: null,
       time: null,
       paused: true,
@@ -278,7 +290,8 @@ describe('layer and pause state in the hash', () => {
         labelsHidden: true,
         webcamsHidden: false,
         clouds: cloudsDefault,
-        tiltShift: !miniatureDefault,
+        hiddenTraffic: new Set(),
+        photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
         date: null,
         time: null,
         paused: true,
@@ -298,7 +311,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
@@ -317,7 +331,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: !cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
@@ -327,8 +342,105 @@ describe('layer and pause state in the hash', () => {
   })
 
   it('reads the miniature look from either spelling, whatever the default', () => {
-    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=1').tiltShift).toBe(true)
-    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=0').tiltShift).toBe(false)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=1').photo.tiltShift.enabled).toBe(true)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&tiltshift=0').photo.tiltShift.enabled).toBe(false)
+  })
+
+  it("names the traffic categories switched off under one key, in the panel's order", () => {
+    const state: HashUiState = {
+      view: 'surface',
+      weather: null,
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      webcamsHidden: false,
+      clouds: cloudsDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
+      date: null,
+      time: null,
+      paused: false,
+    }
+    expect(formatUiStateHash({ ...state, hiddenTraffic: new Set(['bus']) })).toBe('&hide=bus')
+    // Whatever order they were switched off in
+    expect(
+      formatUiStateHash({ ...state, hiddenTraffic: new Set(['aircraft', 'bus', 'tram', 'ais']) }),
+    ).toBe('&hide=tram,bus,ais,aircraft')
+    // Before the sky, after the layers – the list of what is off, all together
+    expect(
+      formatUiStateHash({ ...state, routesHidden: true, hiddenTraffic: new Set(['ais']), weather: 'live' }),
+    ).toBe('&routes=0&hide=ais&weather=live')
+    expect(parseUiStateHash('#hide=tram,ais').hiddenTraffic).toEqual(new Set(['tram', 'ais']))
+    // A category the panel does not know, an empty list: not a category
+    expect(parseUiStateHash('#hide=bus,zeppelin,').hiddenTraffic).toEqual(new Set(['bus']))
+    expect(parseUiStateHash('#hide=').hiddenTraffic).toEqual(new Set())
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').hiddenTraffic).toEqual(new Set())
+  })
+
+  it('carries every photo knob off its default under a short key, the value in full', () => {
+    const state: HashUiState = {
+      view: 'surface',
+      weather: null,
+      routesHidden: false,
+      stopsHidden: false,
+      labelsHidden: false,
+      webcamsHidden: false,
+      clouds: cloudsDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
+      date: null,
+      time: null,
+      paused: false,
+    }
+    const on = withTiltShift(DEFAULT_PHOTO_SETTINGS, true)
+    const shot: PhotoSettings = {
+      ...on,
+      grid: true,
+      fovDeg: 40,
+      exposureEv: 0.5,
+      whiteBalanceK: 5600,
+      contrast: 1.2,
+      saturation: 0.8,
+      vignette: 0.3,
+      tiltShift: {
+        ...on.tiltShift,
+        maxBlurRadius: 0.034,
+        bandHalfHeight: 0.2,
+        bandFeather: 0.5,
+        focusY: 0.45,
+        highlightGain: 4,
+        sharpen: 0.6,
+      },
+    }
+    const written = formatUiStateHash({ ...state, photo: shot })
+    expect(written).toBe(
+      `${miniatureDefault ? '' : '&tiltshift=1'}&grid=1&fov=40&ev=0.5&wb=5600&con=1.2&sat=0.8&vig=0.3` +
+        '&blur=0.034&band=0.2&fthr=0.5&foc=0.45&bok=4&shp=0.6',
+    )
+    // … and back, knob for knob
+    expect(parseUiStateHash(`#lat=54&lon=12&height=100${written}`).photo).toEqual(shot)
+    // The lens is measured against the look's own: the miniature switch
+    // brings the long lens along, so it is no deviation on its own
+    expect(formatUiStateHash({ ...state, photo: on })).toBe(miniatureDefault ? '' : '&tiltshift=1')
+    expect(parseUiStateHash('#tiltshift=1').photo.fovDeg).toBe(on.fovDeg)
+    expect(parseUiStateHash('#tiltshift=1&fov=40').photo.fovDeg).toBe(40)
+    // The effect's knobs keep their values across the switch, so they are
+    // written with the effect off too
+    const off = { ...DEFAULT_PHOTO_SETTINGS, tiltShift: { ...DEFAULT_PHOTO_SETTINGS.tiltShift, sharpen: 0.6 } }
+    expect(formatUiStateHash({ ...state, photo: off })).toBe('&shp=0.6')
+  })
+
+  it('holds a knob a hash names inside its slider, and reads nothing into one it cannot', () => {
+    expect(parseUiStateHash('#con=9').photo.contrast).toBe(KNOB_RANGES.contrast.max)
+    expect(parseUiStateHash('#ev=-5').photo.exposureEv).toBe(KNOB_RANGES.exposureEv.min)
+    expect(parseUiStateHash('#wb=12000').photo.whiteBalanceK).toBe(KNOB_RANGES.whiteBalanceK.max)
+    expect(parseUiStateHash('#fov=10').photo.fovDeg).toBe(KNOB_RANGES.fovDeg.min)
+    expect(parseUiStateHash('#bok=0').photo.tiltShift.highlightGain).toBe(KNOB_RANGES.highlightGain.min)
+    expect(parseUiStateHash('#con=warm').photo.contrast).toBe(1)
+    expect(parseUiStateHash('#con=').photo.contrast).toBe(1)
+    expect(parseUiStateHash('#grid=yes').photo.grid).toBe(false)
+    // A hash naming no knob is the photo mode the app opens on
+    expect(parseUiStateHash('#lat=54&lon=12&height=100').photo).toEqual(DEFAULT_PHOTO_SETTINGS)
   })
 
   it('carries the clock as it was set – the day picked and the time typed – and only that', () => {
@@ -340,7 +452,8 @@ describe('layer and pause state in the hash', () => {
       labelsHidden: false,
       webcamsHidden: false,
       clouds: cloudsDefault,
-      tiltShift: miniatureDefault,
+      hiddenTraffic: new Set(),
+      photo: DEFAULT_PHOTO_SETTINGS,
       date: null,
       time: null,
       paused: false,
