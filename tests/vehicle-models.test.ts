@@ -4,10 +4,12 @@ import { VESSELS } from '../scripts/lib/vessel-fleet.mjs'
 import { FLEET, HEIGHTS } from '../scripts/lib/vehicle-fleet.mjs'
 import {
   MATERIALS,
+  PALETTE_MATERIAL,
   box,
   bodyProfile,
   createMesh,
   extrude,
+  paletteTexturePng,
   toGlb,
   triangleCount,
   wheel,
@@ -107,6 +109,64 @@ describe('mesh primitives', () => {
   })
 })
 
+/** The JSON chunk of a GLB. */
+function glbJson(glb: Uint8Array) {
+  const view = new DataView(glb.buffer, glb.byteOffset)
+  const jsonLength = view.getUint32(12, true)
+  return JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLength)))
+}
+
+describe('the palette texture', () => {
+  it('is a PNG any decoder reads, one RGB texel per material with roughness in green and metalness in blue', () => {
+    const names = ['body', 'glass', 'chassis']
+    const png = paletteTexturePng(names)
+    expect(Array.from(png.subarray(0, 8))).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    // IHDR: 3 × 1 pixels, 8 bits, RGB
+    const view = new DataView(png.buffer, png.byteOffset)
+    expect(view.getUint32(16)).toBe(3)
+    expect(view.getUint32(20)).toBe(1)
+    expect(png[24]).toBe(8)
+    expect(png[25]).toBe(2)
+    // IDAT: a zlib stream of one stored block – header, block, texels,
+    // Adler-32 – one filter byte then the texels (sharp decoded it the
+    // same way when the writer was built)
+    const idatLength = view.getUint32(33)
+    expect(new TextDecoder().decode(png.subarray(37, 41))).toBe('IDAT')
+    const zlib = png.subarray(41, 41 + idatLength)
+    expect((zlib[0] * 256 + zlib[1]) % 31).toBe(0)
+    expect(zlib[2]).toBe(1) // final, stored
+    const length = zlib[3] + zlib[4] * 256
+    expect(zlib[5] + zlib[6] * 256).toBe(0xffff - length)
+    const raw = zlib.subarray(7, 7 + length)
+    expect(raw[0]).toBe(0)
+    expect(Array.from(raw.subarray(1))).toEqual(
+      names.flatMap((n) => [255, Math.round(MATERIALS[n].roughness * 255), Math.round(MATERIALS[n].metallic * 255)]),
+    )
+    let a = 1
+    let b = 0
+    for (const byte of raw) {
+      a = (a + byte) % 65521
+      b = (b + a) % 65521
+    }
+    expect(new DataView(zlib.buffer, zlib.byteOffset).getUint32(7 + length)).toBe(((b << 16) | a) >>> 0)
+    // Byte-stable: the same materials give the same bytes
+    expect(Array.from(paletteTexturePng(names))).toEqual(Array.from(png))
+  })
+
+  it('keeps a see-through material out of the merge, as a blended primitive of its own', () => {
+    const mesh = createMesh()
+    box(mesh, 'body', 0, 0, 0, 1, 1, 1)
+    box(mesh, 'rotor', 0, 1, 0, 2, 0.1, 2)
+    const json = glbJson(toGlb(mesh, { name: 'probe' }))
+    expect(json.materials.map((m: { name: string }) => m.name)).toEqual([PALETTE_MATERIAL, 'rotor'])
+    expect(json.materials[1]).toMatchObject({ alphaMode: 'BLEND', doubleSided: true })
+    const [merged, rotor] = json.meshes[0].primitives
+    expect(merged.material).toBe(0)
+    expect(rotor.material).toBe(1)
+    expect(Object.keys(rotor.attributes).sort()).toEqual(['NORMAL', 'POSITION'])
+  })
+})
+
 describe('the generated fleet', () => {
   it('has expected dimensions declared for every mesh', () => {
     // A new mesh without a row above would otherwise fail three tests
@@ -154,15 +214,45 @@ describe('the generated fleet', () => {
         expect(jsonLength % 4).toBe(0)
         const json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLength)))
         expect(json.asset.version).toBe('2.0')
-        // Every material resolves to a defined palette entry
+        // Every material is the merged palette material or a defined
+        // palette entry (a blended one, drawn on its own)
         for (const material of json.materials) {
-          expect(MATERIALS).toHaveProperty(material.name)
+          if (material.name !== PALETTE_MATERIAL) expect(MATERIALS).toHaveProperty(material.name)
         }
         // Buffer views stay inside the binary chunk
         const binLength = view.getUint32(20 + jsonLength, true)
         for (const bufferView of json.bufferViews) {
           expect(bufferView.byteOffset + bufferView.byteLength).toBeLessThanOrEqual(binLength)
         }
+      })
+
+      it('draws every opaque material of a part in one primitive, coloured per vertex', () => {
+        const json = glbJson(glb)
+        // None of the land fleet is see-through: one primitive per node
+        for (const m of json.meshes) expect(m.primitives).toHaveLength(1)
+        const primitive = json.meshes[0].primitives[0]
+        expect(primitive.material).toBe(json.materials.findIndex((m: { name: string }) => m.name === PALETTE_MATERIAL))
+        expect(Object.keys(primitive.attributes).sort()).toEqual(['COLOR_0', 'NORMAL', 'POSITION', 'TEXCOORD_0'])
+        const color = json.accessors[primitive.attributes.COLOR_0]
+        expect(color).toMatchObject({ componentType: 5121, normalized: true, type: 'VEC4' })
+        const uv = json.accessors[primitive.attributes.TEXCOORD_0]
+        expect(uv).toMatchObject({ componentType: 5123, normalized: true, type: 'VEC2' })
+        expect(color.count).toBe(json.accessors[primitive.attributes.POSITION].count)
+        // The palette material reads its metalness and roughness off the texture
+        const palette = json.materials.find((m: { name: string }) => m.name === PALETTE_MATERIAL)
+        expect(palette.pbrMetallicRoughness).toEqual({
+          baseColorFactor: [1, 1, 1, 1],
+          metallicFactor: 1,
+          roughnessFactor: 1,
+          metallicRoughnessTexture: { index: 0 },
+        })
+        // One texel per material, sampled nearest so a texel is never a blend
+        expect(json.images).toHaveLength(1)
+        expect(json.samplers[0]).toEqual({ magFilter: 9728, minFilter: 9728, wrapS: 33071, wrapT: 33071 })
+        expect(json.images[0].mimeType).toBe('image/png')
+        const group = mesh.groups.get('body')!
+        const vertexCount = group.positions.length / 3
+        expect(vertexCount).toBeGreaterThan(0)
       })
     })
   }

@@ -41,7 +41,8 @@ describe('the generated backdrop fleet', () => {
         // the small craft; all models remain shared, self-contained GLBs.
         const budget = name === 'vessel-container' ? 36000 : name === 'vessel-passenger' ? 18000 : 8500
         expect(triangleCount(mesh)).toBeLessThan(budget)
-        expect(glb.byteLength).toBeLessThan(budget * 60)
+        // 60 bytes a triangle, plus the merge's 8 a vertex (see toGlb)
+        expect(glb.byteLength).toBeLessThan(budget * 70)
       })
 
       it('keeps everything on deck inside the hull\u2019s plan', () => {

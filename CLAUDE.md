@@ -923,6 +923,33 @@ funnel anchors, navigation lights and waterline origins remain unchanged.
 The geometry tests budget 36,000 triangles for the container ship, 18,000
 for the passenger ship, 8,500 for the other AIS craft and 4,500 for a ferry.
 
+**One primitive per part (since 2026-09-13).** A mesh is still built as
+one triangle soup per material, but `toGlb` writes every opaque group
+of a part into ONE glTF primitive: the material's colour becomes a
+vertex colour (`COLOR_0`, bytes), its metalness and roughness a texel
+of a palette texture (`paletteTexturePng`, one RGB texel per material,
+roughness in green and metalness in blue, sampled NEAREST) that the
+vertices point into (`TEXCOORD_0`, unsigned shorts), under the one
+`palette` material – so every part keeps exactly the PBR values it had.
+A blended material (the rotor discs) stays a primitive of its own. The
+reason is draw calls: Cesium draws a primitive per command, a tram of
+six materials was six commands a wagon, a ship up to thirteen, and the
+fleets were three quarters of a busy view's commands (Hamburg at 1175 m:
+1 190 vehicle and up to 2 000 ship commands against 280 for the tiles);
+a command costs ~3 µs of JS in Cesium and, in Firefox, its serialisation
+to the process that runs WebGL (see "Firefox" under rendering). Measured
+2026-09-13 at that view: 3 900 → 954 commands, render JS 13 → 8 ms in
+Firefox, 10.7 → 7.4 in Chrome. Verified pixel for pixel on a fixed
+offline scene of every fleet close up (old GLBs against new): 6.5 % of
+the pixels differ, by at most 1/255 in any channel – the 8-bit rounding
+of the colours – and none by more. The window glow's luminance rule
+(VehicleLayer, VesselLayer) survives it: glass lands at 0.057, the
+bellows at 0.090, the cutoff is 0.075. The palette PNG is written by
+hand with stored deflate blocks (no zlib – its output could differ
+between Node versions; the build stays byte-stable, checked by
+rebuilding twice), and the GLBs grew by 8 bytes a vertex, which is why
+the aircraft budget is 800 kB and the ships' 70 bytes a triangle.
+
 ### Switching cities at runtime
 
 A city switch is a swap, not a reload. `CesiumMap.clearCity` takes the routes,
@@ -1296,7 +1323,70 @@ the hull. The spec waits for the model (`hullReady`), and it keeps its
 frames in the page – four million numbers over the wire cost that
 runner half a minute per frame.
 
-### The GPU readback cache
+### Firefox: WebGL runs in another process, and every frame waits for it
+
+Investigated 2026-09-13 after the user found Firefox 155 "ruckelt ganz
+stark" over Hamburg where Chrome did not, and `?offline=1` smooth. The
+tools, all in the scratchpad of that session and cheap to rebuild:
+Playwright 1.62 drives the stock Firefox (`channel: 'moz-firefox'`,
+WebDriver BiDi – from a sandboxed shell only through a wrapper that
+launches it with `open -a` and tails its stdio for the "WebDriver BiDi
+listening" line) and the stock Chrome (`channel: 'chrome'`), headed, on
+the real GPU, at 1600×1000 CSS and DPR 2, through the user's scenario
+(home view → flight to 1175 m over the harbour → a pan); a Gecko profile
+of the run (`MOZ_PROFILER_STARTUP=1`, `MOZ_PROFILER_SHUTDOWN=<file>`,
+passed through `open --env`), read with a small script that sums self
+time per function and, for samples in `libsystem_kernel`, the nearest
+named ancestor – which is how the blocked time got its names; and a
+wrapper on every `WebGL2RenderingContext.prototype` method counting
+calls and JS time per phase.
+
+What it found: Firefox's WebGL is out-of-process (`PWebGL::Msg_*`
+IPC). The calls themselves are cheaper JS-side than Chrome's – they go
+into a command buffer – but at the end of every frame the content
+thread waits in `Msg_GetFrontBuffer` until the host has executed the
+whole stream, and every synchronous call (`readPixels`,
+`getBufferSubData`, the first `getProgramParameter` after a link) is a
+round trip that drains it. Chrome overlaps the GPU process with the
+next frame; Firefox cannot, so a frame there is JS **plus** the host's
+execution **plus** the stalls, in series. During the flight the main
+thread was blocked 32 % of the time (GetFrontBuffer 14.5 %,
+GetLinkResult 10 %, ReadPixels 6 %, GetBufferSubData 1.5 %). The "drain"
+after `viewer.render()` – a `getError()` timed – was 4–6 ms at the
+median in Firefox against 0.3–0.7 in Chrome. Nothing else differed:
+JS per draw command is ~3 µs in both engines, the window size was not
+it (the user's 14" display is smaller than the test viewport), MSAA and
+shadows were off in every scene, Playwright's profile sets no gfx
+prefs. Firefox also has no persistent shader cache, so every visit
+links its ~40 programs and the derived variants again, 16–25 ms each,
+blocking – Chrome caches the binaries on disk.
+
+So the levers are the number of GL calls a frame and the synchronous
+readbacks, and both turned out to be mostly this app's own: ~27 600 GL
+calls a frame in the home view, three quarters of the draw commands
+the fleets' (six to thirteen primitives a model – "One primitive per
+part" under the ships), and hundreds of synchronous readbacks a second
+(the surface picks' `readPixels`, `tileset.getHeight`'s
+`getBufferSubData` – the rules under "Ships are clamped to the tiles"
+and the cache below). Measured before and after, same harness, dev
+build, live fleet (so ±):
+
+| | Chrome before | after | Firefox before | after | Firefox `offline=1` |
+|---|---|---|---|---|---|
+| flight A→B, rAF gap p50 / p90 / p99 | 9–25 / 58 / 75–142 ms | 8.3 / 16.7 / 25 | 25–33 / 67–75 / 133–158 | 25 / 33 / 58 | 8.3 / 17 / 83 |
+| pan over the harbour, p50 / p90 / max | 17 / 50 / 83 | 8.4 / 16.7 / 33 | 25–33 / 58–67 / 108–142 | 17–25 / 25–33 / 33–42 | 16.7 / 18 / 33 |
+| commands per frame at 1175 m | ~3 900 | ~950 | ~3 900 | ~950 | ~1 050 |
+
+The rAF gap is quantised to the 8.3 ms of the 120 Hz display. Firefox's
+median in motion sits at the 2–3 vsync boundary now, its hitches are
+gone; what remains is the serial frame (JS ~10 ms + host ~5 ms + tick),
+which only fewer commands or less JS per tick can shorten further. Not
+done, and why: `KHR_parallel_shader_compile` (Cesium queries the link
+result at once); pre-warming the shader variants in the idle seconds
+after load (one-time 100–450 ms per fly-in in Firefox; worth it if the
+first flight into a city is still felt); `navigator.deviceMemory` is
+Chrome-only, so Firefox gets the 1 GB tile cache – no ratchet seen at
+these views, but a tilted city view is near it.
 
 **The GPU readback cache** ([buffer-readback-cache.ts](src/map/buffer-readback-cache.ts),
 installed on Cesium's `Buffer.prototype` by CesiumMap): `tileset.getHeight`
@@ -1430,7 +1520,7 @@ new generation re-reads it. The **scheduled ferries** (VehicleLayer, mode
 3 picks a tick, again after 25 m or a `surfaceGeneration` bump, the route
 profile until the first answer; `FERRY_FLOAT_LIFT` stays on top for the
 mesh's crests. The rules that keep the picks rare, all of 2026-09-13 and
-all measured:
+all measured (the Firefox investigation below is where they come from):
 
 - **A generation is a tile that loaded, at most every 2 s.** It followed
   `allTilesLoaded` until then, which Cesium raises on every load-progress
@@ -1685,7 +1775,9 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   centre pillar and the mirrored normals. Rotors and propellers remain
   translucent discs, the helicopter's tail rotor has an open shroud.
   Aircraft stay below 12,000
-  triangles and 650 kB each (smaller types have a tighter budget).
+  triangles and 800 kB each (smaller types have a tighter budget; the
+  merged primitive's colour and palette coordinate are 8 bytes a vertex,
+  see "One primitive per part" below).
   The retractable gear remains its own `mesh.parts.gear` / glTF `gear`
   node, which `AircraftLayer` shows only within `GEAR_DOWN_AGL_M` (600 m)
   of the city's ground. The light single's gear and helicopter skids are

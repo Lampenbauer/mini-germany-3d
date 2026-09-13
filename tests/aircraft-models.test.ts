@@ -103,7 +103,8 @@ describe('the generated aircraft fleet', () => {
         // Smooth shells, profiled wings and recessed engines; the four
         // engines and second window deck give the jumbo the larger budget.
         expect(triangleCount(mesh)).toBeLessThan(name === 'aircraft-jumbo' ? 12000 : 8500)
-        expect(glb.byteLength).toBeLessThan(650 * 1024)
+        // The merge costs 8 bytes a vertex (colour and palette coordinate)
+        expect(glb.byteLength).toBeLessThan(800 * 1024)
       })
 
       it('uses only palette materials', () => {

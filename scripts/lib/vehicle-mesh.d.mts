@@ -80,4 +80,8 @@ export function wheel(
   side: number,
 ): void
 export function toGlb(mesh: Mesh, opts: { name: string }): Uint8Array
+/** The name of the merged material in a GLB (see toGlb). */
+export const PALETTE_MATERIAL: string
+/** The palette texture – one RGB texel per material, roughness in green, metalness in blue – as a PNG. */
+export function paletteTexturePng(materialNames: string[]): Uint8Array
 export function triangleCount(mesh: Mesh): number

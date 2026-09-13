@@ -1,8 +1,22 @@
 /**
  * Low-poly vehicle meshes for Mini Germany 3D, written as self-contained
- * binary glTF (.glb) – no textures, no external assets, PBR materials
- * with muted colors so the models sit believably inside the
- * photorealistic Google tiles instead of reading as toys.
+ * binary glTF (.glb) – no external assets, PBR materials with muted
+ * colors so the models sit believably inside the photorealistic Google
+ * tiles instead of reading as toys.
+ *
+ * A mesh is built as one triangle soup per material, but written as ONE
+ * primitive per part (see toGlb): Cesium draws a primitive per draw call,
+ * and a tram of six materials was six draw calls a wagon, a ship up to
+ * thirteen – the fleets were three quarters of the draw calls of a busy
+ * view (measured 2026-09-13, Hamburg at 1175 m: 1 190 vehicle and up to
+ * 2 000 ship commands against 280 for the tiles), and in Firefox every
+ * call is serialised to the process that runs WebGL and waited for at the
+ * end of the frame. The materials' colours become vertex colours, and
+ * their metallic and roughness a palette texture of one texel per
+ * material that the vertices point into – so every part keeps exactly
+ * the PBR values it had, in one draw. Only a see-through material (the
+ * rotor discs) stays a primitive of its own: it is blended, drawn after
+ * everything opaque.
  *
  * Conventions: 1 unit = 1 meter. glTF is Y-up; +Z is the direction of
  * travel (Cesium's glTF pipeline maps that onto the vehicle frame's +X).
@@ -383,11 +397,102 @@ function align(n, pad) {
   return Math.ceil(n / pad) * pad
 }
 
+/** A see-through material is blended and drawn on its own (see toGlb). */
+function isBlended(materialName) {
+  const m = MATERIALS[materialName]
+  if (!m) throw new Error(`unknown material "${materialName}"`)
+  return m.color[3] < 1
+}
+
+const CRC_TABLE = new Uint32Array(256).map((_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+
+function crc32(bytes) {
+  let crc = 0xffffffff
+  for (const b of bytes) crc = CRC_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function adler32(bytes) {
+  let a = 1
+  let b = 0
+  for (const byte of bytes) {
+    a = (a + byte) % 65521
+    b = (b + a) % 65521
+  }
+  return ((b << 16) | a) >>> 0
+}
+
+function pngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length)
+  const view = new DataView(out.buffer)
+  view.setUint32(0, data.length)
+  out.set(new TextEncoder().encode(type), 4)
+  out.set(data, 8)
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)))
+  return out
+}
+
+/**
+ * The palette texture: one RGB texel per opaque material of the file –
+ * green the roughness, blue the metalness, the channels glTF's
+ * metallicRoughnessTexture reads (red is left at full, where an occlusion
+ * texture would be). A PNG of stored deflate blocks, written by hand:
+ * nothing to compress at a few texels, no zlib whose output could differ
+ * between Node versions, and the GLB stays byte-stable across rebuilds.
+ */
+export function paletteTexturePng(materialNames) {
+  const width = materialNames.length
+  const raw = new Uint8Array(1 + width * 3)
+  raw[0] = 0 // filter: none
+  materialNames.forEach((materialName, i) => {
+    const m = MATERIALS[materialName]
+    raw[1 + i * 3] = 255
+    raw[2 + i * 3] = Math.round(m.roughness * 255)
+    raw[3 + i * 3] = Math.round(m.metallic * 255)
+  })
+  const zlib = new Uint8Array(2 + 5 + raw.length + 4)
+  zlib[0] = 0x78 // deflate, 32 kB window
+  zlib[1] = 0x01 // no preset dictionary, fastest – the check bits make 0x7801 divisible by 31
+  zlib[2] = 0x01 // one stored block, final
+  zlib[3] = raw.length & 0xff
+  zlib[4] = raw.length >> 8
+  zlib[5] = ~raw.length & 0xff
+  zlib[6] = (~raw.length >> 8) & 0xff
+  zlib.set(raw, 7)
+  new DataView(zlib.buffer).setUint32(7 + raw.length, adler32(raw))
+  const ihdr = new Uint8Array(13)
+  const ihdrView = new DataView(ihdr.buffer)
+  ihdrView.setUint32(0, width)
+  ihdrView.setUint32(4, 1)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // colour type: RGB
+  const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const chunks = [signature, pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib), pngChunk('IEND', new Uint8Array(0))]
+  const png = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let cursor = 0
+  for (const chunk of chunks) {
+    png.set(chunk, cursor)
+    cursor += chunk.length
+  }
+  return png
+}
+
+/** The name the merged material carries in a GLB (the tests know it). */
+export const PALETTE_MATERIAL = 'palette'
+
 /**
  * Serializes the mesh into a self-contained binary glTF: one node per
  * part – the mesh itself first, named `name`, then every entry of
- * `mesh.parts` under its own name – all in one scene, the materials
- * shared between them.
+ * `mesh.parts` under its own name – all in one scene. Per part, every
+ * opaque material group is merged into one primitive: positions and
+ * normals as they are, the material's colour as a vertex colour (bytes)
+ * and its palette texel as a texture coordinate (unsigned shorts), under
+ * the one palette material; a blended group stays a primitive of its own
+ * under its own material. The palette texture is shared by every part.
  */
 export function toGlb(mesh, { name }) {
   const parts = [{ name, mesh }, ...Object.entries(mesh.parts ?? {}).map(([n, m]) => ({ name: n, mesh: m }))]
@@ -397,6 +502,38 @@ export function toGlb(mesh, { name }) {
       if (!materialNames.includes(materialName)) materialNames.push(materialName)
     }
   }
+  const palette = materialNames.filter((n) => !isBlended(n))
+  const blended = materialNames.filter((n) => isBlended(n))
+  const materials = []
+  if (palette.length > 0) {
+    materials.push({
+      name: PALETTE_MATERIAL,
+      pbrMetallicRoughness: {
+        baseColorFactor: [1, 1, 1, 1],
+        metallicFactor: 1,
+        roughnessFactor: 1,
+        metallicRoughnessTexture: { index: 0 },
+      },
+    })
+  }
+  const blendedMaterial = new Map()
+  for (const materialName of blended) {
+    const m = MATERIALS[materialName]
+    blendedMaterial.set(materialName, materials.length)
+    materials.push({
+      name: materialName,
+      pbrMetallicRoughness: {
+        baseColorFactor: m.color,
+        metallicFactor: m.metallic,
+        roughnessFactor: m.roughness,
+      },
+      // A see-through material is blended and shows its back – a rotor
+      // disc is looked at from below as often as from above
+      alphaMode: 'BLEND',
+      doubleSided: true,
+    })
+  }
+
   const buffers = []
   const bufferViews = []
   const accessors = []
@@ -405,43 +542,124 @@ export function toGlb(mesh, { name }) {
 
   const pushView = (bytes, target) => {
     buffers.push(bytes)
-    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: bytes.byteLength, target })
+    bufferViews.push({ buffer: 0, byteOffset: offset, byteLength: bytes.byteLength, ...(target ? { target } : {}) })
     offset += align(bytes.byteLength, 4)
     return bufferViews.length - 1
+  }
+  const positionBounds = (positions) => {
+    const min = [Infinity, Infinity, Infinity]
+    const max = [-Infinity, -Infinity, -Infinity]
+    for (let i = 0; i < positions.length; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        if (positions[i + k] < min[k]) min[k] = positions[i + k]
+        if (positions[i + k] > max[k]) max[k] = positions[i + k]
+      }
+    }
+    return { min, max }
+  }
+  /** Positions, normals and indices of one primitive; returns its attribute and index accessors. */
+  const pushGeometry = (partName, label, positions, normals, indices) => {
+    const vertexCount = positions.length / 3
+    if (vertexCount > 65535 && indices instanceof Uint16Array) {
+      throw new Error(`${partName}/${label}: too many vertices for uint16 indices`)
+    }
+    const posView = pushView(new Uint8Array(positions.buffer), 34962)
+    const normView = pushView(new Uint8Array(normals.buffer), 34962)
+    const idxView = pushView(new Uint8Array(indices.buffer), 34963)
+    accessors.push(
+      { bufferView: posView, componentType: 5126, count: vertexCount, type: 'VEC3', ...positionBounds(positions) },
+      { bufferView: normView, componentType: 5126, count: vertexCount, type: 'VEC3' },
+      {
+        bufferView: idxView,
+        componentType: indices instanceof Uint32Array ? 5125 : 5123,
+        count: indices.length,
+        type: 'SCALAR',
+      },
+    )
+    return { POSITION: accessors.length - 3, NORMAL: accessors.length - 2, indices: accessors.length - 1 }
   }
 
   for (const part of parts) {
     const primitives = []
+    // The opaque groups of the part, merged
+    let vertexCount = 0
+    let indexCount = 0
     for (const [materialName, g] of part.mesh.groups) {
-      const positions = new Float32Array(g.positions)
-      const normals = new Float32Array(g.normals)
-      const indices = new Uint16Array(g.indices)
-      if (g.positions.length / 3 > 65535) {
-        throw new Error(`${part.name}/${materialName}: too many vertices for uint16 indices`)
-      }
-      const min = [Infinity, Infinity, Infinity]
-      const max = [-Infinity, -Infinity, -Infinity]
-      for (let i = 0; i < positions.length; i += 3) {
-        for (let k = 0; k < 3; k++) {
-          if (positions[i + k] < min[k]) min[k] = positions[i + k]
-          if (positions[i + k] > max[k]) max[k] = positions[i + k]
+      if (blendedMaterial.has(materialName)) continue
+      vertexCount += g.positions.length / 3
+      indexCount += g.indices.length
+    }
+    if (vertexCount > 0) {
+      const positions = new Float32Array(vertexCount * 3)
+      const normals = new Float32Array(vertexCount * 3)
+      const colors = new Uint8Array(vertexCount * 4)
+      const uvs = new Uint16Array(vertexCount * 2)
+      const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount)
+      let base = 0
+      let cursor = 0
+      for (const [materialName, g] of part.mesh.groups) {
+        if (blendedMaterial.has(materialName)) continue
+        const m = MATERIALS[materialName]
+        const count = g.positions.length / 3
+        positions.set(g.positions, base * 3)
+        normals.set(g.normals, base * 3)
+        // The texel's centre: NEAREST sampling never reads a neighbour
+        const u = Math.round(((palette.indexOf(materialName) + 0.5) / palette.length) * 65535)
+        for (let v = 0; v < count; v++) {
+          colors[(base + v) * 4] = Math.round(m.color[0] * 255)
+          colors[(base + v) * 4 + 1] = Math.round(m.color[1] * 255)
+          colors[(base + v) * 4 + 2] = Math.round(m.color[2] * 255)
+          colors[(base + v) * 4 + 3] = 255
+          uvs[(base + v) * 2] = u
+          uvs[(base + v) * 2 + 1] = 32768
         }
+        for (const index of g.indices) indices[cursor++] = index + base
+        base += count
       }
-      const posView = pushView(new Uint8Array(positions.buffer), 34962)
-      const normView = pushView(new Uint8Array(normals.buffer), 34962)
-      const idxView = pushView(new Uint8Array(indices.buffer), 34963)
+      const geometry = pushGeometry(part.name, PALETTE_MATERIAL, positions, normals, indices)
+      const colorView = pushView(colors, 34962)
+      const uvView = pushView(new Uint8Array(uvs.buffer), 34962)
       accessors.push(
-        { bufferView: posView, componentType: 5126, count: positions.length / 3, type: 'VEC3', min, max },
-        { bufferView: normView, componentType: 5126, count: normals.length / 3, type: 'VEC3' },
-        { bufferView: idxView, componentType: 5123, count: indices.length, type: 'SCALAR' },
+        { bufferView: colorView, componentType: 5121, normalized: true, count: vertexCount, type: 'VEC4' },
+        { bufferView: uvView, componentType: 5123, normalized: true, count: vertexCount, type: 'VEC2' },
       )
       primitives.push({
-        attributes: { POSITION: accessors.length - 3, NORMAL: accessors.length - 2 },
-        indices: accessors.length - 1,
-        material: materialNames.indexOf(materialName),
+        attributes: {
+          POSITION: geometry.POSITION,
+          NORMAL: geometry.NORMAL,
+          COLOR_0: accessors.length - 2,
+          TEXCOORD_0: accessors.length - 1,
+        },
+        indices: geometry.indices,
+        material: 0,
+      })
+    }
+    // The blended groups, each on its own
+    for (const [materialName, g] of part.mesh.groups) {
+      if (!blendedMaterial.has(materialName)) continue
+      const geometry = pushGeometry(
+        part.name,
+        materialName,
+        new Float32Array(g.positions),
+        new Float32Array(g.normals),
+        new Uint16Array(g.indices),
+      )
+      primitives.push({
+        attributes: { POSITION: geometry.POSITION, NORMAL: geometry.NORMAL },
+        indices: geometry.indices,
+        material: blendedMaterial.get(materialName),
       })
     }
     meshes.push({ primitives, name: part.name })
+  }
+
+  const textureJson = {}
+  if (palette.length > 0) {
+    const imageView = pushView(paletteTexturePng(palette))
+    textureJson.images = [{ bufferView: imageView, mimeType: 'image/png' }]
+    // NEAREST both ways, no mipmaps: a texel is a material, never a blend of two
+    textureJson.samplers = [{ magFilter: 9728, minFilter: 9728, wrapS: 33071, wrapT: 33071 }]
+    textureJson.textures = [{ sampler: 0, source: 0 }]
   }
 
   const binLength = offset
@@ -458,21 +676,8 @@ export function toGlb(mesh, { name }) {
     scenes: [{ nodes: meshes.map((_, i) => i) }],
     nodes: meshes.map((m, i) => ({ mesh: i, name: m.name })),
     meshes,
-    materials: materialNames.map((materialName) => {
-      const m = MATERIALS[materialName]
-      if (!m) throw new Error(`unknown material "${materialName}"`)
-      return {
-        name: materialName,
-        pbrMetallicRoughness: {
-          baseColorFactor: m.color,
-          metallicFactor: m.metallic,
-          roughnessFactor: m.roughness,
-        },
-        // A see-through material is blended and shows its back – a rotor
-        // disc is looked at from below as often as from above
-        ...(m.color[3] < 1 ? { alphaMode: 'BLEND', doubleSided: true } : {}),
-      }
-    }),
+    materials,
+    ...textureJson,
     buffers: [{ byteLength: binLength }],
     bufferViews,
     accessors,
