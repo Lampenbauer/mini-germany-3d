@@ -18,6 +18,7 @@
     "data:heights": "node scripts/fetch-route-heights.mjs",
     "data:lamps": "node scripts/fetch-street-lamps.mjs",
     "data:airfield-lights": "node scripts/fetch-airfield-lights.mjs",
+    "data:buoys": "node scripts/fetch-buoys.mjs",
     "models:build": "node scripts/build-vehicle-models.mjs",
     "postinstall": "node scripts/copy-cesium-assets.mjs"
   },

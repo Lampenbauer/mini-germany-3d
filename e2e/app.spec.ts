@@ -500,3 +500,29 @@ test('the compass follows the view and walks it round the quarters', async () =>
   await needleFacing(0)
   await offering('Face east')
 })
+
+test('the buoys come up on the water as the camera comes down, and their lanterns with the night', async () => {
+  const buoys = () => page.evaluate(() => window.__mg3d!.buoys())
+  const slowPoll = { timeout: 60_000, intervals: [500, 1000, 2000] }
+  // The Warnow's marks are registered with the city; from high over
+  // the centre every cell is out of range and nothing is drawn
+  expect((await buoys()).buoys).toBeGreaterThan(150)
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.09&lon=12.13&height=8000&heading=0&pitch=-60&routes=0'
+  })
+  await expect.poll(async () => (await buoys()).shown, slowPoll).toBe(0)
+  // Down to the fairway in the Breitling: the cells within reach load
+  // their models (offline from the local GLBs, like the ships' hulls)
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.12&lon=12.09&height=400&heading=0&pitch=-45&routes=0'
+  })
+  await expect.poll(async () => (await buoys()).shown, slowPoll).toBeGreaterThan(10)
+  // Offline there are no tiles to clamp to: the fallback surface, no pick
+  expect((await buoys()).clamped).toBe(0)
+  // Night: the lanterns burn; noon: they are out
+  await page.evaluate(() => window.__mg3d!.setTime('23:00'))
+  await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(1)
+  await page.evaluate(() => window.__mg3d!.setTime('12:00'))
+  await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(0)
+  expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
+})

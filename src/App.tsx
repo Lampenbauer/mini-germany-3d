@@ -217,6 +217,17 @@ export interface Mg3dTestApi {
   streetLamps: () => { drawn: number; alpha: number }
   /** Airfield lighting: runway and taxiway lights built into the scene, their current opacity, and the apron pools built. */
   airfieldLights: () => { drawn: number; alpha: number; floods: number }
+  /** The buoys: registered, built (model loaded), drawn, clamped to the tiles, lit, and the lanterns' opacity. */
+  buoys: () => {
+    buoys: number
+    built: number
+    shown: number
+    clamped: number
+    lit: number
+    lightAlpha: number
+    heightSpanM: number
+    heightsOverFallbackM: number[]
+  }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**
@@ -320,6 +331,8 @@ interface UrlOptions {
   aircraft: boolean
   /** Night-time street and airfield lighting from OSM (?lamps=0 disables both). */
   lamps: boolean
+  /** The buoys on the water, from OSM (?buoys=0 leaves them out – the specs over the water boot so). */
+  buoys: boolean
   /** Live webcams floating over their spot (?webcams=0 disables them). */
   webcams: boolean
   /** Tile LOD budget override in drawing-buffer pixels (debug, ?sse=12). */
@@ -552,6 +565,7 @@ function readUrlOptions(): UrlOptions {
     ais: params.get('ais') !== '0',
     aircraft: params.get('aircraft') !== '0',
     lamps: params.get('lamps') !== '0',
+    buoys: params.get('buoys') !== '0',
     webcams: params.get('webcams') !== '0',
     maximumScreenSpaceError: Number.isFinite(sse) && sse >= 1 && sse <= 128 ? sse : undefined,
     maxRainDrops: Number.isFinite(drops) && drops >= 1 && drops <= 4000 ? drops : undefined,
@@ -2350,6 +2364,7 @@ export default function App() {
       anyVehicleInView: () => lastAnyVehicleInView,
       streetLamps: () => map.getStreetLampInfo(),
       airfieldLights: () => map.getAirfieldLightInfo(),
+      buoys: () => map.getBuoyInfo(),
       renderRate: () => {
         // Prune on read, not only when a frame is drawn: otherwise the
         // value freezes at its last level the moment rendering stops, and
@@ -2556,6 +2571,8 @@ export default function App() {
       // actually show, so a daytime session pays nothing for this.
       if (urlOpts.lamps && data.lamps) map.addStreetLamps(data.lamps)
       if (urlOpts.lamps && data.airfieldLights) map.addAirfieldLights(data.airfieldLights)
+      // The buoys: models on approach, lanterns at night (see BuoysLayer)
+      if (urlOpts.buoys && data.buoys) map.addBuoys(data.buoys)
       // The layer switches as they stand, applied to the fresh layers
       applyRouteVisibility()
       map.setStopsVisible(showStopsRef.current)

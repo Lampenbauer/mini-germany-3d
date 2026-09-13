@@ -55,6 +55,17 @@ export const MATERIALS = {
   steel: { color: [0.43, 0.47, 0.48, 1], metallic: 0.65, roughness: 0.38 },
   deckTeak: { color: [0.34, 0.27, 0.19, 1], metallic: 0, roughness: 0.87 },
   safetyOrange: { color: [0.68, 0.22, 0.055, 1], metallic: 0, roughness: 0.6 },
+  /**
+   * The buoys' paint (scripts/lib/buoy-fleet.mjs): the lateral red and
+   * green and the special marks' yellow, saturated enough to read as the
+   * mark from a distance yet weathered like the hulls; the antifouling
+   * band at the waterline; the lantern's grey housing.
+   */
+  buoyRed: { color: [0.66, 0.13, 0.09, 1], metallic: 0.05, roughness: 0.65 },
+  buoyGreen: { color: [0.1, 0.42, 0.2, 1], metallic: 0.05, roughness: 0.65 },
+  buoyYellow: { color: [0.86, 0.66, 0.1, 1], metallic: 0.05, roughness: 0.65 },
+  buoyDark: { color: [0.11, 0.11, 0.115, 1], metallic: 0.05, roughness: 0.85 },
+  buoyLantern: { color: [0.5, 0.52, 0.53, 1], metallic: 0.35, roughness: 0.45 },
 }
 
 /**

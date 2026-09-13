@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "attribution": "Buoys © OpenStreetMap contributors (ODbL)"
+  },
+  "buoys": [
+    [9.840069,52.383481,"green","spar",null,null,null],
+    [10.115115,52.311375,"red","can",null,null,null],
+    [9.36208,52.493016,"yellow","spar",null,null,null],
+    [9.580149,52.401176,"yellow","can",null,null,null],
+    [9.735933,52.361258,"yellow","can",null,null,null],
+    [9.736125,52.361055,"yellow","can",null,null,null],
+    [9.736125,52.361461,"yellow","can",null,null,null],
+    [9.736508,52.361055,"yellow","can",null,null,null],
+    [9.736508,52.361461,"yellow","can",null,null,null],
+    [9.7367,52.361258,"yellow","can",null,null,null],
+    [9.74998,52.343116,"yellow","can",null,null,null],
+    [9.750367,52.343324,"yellow","can",null,null,null],
+    [9.750568,52.343563,"yellow","can",null,null,null],
+    [9.750731,52.343688,"yellow","can",null,null,null],
+    [9.751069,52.343884,"yellow","can",null,null,null],
+    [9.751389,52.344044,"yellow","can",null,null,null],
+    [9.751652,52.344155,"yellow","can",null,null,null],
+    [9.752078,52.344273,"yellow","can",null,null,null],
+    [9.752521,52.344316,"yellow","can",null,null,null],
+    [9.752875,52.344336,"yellow","can",null,null,null],
+    [9.753329,52.3443,"yellow","can",null,null,null],
+    [9.753577,52.344273,"yellow","can",null,null,null]
+  ]
+}

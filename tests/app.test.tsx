@@ -81,6 +81,7 @@ vi.mock('@/map/CesiumMap', () => {
     addStops() {}
     addStreetLamps() {}
     addAirfieldLights() {}
+    addBuoys() {}
     focusLine() {}
     setSceneTime() {}
     setView() {}

@@ -90,6 +90,17 @@ declare global {
       stopCameraPath: () => void
       /** The miniature effect: on, how much the pose carries, passes compiled. */
       tiltShiftState: () => { enabled: boolean; strength: number; ready: boolean }
+      /** The buoys: registered, built (model loaded), drawn, clamped, lit, and the lanterns' opacity (see src/map/BuoysLayer.ts). */
+      buoys: () => {
+        buoys: number
+        built: number
+        shown: number
+        clamped: number
+        lit: number
+        lightAlpha: number
+        heightSpanM: number
+        heightsOverFallbackM: number[]
+      }
       /** The photo mode as set – the shape of src/lib/photo-settings.ts, the knobs the specs read. */
       photoSettings: () => {
         fovDeg: number

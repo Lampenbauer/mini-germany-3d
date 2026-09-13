@@ -45,6 +45,7 @@ pipeline (see [Cities](#cities)).
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every OSM street lamp along the routes – in Rostock ~7000 of them from the city's open-data import, in Kiel ~1800 community-mapped ones; fades in with the sun ramp and out as the camera climbs |
 | Airfield lighting at night | The runway and taxiway lights of the city's airfield, one point per light OpenStreetMap maps (`aeroway=navigationaid`) – runway edge, centre line, threshold and touchdown zone, the approach system, the PAPIs, taxiway edge and centre line, stop bars and guard lights – in the colours ICAO gives them: white, green thresholds and red ends, blue taxiway edges, green taxiway centre lines; and under the apron's floodlight masts (`tower:type=lighting` inside the aerodrome) a wide cool-white pool of lit concrete, the street lamps' effect at six times the width. Frankfurt's ten thousand, Berlin's six thousand, Hamburg's four, Rostock-Laage's twenty-one, as far as each is mapped. Lit from dusk, and by day when the weather's visibility drops under a few kilometres, as the tower switches it on in fog and heavy rain; readable as the lit runway from the home view, out underground |
+| Buoys on the water | The fairways' marks as OpenStreetMap has them (`seamark:type=buoy_*`): the red and green lateral buoys and the yellow special marks, each a generic 3D model of its shape – can, cone, spar, pillar, sphere or barrel, with IALA region A's topmark on the towers and poles – in its colour, set down on the tiles' own water like the ships (a clamp pick per buoy, rationed and made again as finer tiles come in) and lit at night where the mark has a lantern: one point in the light's colour, on from dusk or in poor visibility by day, full from the quay and fading with the camera's distance so a fairway seen from high up is a trace of lights rather than a string of them, steady for now – the light's character and period ride in the data for a flashing rule one day. The models come as the camera comes down to the water (per grid cell within 4 km, hidden again as it leaves), so a session over the city centre loads none; the lanterns are one draw call for the whole city and mark the channel from the home view at night. The banded marks – cardinal, isolated danger, safe water, preferred channel – and the beacons stay out for now. `?buoys=0` leaves them off (the specs over the water boot so) |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – every line on the card a link that zooms to it and opens its card – and a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | The city in numbers | The info button in the panel's head opens the city card: lines per mode and how many of them run today (Munich's U8 is Saturday-only), stop positions, line kilometres and the share of them in tunnel (Frankfurt 23 %, Kiel none), the longest line as a link to it, the network's lowest and highest stop (Stuttgart climbs 300 m), trips a day with the short workings among them, and the service day – "round the clock" where the longest pause between departures is under an hour, which with hourly night buses is most cities. Everything on it is stated by the data (`src/lib/city-profile.ts`), like the line card's facts; only the last row is the simulation's – how many vehicles are out, how many carry live data and their median delay. The same live counts stand in the panel itself: beside the Traffic heading, in brackets after each mode's group header and after the AIS heading – the numbers that swell with the rush hour under the time-lapse |
@@ -281,6 +282,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it; a path under `/en/` counts as English) |
 | `?lamps=0` | Disable the night-time street and airfield lighting |
+| `?buoys=0` | Leave the buoys off the water (the specs over the water boot so, to keep their frames comparable) |
 | `?webcams=0` | Leave the live webcam pictures out |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?tier=mobile` / `?tier=desktop` | Force the device tier the map draws with (`src/lib/render-profile.ts`): a phone gets a 2048 shadow cascade instead of 8192, no multisampling, a pixel ratio of at most 1.5, coarser tiles and a smaller tile budget, vehicle bodies out to 2 km instead of 3.5, and neither exhaust nor wakes on the ships. Read from the touch screen, its size and the device memory otherwise; the override measures one profile on the other's hardware |
@@ -333,6 +335,7 @@ src/cities/kiel/
 ├── schedule.json      # real departure times – generated (data:gtfs)
 ├── street-lamps.json  # OSM lamps along the routes – generated (data:lamps), optional
 ├── airfield-lights.json # OSM runway and taxiway lights in the box – generated (data:airfield-lights), optional
+├── buoys.json           # OSM buoys in the box – generated (data:buoys), optional
 └── terrain/           # terrain tiles of the city's own, over Mapterhorn's – optional (build-terrain-patch)
 ```
 
@@ -396,6 +399,7 @@ npm run data:simplify -- --city kiel
 npm run data:heights -- --city kiel
 npm run data:lamps -- --city kiel
 npm run data:airfield-lights -- --city kiel
+npm run data:buoys -- --city kiel
 npm run data:gtfs -- --city kiel
 node scripts/build-og-images.mjs             # the link-preview picture → public/og/kiel.png (committed)
 ```
@@ -593,6 +597,7 @@ npm run data:simplify  # Simplify the path geometry (visually lossless)
 npm run data:heights   # Terrain heights per route vertex from Mapterhorn's terrain tiles
 npm run data:lamps     # OSM street lamps along the routes → street-lamps.json
 npm run data:airfield-lights  # OSM airfield lighting in the box → airfield-lights.json
+npm run data:buoys     # OSM buoys in the box → buoys.json
 npm run data:gtfs      # Real departure times from a GTFS feed → schedule.json
 npm test               # validates the new datasets
 ```
@@ -663,6 +668,15 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   terrain height, the same way the routes get theirs. Lamps beside a bridge
   or tunnel section are skipped: there the route's height profile is the deck
   or the surface above the tube, not the ground the lamp stands on.
+- `data:buoys` collects the `seamark:type=buoy_*` nodes in the box that
+  the map has a buoy for – the red, green and yellow ones (a single colour;
+  the banded cardinal, isolated-danger, safe-water and preferred-channel
+  marks stay out for now, as do the beacons) – with their shape
+  (`seamark:<type>:shape`; a shape without a model is drawn as the pillar
+  buoy when lit, the spar buoy otherwise) and their light where they have
+  one (`seamark:light:colour`, `:character`, `:period`). No heights: the map
+  clamps every buoy to the tiles' water at runtime, so the file carries
+  nothing the terrain could date.
 - `data:airfield-lights` collects the `aeroway=navigationaid` nodes in the
   box that the map has a light for – the `navigationaid=*` kinds `rwe`,
   `rwc`, `rwt`, `tdz`, `als`, `papi`, `vasi`, `txe`, `txc`, `sbl`, `cbl`
@@ -916,7 +930,7 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    changed no departure is byte-identical and skips tests, build and
    deploy – the service day each city was cut from goes into the data
    commit's message instead. The rarely changing OSM geometry (`data:update` + `data:simplify` +
-   `data:heights` + `data:lamps` + `data:airfield-lights`, city by city) is
+   `data:heights` + `data:lamps` + `data:airfield-lights` + `data:buoys`, city by city) is
    only refreshed once a week (Sunday night). Route directions whose geometry
    is unchanged reuse the committed terrain heights (`PREV_NETWORK`), and
    lamps and airfield lights that did not move reuse theirs (`PREV_LAMPS`,
@@ -946,12 +960,13 @@ src/
 │   ├── index.ts            # Lazy loading of a city's generated data (one chunk per city)
 │   ├── rostock/            # city.json + network.json + schedule.json + street-lamps.json
 │   ├── kiel/               # city.json + network.json + schedule.json + street-lamps.json
-│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json + airfield-lights.json
+│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json + airfield-lights.json + buoys.json
 ├── data/
 │   ├── network.ts          # Preparation of a network (distances, direction mirroring, fleet)
 │   ├── network-types.ts    # network.json types
 │   ├── street-lamps.ts     # street-lamps.json types
-│   └── airfield-lights.ts  # airfield-lights.json types
+│   ├── airfield-lights.ts  # airfield-lights.json types
+│   └── buoys.ts            # buoys.json types
 ├── lib/
 │   ├── city.ts             # The City type, city.json validation, bounding-box helpers
 │   ├── city-api.ts         # ?city= on the per-city endpoints
@@ -987,8 +1002,8 @@ src/
 │                           # lighting + cabin glow, event-driven render requests
 ├── map/LinearView.ts       # The lines pulled straight, in SVG over the map, and the
 │                           # morph between the two readings
-├── map/*Layer.ts           # Routes, stops, street lamps, airfield lights, vehicles, AIS vessels,
-│                           # ADS-B aircraft – each with clear() for the move to the next city
+├── map/*Layer.ts           # Routes, stops, street lamps, airfield lights, buoys, vehicles, AIS
+│                           # vessels, ADS-B aircraft – each with clear() for the move to the next city
 ├── map/FunnelSmoke.ts      # Exhaust over the funnels of the ships under way: one instanced
 │                           # draw command, the puffs placed by the clock alone (stateless)
 ├── map/Wake.ts             # The ships' wakes – wash, bow wave, Kelvin arms – as ribbons laid
@@ -1017,7 +1032,8 @@ scripts/
 ├── build-terrain-patch.mjs   # a city's own terrain tiles where Mapterhorn has holes (one-off, by hand)
 ├── fetch-street-lamps.mjs    # OSM street lamps + terrain heights (npm run data:lamps)
 ├── fetch-airfield-lights.mjs # OSM airfield lighting + terrain heights (npm run data:airfield-lights)
-├── build-vehicle-models.mjs  # procedural vehicle, detailed vessel and aircraft GLBs (npm run models:build)
+├── fetch-buoys.mjs           # OSM buoys of the box (npm run data:buoys)
+├── build-vehicle-models.mjs  # procedural vehicle, detailed vessel, aircraft and buoy GLBs (npm run models:build)
 ├── build-og-images.mjs       # link-preview pictures → public/og (by hand, committed)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
 ├── test-ais-parity.mjs       # parity test Node vs. api/ais.php, incl. the city boxes
@@ -1096,7 +1112,7 @@ they are in view.
   use of the Photorealistic 3D Tiles is subject to the Google Maps Platform terms;
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
-- Street lamps (after `npm run data:lamps`) and airfield lighting (after `npm run data:airfield-lights`): © OpenStreetMap contributors, ODbL 1.0
+- Street lamps (after `npm run data:lamps`), airfield lighting (after `npm run data:airfield-lights`) and buoys (after `npm run data:buoys`): © OpenStreetMap contributors, ODbL 1.0
 - Webcam pictures: [Windy.com](https://www.windy.com/webcams) Webcams API – shown as delivered, each linked to its windy.com page, with the courtesy line in the credit display, as Windy's terms ask
 - Air traffic: [adsb.fi](https://adsb.fi) open data – for personal, non-commercial use, cited with a link in the credit display while aircraft are on the map, as its terms ask
 - Terrain heights (after `npm run data:heights` / `data:lamps` / `data:airfield-lights`):

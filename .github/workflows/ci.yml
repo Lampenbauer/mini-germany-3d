@@ -197,6 +197,11 @@ jobs:
                 # the previous lights stay in place.
                 git show "HEAD:src/cities/$city/airfield-lights.json" > "$RUNNER_TEMP/airfield-prev.json" || true
                 PREV_AIRFIELD_LIGHTS="$RUNNER_TEMP/airfield-prev.json" npm run data:airfield-lights -- --city "$city" || echo "::warning::$city: airfield lighting refresh failed – keeping the previous lights."
+                # The buoys (OSM seamark nodes; no heights – the map clamps
+                # them to the tiles). PREV_BUOYS only guards against a
+                # half-synced mirror. Soft failure: the previous marks stay.
+                git show "HEAD:src/cities/$city/buoys.json" > "$RUNNER_TEMP/buoys-prev.json" || true
+                PREV_BUOYS="$RUNNER_TEMP/buoys-prev.json" npm run data:buoys -- --city "$city" || echo "::warning::$city: buoy refresh failed – keeping the previous marks."
               else
                 echo "::warning::$city: OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
               fi

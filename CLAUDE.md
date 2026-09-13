@@ -760,9 +760,90 @@ the points stand 1.5 m over the terrain height with the depth test on,
 so a light is hidden by a terminal in front of it but never sinks into
 Google's runway mesh. `CesiumMap.clampToSurface` puts the collection on
 every clamp's exclusion list, or an aircraft on the apron would stand
-on a taxiway light. `__mg3d.airfieldLights()` counts them and reads
+on a taxiway light – expanded to its points first
+([clamp-exclusions.ts](src/map/clamp-exclusions.ts)): Cesium matches a
+pick against the point, its `primitive` and its `id`, never the
+collection, so the bare collection on the list had excluded nothing
+until 2026-09-13, when the buoys' lanterns showed it (below). The
+ships', aircraft's and ferries' light pools go through the same
+expansion. `__mg3d.airfieldLights()` counts them and reads
 their alpha; `e2e/street-lamps.spec.ts` checks them on the lamps' scene
 (Rostock-Laage is in the box).
+
+**The buoys come from OSM's seamark tagging, float on the tiles like
+the ships, and are lit steadily (since 2026-09-13).** `data:buoys`
+([scripts/fetch-buoys.mjs](scripts/fetch-buoys.mjs), the selection in
+`scripts/lib/buoys.mjs`, tested) takes the `seamark:type=buoy_*` nodes
+of the box that are red, green or yellow all over – the user's first
+cut: the banded cardinal, isolated-danger, safe-water and
+preferred-channel marks, the white bathing spheres and the beacons
+stay out, and `classifyBuoy` is where to widen it – with their shape
+(`seamark:<type>:shape`; no model for it → the pillar buoy when lit,
+the spar otherwise) and light (colour, character, period, kept for a
+flashing rule one day) into `buoys.json`, Sunday nights with the rest,
+no heights (`PREV_BUOYS` only guards against a half-synced mirror).
+The models are the buoy fleet in `scripts/lib/buoy-fleet.mjs` – six
+shapes in three colours, 18 GLBs of 3–22 kB, baked colours rather than
+a runtime tint so a lantern stays grey – with the origin ON THE
+WATERLINE, unlike the ships' mid-height origin; `BUOY_SHAPES` there
+and `BUOY_MODELS` in [BuoysLayer](src/map/BuoysLayer.ts) are held
+together by `tests/buoy-models.test.ts`, and the road/rail GLBs came
+out byte-identical (the palette only gained entries). The layer clamps
+each buoy with the ships' pick (`clampToSurface`), with three rules of
+its own: six a tick, not three, because a harbour view sets down
+dozens at once; a pick is made once per load cycle (`surfaceGeneration`)
+and a failed one only with the next – a buoy never moves, so nothing
+else can change the answer; and no plausibility band against the
+fallback surface, because inland (Berlin's Havel, 1058 marks) the
+fallback lies thirty metres under the river – the fallback is the
+ships' (`routes.heightOffset` + `WATER_SURFACE_FALLBACK_LIFT`), which
+is also the offline height. Models are built per 0.02° cell the first
+time the camera comes within `BODY_RANGE_M` (4 km) and hidden with the
+cell when it leaves (a hidden parent collection is what skips
+`Model.update`), so a home view loads none. The lanterns are one
+PointPrimitiveCollection for the city, drawn always, on
+`airfieldLightLevel` – dusk or poor visibility – and steady for the
+airfield's reason (a flash keeps the loop ticking wherever a harbour is
+in view). The buoy models and the lanterns join every clamp's
+exclusion list in `CesiumMap.clampToSurface`. Two things the first
+evening taught, both over the real tiles (headed Chromium): with the
+clock at 04:00 the marks climbed a lantern's height on every load
+cycle and sat right by day – the pick under a buoy goes straight down
+through the lantern over it, and a PointPrimitiveCollection on the
+exclusion list excludes nothing (see the airfield paragraph;
+`clamp-exclusions.ts` expands it to the points now); and a level view
+across the Breitling set the marks three kilometres out between 9 m
+under and 18 m over the water, off the coarse tiles loaded that far
+out, so a buoy is clamped only within `CLAMP_RANGE_M` (1.5 km) of the
+camera and keeps its height or the fallback beyond it. Measured after
+both: eighteen marks re-clamped through five camera moves, day and
+night, all within a 2.2 m band – the water mesh's own undulation.
+`__mg3d.buoys().heightsOverFallbackM` is the reading. A third, the
+same evening: the lantern point sits inside the lantern housing, under
+the topmark, and from 88 m the housing hid it entirely (from afar the
+point's four pixels reach past the housing's two), so the lanterns are
+drawn without the depth test within `LANTERN_THROUGH_HOUSING_M`
+(600 m) – the glow through the glass, at the price of a hull in front
+of a buoy not hiding its light that close. Google's tiles carry the
+real buoy as a blurred lump a few metres from the OSM position, where
+it was swinging on its chain the day it was photographed; that is not
+a bug of the layer. And the lanterns fade with the distance to the
+camera (`translucencyByDistance`: full within 1.5 km, 30 % from
+12 km out – the user set the far end and the rim's width by eye) – asked for the same evening, they burned as bright from
+30 km up as from the quay; the airfield's lights keep their strength
+on purpose, a runway is read from the home view. Counted 2026-09-13, per
+box (lit in brackets): Berlin 1058 (11 – the Havel lakes), Hamburg 399
+(83), Wilhelmshaven 290 (83), Rostock 228 (96), Frankfurt 141 (0 – the
+Main's), Lübeck 131 (24), Schwerin 127 (3), Kiel 126 (49), Bremen 112
+(38), Cologne 103 (0 – the Rhine's), Stuttgart 97 (0), Munich 50 (2),
+Hanover 22 (0). Over the real tiles the marks were seen floating on
+the Breitling's water by day and lit at night (headed Chromium, the
+day the layer was built). `?buoys=0` leaves them
+out; `ship-effects`, `clouds`, `rain-gate` and `street-lamps` boot so
+because their frames are compared or their scene is low over the
+Warnow. `__mg3d.buoys()` counts them; `tests/cesium-buoys-layer.test.ts`
+pins the cells, the clamps and the lights with a model double
+(`host.loadModel`), `e2e/app.spec.ts` brings the camera down to them.
 
 Vehicles at 08:30 (the number each `tests/<slug>.test.ts` pins): Berlin 685,
 Hamburg 458, Rostock/Cologne/Munich ~370, Stuttgart 257, Bremen 223,
