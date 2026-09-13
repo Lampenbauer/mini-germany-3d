@@ -8,6 +8,7 @@
 
 import { prepareNetwork } from '@/data/network'
 import type { NetworkJson, PreparedNetwork } from '@/data/network-types'
+import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { StreetLampData } from '@/data/street-lamps'
 import type { City } from '@/lib/city'
 import type { ScheduleJson } from '@/lib/timetable'
@@ -23,19 +24,23 @@ export interface CityData {
   schedule: ScheduleJson | null
   /** OSM street lamps for the night lighting; null until the pipeline has run data:lamps for the city. */
   lamps: StreetLampData | null
+  /** OSM airfield lighting for the night; null until the pipeline has run data:airfield-lights for the city. */
+  airfieldLights: AirfieldLightData | null
 }
 
 const networks = import.meta.glob<NetworkJson>('./*/network.json', { import: 'default' })
 const schedules = import.meta.glob<ScheduleJson>('./*/schedule.json', { import: 'default' })
 const lamps = import.meta.glob<StreetLampData>('./*/street-lamps.json', { import: 'default' })
+const airfieldLights = import.meta.glob<AirfieldLightData>('./*/airfield-lights.json', { import: 'default' })
 
 export async function loadCityData(slug: string): Promise<CityData> {
   const city = cityBySlug(slug)
   if (!city) throw new Error(`Unknown city "${slug}"`)
-  const [networkJson, schedule, lampData] = await Promise.all([
+  const [networkJson, schedule, lampData, airfieldLightData] = await Promise.all([
     networks[`./${slug}/network.json`]?.(),
     schedules[`./${slug}/schedule.json`]?.(),
     lamps[`./${slug}/street-lamps.json`]?.(),
+    airfieldLights[`./${slug}/airfield-lights.json`]?.(),
   ])
   if (!networkJson) throw new Error(`City "${slug}" has no network.json – run the data pipeline`)
   return {
@@ -43,5 +48,6 @@ export async function loadCityData(slug: string): Promise<CityData> {
     network: prepareNetwork(networkJson, city),
     schedule: schedule ?? null,
     lamps: lampData ?? null,
+    airfieldLights: airfieldLightData ?? null,
   }
 }

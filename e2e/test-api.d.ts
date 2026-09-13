@@ -53,6 +53,8 @@ declare global {
       setLinear: (linear: boolean) => void
       setRain: (precipitationMm: number) => void
       setCloudCover: (cloudCoverPercent: number) => void
+      /** Forces the visibility (metres; null = the sky's own again) – the airfield lights by day. */
+      setVisibility: (metres: number | null) => void
       rainDropsVisible: () => number
       selectVehicle: (id: string | null) => void
       selectedVehicleId: () => string | null
@@ -75,6 +77,8 @@ declare global {
       renderRate: () => number
       anyVehicleInView: () => boolean
       streetLamps: () => { drawn: number; alpha: number }
+      /** Airfield lighting: lights built into the scene and their current opacity. */
+      airfieldLights: () => { drawn: number; alpha: number }
       /** The sun shadow map: switched on, and whether its texture is currently allocated. */
       shadowMap: () => { enabled: boolean; allocated: boolean; size: number }
       /** The device tier and the numbers the map draws with (see src/lib/render-profile.ts). */

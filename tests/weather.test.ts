@@ -11,6 +11,7 @@ import {
   WEATHER_STEP_MS,
   type WeatherStatus,
 } from '@/lib/weather'
+import { LOW_VISIBILITY_M, LOW_VISIBILITY_OFF_M } from '@/map/AirfieldLightsLayer'
 import { overcastGrade } from '@/map/WeatherOverlay'
 
 /**
@@ -33,6 +34,7 @@ function answer(n: number, overrides: Record<string, unknown[]> = {}) {
       temperature_2m: times.map((_, i) => 10 + i / 10),
       wind_speed_10m: times.map(() => 5.5),
       wind_direction_10m: times.map(() => 250),
+      visibility: times.map((_, i) => 20_000 - i * 5_000),
       ...overrides,
     },
   }
@@ -71,10 +73,11 @@ describe('parseWeatherSeries', () => {
       temperatureC: 10.1,
       windSpeedMps: 5.5,
       windFromDeg: 250,
+      visibilityM: 15_000,
     })
   })
 
-  it('takes a step the feed left empty as dry, open and calm, and a missing column too', () => {
+  it('takes a step the feed left empty as dry, open, calm and of unknown visibility, and a missing column too', () => {
     const series = parseWeatherSeries(
       answer(2, {
         precipitation: [null, 0.2],
@@ -82,6 +85,7 @@ describe('parseWeatherSeries', () => {
         temperature_2m: [-4.2, null],
         wind_speed_10m: [null, 3],
         wind_direction_10m: [null, -90],
+        visibility: [null, 400],
       }),
     )
     // A temperature below zero is one; a cloud cover over the top is overcast
@@ -91,6 +95,7 @@ describe('parseWeatherSeries', () => {
       temperatureC: -4.2,
       windSpeedMps: 0,
       windFromDeg: 0,
+      visibilityM: null,
     })
     expect(series.readings[1]).toEqual({
       precipitationMm: 0.2,
@@ -98,6 +103,7 @@ describe('parseWeatherSeries', () => {
       temperatureC: null,
       windSpeedMps: 3,
       windFromDeg: 270,
+      visibilityM: 400,
     })
     const bare = parseWeatherSeries({ minutely_15: { time: [START / 1000], precipitation: [0.8] } })
     expect(bare.readings[0]).toEqual({
@@ -106,6 +112,7 @@ describe('parseWeatherSeries', () => {
       temperatureC: null,
       windSpeedMps: 0,
       windFromDeg: 0,
+      visibilityM: null,
     })
   })
 
@@ -154,7 +161,7 @@ describe('WeatherClient', () => {
     expect(url).toContain('longitude=12.14')
     // Every value rides on the same request – no extra call for any
     expect(url).toContain(
-      'minutely_15=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m',
+      'minutely_15=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m,visibility',
     )
     // The days the calendar reaches back, and today to its end
     expect(url).toContain(`past_days=${WEATHER_PAST_DAYS}`)
@@ -199,8 +206,11 @@ describe('the picked skies', () => {
     expect(defaultWeatherMode(false)).toBe('clear')
   })
 
-  it('holds a sky for every mode but the live one', () => {
+  it('holds a sky for every mode but the live one, the rainy one short-sighted enough to light the airfield', () => {
     expect(Object.keys(WEATHER_PRESETS).sort()).toEqual(['clear', 'cloudy', 'rain'])
+    expect(WEATHER_PRESETS.rain.visibilityM).toBeLessThanOrEqual(LOW_VISIBILITY_M)
+    expect(WEATHER_PRESETS.clear.visibilityM).toBeGreaterThan(LOW_VISIBILITY_OFF_M)
+    expect(WEATHER_PRESETS.cloudy.visibilityM).toBeGreaterThan(LOW_VISIBILITY_OFF_M)
   })
 
   it('reads as clear, overcast and rainy on the grade the tiles use', () => {

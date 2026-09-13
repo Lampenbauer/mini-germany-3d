@@ -43,6 +43,13 @@ export interface WeatherReading {
    */
   windSpeedMps: number
   windFromDeg: number
+  /**
+   * Horizontal visibility in metres, or null when the feed did not carry
+   * one. Nothing is drawn from it directly: it is what switches the
+   * airfield lighting on by day (see map/AirfieldLightsLayer.ts), as the
+   * tower does in fog and heavy rain.
+   */
+  visibilityM: number | null
 }
 
 /** The readings on the feed's grid: the one at `startMs`, then every `stepMs`. */
@@ -84,8 +91,9 @@ function finite(value: unknown): number | null {
  * `timeformat=unixtime`). The times and the precipitation have to be
  * there and usable – a negative precipitation is a malformed answer, not
  * a dry one – while a missing cloud cover reads as an open sky, a
- * missing temperature as no number and a missing wind as a calm: none
- * of them is worth failing the rain over.
+ * missing temperature as no number, a missing wind as a calm and a
+ * missing visibility as unknown: none of them is worth failing the
+ * rain over.
  */
 export function parseWeatherSeries(data: unknown): WeatherSeries {
   const block = (data as { minutely_15?: Record<string, unknown> } | null)?.minutely_15
@@ -102,6 +110,7 @@ export function parseWeatherSeries(data: unknown): WeatherSeries {
   const temperature = column('temperature_2m')
   const windSpeed = column('wind_speed_10m')
   const windFrom = column('wind_direction_10m')
+  const visibility = column('visibility')
   const start = finite(times[0])
   const second = times.length > 1 ? finite(times[1]) : null
   if (start === null) throw new Error('Unexpected response format from the weather endpoint')
@@ -113,12 +122,14 @@ export function parseWeatherSeries(data: unknown): WeatherSeries {
     const cover = finite(cloudCover[i])
     const speed = finite(windSpeed[i])
     const from = finite(windFrom[i])
+    const seen = finite(visibility[i])
     readings.push({
       precipitationMm: mm,
       cloudCoverPercent: cover !== null && cover >= 0 ? Math.min(100, cover) : 0,
       temperatureC: finite(temperature[i]),
       windSpeedMps: speed !== null && speed >= 0 ? speed : 0,
       windFromDeg: from !== null ? ((from % 360) + 360) % 360 : 0,
+      visibilityM: seen !== null && seen >= 0 ? seen : null,
     })
   }
   return { startMs: start * 1000, stepMs, readings }
@@ -163,12 +174,19 @@ export function defaultWeatherMode(liveWeatherAvailable: boolean): WeatherMode {
 
 export const WEATHER_PRESETS: Record<
   Exclude<WeatherMode, 'live'>,
-  { precipitationMm: number; cloudCoverPercent: number; windSpeedMps: number; windFromDeg: number }
+  {
+    precipitationMm: number
+    cloudCoverPercent: number
+    windSpeedMps: number
+    windFromDeg: number
+    /** The visibility such a day has – the rainy one's is short enough to light the airfield by day. */
+    visibilityM: number
+  }
 > = {
-  clear: { precipitationMm: 0, cloudCoverPercent: 0, windSpeedMps: 3, windFromDeg: 250 },
+  clear: { precipitationMm: 0, cloudCoverPercent: 0, windSpeedMps: 3, windFromDeg: 250, visibilityM: 30_000 },
   // A brisk westerly – the wind northern Germany's cloudy days come on
-  cloudy: { precipitationMm: 0, cloudCoverPercent: 100, windSpeedMps: 6, windFromDeg: 250 },
-  rain: { precipitationMm: 1.5, cloudCoverPercent: 100, windSpeedMps: 8, windFromDeg: 240 },
+  cloudy: { precipitationMm: 0, cloudCoverPercent: 100, windSpeedMps: 6, windFromDeg: 250, visibilityM: 15_000 },
+  rain: { precipitationMm: 1.5, cloudCoverPercent: 100, windSpeedMps: 8, windFromDeg: 240, visibilityM: 4_000 },
 }
 
 export class WeatherClient {
@@ -212,7 +230,7 @@ export class WeatherClient {
     try {
       const url =
         `${this.baseUrl}?latitude=${this.latitude}&longitude=${this.longitude}` +
-        `&minutely_15=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m` +
+        `&minutely_15=precipitation,cloud_cover,temperature_2m,wind_speed_10m,wind_direction_10m,visibility` +
         // The days the calendar reaches back, and today to its end – the
         // present is the newest step that has come to pass
         `&past_days=${WEATHER_PAST_DAYS}&forecast_days=1` +

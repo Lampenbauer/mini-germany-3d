@@ -80,6 +80,7 @@ vi.mock('@/map/CesiumMap', () => {
     addRoutes() {}
     addStops() {}
     addStreetLamps() {}
+    addAirfieldLights() {}
     focusLine() {}
     setSceneTime() {}
     setView() {}
@@ -92,6 +93,10 @@ vi.mock('@/map/CesiumMap', () => {
     getStreetLampInfo() {
       return { drawn: 0, alpha: 0 }
     }
+    getAirfieldLightInfo() {
+      return { drawn: 0, alpha: 0 }
+    }
+    setVisibility() {}
     getVehicleBoxDriftMeters() {
       return 0
     }

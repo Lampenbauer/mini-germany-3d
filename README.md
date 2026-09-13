@@ -44,12 +44,13 @@ pipeline (see [Cities](#cities)).
 | Volumetric clouds | A slab of cloud at cumulus height over the whole city, ray-marched through two tiled noise fields – coverage cut at a threshold calibrated to the live cloud cover (60 % cover leaves 60 % of the sky under cloud), detail eroding it into puffs – and lit by a short second march towards the sun, graded with the time of day like the tiles. Not Cesium's CloudCollection: those are flat sprites that cast nothing. The shadow is the tile shader's: it follows the sun's ray from each street up to the layer and dims the street by what the column there lets through, so the same field that draws a cloud darkens the ground under it. The clouds drift with the wind Open-Meteo reports (about twice the surface wind, as at cloud level), on the simulated clock, and ask for frames only as the drift shows on screen. Off at 0 % cover and underground, where they cost nothing. Off when the app opens (`config.weather.clouds3dDefault`): the switch in the weather popover turns them on and `clouds=1` carries that in the URL, while the cover keeps grading the tiles either way. Rain falls from their base – no drop above it, and a camera above the clouds sees no rain at all; WebGL 2 only |
 | Day/night lighting | Sun-elevation-based grading of the photo tiles plus a dynamic sky (stars at night), driven by the simulated clock – at night every vehicle casts a warm cabin-light pool onto the road |
 | Street lighting at night | A warm light pool under every OSM street lamp along the routes – in Rostock ~7000 of them from the city's open-data import, in Kiel ~1800 community-mapped ones; fades in with the sun ramp and out as the camera climbs |
+| Airfield lighting at night | The runway and taxiway lights of the city's airfield, one point per light OpenStreetMap maps (`aeroway=navigationaid`) – runway edge, centre line, threshold and touchdown zone, the approach system, the PAPIs, taxiway edge and centre line, stop bars and guard lights – in the colours ICAO gives them: white, green thresholds and red ends, blue taxiway edges, green taxiway centre lines. Frankfurt's ten thousand, Berlin's six thousand, Hamburg's four, Rostock-Laage's twenty-one, as far as each is mapped. Lit from dusk, and by day when the weather's visibility drops under a few kilometres, as the tower switches it on in fog and heavy rain; readable as the lit runway from the home view, out underground |
 | Stop departure board | Clicking a stop opens its card: serving lines, the next departures with live countdowns and GTFS-RT delays, nearby lines a short walk away – every line on the card a link that zooms to it and opens its card – and a departure whose vehicle is already on the map links straight to it |
 | Interchange at a stop | The lines reachable from the stop the vehicle stands at (or heads for), collected across every platform within 100 m |
 | The city in numbers | The info button in the panel's head opens the city card: lines per mode and how many of them run today (Munich's U8 is Saturday-only), stop positions, line kilometres and the share of them in tunnel (Frankfurt 23 %, Kiel none), the longest line as a link to it, the network's lowest and highest stop (Stuttgart climbs 300 m), trips a day with the short workings among them, and the service day – "round the clock" where the longest pause between departures is under an hour, which with hourly night buses is most cities. Everything on it is stated by the data (`src/lib/city-profile.ts`), like the line card's facts; only the last row is the simulation's – how many vehicles are out, how many carry live data and their median delay. The same live counts stand in the panel itself: beside the Traffic heading, in brackets after each mode's group header and after the AIS heading – the numbers that swell with the rush hour under the time-lapse |
 | Follow & camera | Follow mode flies in behind the vehicle and chases it facing the direction of travel until you rotate (zooming keeps the chase); a live compass, 2D/3D, and camera-reset buttons sit at the lower right |
 | Live delays | GTFS-Realtime TripUpdates overlaid on the schedule simulation, filtered per city (see [GTFS-Realtime](#gtfs-realtime-implemented-filtered-server-side)) |
-| Weather | Open-Meteo precipitation, cloud cover, temperature and wind for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the weather button. The sky follows the simulated clock: the request brings the last days on the feed's quarter-hour grid (`src/lib/weather.ts`, refreshed every ten minutes), the map takes the step of the simulated moment, so a clock set back shows that quarter hour's sky and a day under the time-lapse clouds over and clears as the day did – no recording of our own, the feed keeps its past. A clock set ahead wears the present's sky: a forecast is not a fact. `?rain=0` opts out; the weather popover swaps the live sky for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one for the moment shown |
+| Weather | Open-Meteo precipitation, cloud cover, temperature, wind and visibility for one point per city in one request: falling rain plus an overcast grade on the photo tiles, so a grey day stays grey without rain, and the reading in °C on the weather button. The sky follows the simulated clock: the request brings the last days on the feed's quarter-hour grid (`src/lib/weather.ts`, refreshed every ten minutes), the map takes the step of the simulated moment, so a clock set back shows that quarter hour's sky and a day under the time-lapse clouds over and clears as the day did – no recording of our own, the feed keeps its past. A clock set ahead wears the present's sky: a forecast is not a fact. `?rain=0` opts out; the weather popover swaps the live sky for a sunny, overcast or rainy one, which holds whatever the clock says, while the temperature beside the icon stays the real one for the moment shown |
 | Live harbour traffic | AIS positions from aisstream.io as a backdrop fleet, one subscription for every city's box and served per city (`/api/ais?city=…`); the city ferries' AIS twins are left out so no crossing carries two boats. Thirteen detailed procedural archetypes carry it – container ship, coaster, tanker, inland barge, hopper dredger, passenger ship, harbour launch, pilot boat, tug, fishing boat, yacht, motorboat, workboat – each stretched to the ship's reported size, with smooth rounded hulls, bevelled deckhouses, fine rails, bollards and deck equipment fitted inside the hull's plan. Tankers carry round pipelines, dredgers a round suction pipe, passenger ships individual window rows and lifeboats, and yachts their rigging and deck fittings; the box ship's load is individual containers in six muted liveries, with tier seams, corrugated outer sides and door bars, stepping down toward the bow. AIS has no code for a container ship and one bucket for every dry cargo ship there is, so where the code says nothing the size does: a 400 m box on the Elbe gets the boxship, an 85 × 9.5 m one the inland barge (see `archetypeFor` in `src/map/VesselLayer.ts`). Each ship floats on the tiles' own water: its hull is clamped to Google's mesh with an offscreen pick, so inland – where the Main falls 15 m through Frankfurt in four lock steps and Berlin's Havel lies two metres under its Spree – a barge sits on the water rather than thirty metres beneath it. The picks are made only for ships on screen and only when the ship moved or the tiles under it refined; a fleet at rest costs nothing. Each ship carries her name on a dark slate plate – where the stops wear bare haloed text, so the fleet and the network are told apart at a glance – decluttered against each other and against the stops' own rule: in a crowded harbour the nearest ship keeps her name and the rest step aside. Clicking a hull or her name opens her card and lights her up – her hull washed toward white and rimmed in it, exactly as a picked vehicle is – and puts her MMSI in the URL, so a reload picks her up again and chases her. The harbour has a memory: every fix heard is kept for three days (`src/lib/ais-archive.ts`, written by the same endpoint that serves the live fleet), and a clock set into the past – a time this morning, one of the two days the calendar offers behind today – replays the ships as they were then, interpolated between their recorded fixes exactly as the live fleet is; her card then says "Recorded from AIS" and measures the fix age on the simulated clock. A clock set ahead leaves the ships live, and where nothing was recorded – before the archive began, an hour the keeper did not hear – the water stays empty rather than showing today's ships on yesterday's date. A ship under way trails a thin exhaust plume from her funnel – the five hulls that have one, from a knot and a half over the ground, within 2.5 km of the camera – leaning into the weather's wind and trailing aft with her speed (`src/map/FunnelSmoke.ts`): not Cesium's particle system, which simulates from frame to frame and falls apart under this map's event-driven rendering, but one instanced draw command whose shader places every puff by the clock alone, so any frame is right whatever the last one was; lit like the clouds, held by the pause, and left out of the mobile profile. And she leaves a wake (`src/map/Wake.ts`) – the ferries the map runs from a timetable too: the propeller's wash as a streaky ribbon from her stern, widening and fading over forty seconds, the bow wave along her forward flanks, the two Kelvin arms at their 19.47°. Laid from where she has been rather than animated – her AIS track, or the timetable for a ferry – so a turning ship leaves a curved wake, a stopped one leaves hers to fade, and a ship going astern washes at the bow. At night, while she moves, she shows her navigation lights (`src/map/NavLights.ts`): red to port and green to starboard at the bridge, white at the masthead and the stern, each screened to its own arc as at sea – from her starboard quarter the green and the masthead light, from astern the stern light alone; at anchor the one anchor light, at her berth none, by day none at all. Whether she moves is read off her track, not off the status she broadcasts, which is set by hand and stale both ways – a ro-ro doing twelve knots as "moored", the tugs at their station as "under way". The ferries the map runs from a timetable wear the same lights, on at the pier between crossings as a ferry in service keeps them |
 | Live air traffic | ADS-B positions from [adsb.fi](https://adsb.fi)'s open data as the sky over the city, served per city (`/api/aircraft?city=…`, `server/api/aircraft.php` in production): every aircraft over the city and a margin beyond its box (the circle that reaches the box's corners plus six nautical miles – the sky does not end at the city's edge) at every altitude – the airliner on final, the club aircraft circling the airfield, the police helicopter, and the traffic crossing at cruise ten kilometres up – polled every five seconds from a feed that hears each transponder every second, so the playback runs only a dozen seconds behind the wall clock and interpolates between recorded fixes like the ships', flown on by dead reckoning for a few seconds when a fix is late. Seven bodies carry it – a narrow-body and a wide-body twin-jet, the four-engined double-decker, a jet with its engines on the tail, a high-wing turboprop, a light single, a helicopter – with smooth 32-sided fuselages, profiled wings and fins, recessed jet intakes with fans and metallic lips, rounded jet radomes with a distinct windscreen rake and six mirrored cockpit panes, small cabin windows and door outlines, and detailed struts and wheels. Coated aluminium, satin wing panels and glossy glass distinguish their surfaces; rotors and propellers remain see-through discs, with an open shroud around the helicopter's tail rotor, picked by ICAO type designator from a table of the types met over German cities (`src/lib/aircraft-info.ts`) and stretched to the type's length, span and height; the emitter category stands in for a type the table does not know. The landing gear is a glTF node of its own and is out only within 600 m of the city's ground – on final and after take-off – and folded away above. Each flies in three dimensions: the nose on its true heading, crabbed into the wind off the track it moves along, the pitch from the climb rate and the speed, the bank from the reported roll or from the turn the track rate implies. Its height is the geometric altitude the transponder sends, a height above the WGS84 ellipsoid that Cesium places directly; where only the pressure altitude comes, the geoid height is added. An aircraft on the ground is clamped to Google's apron the way the ships are clamped to the water. Each carries its callsign on a blue plate – the fourth kind of name on the map, after the line badges, the stops' bare text and the ships' slate – decluttered by the same pass. And each wears its lights (`src/map/NavLights.ts`, the rules in `src/lib/nav-lights.ts`): the red and green position lights at the wing tips and the white tail light, steady; the red anti-collision beacons on top of and under the fuselage flashing about once a second; the white wing-tip strobes flashing brighter and less often in flight – every flash timed from the clock alone, so a pause holds it and any frame is right. Screened as the real ones are, each over its own arc: the camera chasing from behind sees the tail light and the strobes, one ahead red and green together. Taxiing an aircraft shows no strobes, parked nothing; by day the lights are dim, at night full. Clicking a body or its plate opens its card (type, registration, altitude with the flight level, ground speed, climb) and lights it up like every picked thing, puts its ICAO address in the URL and chases it on reload. A chase ends softly at the city's edge: where it would carry the camera out of the box, the camera stops at the edge and watches the aircraft fly on from there, turning after it until it leaves the served circle (`src/map/FollowCamera.ts`) – the same for a ship leaving the harbour. The sky has the harbour's memory: a keeper polls one circle over all the cities every ten seconds and keeps three days of fixes per city (`src/lib/aircraft-archive.ts`), and a clock set into the past replays the aircraft as they were then, interpolated between the recorded fixes exactly as the live traffic is; the card then says "Recorded from ADS-B". The live traffic is rendered on the simulated clock as far as the present, so a clock set back a little moves it back a little and the recording takes over at the edge without a jump. Where nothing was recorded the sky is empty, never today's aircraft on yesterday's date |
 | Live webcams | Windy's webcams as pictures floating over the spot they look from: a world-sized billboard per camera, its longest side 150 m at the picture's own aspect ratio, its bottom edge 180 m above the ground, facing the viewer. Polled every ten minutes through a proxy that keeps the API key (`/api/webcams?city=…`); a click opens the camera's windy.com page and the credit line carries Windy's courtesy text. Stop names, vehicle badges, ship names and callsign plates that would sit on a picture step aside for it. The layers popover has a Webcams switch with the city's cameras listed under it – a click flies to the picture. `?webcams=0` leaves the layer out entirely |
@@ -236,9 +237,12 @@ VITE_CESIUM_ION_TOKEN=your-token
   next lifts the leash, and the next city's takes over on arrival.
 - **Night lighting:** From dusk the streets along the routes light up – one
   light pool per OSM street lamp, the same effect the vehicles' cabin glow
-  uses – in cities whose definition enables it. Nothing is built until the
-  pools would actually show, so a daytime session pays nothing for it; the
-  underground view puts them out, and `?lamps=0` leaves them out entirely.
+  uses – in cities whose definition enables it, and so does the airfield:
+  the runway and taxiway lights OSM maps, one point each in its own colour,
+  which also burn by day once the weather's visibility drops under a few
+  kilometres. Nothing is built until it would actually show, so a daytime
+  session pays nothing for either; the underground view puts them out, and
+  `?lamps=0` leaves both out entirely.
 - **Selecting a stop:** Clicking a stop disc or name opens its departure
   board: the lines calling there, the next departures within the hour (soonest
   first, GTFS-RT delays applied, after-midnight service handled), and the lines
@@ -268,7 +272,7 @@ VITE_CESIUM_ION_TOKEN=your-token
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |
 | `?lang=de` / `?lang=en` | Force the UI language (default: English, or German when the browser prefers it; a path under `/en/` counts as English) |
-| `?lamps=0` | Disable the night-time street lighting |
+| `?lamps=0` | Disable the night-time street and airfield lighting |
 | `?webcams=0` | Leave the live webcam pictures out |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
 | `?tier=mobile` / `?tier=desktop` | Force the device tier the map draws with (`src/lib/render-profile.ts`): a phone gets a 2048 shadow cascade instead of 8192, no multisampling, a pixel ratio of at most 1.5, coarser tiles and a smaller tile budget, vehicle bodies out to 2 km instead of 3.5, and neither exhaust nor wakes on the ships. Read from the touch screen, its size and the device memory otherwise; the override measures one profile on the other's hardware |
@@ -317,6 +321,7 @@ src/cities/kiel/
 ├── network.json       # lines, routes, stops – generated (data:update, data:simplify, data:heights)
 ├── schedule.json      # real departure times – generated (data:gtfs)
 ├── street-lamps.json  # OSM lamps along the routes – generated (data:lamps), optional
+├── airfield-lights.json # OSM runway and taxiway lights in the box – generated (data:airfield-lights), optional
 └── terrain/           # terrain tiles of the city's own, over Mapterhorn's – optional (build-terrain-patch)
 ```
 
@@ -378,6 +383,7 @@ npm run data:update -- --city kiel
 npm run data:simplify -- --city kiel
 npm run data:heights -- --city kiel
 npm run data:lamps -- --city kiel
+npm run data:airfield-lights -- --city kiel
 npm run data:gtfs -- --city kiel
 node scripts/build-og-images.mjs             # the link-preview picture → public/og/kiel.png (committed)
 ```
@@ -574,6 +580,7 @@ npm run data:update    # Real track geometries + stops from OpenStreetMap (Overp
 npm run data:simplify  # Simplify the path geometry (visually lossless)
 npm run data:heights   # Terrain heights per route vertex from Mapterhorn's terrain tiles
 npm run data:lamps     # OSM street lamps along the routes → street-lamps.json
+npm run data:airfield-lights  # OSM airfield lighting in the box → airfield-lights.json
 npm run data:gtfs      # Real departure times from a GTFS feed → schedule.json
 npm test               # validates the new datasets
 ```
@@ -586,8 +593,9 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   including tunnel and bridge sections as meter ranges along each path.
   Stop-position nodes without a `name` tag are resolved via their OSM
   `stop_area` relation, then via the nearest named stop within 60 m; only
-  after that does the "Stop" placeholder remain. The Overpass queries (here
-  and in `data:lamps`) are limited to the city's bounding box.
+  after that does the "Stop" placeholder remain. The Overpass queries (here,
+  in `data:lamps` and in `data:airfield-lights`) are limited to the city's
+  bounding box.
 - `data:heights` samples the terrain at every route vertex and stop from
   [Mapterhorn](https://mapterhorn.com): Terrarium-encoded terrain tiles built
   from open terrain models – in Germany the 1 m DGM1 of every state
@@ -643,6 +651,15 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   terrain height, the same way the routes get theirs. Lamps beside a bridge
   or tunnel section are skipped: there the route's height profile is the deck
   or the surface above the tube, not the ground the lamp stands on.
+- `data:airfield-lights` collects the `aeroway=navigationaid` nodes in the
+  box that the map has a light for – the `navigationaid=*` kinds `rwe`,
+  `rwc`, `rwt`, `tdz`, `als`, `papi`, `vasi`, `txe`, `txc`, `sbl`, `cbl`
+  and `rgl` (radio aids are left out) – with the colour ICAO gives the kind
+  unless the node's `light:colour` says otherwise, and gives each one a
+  terrain height the same way. Every city gets the file; a box without an
+  airfield gets an empty list. Closed airfields are not a concern of the
+  script: OSM's mappers take the lights down with the airport (Tegel and
+  Tempelhof have none).
 - `data:gtfs` downloads the free Germany-wide public transport feed from
   [gtfs.de](https://gtfs.de) (DELFI-based) by default – once per run, however
   many cities follow. With `GTFS_URL`/`GTFS_FILE` a transport association's
@@ -884,10 +901,11 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    changed no departure is byte-identical and skips tests, build and
    deploy – the service day each city was cut from goes into the data
    commit's message instead. The rarely changing OSM geometry (`data:update` + `data:simplify` +
-   `data:heights` + `data:lamps`, city by city) is only refreshed once a week
-   (Sunday night). Route directions whose geometry is unchanged reuse the
-   committed terrain heights (`PREV_NETWORK`), and lamps that did not move
-   reuse theirs (`PREV_LAMPS`), so tiles are only fetched for actual changes
+   `data:heights` + `data:lamps` + `data:airfield-lights`, city by city) is
+   only refreshed once a week (Sunday night). Route directions whose geometry
+   is unchanged reuse the committed terrain heights (`PREV_NETWORK`), and
+   lamps and airfield lights that did not move reuse theirs (`PREV_LAMPS`,
+   `PREV_AIRFIELD_LIGHTS`), so tiles are only fetched for actual changes
    – unless the terrain attribution in `city.json` changed, which samples the
    whole city afresh once.
    The same refresh can be started by hand from the Actions tab (`Run
@@ -913,11 +931,12 @@ src/
 │   ├── index.ts            # Lazy loading of a city's generated data (one chunk per city)
 │   ├── rostock/            # city.json + network.json + schedule.json + street-lamps.json
 │   ├── kiel/               # city.json + network.json + schedule.json + street-lamps.json
-│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json
+│   └── berlin/             # city.json + network.json + schedule.json + street-lamps.json + airfield-lights.json
 ├── data/
 │   ├── network.ts          # Preparation of a network (distances, direction mirroring, fleet)
 │   ├── network-types.ts    # network.json types
-│   └── street-lamps.ts     # street-lamps.json types
+│   ├── street-lamps.ts     # street-lamps.json types
+│   └── airfield-lights.ts  # airfield-lights.json types
 ├── lib/
 │   ├── city.ts             # The City type, city.json validation, bounding-box helpers
 │   ├── city-api.ts         # ?city= on the per-city endpoints
@@ -953,8 +972,8 @@ src/
 │                           # lighting + cabin glow, event-driven render requests
 ├── map/LinearView.ts       # The lines pulled straight, in SVG over the map, and the
 │                           # morph between the two readings
-├── map/*Layer.ts           # Routes, stops, street lamps, vehicles, AIS vessels, ADS-B aircraft –
-│                           # each with clear() for the move to the next city
+├── map/*Layer.ts           # Routes, stops, street lamps, airfield lights, vehicles, AIS vessels,
+│                           # ADS-B aircraft – each with clear() for the move to the next city
 ├── map/FunnelSmoke.ts      # Exhaust over the funnels of the ships under way: one instanced
 │                           # draw command, the puffs placed by the clock alone (stateless)
 ├── map/Wake.ts             # The ships' wakes – wash, bow wave, Kelvin arms – as ribbons laid
@@ -982,6 +1001,7 @@ scripts/
 ├── fetch-route-heights.mjs   # terrain heights from Mapterhorn   (npm run data:heights)
 ├── build-terrain-patch.mjs   # a city's own terrain tiles where Mapterhorn has holes (one-off, by hand)
 ├── fetch-street-lamps.mjs    # OSM street lamps + terrain heights (npm run data:lamps)
+├── fetch-airfield-lights.mjs # OSM airfield lighting + terrain heights (npm run data:airfield-lights)
 ├── build-vehicle-models.mjs  # procedural vehicle, detailed vessel and aircraft GLBs (npm run models:build)
 ├── build-og-images.mjs       # link-preview pictures → public/og (by hand, committed)
 ├── test-php-parser.mjs       # parity test Node vs. api/realtime.php (runs in CI)
@@ -1061,10 +1081,10 @@ they are in view.
   use of the Photorealistic 3D Tiles is subject to the Google Maps Platform terms;
   the attribution is displayed automatically by Cesium.
 - Network data (after `npm run data:update`): © OpenStreetMap contributors, ODbL 1.0
-- Street lamps (after `npm run data:lamps`): © OpenStreetMap contributors, ODbL 1.0
+- Street lamps (after `npm run data:lamps`) and airfield lighting (after `npm run data:airfield-lights`): © OpenStreetMap contributors, ODbL 1.0
 - Webcam pictures: [Windy.com](https://www.windy.com/webcams) Webcams API – shown as delivered, each linked to its windy.com page, with the courtesy line in the credit display, as Windy's terms ask
 - Air traffic: [adsb.fi](https://adsb.fi) open data – for personal, non-commercial use, cited with a link in the credit display while aircraft are on the map, as its terms ask
-- Terrain heights (after `npm run data:heights` / `data:lamps`):
+- Terrain heights (after `npm run data:heights` / `data:lamps` / `data:airfield-lights`):
   © [Mapterhorn](https://mapterhorn.com/attribution), built from
   © GeoBasis-DE/M-V (DGM1, CC BY 4.0) for Rostock, from
   © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0) for Kiel, from © Freie und

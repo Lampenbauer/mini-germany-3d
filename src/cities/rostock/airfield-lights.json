@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "attribution": "Airfield lighting © OpenStreetMap contributors (ODbL). Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/M-V (DGM1, CC BY 4.0).",
+    "terrainAttribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/M-V (DGM1, CC BY 4.0)."
+  },
+  "lights": [
+    [12.26229,53.91899,41.4,"papi","white"],
+    [12.2625,53.9199,41.5,"papi","white"],
+    [12.29608,53.91629,34.8,"papi","white"],
+    [12.29628,53.9172,35,"papi","white"],
+    [12.29282,53.91677,36.9,"rwe","white"],
+    [12.29291,53.91724,36.9,"rwe","white"],
+    [12.29371,53.91669,36.3,"rwe","white"],
+    [12.29382,53.91717,36.4,"rwe","white"],
+    [12.29463,53.91662,35.7,"rwe","white"],
+    [12.29472,53.9171,35.8,"rwe","white"],
+    [12.29551,53.91655,35.2,"rwe","white"],
+    [12.29562,53.91702,35.2,"rwe","white"],
+    [12.29643,53.91649,34.6,"rwe","white"],
+    [12.29652,53.91696,34.6,"rwe","white"],
+    [12.29733,53.91641,34,"rwe","white"],
+    [12.29743,53.91688,34,"rwe","white"],
+    [12.29752,53.91602,33.5,"txe","blue"],
+    [12.29763,53.91601,33.4,"txe","blue"],
+    [12.29801,53.91598,33.1,"txe","blue"],
+    [12.29807,53.91616,33.3,"txe","blue"],
+    [12.29816,53.91615,33.2,"txe","blue"]
+  ]
+}

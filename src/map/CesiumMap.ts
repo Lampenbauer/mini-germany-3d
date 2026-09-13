@@ -71,6 +71,7 @@ import type { AisVessel } from '@/lib/ais-extract'
 import type { Aircraft } from '@/lib/aircraft-extract'
 import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
+import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
@@ -80,6 +81,7 @@ import {
 } from './WeatherOverlay'
 import type { PreparedNetwork } from '@/data/network-types'
 import type { StreetLampData } from '@/data/street-lamps'
+import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { VehicleSnapshot } from '@/engine/simulation'
 
 export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
@@ -717,6 +719,10 @@ export class CesiumMap {
   private readonly bridgeDecks: BridgeDecks
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
   private readonly streetLamps: StreetLampsLayer
+  /** The runway and taxiway lights at night (see AirfieldLightsLayer). */
+  private readonly airfieldLights: AirfieldLightsLayer
+  /** The visibility over the city in metres, as the app's weather has it – null while unknown. */
+  private visibilityM: number | null = null
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
   private readonly vehicleLayer: VehicleLayer
   /** Volumetric clouds and their shadow on the tiles (see CloudLayer). */
@@ -975,15 +981,26 @@ export class CesiumMap {
       deckChanged: (lineId, direction) => this.routes.refreshDirection(lineId, direction),
       routeHeightOffset: () => this.routes.heightOffset,
     })
+    const groundHeightForNhn = (nhn: number): number =>
+      opts.fixedGroundHeight === undefined && !opts.offline
+        ? nhn + map.routes.heightOffset
+        : map.defaultGroundHeight
     this.streetLamps = new StreetLampsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get nightFactor() {
         return map.nightFactor
       },
-      groundHeightForNhn: (nhn) =>
-        opts.fixedGroundHeight === undefined && !opts.offline
-          ? nhn + map.routes.heightOffset
-          : map.defaultGroundHeight,
+      groundHeightForNhn,
+    })
+    this.airfieldLights = new AirfieldLightsLayer(this.viewer, {
+      requestRender: () => this.requestRender(),
+      get nightFactor() {
+        return map.nightFactor
+      },
+      groundHeightForNhn,
+      get visibilityM() {
+        return map.visibilityM
+      },
     })
     this.vehicleLayer = new VehicleLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -1712,6 +1729,7 @@ export class CesiumMap {
     this.routes.clear()
     this.bridgeDecks.clear()
     this.streetLamps.clear()
+    this.airfieldLights.clear()
     this.nearestVehicleMeters = Number.POSITIVE_INFINITY
     // The ships leave with the city on the app's next tick (see above), and
     // the shadow gate lets go of the last hull now rather than one tick late.
@@ -2450,6 +2468,7 @@ export class CesiumMap {
     this.webcamsLayer.setUnderground(underground)
     this.stops.setUnderground(underground)
     this.streetLamps.setUnderground(underground)
+    this.airfieldLights.setUnderground(underground)
     // No weather below ground – the clouds and their shadow go with the sky
     this.clouds.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
@@ -2539,6 +2558,21 @@ export class CesiumMap {
    */
   addStreetLamps(data: StreetLampData): void {
     this.streetLamps.add(data)
+  }
+
+  /**
+   * Registers the airfield lighting for the night. Built lazily like the
+   * street lamps (see AirfieldLightsLayer).
+   */
+  addAirfieldLights(data: AirfieldLightData): void {
+    this.airfieldLights.add(data)
+  }
+
+  /** The visibility the weather reports, for the airfield lighting by day (see AirfieldLightsLayer). */
+  setVisibility(metres: number | null): void {
+    if (metres === this.visibilityM) return
+    this.visibilityM = metres
+    this.requestRender()
   }
 
   setStopsVisible(visible: boolean): void {
@@ -2759,9 +2793,12 @@ export class CesiumMap {
   private clampToSurface(lon: number, lat: number, exclude: object[]): number | undefined {
     const scene = this.viewer.scene
     if (!this.googleTileset || !scene.clampToHeightSupported) return undefined
+    // An aircraft on the apron, a ship at a quay by an airfield: neither
+    // may stand on a runway light, so every pick looks past them too
+    const lights = this.airfieldLights.primitive
     const clamped = scene.clampToHeight(
       Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch),
-      exclude,
+      lights.length > 0 ? [...exclude, lights] : exclude,
     )
     if (!clamped) return undefined
     const height = Cartographic.fromCartesian(clamped).height
@@ -2791,6 +2828,7 @@ export class CesiumMap {
     this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
     this.routes.updatePulse()
     this.streetLamps.update()
+    this.airfieldLights.update()
     this.webcamsLayer.update()
     this.lens.update()
     this.tiltShift.update()
@@ -3075,6 +3113,11 @@ export class CesiumMap {
     return this.streetLamps.info
   }
 
+  /** Debug/tests: airfield lights built into the scene and their current opacity. */
+  getAirfieldLightInfo(): { drawn: number; alpha: number } {
+    return this.airfieldLights.info
+  }
+
   /**
    * Screen position of a stop's disc in CSS pixels, or null when off
    * screen or unknown – the stop-card E2E clicks the real disc with it.
@@ -3132,6 +3175,7 @@ export class CesiumMap {
     this.shipWake?.destroy()
     this.ferryWake?.destroy()
     this.streetLamps.destroy()
+    this.airfieldLights.destroy()
     this.viewer.destroy()
   }
 }

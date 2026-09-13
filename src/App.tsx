@@ -140,6 +140,8 @@ export interface Mg3dTestApi {
   setRain: (precipitationMm: number) => void
   /** Forces the overcast grade for tests/previews (percent; 0 = clear again). */
   setCloudCover: (cloudCoverPercent: number) => void
+  /** Forces the visibility for tests/previews (metres; null = the sky's own again) – what lights the airfield by day. */
+  setVisibility: (metres: number | null) => void
   /** Raindrops currently drawn (0 = dry or below ground). */
   rainDropsVisible: () => number
   selectVehicle: (id: string | null) => void
@@ -202,6 +204,8 @@ export interface Mg3dTestApi {
   anyVehicleInView: () => boolean
   /** Street lighting: lamps batched into the scene and their current opacity. */
   streetLamps: () => { drawn: number; alpha: number }
+  /** Airfield lighting: runway and taxiway lights built into the scene and their current opacity. */
+  airfieldLights: () => { drawn: number; alpha: number }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**
@@ -301,7 +305,7 @@ interface UrlOptions {
   ais: boolean
   /** false only with ?aircraft=0 – the live air traffic is on by default. */
   aircraft: boolean
-  /** Night-time street lighting from OSM lamps (?lamps=0 disables it). */
+  /** Night-time street and airfield lighting from OSM (?lamps=0 disables both). */
   lamps: boolean
   /** Live webcams floating over their spot (?webcams=0 disables them). */
   webcams: boolean
@@ -823,6 +827,8 @@ export default function App() {
   const rainRef = useRef({ mm: 0, forced: false })
   /** Cloud cover and the wind the clouds drift with (see CloudLayer). */
   const cloudRef = useRef({ percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 })
+  /** The visibility in metres, null while unknown – what lights the airfield by day (see AirfieldLightsLayer). */
+  const visibilityRef = useRef<{ m: number | null; forced: boolean }>({ m: null, forced: false })
   /**
    * What the weather client last reported – the last days on the feed's
    * quarter-hour grid (see lib/weather.ts) – whichever sky is picked, so
@@ -2049,6 +2055,9 @@ export default function App() {
                     windFromDeg: reading?.windFromDeg ?? 0,
                   }
                 }
+                if (!visibilityRef.current.forced) {
+                  visibilityRef.current = { m: reading?.visibilityM ?? null, forced: false }
+                }
               }
               // The reading on the weather button follows the same moment,
               // whichever sky is picked; same-value updates bail out in React
@@ -2065,6 +2074,9 @@ export default function App() {
               // The overcast grade goes below ground with the rain
               const cloud = cloudRef.current
               map.setCloudCover(weatherVisible ? cloud.percent : 0)
+              // The visibility lights the airfield by day; underground the
+              // layer is out anyway
+              map.setVisibility(visibilityRef.current.m)
               // The clouds drift with the wind on the simulated clock –
               // the layer asks for frames itself as the drift shows. At
               // real pace four advances a second are plenty; under the
@@ -2202,6 +2214,9 @@ export default function App() {
           forced: cloudCoverPercent > 0,
         }
       },
+      setVisibility: (metres: number | null) => {
+        visibilityRef.current = { m: metres, forced: metres !== null }
+      },
       rainDropsVisible: () => map.getRainDropsVisible(),
       selectVehicle,
       selectedVehicleId: () => selectedIdRef.current,
@@ -2247,6 +2262,7 @@ export default function App() {
       stopCameraPath: () => stopCameraPathRef.current(),
       anyVehicleInView: () => lastAnyVehicleInView,
       streetLamps: () => map.getStreetLampInfo(),
+      airfieldLights: () => map.getAirfieldLightInfo(),
       renderRate: () => {
         // Prune on read, not only when a frame is drawn: otherwise the
         // value freezes at its last level the moment rendering stops, and
@@ -2444,6 +2460,7 @@ export default function App() {
       // Night-time street lighting. Nothing is built until the pools would
       // actually show, so a daytime session pays nothing for this.
       if (urlOpts.lamps && data.lamps) map.addStreetLamps(data.lamps)
+      if (urlOpts.lamps && data.airfieldLights) map.addAirfieldLights(data.airfieldLights)
       // The layer switches as they stand, applied to the fresh layers
       applyRouteVisibility()
       map.setStopsVisible(showStopsRef.current)
@@ -2687,6 +2704,7 @@ export default function App() {
       if (weatherModeRef.current === 'live') {
         rainRef.current = { mm: 0, forced: false }
         cloudRef.current = { percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 }
+        visibilityRef.current = { m: null, forced: false }
         rainActiveRef.current = false
         mapRef.current?.setRain(0)
         mapRef.current?.setCloudCover(0)
@@ -2979,6 +2997,7 @@ export default function App() {
     if (mode === 'live') {
       rainRef.current = { mm: 0, forced: false }
       cloudRef.current = { percent: 0, forced: false, windSpeedMps: 0, windFromDeg: 0 }
+      visibilityRef.current = { m: null, forced: false }
     } else {
       const preset = WEATHER_PRESETS[mode]
       rainRef.current = { mm: preset.precipitationMm, forced: true }
@@ -2988,6 +3007,7 @@ export default function App() {
         windSpeedMps: preset.windSpeedMps,
         windFromDeg: preset.windFromDeg,
       }
+      visibilityRef.current = { m: preset.visibilityM, forced: true }
     }
     // The sky is in the URL, so a link shows the city under the one it
     // was copied from – the writer skips a hash that has not changed.

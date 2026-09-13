@@ -192,6 +192,11 @@ jobs:
                 # Soft failure: the previous lamp set stays in place.
                 git show "HEAD:src/cities/$city/street-lamps.json" > "$RUNNER_TEMP/lamps-prev.json" || true
                 PREV_LAMPS="$RUNNER_TEMP/lamps-prev.json" npm run data:lamps -- --city "$city" || echo "::warning::$city: street lamp refresh failed – keeping the previous lamp set."
+                # The airfield lighting (OSM navigationaid nodes + the same
+                # terrain tiles), with the same height reuse. Soft failure:
+                # the previous lights stay in place.
+                git show "HEAD:src/cities/$city/airfield-lights.json" > "$RUNNER_TEMP/airfield-prev.json" || true
+                PREV_AIRFIELD_LIGHTS="$RUNNER_TEMP/airfield-prev.json" npm run data:airfield-lights -- --city "$city" || echo "::warning::$city: airfield lighting refresh failed – keeping the previous lights."
               else
                 echo "::warning::$city: OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
               fi

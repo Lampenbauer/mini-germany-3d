@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "attribution": "Airfield lighting © OpenStreetMap contributors (ODbL). Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0).",
+    "terrainAttribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/LVermGeo SH (DGM1, CC BY 4.0)."
+  },
+  "lights": [
+    [10.14045,54.37956,30.4,"papi","white"],
+    [10.14864,54.37942,29.3,"papi","white"]
+  ]
+}

@@ -643,6 +643,50 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 | **Lübeck / Schwerin** | Priwall and Pfaffenteich ferries have no GTFS and are left off |
 | **Frankfurt** | X express lines are regional (X95 has 450 m inside the city) and excluded; tram 11 has no operator tag, so trams come by network RMV |
 
+**The airfield lighting comes from OSM one light at a time, and it is
+all steady (since 2026-09-13).** `data:airfield-lights`
+([scripts/fetch-airfield-lights.mjs](scripts/fetch-airfield-lights.mjs),
+the selection in `scripts/lib/airfield-lights.mjs`, tested) takes the
+`aeroway=navigationaid` nodes of the box that the map has a light for –
+runway edge, centre line, threshold, touchdown zone, approach, PAPI,
+taxiway edge and centre line, stop bars, guard lights – in the colour
+ICAO gives the kind unless `light:colour` says otherwise, with a terrain
+height like the lamps', into `airfield-lights.json`; Sunday nights with
+the rest of the OSM data, heights reused through `PREV_AIRFIELD_LIGHTS`.
+Counted 2026-09-13, per box: Frankfurt ~10 200, Berlin ~6 400 (BER,
+Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and Finkenwerder),
+Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich ~1 700 (edge
+and taxiway lights not mapped yet), Bremen ~1 000, Lübeck ~1 000,
+Wilhelmshaven ~300, Rostock 21 (Laage's, the rest of them south of the
+box), Kiel 2 – sparse light is real light, as with the lamps;
+Schwerin's box holds no airfield (Parchim lies outside) and gets an
+empty list, so every city has the file. Closed airfields
+need no rule: the mappers took Tegel's and Tempelhof's lights down with
+the airports. [AirfieldLightsLayer](src/map/AirfieldLightsLayer.ts)
+draws them as one PointPrimitiveCollection per city – points, not the
+lamps' ground pools, so the lit runway reads from the home view; no
+camera-height fade, half size far out – built lazily along the night
+ramp like the lamps, and by day once the weather's visibility drops
+(`LOW_VISIBILITY_M`, 4 km full, fading in from 6 km – the tower's
+practice is the lighting on under roughly five kilometres; the ramp
+keeps a reading near the threshold from flicking the runway every
+quarter hour): `visibility` rides in the weather series, the UI tick
+hands it to `CesiumMap.setVisibility`, a picked sky brings its own
+(`WEATHER_PRESETS[…].visibilityM`, the rainy one's 4 km lights the
+airfield, the test API's `setVisibility` forces one), out underground,
+off with `?lamps=0`, which covers
+both lightings. Two decisions: no flashing, though the approach
+system's sequenced flashers and the guard lights' wig-wags are real –
+OSM does not tell them apart from the steady lights beside them, and a
+flash would keep the loop ticking wherever an airfield is in view; and
+the points stand 1.5 m over the terrain height with the depth test on,
+so a light is hidden by a terminal in front of it but never sinks into
+Google's runway mesh. `CesiumMap.clampToSurface` puts the collection on
+every clamp's exclusion list, or an aircraft on the apron would stand
+on a taxiway light. `__mg3d.airfieldLights()` counts them and reads
+their alpha; `e2e/street-lamps.spec.ts` checks them on the lamps' scene
+(Rostock-Laage is in the box).
+
 Vehicles at 08:30 (the number each `tests/<slug>.test.ts` pins): Berlin 685,
 Hamburg 458, Rostock/Cologne/Munich ~370, Stuttgart 257, Bremen 223,
 Frankfurt 219, Hanover 184, Lübeck 93, Schwerin 38, Wilhelmshaven 17.
@@ -1427,7 +1471,9 @@ so [src/lib/weather.ts](src/lib/weather.ts) fetches the last
 `WEATHER_PAST_DAYS` days and the rest of today in one 16 kB request
 every ten minutes, and the UI tick in `App.tsx` takes the step of
 `min(simMs, now)` out of it (`weatherAt`) for the rain, the overcast
-grade, the clouds' wind and the temperature on the weather button.
+grade, the clouds' wind, the temperature on the weather button and the
+visibility that lights the airfield by day (see the airfield paragraph
+under "Cities and the data pipeline").
 Decisions: three UTC days back, because the calendar's two Berlin days
 begin at 22:00 UTC of the evening before (`DATE_PICKER_DAYS_BACK`
 carries the reason); a clock set ahead shows the present's sky, never
