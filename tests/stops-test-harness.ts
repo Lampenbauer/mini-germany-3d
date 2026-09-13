@@ -78,12 +78,14 @@ export function stopsHarness(
     () => undefined,
   )
   const requestRender = vi.fn()
+  let generation = 0
   const layer = new StopsLayer(viewer, {
     requestRender,
     sampleGroundHeight,
     defaultGroundHeight: 45,
     hasTileset: opts.hasTileset ?? true,
     pixelRatio: 1,
+    surfaceGeneration: () => generation,
   })
   layer.add(networkOf(stops))
 
@@ -98,5 +100,19 @@ export function stopsHarness(
   /** Name plate of the nth stop. */
   const label = (index: number) => collection().get(index)
 
-  return { layer, discs, collection, disc, label, camera, sampleGroundHeight, requestRender, count }
+  /** The tiles changed (CesiumMap.advanceSurfaceGeneration) – failed rays are asked again. */
+  const bumpGeneration = () => generation++
+
+  return {
+    layer,
+    discs,
+    collection,
+    disc,
+    label,
+    camera,
+    sampleGroundHeight,
+    requestRender,
+    count,
+    bumpGeneration,
+  }
 }

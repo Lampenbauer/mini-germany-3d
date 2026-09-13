@@ -63,6 +63,7 @@ import {
   Model,
   PerInstanceColorAppearance,
   Primitive,
+  PrimitiveCollection,
   ShadowMode,
   Transforms,
   type Entity,
@@ -112,10 +113,16 @@ export interface AircraftLayerHost {
   /**
    * Ellipsoid height of the loaded scene geometry under a position –
    * the tiles' own apron (scene.clampToHeight: an offscreen pick per
-   * call). undefined where nothing is loaded yet or picking is
-   * unsupported (offline). `exclude` holds the layer's own primitives.
+   * call, of the tiles alone). undefined where nothing is loaded yet or
+   * picking is unsupported (offline).
    */
-  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  clampToSurface?(lon: number, lat: number): number | undefined
+  /**
+   * Whether the camera stood still since the last tick – the surface
+   * picks wait for that (see CesiumMap.cameraAtRest); absent, it is
+   * taken to rest.
+   */
+  readonly cameraAtRest?: boolean
   /** Bumped whenever the loaded tiles changed – a clamped height is read again then. */
   surfaceGeneration?(): number
   /** A camera flight is starting – keeps the render loop at full rate. */
@@ -187,9 +194,15 @@ const BODY_COLOR = Color.fromCssColorString('#d6d9dd')
 const HIGHLIGHT_BLEND = 0.25
 const HIGHLIGHT_SILHOUETTE_PX = 2.5
 const HIGHLIGHT_BOX_MIX = 0.45
-/** Only an aircraft on the ground is clamped – to the apron, at most this many picks a tick, again after this much motion. */
+/**
+ * Only an aircraft on the ground is clamped – to the apron, at most this
+ * many picks a tick, again after this much motion, and after a load
+ * cycle only within the refine range of the camera (the ships' rule, see
+ * VesselLayer).
+ */
 const CLAMP_BUDGET_PER_TICK = 3
 const CLAMP_MOVE_M = 25
+const CLAMP_REFINE_RANGE_AT_REFERENCE = 2_000
 const KNOT_MPS = 0.514444
 const GRAVITY_MPS2 = 9.81
 /**
@@ -359,8 +372,8 @@ function axisDot(matrix: Matrix4, column: 0 | 1 | 2, vector: Cartesian3): number
 
 export class AircraftLayer {
   private aircraft = new Map<string, AircraftRecord>()
-  private readonly clampExclusionList: object[] = []
-  private clampExclusionsStale = true
+  /** Every primitive of the fleet under one collection – the ships' reasoning (VesselLayer.root). */
+  readonly root = new PrimitiveCollection({ destroyPrimitives: true })
   private visible = true
   private labelsVisible = true
   /** "Zoom to line" keeps the plates off until this instant (startLineFocus). */
@@ -386,7 +399,8 @@ export class AircraftLayer {
     private readonly host: AircraftLayerHost,
   ) {
     this.followCamera = new FollowCamera(viewer, host)
-    this.lights = new NavLights(viewer)
+    viewer.scene.primitives.add(this.root)
+    this.lights = new NavLights(this.root)
   }
 
   /** Day→night ramp for the lights (driven by the map's sun state). */
@@ -511,7 +525,6 @@ export class AircraftLayer {
       if (!record) {
         record = this.createAircraft(aircraft, size, nowMs)
         this.aircraft.set(aircraft.hex, record)
-        this.clampExclusionsStale = true
         this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
       record.size = size
@@ -527,18 +540,24 @@ export class AircraftLayer {
       // have changed, only on screen, a few a tick (see VesselLayer)
       let height: number
       if (sample.altM === null) {
-        if (this.host.clampToSurface && clampBudget > 0) {
+        if (
+          this.host.clampToSurface &&
+          clampBudget > 0 &&
+          (this.host.cameraAtRest !== false || aircraft.hex === this.followHex)
+        ) {
           const movedM = Math.hypot(
             (sample.lon - record.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
             (sample.lat - record.clampLat) * 111_132,
           )
           const stale =
-            record.clampedHeight === null ||
             movedM > CLAMP_MOVE_M ||
-            record.clampedGeneration !== surfaceGeneration
+            (record.clampedGeneration !== surfaceGeneration &&
+              (record.clampedHeight === null ||
+                Cartesian3.distance(camera.positionWC, record.displayPosition) <
+                  CLAMP_REFINE_RANGE_AT_REFERENCE * cameraFramingScale(camera)))
           if (stale && this.isOnScreen(cullingVolume, record.displayPosition)) {
             clampBudget--
-            const h = this.host.clampToSurface(sample.lon, sample.lat, this.clampExclusions())
+            const h = this.host.clampToSurface(sample.lon, sample.lat)
             record.clampLon = sample.lon
             record.clampLat = sample.lat
             record.clampedGeneration = surfaceGeneration
@@ -969,7 +988,7 @@ export class AircraftLayer {
       modelMatrix: matrix,
     })
     primitive.show = this.visible
-    this.viewer.scene.primitives.add(primitive)
+    this.root.add(primitive)
 
     const labelPosition = new ConstantPositionProperty(position)
     const labelText = aircraftTitle(aircraft)
@@ -1048,14 +1067,13 @@ export class AircraftLayer {
     model.show =
       this.visible &&
       Cartesian3.distance(this.viewer.camera.positionWC, record.displayPosition) < BODY_VISIBLE_RANGE
-    this.viewer.scene.primitives.add(model)
+    this.root.add(model)
     if (record.primitive) {
-      this.viewer.scene.primitives.remove(record.primitive)
+      this.root.remove(record.primitive)
       record.primitive = null
     }
     record.model = model
     this.applyAppearance(record, hex)
-    this.clampExclusionsStale = true
     record.modelMatrix = model.modelMatrix
     this.host.requestRender()
   }
@@ -1063,26 +1081,10 @@ export class AircraftLayer {
   private remove(hex: string): void {
     const record = this.aircraft.get(hex)
     if (!record) return
-    if (record.primitive) this.viewer.scene.primitives.remove(record.primitive)
-    if (record.model) this.viewer.scene.primitives.remove(record.model)
+    if (record.primitive) this.root.remove(record.primitive)
+    if (record.model) this.root.remove(record.model)
     this.viewer.entities.remove(record.labelEntity)
     this.aircraft.delete(hex)
-    this.clampExclusionsStale = true
-  }
-
-  /** Everything a clamp pick has to look past: the bodies, their boxes, the plates and the lights. */
-  private clampExclusions(): object[] {
-    if (this.clampExclusionsStale) {
-      this.clampExclusionList.length = 0
-      this.clampExclusionList.push(this.lights.primitive)
-      for (const r of this.aircraft.values()) {
-        if (r.model) this.clampExclusionList.push(r.model)
-        if (r.primitive) this.clampExclusionList.push(r.primitive)
-        this.clampExclusionList.push(r.labelEntity)
-      }
-      this.clampExclusionsStale = false
-    }
-    return this.clampExclusionList
   }
 
   /** The line adsb.fi's terms ask for, shown while any aircraft is on the map. */

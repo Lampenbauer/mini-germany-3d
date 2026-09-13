@@ -109,7 +109,7 @@ describe('stop height refinement', () => {
     expect(h.heightOf()).toBeCloseTo(DETAILED_HEIGHT + 0.5, 3)
   })
 
-  it('keeps the previous height and retries later when no tile is loaded there', () => {
+  it('keeps the previous height and asks again only once the tiles changed when none is loaded there', () => {
     const h = harness()
 
     h.setCameraDistance(1000)
@@ -122,13 +122,16 @@ describe('stop height refinement', () => {
     h.pass()
     expect(h.heightOf()).toBeCloseTo(COARSE_HEIGHT + 0.5, 3)
 
-    // Backs off for a while instead of burning the budget every pass
+    // Left alone instead of burning the budget every pass – no tile can
+    // have arrived while the surface generation stands
+    h.pass()
+    clockMs += 5000
     h.pass()
     expect(h.sampleGroundHeight).toHaveBeenCalledTimes(2)
 
-    // After the retry delay the tiles have arrived
+    // The tiles changed: asked again, and they have arrived
     h.setTileHeight(DETAILED_HEIGHT)
-    clockMs += 1500
+    h.bumpGeneration()
     h.pass()
     expect(h.heightOf()).toBeCloseTo(DETAILED_HEIGHT + 0.5, 3)
   })

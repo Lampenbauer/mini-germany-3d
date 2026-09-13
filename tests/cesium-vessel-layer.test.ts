@@ -56,6 +56,7 @@ function harness({
   smoke,
   wake,
   paceWholeView,
+  cameraAtRest,
 }: {
   cameraLon?: number
   cameraHeight?: number
@@ -68,15 +69,18 @@ function harness({
   wake?: Wake
   /** The time-lapse or a camera path: every ship drawn counts as in view. */
   paceWholeView?: boolean
+  /** The camera moving between ticks – the picks wait (see CesiumMap.cameraAtRest). */
+  cameraAtRest?: boolean
 } = {}) {
-  const removedPrimitives: Primitive[] = []
   const removedEntities: Entity[] = []
   const cameraCalls: unknown[][] = []
   const viewer = {
     scene: {
+      // The layer puts its own root collection here and everything else
+      // under that (see VesselLayer.root)
       primitives: {
         add: (primitive: Primitive) => primitive,
-        remove: (primitive: Primitive) => removedPrimitives.push(primitive),
+        remove: (primitive: Primitive) => primitive,
       },
     },
     entities: {
@@ -112,6 +116,7 @@ function harness({
     ...(smoke ? { funnelSmoke: smoke } : {}),
     ...(wake ? { wake } : {}),
     ...(paceWholeView ? { paceWholeView } : {}),
+    ...(cameraAtRest === undefined ? {} : { cameraAtRest }),
     ...(clamp
       ? {
           clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
@@ -125,7 +130,7 @@ function harness({
         vessels: Map<number, { matrix: Matrix4; labelEntity: Entity; labelText: string }>
       }
     ).vessels.get(mmsi)
-  return { layer, record, removedPrimitives, removedEntities, requestRender, cameraCalls, viewer }
+  return { layer, record, removedEntities, requestRender, cameraCalls, viewer }
 }
 
 function positionOf(matrix: Matrix4): Cartographic {
@@ -166,7 +171,8 @@ describe('VesselLayer', () => {
     expect(h.layer.vesselCount).toBe(2)
     h.layer.sync([vessel()], NOW)
     expect(h.layer.vesselCount).toBe(1)
-    expect(h.removedPrimitives).toHaveLength(1)
+    // Her box went with her – the root holds the one ship left
+    expect(h.layer.root.length).toBe(1 + 1) // one box, the lights' collection
     expect(h.removedEntities).toHaveLength(1)
     h.layer.sync([vessel({ positionAt: NOW - 31 * 60_000 })], NOW)
     expect(h.layer.vesselCount).toBe(0)
@@ -179,7 +185,8 @@ describe('VesselLayer', () => {
     h.layer.sync([vessel()], NOW)
     const after = h.record(211222290)
     expect(after).not.toBe(before)
-    expect(h.removedPrimitives).toHaveLength(1)
+    // The first box is gone, the rebuilt one stands in the root beside the lights
+    expect(h.layer.root.length).toBe(2)
     expect(h.layer.vesselCount).toBe(1)
   })
 
@@ -262,7 +269,7 @@ describe('VesselLayer', () => {
     expect(record.labelEntity.show).toBe(false)
     // Only the name goes – the vessel itself stays on the water
     expect(h.layer.vesselCount).toBe(1)
-    expect(h.removedPrimitives).toHaveLength(0)
+    expect(h.layer.root.length).toBe(2)
     h.layer.setLabelsVisible(true)
     expect(record.labelEntity.show).toBe(true)
   })
@@ -545,6 +552,44 @@ describe('VesselLayer', () => {
       expect(surface).toHaveBeenCalledTimes(3)
     })
 
+    it('re-reads a ship after the tiles changed only near the camera, where they refine', () => {
+      const surface = vi.fn(() => 50)
+      let generation = 1
+      // The camera 1.5 km up; the ship 3.5 km north – on screen (within the
+      // render range), but the tiles under her are not what a load cycle
+      // near the camera refines
+      const h = harness({ clamp: { surface, generation: () => generation } })
+      const far = { lat: 54.098 + 3500 / 111_132 }
+      h.layer.sync([vessel(far)], NOW)
+      expect(surface).toHaveBeenCalledTimes(1)
+      generation = 2
+      h.layer.sync([vessel(far)], NOW + 100)
+      expect(surface).toHaveBeenCalledTimes(1)
+      // Moved: read again wherever she is
+      h.layer.sync([vessel({ lat: far.lat + 40 / 111_132 })], NOW + 200)
+      expect(surface).toHaveBeenCalledTimes(2)
+      // A ship whose tiles never answered is asked again at any distance
+      const none = vi.fn<(lon: number, lat: number) => number | undefined>(() => undefined)
+      let gen2 = 1
+      const h2 = harness({ clamp: { surface: none, generation: () => gen2 } })
+      h2.layer.sync([vessel(far)], NOW)
+      gen2 = 2
+      h2.layer.sync([vessel(far)], NOW + 100)
+      expect(none).toHaveBeenCalledTimes(2)
+    })
+
+    it('waits with the picks while the camera moves, but not for the ship it follows', () => {
+      const surface = vi.fn(() => 50)
+      const moving = harness({ clamp: { surface, generation: () => 1 }, cameraAtRest: false })
+      moving.layer.sync([vessel()], NOW)
+      moving.layer.sync([vessel()], NOW + 100)
+      expect(surface).not.toHaveBeenCalled()
+      // The chase camera never rests: the followed ship is picked all the same
+      moving.layer.setFollow(211222290)
+      moving.layer.sync([vessel()], NOW + 200)
+      expect(surface).toHaveBeenCalledTimes(1)
+    })
+
     it('does not pick for a ship off screen, and rides the fallback surface until it is seen', () => {
       const surface = vi.fn(() => 50)
       const h = harness({ frustum: Intersect.OUTSIDE, clamp: { surface, generation: () => 1 } })
@@ -554,13 +599,21 @@ describe('VesselLayer', () => {
       expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(37.75 + 3 / 2, 1)
     })
 
-    it('keeps the fallback where the pick finds no tile, and asks again next tick', () => {
+    it('keeps the fallback where the pick finds no tile, and asks again once the tiles changed', () => {
       const surface = vi.fn<(lon: number, lat: number) => number | undefined>(() => undefined)
-      const h = harness({ clamp: { surface, generation: () => 1 } })
+      let generation = 1
+      const h = harness({ clamp: { surface, generation: () => generation } })
       h.layer.sync([vessel()], NOW)
       surface.mockReturnValue(52)
-      // A long pause snaps the eased pose, so the height can be read off directly
-      h.layer.sync([vessel()], NOW + 3000)
+      // The same tiles cannot answer differently – not asked again
+      h.layer.sync([vessel()], NOW + 100)
+      h.layer.sync([vessel()], NOW + 1000)
+      expect(surface).toHaveBeenCalledTimes(1)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(37.75 + 3 / 2, 1)
+      // The tiles changed: asked, and answered. A long pause snaps the
+      // eased pose, so the height can be read off directly
+      generation = 2
+      h.layer.sync([vessel()], NOW + 4000)
       expect(surface).toHaveBeenCalledTimes(2)
       expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(52 + 3 / 2, 1)
     })
@@ -652,7 +705,7 @@ describe('VesselLayer', () => {
       expect(h.record(211222290)!.labelEntity.show).toBe(false)
       // Only the names step aside – the fleet itself stays on the water
       expect(h.layer.vesselCount).toBe(1)
-      expect(h.removedPrimitives).toHaveLength(0)
+      expect(h.layer.root.length).toBe(2)
     })
 
     it('lets a ship that arrives during the focus arrive without her name', () => {

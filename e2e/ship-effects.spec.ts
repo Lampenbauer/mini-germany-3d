@@ -98,10 +98,15 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0, navStatus = 0) =>
  */
 const hullReady = () =>
   page.evaluate(() => {
+    // The hulls live in the layer's own collection (VesselLayer.root)
     const primitives = window.__cesiumViewer!.scene.primitives
     for (let i = 0; i < primitives.length; i++) {
-      const primitive = primitives.get(i)
-      if (primitive.id === 'vessel:211000001' && primitive.ready === true) return true
+      const root = primitives.get(i) as { length?: number; get?(j: number): { id?: unknown; ready?: boolean } }
+      if (typeof root.get !== 'function' || typeof root.length !== 'number') continue
+      for (let j = 0; j < root.length; j++) {
+        const primitive = root.get(j)
+        if (primitive.id === 'vessel:211000001' && primitive.ready === true) return true
+      }
     }
     return false
   })

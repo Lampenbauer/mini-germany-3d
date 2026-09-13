@@ -51,6 +51,12 @@ export interface StopsLayerHost {
   readonly defaultGroundHeight: number
   /** false offline and until the photorealistic tileset is loaded. */
   readonly hasTileset: boolean
+  /**
+   * Bumped when the loaded tiles changed (see CesiumMap.advanceSurfaceGeneration)
+   * – the only thing that can change the answer of a ray that found no
+   * tile. Absent (the tests' fake map): every generation is the same.
+   */
+  surfaceGeneration?(): number
   /** Device pixel ratio the canvases are drawn at. */
   readonly pixelRatio: number
   /** Screen rectangles the labels keep clear of (the webcam pictures). */
@@ -128,11 +134,15 @@ interface StopEntityRecord {
    */
   sampledFrom: number
   /**
-   * Timestamp before which no new attempt is made – set when a measurement
-   * found no queryable tile, so a handful of unreachable stops right in
-   * front of the camera cannot monopolize the per-pass budget.
+   * Surface generation at which a measurement found no queryable tile
+   * there, -1 = none: the stop is left alone until the tiles change, so a
+   * handful of unreachable stops right in front of the camera cannot
+   * monopolize the per-pass budget – they used to be asked again every
+   * 1.5 s, eight rays a second for good at a resting camera over water
+   * (found 2026-09-13; each ray reads the tile geometry back from the
+   * GPU).
    */
-  retryAfter: number
+  failedAtGeneration: number
   /**
    * Terrain height in meters NHN from network.json (DGM) – paired with the
    * sampled tile height to calibrate the route height offset.
@@ -179,9 +189,6 @@ export const STOP_NAME_BUDGET = 48
  * on the fallback height for minutes.
  */
 const STOP_SAMPLE_INTERVAL_MS = 500
-
-/** How long a stop is skipped for after a measurement found no loaded tile. */
-const STOP_RETRY_MS = 1500
 
 /**
  * Camera distances in meters up to which the stop discs and their name
@@ -513,7 +520,7 @@ export class StopsLayer {
         lat: stop.lat,
         position: Cartesian3.fromDegrees(stop.lon, stop.lat, this.host.defaultGroundHeight),
         sampledFrom: Number.POSITIVE_INFINITY,
-        retryAfter: 0,
+        failedAtGeneration: -1,
         nhn: stop.nhn,
       }
       this.stopRecords.push(record)
@@ -750,6 +757,7 @@ export class StopsLayer {
     if (now - this.lastStopSampleAt < STOP_SAMPLE_INTERVAL_MS) return
     this.lastStopSampleAt = now
     const cameraPosition = this.viewer.camera.positionWC
+    const generation = this.host.surfaceGeneration?.() ?? 0
 
     // Of all stops a measurement would improve, take the ones nearest to
     // the camera: those are what the user is looking at, and their tiles are
@@ -758,7 +766,7 @@ export class StopsLayer {
     // every stop to spend the small budget well is worth it.
     let count = 0
     for (const stop of this.stopRecords) {
-      if (now < stop.retryAfter) continue
+      if (stop.failedAtGeneration === generation) continue
       const distance = Cartesian3.distance(cameraPosition, stop.position)
       if (distance > stop.sampledFrom * STOP_RESAMPLE_RATIO) continue
       if (count === STOP_HEIGHT_BUDGET && distance >= nearestDistances[count - 1]) continue
@@ -783,8 +791,8 @@ export class StopsLayer {
       const height = this.host.sampleGroundHeight(stop.lon, stop.lat)
       if (height === undefined) {
         // No tile queryable there (yet) – keep the current height and let
-        // other stops have the budget for a while.
-        stop.retryAfter = now + STOP_RETRY_MS
+        // other stops have the budget until the tiles change.
+        stop.failedAtGeneration = generation
         continue
       }
       stop.sampledFrom = nearestDistances[i]

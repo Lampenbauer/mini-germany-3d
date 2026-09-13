@@ -67,14 +67,10 @@ function harness(options: {
   const loads: { url: string; model: Model }[] = []
   const requestRender = vi.fn()
   /** What the last pick was told to look past. */
-  let lastExclude: object[] = []
   const host = {
     requestRender,
     waterSurfaceHeight: FALLBACK,
-    clampToSurface: (lon: number, lat: number, exclude: object[]) => {
-      lastExclude = [...exclude]
-      return clamp(lon, lat)
-    },
+    clampToSurface: (lon: number, lat: number) => clamp(lon, lat),
     surfaceGeneration: () => generation,
     nightFactor: options.night ?? 0,
     visibilityM: options.visibility ?? null,
@@ -92,7 +88,6 @@ function harness(options: {
     loads,
     requestRender,
     bumpGeneration: () => generation++,
-    lastExclude: () => lastExclude,
     /** The model's ellipsoid height, as its matrix places it. */
     heightOf: (index: number) =>
       Cartographic.fromCartesian(Matrix4.getTranslation(loads[index].model.modelMatrix, new Cartesian3())).height,
@@ -146,8 +141,12 @@ describe('the buoys float on the tiles', () => {
     await h.settle()
     expect(h.heightOf(0)).toBeCloseTo(FALLBACK + 0.25, 3)
     expect(h.layer.info.clamped).toBe(0)
-    // The tiles come in: the pick is asked again every tick until it answers
+    // Nothing changed: not asked again. The tiles come in – a surface
+    // generation – and the pick answers
+    h.layer.sync()
+    expect(h.clamp).toHaveBeenCalledTimes(2)
     answer = 39.1
+    h.bumpGeneration()
     h.layer.sync()
     expect(h.layer.info.clamped).toBe(2)
     expect(h.heightOf(0)).toBeCloseTo(39.1 + 0.25, 3)
@@ -159,13 +158,6 @@ describe('the buoys float on the tiles', () => {
     h.bumpGeneration()
     h.layer.sync()
     expect(h.clamp).toHaveBeenCalledTimes(picks + 2)
-    // The models built and the lanterns are off the pick, or a buoy would
-    // be set on its own top – the lanterns as their collection, which the
-    // map expands to the points (see clamp-exclusions.ts)
-    for (const load of h.loads) expect(h.lastExclude()).toContain(load.model)
-    const lanterns = (h.layer as unknown as { lights: object }).lights
-    expect(h.lastExclude()).toContain(lanterns)
-    expect(h.lastExclude().length).toBe(h.loads.length + 1)
   })
 
   it('clamps only the marks near the camera – a far one keeps its height, or the fallback', () => {
@@ -184,7 +176,7 @@ describe('the buoys float on the tiles', () => {
     expect(h.layer.info.heightSpanM).toBe(0)
   })
 
-  it('rations the picks per tick, to buoys on screen, and asks a pick that failed again', () => {
+  it('rations the picks per tick, to buoys on screen, and asks a pick that failed again with the next tiles', () => {
     const h = harness({ camera: [12.095, 54.172, 500], clamp: () => 39 })
     h.layer.add(data(WARNOW))
     h.layer.sync()
@@ -199,19 +191,21 @@ describe('the buoys float on the tiles', () => {
     off.layer.sync()
     expect(off.clamp).not.toHaveBeenCalled()
 
-    // No tiles under it yet: asked again every tick, never written off –
-    // and once answered, left alone until the tiles change
+    // No tiles under it yet: never written off, but not asked again
+    // until the tiles change – nothing else can change the answer – and
+    // once answered, left alone the same way
     let answer: number | undefined
     const later = harness({ camera: [12.095, 54.172, 500], clamp: () => answer })
     later.layer.add(data(WARNOW.slice(0, 1)))
     later.layer.sync()
     later.layer.sync()
-    expect(later.clamp).toHaveBeenCalledTimes(2)
+    expect(later.clamp).toHaveBeenCalledTimes(1)
     answer = 38
+    later.bumpGeneration()
     later.layer.sync()
     expect(later.layer.info.clamped).toBe(1)
     later.layer.sync()
-    expect(later.clamp).toHaveBeenCalledTimes(3)
+    expect(later.clamp).toHaveBeenCalledTimes(2)
   })
 
   it('costs nothing offline – no pick, the fallback for good', () => {

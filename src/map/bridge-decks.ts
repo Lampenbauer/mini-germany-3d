@@ -24,12 +24,9 @@
  *
  * The measurement is tileset.getHeight – a CPU ray against the loaded
  * tiles, ~1 ms measured on Berlin's real tiles (2026-09-08) – and not
- * scene.clampToHeight, which is an offscreen
- * pick of everything in the scene: a route vertex has the route's own
- * polyline drawn exactly on it, at exactly the wrong height, plus
- * badges, stop names and lamps to keep off the exclusion list. The ray
- * only answers where a tile is loaded and selected, which for a vertex
- * on screen is soon.
+ * scene.clampToHeight, which is an offscreen render pass with a
+ * readPixels stall (the ships' cost). The ray only answers where a tile
+ * is loaded and selected, which for a vertex on screen is soon.
  *
  * A ray answers with whatever is on top – or, where the mesh has no
  * deck (Google's photogrammetry loses thin bridges; the Humboldthafen
@@ -85,8 +82,6 @@ export interface BridgeDecksHost {
  */
 const DECK_SAMPLE_INTERVAL_MS = 200
 const DECK_SAMPLE_BUDGET = 6
-/** A vertex with no tile under it yet is left alone for this long. */
-const DECK_RETRY_MS = 2000
 /** Vertices are measured out to this distance at the reference lens. */
 const DECK_SAMPLE_RANGE_AT_REFERENCE = 6000
 /**
@@ -158,9 +153,14 @@ interface DeckVertex {
   position: Cartesian3
   /** Last measured ellipsoidal height, undefined until a tile answered. */
   height: number | undefined
-  /** Surface generation the height was read at, -1 = never. */
+  /**
+   * Surface generation the vertex was last asked at, -1 = never – a ray
+   * that found no tile counts too: the answer changes only with the
+   * tiles, and asking again every two seconds kept a view over the water
+   * (every vertex of a bridge the mesh has no deck for) at the full ray
+   * budget for good (found 2026-09-13).
+   */
   generation: number
-  retryAfter: number
   /** The directions this point is a vertex of – rebuilt when it changes. */
   owners: DeckDirection[]
 }
@@ -379,7 +379,6 @@ export class BridgeDecks {
           position: Cartesian3.fromDegrees(node.lon, node.lat, node.nhn + POSITION_OFFSET_GUESS),
           height: undefined,
           generation: -1,
-          retryAfter: 0,
           owners: [],
         }
         this.points.set(key, vertex)
@@ -539,7 +538,7 @@ export class BridgeDecks {
     // to spend the small budget well is worth it (the stops' rule).
     let count = 0
     for (const vertex of this.points.values()) {
-      if (vertex.generation === generation || now < vertex.retryAfter) continue
+      if (vertex.generation === generation) continue
       const distance = Cartesian3.distance(cameraPosition, vertex.position)
       if (distance > range) continue
       if (count === DECK_SAMPLE_BUDGET && distance >= nearestDistances[count - 1]) continue
@@ -561,11 +560,8 @@ export class BridgeDecks {
       const vertex = nearest[i] as DeckVertex
       nearest[i] = null
       const height = this.host.sampleSurfaceHeight(vertex.lon, vertex.lat)
-      if (height === undefined) {
-        vertex.retryAfter = now + DECK_RETRY_MS
-        continue
-      }
       vertex.generation = generation
+      if (height === undefined) continue
       if (vertex.height === undefined || Math.abs(height - vertex.height) > DECK_CHANGE_M) {
         vertex.height = height
         for (const owner of vertex.owners) owner.dirty = true

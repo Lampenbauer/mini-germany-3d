@@ -758,15 +758,15 @@ OSM does not tell them apart from the steady lights beside them, and a
 flash would keep the loop ticking wherever an airfield is in view; and
 the points stand 1.5 m over the terrain height with the depth test on,
 so a light is hidden by a terminal in front of it but never sinks into
-Google's runway mesh. `CesiumMap.clampToSurface` puts the collection on
-every clamp's exclusion list, or an aircraft on the apron would stand
-on a taxiway light – expanded to its points first
-([clamp-exclusions.ts](src/map/clamp-exclusions.ts)): Cesium matches a
-pick against the point, its `primitive` and its `id`, never the
-collection, so the bare collection on the list had excluded nothing
-until 2026-09-13, when the buoys' lanterns showed it (below). The
-ships', aircraft's and ferries' light pools go through the same
-expansion. `__mg3d.airfieldLights()` counts them and reads
+Google's runway mesh. A surface pick (`CesiumMap.clampToSurface`)
+never sees them – nor anything else but the tiles, see "Ships are
+clamped to the tiles" under AIS – or an aircraft on the apron would
+stand on a taxiway light. (Until 2026-09-13 the lights were kept off the
+picks with exclusion lists, expanded to their points because Cesium
+matches a pick against the point, its `primitive` and its `id`, never
+the collection – the bare collection on the list had excluded nothing,
+which the buoys' lanterns showed. That machinery is gone with the
+lists.) `__mg3d.airfieldLights()` counts them and reads
 their alpha; `e2e/street-lamps.spec.ts` checks them on the lamps' scene
 (Rostock-Laage is in the box).
 
@@ -791,9 +791,11 @@ together by `tests/buoy-models.test.ts`, and the road/rail GLBs came
 out byte-identical (the palette only gained entries). The layer clamps
 each buoy with the ships' pick (`clampToSurface`), with three rules of
 its own: six a tick, not three, because a harbour view sets down
-dozens at once; a pick is made once per load cycle (`surfaceGeneration`)
-and a failed one only with the next – a buoy never moves, so nothing
-else can change the answer; and no plausibility band against the
+dozens at once; a pick is made once per surface generation
+(`surfaceGeneration`) and a failed one only with the next – a buoy
+never moves, so nothing else can change the answer (since 2026-09-13
+that is every layer's rule, see the AIS section); and no plausibility
+band against the
 fallback surface, because inland (Berlin's Havel, 1058 marks) the
 fallback lies thirty metres under the river – the fallback is the
 ships' (`routes.heightOffset` + `WATER_SURFACE_FALLBACK_LIFT`), which
@@ -804,14 +806,13 @@ cell when it leaves (a hidden parent collection is what skips
 PointPrimitiveCollection for the city, drawn always, on
 `airfieldLightLevel` – dusk or poor visibility – and steady for the
 airfield's reason (a flash keeps the loop ticking wherever a harbour is
-in view). The buoy models and the lanterns join every clamp's
-exclusion list in `CesiumMap.clampToSurface`. Two things the first
+in view). Two things the first
 evening taught, both over the real tiles (headed Chromium): with the
 clock at 04:00 the marks climbed a lantern's height on every load
 cycle and sat right by day – the pick under a buoy goes straight down
 through the lantern over it, and a PointPrimitiveCollection on the
-exclusion list excludes nothing (see the airfield paragraph;
-`clamp-exclusions.ts` expands it to the points now); and a level view
+then exclusion list excluded nothing (see the airfield paragraph; a
+pick sees the tiles alone now); and a level view
 across the Breitling set the marks three kilometres out between 9 m
 under and 18 m over the water, off the coarse tiles loaded that far
 out, so a buoy is clamped only within `CLAMP_RANGE_M` (1.5 km) of the
@@ -1399,18 +1400,66 @@ built and compared the same day: a measured water surface per lock reach in
 pick per hull ([VesselLayer](src/map/VesselLayer.ts)), which the user chose
 for being less code. Measured cost: 1.4 ms per pick, an offscreen render
 with a `readPixels` stall, so never clamp per tick — the layer picks only
-for ships on screen and only when the ship moved 25 m or the tileset's
-`allTilesLoaded` fired (`surfaceGeneration` in `CesiumMap`), capped at
-three a tick; a fleet at rest costs nothing. The pick answers with whatever
-LOD is loaded (coarse and fine differ by metres, a ship at a quay can land
-on a baked-in crane or on Google's own photographed hull), which is why the
-generation bump re-reads it after every load cycle. The ships' own
-primitives are on the pick's exclusion list, or a hull would be set on its
-own deck. The **scheduled ferries** (VehicleLayer, mode `ferry`) float the same
-way since 2026-09-08: the same `clampToSurface`, 3 picks a tick, again
-after 25 m or a `surfaceGeneration` bump, the route profile until the
-first answer, with hull, badge and the line's own polylines on the
-exclusion list; `FERRY_FLOAT_LIFT` stays on top for the mesh's crests.
+for ships on screen and only when the ship moved 25 m or the tiles under
+her changed (`surfaceGeneration` in `CesiumMap`), capped at three a
+tick; a fleet at rest costs nothing. The pick answers with whatever LOD
+is loaded (coarse and fine differ by metres, a ship at a quay can land
+on a baked-in crane or on Google's own photographed hull), which is why a
+new generation re-reads it. The **scheduled ferries** (VehicleLayer, mode
+`ferry`) float the same way since 2026-09-08: the same `clampToSurface`,
+3 picks a tick, again after 25 m or a `surfaceGeneration` bump, the route
+profile until the first answer; `FERRY_FLOAT_LIFT` stays on top for the
+mesh's crests. The rules that keep the picks rare, all of 2026-09-13 and
+all measured:
+
+- **A generation is a tile that loaded, at most every 2 s.** It followed
+  `allTilesLoaded` until then, which Cesium raises on every load-progress
+  transition – a single request, a cancelled one – and the picks' own
+  offscreen passes are what starts such requests: at a resting camera
+  over Hamburg the event fired six times a second, every ship, ferry,
+  buoy and lighthouse on screen was picked again each time (217
+  readPixels a second in the home view, each a full scene update), and
+  the bridge decks and stops re-measured with it. Now `tileLoad` is
+  counted and the generation ([surface-generation.ts](src/map/surface-generation.ts),
+  pure, tested; asked once per tick) advances only with a tile loaded
+  since the last one and `MIN_INTERVAL_MS` (2 s) after it. At rest
+  nothing loads, so nothing is asked again.
+- **A pick that found no tile waits like an answered one** – for the
+  next generation (or the ship's own 25 m). Ships, ferries and aircraft
+  retried a failed pick every tick (`clampedHeight === null` counted as
+  stale), the bridge decks every 2 s, the stops every 1.5 s, the webcams
+  every 30 frames: a long view over the Elbe kept every budget saturated
+  for good. The same tiles cannot answer differently.
+- **A new generation re-reads an answered ship only within
+  `CLAMP_REFINE_RANGE_AT_REFERENCE`** (2 km at the reference lens; the
+  ferries' and the aircraft's constants are the same): the tiles that
+  refine as the camera moves are the ones near it, and a metre under a
+  ship two kilometres off is a fraction of a pixel. With 245 ships on
+  screen at 1175 m, every generation had re-clamped them all – three a
+  tick for three seconds, 22 % (Chrome) to 30 % (Firefox) of a pan's
+  wall time.
+- **No pick while the camera moves** (`CesiumMap.cameraAtRest`, the view
+  matrix compared per tick; `host.cameraAtRest` on every clamping layer)
+  – but for the ship, ferry or aircraft the chase camera follows, which
+  never rests; everything else keeps its last answer, or the fallback,
+  for the length of a chase. A pick stalls the GPU pipeline and, in
+  Firefox, the process that runs WebGL, at the very moment the frame
+  rate is watched; the rest catch up the tick the camera stops, a couple
+  of seconds for a harbour at the budgets. Measured in Firefox: 14 % of
+  a pan's wall time in the picks' `readPixels`, 7 % in their scene
+  updates, before.
+- **A pick sees the tiles alone.** `clampToSurface` hides every top-level
+  primitive but the tileset for the pass and restores it after – the
+  fleets under their own root collections (`VesselLayer.root`,
+  `VehicleLayer.root`, `AircraftLayer.root`; a `Model` merely hidden is
+  still updated, a hidden parent collection is what skips it), the
+  lights, the buoys, the route lines, the stop names, the webcams. Before,
+  every layer kept an exclusion list (hulls, boxes, plates, lights,
+  expanded to the points Cesium matches against, `clamp-exclusions.ts`),
+  and an excluded hit costs Cesium a second offscreen pass from below it:
+  a ship's own hull under her ray made every clamp two passes, six
+  readPixels, with 1 200 `Model.update`s each – 7.9 ms a clamp in Chrome,
+  10.5 in Firefox; 2.1 and 3.2 ms now.
 The **ferry route lines** drape over the tiles the same way
 since 2026-09-08: `clampToGround` polylines, the per-frame classification
 every other route avoids, because NHN 0 plus offset plus a 1.25 m lift
@@ -1418,7 +1467,9 @@ every other route avoids, because NHN 0 plus offset plus a 1.25 m lift
 over it. A clamped line does not pulse on "zoom to line" (Cesium's
 per-material batch does not re-evaluate colours per frame). Offline the
 ferry lines lie on the ellipsoid like every other route. `tileset.getHeight` (CPU, 0.3 ms) was rejected: it answered for
-only half the fleet. `sampleHeightMostDetailed` was rejected harder: it
+only half the fleet – checked again 2026-09-13 against the pick for every
+ship on screen: 12 of 49 at 1175 m, 47 of 226 in the home view, and from
+a low camera the heights it did give were off by 200–680 m. `sampleHeightMostDetailed` was rejected harder: it
 loads the finest tiles under every ship (10 000 tiles and 100 MB for one
 fleet) and feeds the tile-tree leak.
 
@@ -1439,10 +1490,11 @@ one point shared by every line on the same OSM way (Berlin: 1281 points
 for 107 directions) – and vehicles and route polylines take it, blending
 into the profile at the portals (`heightAt`). It uses `tileset.getHeight`, the tool the ships
 rejected, for two reasons that do not apply to ships: a route vertex has
-the route's own polyline drawn exactly on it at exactly the wrong height,
-which `clampToHeight` would pick without a long exclusion list (badges,
-stop names, lamps too), and a vertex that gets no answer this pass is
-simply asked again; measured 2026-09-08 on real tiles: ~1 ms a ray. A ray
+the route's own polyline drawn exactly on it at exactly the wrong height
+(a pick has seen the tiles alone only since 2026-09-13), and a vertex
+that gets no answer is simply asked again – at the next surface
+generation, like everything else (see the ships' rules); measured
+2026-09-08 on real tiles: ~1 ms a ray. A ray
 answers with whatever is on top, or – where the mesh lost a thin bridge,
 as at the Humboldthafen – with the water underneath, so a sample is
 trusted only 2.5 m and more above the profile (`DECK_ABOVE_PROFILE_M`;
@@ -1569,7 +1621,8 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   layer adds `routes.heightOffset` (the geoid height the routes are
   calibrated against) and lives with the pressure error. An aircraft on
   the ground is clamped to the tiles like a ship (three picks a tick,
-  again after 25 m or a `surfaceGeneration` bump); nothing else is
+  again after 25 m or a `surfaceGeneration` bump, under the ships' rules
+  – camera at rest, refine range, a failed pick waits); nothing else is
   clamped – the feed's number is the truth.
 - **Playback 12 s behind, reckoned 20 s ahead.** The ships wait at their
   last fix when data dries up; an aircraft flies on from its last speed,
@@ -1643,10 +1696,10 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   are steady and ask for none. The light positions per archetype are
   the workshop's `mesh.lights` copied into `AIRCRAFT_MODELS[…].lights`
   (glTF x,y,z → layer y,z,x), pinned by the model test; a ship's come
-  from her hull's dimensions and funnel. The collections are on both
-  layers' clamp exclusion lists, or a beacon over an aircraft on the
-  apron would be what the apron pick hits. `__mg3d.navLights()` counts
-  them per fleet.
+  from her hull's dimensions and funnel. The collections live in the
+  layers' root collections, which a surface pick hides, or a beacon over
+  an aircraft on the apron would be what the apron pick hits.
+  `__mg3d.navLights()` counts them per fleet.
 - **Shadows and pacing** join the existing gates: the nearest drawn body
   and its span feed `applyShadowState` like the nearest hull, and an
   aircraft in view paces the ticks like a tram – the render range for

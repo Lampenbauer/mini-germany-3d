@@ -84,20 +84,14 @@ function harness(
     },
   } as unknown as Viewer
   let generation = 0
-  const routeEntity = new Entity()
   const clamp = vi.fn(surface)
   const layer = new VehicleLayer(viewer, {
     requestRender: () => {},
     sampleGroundHeight: () => undefined,
     defaultGroundHeight: 30,
     routeHeightOffset: OFFSET,
-    clampToSurface: (lon, lat, exclude) => {
-      // Her own group's primitives, her badge and her route are kept off
-      expect(exclude).toContain(routeEntity)
-      return clamp(lon, lat)
-    },
+    clampToSurface: (lon: number, lat: number) => clamp(lon, lat),
     surfaceGeneration: () => generation,
-    routeExclusions: () => [routeEntity],
     nightFactor: night,
     pixelRatio: 1,
     offline: false,
@@ -126,7 +120,11 @@ describe('ferries float on the tiles', () => {
     const h = harness(() => answer)
     h.layer.sync([snapshot('f', 'ferry')], h.visible)
     expect(h.groundOf('f')).toBe(OFFSET)
+    // No tile under her yet: not asked again until the tiles change
+    h.layer.sync([snapshot('f', 'ferry')], h.visible)
+    expect(h.clamp).toHaveBeenCalledTimes(1)
     answer = 38.2
+    h.bumpGeneration()
     h.layer.sync([snapshot('f', 'ferry')], h.visible)
     expect(h.groundOf('f')).toBe(38.2)
     // At rest on the same tiles: no further pick

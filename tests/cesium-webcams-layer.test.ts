@@ -51,17 +51,21 @@ function harness(pictures: Record<string, { width: number; height: number }>, gr
     return { image: document.createElement('canvas'), ...size }
   })
   const requestRender = vi.fn()
+  let generation = 0
   const layer = new WebcamsLayer(viewer, {
     requestRender,
     sampleGroundHeight,
+    surfaceGeneration: () => generation,
     defaultGroundHeight: 45,
     loadPicture,
   })
+  /** The tiles changed (CesiumMap.advanceSurfaceGeneration). */
+  const bumpGeneration = () => generation++
   const collection = () => primitives[0] as BillboardCollection
   const settle = async () => {
     for (let i = 0; i < 5; i++) await Promise.resolve()
   }
-  return { layer, viewer, collection, sampleGroundHeight, loadPicture, requestRender, settle }
+  return { layer, viewer, collection, sampleGroundHeight, loadPicture, requestRender, settle, bumpGeneration }
 }
 
 describe('pictureSizeMeters', () => {
@@ -96,9 +100,16 @@ describe('WebcamsLayer', () => {
     await h.settle()
     const billboard = h.collection().get(0)
     expect(Cartographic.fromCartesian(billboard.position).height).toBeCloseTo(45 + WEBCAM_FLOAT_METERS, 3)
-    // The tiles come in – the next slow-cadence pass re-measures
+    // Frames without a change of the tiles ask nothing more
     h.sampleGroundHeight.mockReturnValue(62)
     for (let i = 0; i < 30; i++) h.layer.update()
+    expect(h.sampleGroundHeight).toHaveBeenCalledTimes(1)
+    expect(Cartographic.fromCartesian(billboard.position).height).toBeCloseTo(45 + WEBCAM_FLOAT_METERS, 3)
+    // The tiles came in: measured again once, and moved
+    h.bumpGeneration()
+    h.layer.update()
+    h.layer.update()
+    expect(h.sampleGroundHeight).toHaveBeenCalledTimes(2)
     expect(Cartographic.fromCartesian(billboard.position).height).toBeCloseTo(62 + WEBCAM_FLOAT_METERS, 3)
   })
 

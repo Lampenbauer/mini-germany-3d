@@ -92,10 +92,15 @@ const putAircraft = (airlinerAltitude = 10_800) =>
 /** Whether the aircraft's glTF body is in and ready to draw. */
 const modelReady = (hex: string) =>
   page.evaluate((hex) => {
+    // The bodies live in the layer's own collection (AircraftLayer.root)
     const primitives = window.__cesiumViewer!.scene.primitives
     for (let i = 0; i < primitives.length; i++) {
-      const primitive = primitives.get(i)
-      if (primitive.id === `aircraft:${hex}` && primitive.ready === true) return true
+      const root = primitives.get(i) as { length?: number; get?(j: number): { id?: unknown; ready?: boolean } }
+      if (typeof root.get !== 'function' || typeof root.length !== 'number') continue
+      for (let j = 0; j < root.length; j++) {
+        const primitive = root.get(j)
+        if (primitive.id === `aircraft:${hex}` && primitive.ready === true) return true
+      }
     }
     return false
   }, hex)
@@ -140,8 +145,12 @@ test('aircraft put on the map get a body each, their plates, and leave with the 
   const gearShown = () => page.evaluate((hex) => {
     const primitives = window.__cesiumViewer!.scene.primitives
     for (let i = 0; i < primitives.length; i++) {
-      const model = primitives.get(i) as Model
-      if (model.id === `aircraft:${hex}` && model.ready) return model.getNode('gear')?.show
+      const root = primitives.get(i) as { length?: number; get?(j: number): Model }
+      if (typeof root.get !== 'function' || typeof root.length !== 'number') continue
+      for (let j = 0; j < root.length; j++) {
+        const model = root.get(j)
+        if (model.id === `aircraft:${hex}` && model.ready) return model.getNode('gear')?.show
+      }
     }
     return null
   }, AIRLINER.hex)

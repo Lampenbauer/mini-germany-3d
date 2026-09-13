@@ -44,14 +44,10 @@ function harness(options: {
     isDestroyed: () => false,
   } as unknown as Viewer
   const clamp = vi.fn(options.clamp ?? (() => undefined))
-  let lastExclude: object[] = []
   const layer = new LighthousesLayer(viewer, {
     requestRender: () => {},
     waterSurfaceHeight: WATER,
-    clampToSurface: (lon: number, lat: number, exclude: object[]) => {
-      lastExclude = [...exclude]
-      return clamp(lon, lat)
-    },
+    clampToSurface: (lon: number, lat: number) => clamp(lon, lat),
     surfaceGeneration: () => generation,
     nightFactor: options.night ?? 0,
     visibilityM: options.visibility ?? null,
@@ -63,7 +59,6 @@ function harness(options: {
     layer,
     clamp,
     lights,
-    lastExclude: () => lastExclude,
     bumpGeneration: () => generation++,
     moveCamera: (lon: number, lat: number, height: number) => {
       ;(viewer.camera as { positionWC: Cartesian3 }).positionWC = Cartesian3.fromDegrees(lon, lat, height)
@@ -83,9 +78,14 @@ describe('the lights stand on their towers', () => {
     // No elevation in OSM: ten metres over the water until the tiles say
     expect(h.heightOf(2)).toBeCloseTo(WATER + 10, 3)
     h.layer.sync()
+    h.layer.sync()
     expect(h.layer.info.clamped).toBe(0)
-    // The tiles come in: the tower's top is 31 m over the water in the mesh
+    // Two a tick, none of them answered – and none asked again until the
+    // tiles change. They come in: the tower's top is 31 m over the water
+    // in the mesh
+    expect(h.clamp).toHaveBeenCalledTimes(3)
     answer = WATER + 31
+    h.bumpGeneration()
     h.layer.sync()
     h.layer.sync()
     expect(h.layer.info.clamped).toBe(3)
@@ -97,8 +97,6 @@ describe('the lights stand on their towers', () => {
     h.bumpGeneration()
     h.layer.sync()
     expect(h.clamp).toHaveBeenCalledTimes(picks + 2)
-    // The points are off the pick – a light would be set on itself
-    expect(h.lastExclude()).toContain(h.lights)
   })
 
   it('keeps OSM’s elevation where the mesh lost the mast, and rations the picks to two a tick near the camera', () => {

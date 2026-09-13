@@ -74,7 +74,7 @@ import { StreetLampsLayer } from './StreetLampsLayer'
 import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { BuoysLayer } from './BuoysLayer'
 import { LighthousesLayer } from './LighthousesLayer'
-import { expandClampExclusions, type ExpansionCache } from './clamp-exclusions'
+import { SurfaceGeneration } from './surface-generation'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
@@ -730,8 +730,6 @@ export class CesiumMap {
   private readonly buoys: BuoysLayer
   /** The lighthouses and pier lights on the tiles' towers, lit at night (see LighthousesLayer). */
   private readonly lighthouses: LighthousesLayer
-  /** The point collections of the clamp exclusion lists, expanded to their points (see clamp-exclusions.ts). */
-  private readonly clampExpansions: ExpansionCache = new WeakMap()
   /** The visibility over the city in metres, as the app's weather has it – null while unknown. */
   private visibilityM: number | null = null
   /** Boxes, badges, glow pools, selection and chase cam (see VehicleLayer). */
@@ -761,8 +759,27 @@ export class CesiumMap {
   private underground = false
   /** The city on the map (see setCity). */
   private city: City
-  /** Bumped when the loaded tiles changed – see VesselLayerHost.surfaceGeneration. */
-  private surfaceGeneration = 0
+  /** The primitives a surface pick hid, restored after it (see clampToSurface). */
+  private readonly pickHiddenScratch: { show: boolean }[] = []
+  /**
+   * Whether the camera stood still between the last tick and this one
+   * (see noteCameraAtRest) – the layers' surface picks wait for that: an
+   * offscreen pick stalls the GPU pipeline, and in Firefox the process
+   * that runs WebGL, at the very moment the frame rate is watched. A
+   * followed ship or ferry is picked all the same (the chase camera
+   * never rests), the rest catch up the tick the camera stops – a
+   * couple of seconds for a harbour at the budgets. Measured 2026-09-13
+   * in Firefox over Hamburg's harbour: the picks' readPixels were 14 %
+   * of a pan's wall time, their scene updates another 7 %.
+   */
+  private cameraAtRest = true
+  /** The view matrix of the previous tick (see noteCameraAtRest). */
+  private readonly tickViewMatrix = new Matrix4()
+  /**
+   * Bumped when the loaded tiles changed – see VesselLayerHost.surfaceGeneration
+   * and surface-generation.ts for the rule (a tile loaded, two seconds apart).
+   */
+  private readonly surfaceGeneration = new SurfaceGeneration()
   /** Camera leash (see enforceCameraLimits); null while flying between cities. */
   private cameraLimits: CameraLimits | null
   /**
@@ -889,7 +906,6 @@ export class CesiumMap {
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
     }
-
     this.viewer = new Viewer(container, {
       baseLayer: false,
       baseLayerPicker: false,
@@ -988,7 +1004,7 @@ export class CesiumMap {
     this.bridgeDecks = new BridgeDecks(this.viewer, {
       requestRender: () => this.requestRender(),
       sampleSurfaceHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
-      surfaceGeneration: () => this.surfaceGeneration,
+      surfaceGeneration: () => this.surfaceGeneration.current,
       deckChanged: (lineId, direction) => this.routes.refreshDirection(lineId, direction),
       routeHeightOffset: () => this.routes.heightOffset,
     })
@@ -1020,8 +1036,11 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
       },
-      surfaceGeneration: () => this.surfaceGeneration,
-      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      surfaceGeneration: () => this.surfaceGeneration.current,
+      clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
+      get cameraAtRest() {
+        return map.cameraAtRest
+      },
       get nightFactor() {
         return map.nightFactor
       },
@@ -1036,8 +1055,11 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
       },
-      surfaceGeneration: () => this.surfaceGeneration,
-      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      surfaceGeneration: () => this.surfaceGeneration.current,
+      clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
+      get cameraAtRest() {
+        return map.cameraAtRest
+      },
       get nightFactor() {
         return map.nightFactor
       },
@@ -1059,9 +1081,8 @@ export class CesiumMap {
       bridgeDeckHeight: (lineId, direction, distance) =>
         this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
       // The ferries float on the tiles' own water like the AIS fleet
-      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
-      surfaceGeneration: () => this.surfaceGeneration,
-      routeExclusions: (lineId) => this.routes.entitiesOf(lineId),
+      clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
+      surfaceGeneration: () => this.surfaceGeneration.current,
       get nightFactor() {
         return map.nightFactor
       },
@@ -1078,6 +1099,9 @@ export class CesiumMap {
       get paceWholeView() {
         return map.paceWholeView
       },
+      get cameraAtRest() {
+        return map.cameraAtRest
+      },
       // The ferries' wake, from where the timetable had them (built
       // below, after the vessel layer; read per tick, so the order is fine)
       get wake() {
@@ -1090,6 +1114,7 @@ export class CesiumMap {
       obstacles: () => map.webcamsLayer.screenRects,
       obstaclesVersion: () => map.webcamsLayer.screenRectsVersion,
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      surfaceGeneration: () => this.surfaceGeneration.current,
       get defaultGroundHeight() {
         return map.defaultGroundHeight
       },
@@ -1130,8 +1155,8 @@ export class CesiumMap {
         return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
       },
       // The ships float on the tiles' own water (see VesselLayer)
-      surfaceGeneration: () => this.surfaceGeneration,
-      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      surfaceGeneration: () => this.surfaceGeneration.current,
+      clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       get pixelRatio() {
         return map.effectivePixelRatio
       },
@@ -1141,6 +1166,9 @@ export class CesiumMap {
       clampToLeash: (pose) => this.clampToLeash(pose),
       get paceWholeView() {
         return map.paceWholeView
+      },
+      get cameraAtRest() {
+        return map.cameraAtRest
       },
     })
     // The air traffic over the city: the same host as the ships', minus
@@ -1157,8 +1185,8 @@ export class CesiumMap {
       get geoidHeight() {
         return map.routes.heightOffset
       },
-      surfaceGeneration: () => this.surfaceGeneration,
-      clampToSurface: (lon, lat, exclude) => this.clampToSurface(lon, lat, exclude),
+      surfaceGeneration: () => this.surfaceGeneration.current,
+      clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       get pixelRatio() {
         return map.effectivePixelRatio
       },
@@ -1169,10 +1197,14 @@ export class CesiumMap {
       get paceWholeView() {
         return map.paceWholeView
       },
+      get cameraAtRest() {
+        return map.cameraAtRest
+      },
     })
     this.webcamsLayer = new WebcamsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
+      surfaceGeneration: () => this.surfaceGeneration.current,
       get defaultGroundHeight() {
         return map.defaultGroundHeight
       },
@@ -1395,10 +1427,13 @@ export class CesiumMap {
    */
   private async createTileset(): Promise<Cesium3DTileset> {
     const tileset = await createGooglePhotorealistic3DTileset()
-    // A finished load cycle means the tiles under the ships may have
-    // refined – they read their height off the tiles again (VesselLayer)
-    tileset.allTilesLoaded.addEventListener(() => {
-      this.surfaceGeneration++
+    // A tile that arrived may have refined the surface under a ship, a
+    // buoy, a bridge deck – the layers read their heights off the tiles
+    // again at the next surface generation (surface-generation.ts).
+    // Only the shown tileset counts: a replacement warming up hidden
+    // changes nothing on screen, and the swap bumps the generation itself.
+    tileset.tileLoad.addEventListener(() => {
+      if (tileset === this.googleTileset) this.surfaceGeneration.noteTileLoaded()
     })
     // enableCollision: prevents the camera from getting below the tiles
     tileset.enableCollision = true
@@ -1614,7 +1649,7 @@ export class CesiumMap {
       tileset.preloadWhenHidden = false
       tileset.show = true
       this.googleTileset = tileset
-      this.surfaceGeneration++
+      this.surfaceGeneration.bump(now)
       // remove() destroys the old tileset, tree and all – all but what
       // Cesium's command bins still point at, purged after the next frame
       this.viewer.scene.primitives.remove(current)
@@ -2233,6 +2268,8 @@ export class CesiumMap {
     maxScreenMotionPx: number
     maxTickMotionPx: number
   } {
+    this.surfaceGeneration.advance(performance.now())
+    this.noteCameraAtRest()
     this.stops.update()
     this.bridgeDecks.update()
     this.buoys.sync()
@@ -2241,6 +2278,13 @@ export class CesiumMap {
     this.nearestVehicleMeters = info.nearestBodyMeters
     this.applyShadowState()
     return info
+  }
+
+  /** Once per tick: whether the camera moved since the previous tick (see cameraAtRest). */
+  private noteCameraAtRest(): void {
+    const viewMatrix = this.viewer.camera.viewMatrix
+    this.cameraAtRest = Matrix4.equals(viewMatrix, this.tickViewMatrix)
+    Matrix4.clone(viewMatrix, this.tickViewMatrix)
   }
 
   /**
@@ -2847,26 +2891,45 @@ export class CesiumMap {
   }
 
   /**
-   * Ellipsoid height of the loaded scene geometry under a position – an
-   * offscreen pick (scene.clampToHeight) that lands on whatever is drawn
-   * there, minus `exclude`. undefined without tiles or where nothing is
-   * loaded yet. The ships and the ferries float on it (see VesselLayer).
+   * Ellipsoid height of the loaded tiles under a position – an offscreen
+   * pick (scene.clampToHeight) of the tileset and nothing else. undefined
+   * without tiles or where nothing is loaded yet. The ships, the ferries,
+   * the buoys, the lighthouses and the aircraft on the ground stand on it.
+   *
+   * Everything but the tileset is hidden for the pick: the hulls and
+   * their lights, the buoys and their lanterns, the airfield lights, the
+   * route lines draped over the water, the stop names, the webcams – a
+   * pick that landed on any of them would set a ship on her own deck, a
+   * buoy on its lantern, an aircraft on a taxiway light. Until 2026-09-13
+   * they were kept off with exclusion lists instead, per layer, expanded
+   * to the points Cesium matches against – and an excluded hit costs
+   * Cesium a second offscreen pass from below it, so a ship's clamp
+   * rendered the scene twice, and every pass updated every model in it
+   * (1200 of them over the harbour: 7.9 ms a clamp, measured). Hidden,
+   * a fleet under its own collection is skipped whole (a Model merely
+   * hidden is still updated; a hidden parent collection is what skips
+   * it – hence VesselLayer.root and the others), and the pass sees the
+   * tiles alone.
    */
-  private clampToSurface(lon: number, lat: number, exclude: object[]): number | undefined {
+  private clampToSurface(lon: number, lat: number): number | undefined {
     const scene = this.viewer.scene
     if (!this.googleTileset || !scene.clampToHeightSupported) return undefined
-    // An aircraft on the apron, a ship at a quay by an airfield: neither
-    // may stand on a runway light, so every pick looks past them too –
-    // and past the buoys, or a ship over a mark would be set on its top.
-    // The light collections on the list are expanded to their points,
-    // which is what Cesium matches a pick against (clamp-exclusions.ts).
-    const clamped = scene.clampToHeight(
-      Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch),
-      expandClampExclusions(
-        [...exclude, ...this.buoys.clampExclusions(), this.airfieldLights.primitive],
-        this.clampExpansions,
-      ),
-    )
+    const primitives = scene.primitives
+    const hidden = this.pickHiddenScratch
+    hidden.length = 0
+    for (let i = 0; i < primitives.length; i++) {
+      const primitive = primitives.get(i) as { show?: boolean; isCesium3DTileset?: boolean }
+      if (primitive.isCesium3DTileset || primitive.show !== true) continue
+      primitive.show = false
+      hidden.push(primitive as { show: boolean })
+    }
+    let clamped: Cartesian3 | undefined
+    try {
+      clamped = scene.clampToHeight(Cartesian3.fromDegrees(lon, lat, 0, undefined, clampScratch))
+    } finally {
+      for (const primitive of hidden) primitive.show = true
+      hidden.length = 0
+    }
     if (!clamped) return undefined
     const height = Cartographic.fromCartesian(clamped).height
     return plausibleGroundHeight(height) ? height : undefined

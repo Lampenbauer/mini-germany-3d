@@ -9,8 +9,11 @@
  * so a picture stays legible from every side.
  *
  * The ground under a camera is measured on the photo tiles like the
- * vehicles' is; until the tiles are in, the city's ground first guess
- * holds the picture and update() re-measures on a slow cadence.
+ * stops' is; until the tiles are in, the city's ground first guess holds
+ * the picture and update() measures again whenever the tiles changed
+ * (host.surfaceGeneration) – every thirty frames until 2026-09-13, which
+ * for a camera whose tiles never load (out of view) was a GPU readback
+ * per ray for good.
  *
  * Windy's terms: every picture links to its windy.com page (the map
  * opens it on a click, see CesiumMap), a courtesy line stands in the
@@ -39,9 +42,6 @@ import { sameRects, type ScreenRect } from './screen-rects'
 export const WEBCAM_LONG_SIDE_METERS = 150
 /** How high the picture's bottom edge floats above the ground, in meters. */
 export const WEBCAM_FLOAT_METERS = 180
-/** Frames between two ground re-measurements of pictures still on the first guess. */
-const REMEASURE_FRAMES = 30
-
 export interface LoadedPicture {
   image: HTMLImageElement | HTMLCanvasElement
   width: number
@@ -54,6 +54,12 @@ export interface WebcamsLayerHost {
   sampleGroundHeight(lon: number, lat: number): number | undefined
   /** The city's ground first guess, ellipsoidal (see CesiumMap). */
   readonly defaultGroundHeight: number
+  /**
+   * Bumped when the loaded tiles changed (see CesiumMap.advanceSurfaceGeneration)
+   * – when a picture still on the first guess is measured again. Absent
+   * (the tests' fake map): every generation is the same.
+   */
+  surfaceGeneration?(): number
   /** Picture loader – the browser's Image by default, a stub in the tests. */
   loadPicture?: (url: string) => Promise<LoadedPicture>
   /** Window position of a world point (CSS px), undefined behind the camera. */
@@ -68,6 +74,8 @@ interface WebcamRecord {
   groundHeight: number
   /** true once the ground came off the tiles rather than the first guess. */
   measured: boolean
+  /** Surface generation the ground was last asked for at, -1 = never. */
+  measuredAtGeneration: number
   /** Bumped per (re)load so a late picture of an earlier poll is dropped. */
   generation: number
 }
@@ -96,7 +104,6 @@ export class WebcamsLayer {
   private collection: BillboardCollection | null = null
   private records = new Map<number, WebcamRecord>()
   private credit: Credit | null = null
-  private frame = 0
   /** The pictures' screen rectangles as of rectsViewMatrix (see screenRects). */
   private rects: ScreenRect[] = []
   private rectsViewMatrix = new Matrix4()
@@ -272,15 +279,15 @@ export class WebcamsLayer {
 
   /**
    * Per-frame upkeep: pictures still standing on the ground first guess
-   * are re-measured on the tiles every REMEASURE_FRAMES frames until the
-   * tiles answer.
+   * are measured on the tiles again once the tiles changed, until they
+   * answer.
    */
   update(): void {
     if (this.records.size === 0) return
-    this.frame++
-    if (this.frame % REMEASURE_FRAMES !== 0) return
+    const generation = this.host.surfaceGeneration?.() ?? 0
     for (const record of this.records.values()) {
-      if (record.measured) continue
+      if (record.measured || record.measuredAtGeneration === generation) continue
+      record.measuredAtGeneration = generation
       const height = this.host.sampleGroundHeight(record.webcam.lon, record.webcam.lat)
       if (height === undefined) continue
       record.groundHeight = height
@@ -298,6 +305,7 @@ export class WebcamsLayer {
       billboard: null as unknown as Billboard,
       groundHeight: measuredHeight ?? this.host.defaultGroundHeight,
       measured: measuredHeight !== undefined,
+      measuredAtGeneration: this.host.surfaceGeneration?.() ?? 0,
       generation: 0,
     }
     record.billboard = this.ensureCollection().add({

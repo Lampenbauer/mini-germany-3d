@@ -57,8 +57,14 @@ export interface BuoysLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface, the fallback until a clamp answers (see VesselLayerHost). */
   readonly waterSurfaceHeight: number
-  /** Height of the loaded tiles under a position, minus `exclude` (see VesselLayerHost). */
-  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  /** Height of the loaded tiles under a position (see VesselLayerHost). */
+  clampToSurface?(lon: number, lat: number): number | undefined
+  /**
+   * Whether the camera stood still since the last tick – the surface
+   * picks wait for that (see CesiumMap.cameraAtRest); absent, it is
+   * taken to rest.
+   */
+  readonly cameraAtRest?: boolean
   /** Bumped when the loaded tiles changed (see VesselLayerHost). */
   surfaceGeneration?(): number
   /** 0 = day … 1 = full night; the lanterns come on along it. */
@@ -214,9 +220,6 @@ export class BuoysLayer {
   private appliedAlpha = -1
   /** The lanterns' colours in the collection's order, for the repaints along the ramp. */
   private lightColours: BuoyLightColour[] = []
-  /** The pick exclusions – the models built and the lights – rebuilt only when a model came or went. */
-  private clampExclusionList: object[] = []
-  private clampExclusionsStale = true
   /** The fallback surface the unclamped buoys were last placed on. */
   private placedFallback = Number.NaN
 
@@ -309,7 +312,6 @@ export class BuoysLayer {
     this.records = []
     this.lightColours = []
     this.appliedAlpha = -1
-    this.clampExclusionsStale = true
     if (this.credit) {
       this.viewer.creditDisplay.removeStaticCredit(this.credit)
       this.credit = null
@@ -323,20 +325,6 @@ export class BuoysLayer {
     this.underground = underground
     this.root.show = !underground
     this.host.requestRender()
-  }
-
-  /**
-   * Everything a clamp pick has to look past – the models built and the
-   * lanterns – for this layer's own picks and for the ships', which
-   * would otherwise be set on a buoy's top where one lies under them.
-   */
-  clampExclusions(): object[] {
-    if (this.clampExclusionsStale) {
-      this.clampExclusionList = [this.lights]
-      for (const record of this.records) if (record.model) this.clampExclusionList.push(record.model)
-      this.clampExclusionsStale = false
-    }
-    return this.clampExclusionList
   }
 
   /**
@@ -404,14 +392,14 @@ export class BuoysLayer {
     )
     const fallback = this.host.waterSurfaceHeight + SURFACE_LIFT_M
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
-    let clampBudget = CLAMP_BUDGET_PER_TICK
+    // No pick while the camera moves (see CesiumMap.cameraAtRest)
+    let clampBudget = this.host.cameraAtRest !== false ? CLAMP_BUDGET_PER_TICK : 0
     let changed = false
     for (const cell of this.cells.values()) {
       const inRange = Cartesian3.distance(camera, cell.centre) < BODY_RANGE_M + cell.reach
       if (inRange && !cell.built) this.build(cell)
       if (cell.collection.show !== inRange) {
         cell.collection.show = inRange
-        this.clampExclusionsStale = true
         changed = true
       }
       for (const record of cell.buoys) {
@@ -421,17 +409,18 @@ export class BuoysLayer {
           this.place(record, fallback)
           changed = true
         }
-        // Clamp to the tiles – the ships' rule: while no pick has answered
-        // (the tiles under the mark still loading), and again after a load
-        // cycle, which for a buoy that never moves is the only other thing
-        // that changes the answer; only on screen, at most
-        // CLAMP_BUDGET_PER_TICK a tick. Not only on the load cycle's bump:
-        // a view along the water is thousands of tiles, and allTilesLoaded
-        // can stay away for as long as the camera roams – measured
-        // 2026-09-13 over the Breitling, six of seventy-seven set down in
-        // half a minute under that rule, all of them under this one.
+        // Clamp to the tiles – the ships' rule: once per surface
+        // generation, which for a buoy that never moves is the only thing
+        // that changes the answer, a pick that found no tile included;
+        // only on screen, at most CLAMP_BUDGET_PER_TICK a tick. The
+        // generation advances every two seconds while tiles stream in
+        // (CesiumMap.advanceSurfaceGeneration), so a view along the water
+        // – thousands of tiles, over which a load cycle never finishes –
+        // still sets its marks down within seconds of their tiles: the
+        // Breitling's seventy-seven in half a minute (measured 2026-09-13,
+        // under the same rule keyed to allTilesLoaded six of them).
         if (!inRange || !this.host.clampToSurface || clampBudget <= 0) continue
-        if (record.clampedHeight !== null && record.clampedGeneration === surfaceGeneration) continue
+        if (record.clampedGeneration === surfaceGeneration) continue
         if (Cartesian3.distance(camera, record.position) > CLAMP_RANGE_M) continue
         if (cullingVolume.computeVisibility(this.sphereOf(record)) === Intersect.OUTSIDE) continue
         clampBudget--
@@ -439,7 +428,7 @@ export class BuoysLayer {
         // The pick answers with whatever the tiles have there – the
         // water, or the deck of a ship Google photographed at the mark,
         // which the ships suffer too; nothing here can tell the two apart
-        const h = this.host.clampToSurface(record.lon, record.lat, this.clampExclusions())
+        const h = this.host.clampToSurface(record.lon, record.lat)
         if (h === undefined) continue
         record.clampedHeight = h
         this.place(record, h + SURFACE_LIFT_M)
@@ -542,7 +531,6 @@ export class BuoysLayer {
     // The position may have been clamped while the load was on its way
     Transforms.eastNorthUpToFixedFrame(record.position, undefined, model.modelMatrix)
     cell.collection.add(model)
-    this.clampExclusionsStale = true
     this.host.requestRender()
   }
 

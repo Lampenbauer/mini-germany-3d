@@ -289,24 +289,26 @@ describe('BridgeDecks', () => {
     expect(h.decks.heightAt('S', 0, 500, OFFSET)).toBeCloseTo(60, 6)
   })
 
-  it('retries a point no tile has answered for, and reads again after a load cycle', () => {
+  it('asks a point no tile has answered for again only after a load cycle, like an answered one', () => {
     let answer: number | undefined = undefined
     const h = harness({ surface: () => answer })
-    // Every point gets one ray and rests for two seconds
+    // Every point gets one ray and rests until the tiles change – the
+    // same tiles cannot answer differently
     h.passes(1000, 6)
     expect(h.sample).toHaveBeenCalledTimes(POINTS)
     expect(h.deckChanged).not.toHaveBeenCalled()
-    h.decks.update(2900)
+    h.passes(2900, 6)
     expect(h.sample).toHaveBeenCalledTimes(POINTS)
     answer = 60
-    h.decks.update(3100)
+    h.bumpGeneration()
+    h.decks.update(5100)
     expect(h.decks.info.measured).toBe(6)
-    h.passes(3400, 6)
+    h.passes(5400, 6)
     expect(h.decks.info.measured).toBe(POINTS)
     // A load cycle finished: every point on screen is read again
     const before = h.sample.mock.calls.length
     h.bumpGeneration()
-    h.passes(5500, 6)
+    h.passes(7500, 6)
     expect(h.sample.mock.calls.length).toBe(before + POINTS)
   })
 

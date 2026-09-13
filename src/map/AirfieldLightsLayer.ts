@@ -208,11 +208,6 @@ export class AirfieldLightsLayer {
     this.host.requestRender()
   }
 
-  /** The collection, for the clamp exclusion lists – an aircraft on the apron must not stand on a light. */
-  get primitive(): PointPrimitiveCollection {
-    return this.collection
-  }
-
   /** Debug/tests: lights built into the scene and their current opacity, and the apron pools among them. */
   get info(): { drawn: number; alpha: number; floods: number } {
     return {

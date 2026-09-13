@@ -26,7 +26,7 @@ import {
   NearFarScalar,
   PointPrimitiveCollection,
   type PointPrimitive,
-  type Viewer,
+  type PrimitiveCollection,
 } from 'cesium'
 
 /** How big a light is drawn, in CSS pixels, and how far its rim reaches. */
@@ -50,13 +50,9 @@ export class NavLights {
   /** How many lights the last commit left on – the debug API's count. */
   private lit = 0
 
-  constructor(viewer: Viewer) {
-    viewer.scene.primitives.add(this.collection)
-  }
-
-  /** The collection, for the layers' clamp exclusion lists – a pick must look past the lights. */
-  get primitive(): PointPrimitiveCollection {
-    return this.collection
+  /** The points go into the layer's own root collection (see VesselLayer.root). */
+  constructor(parent: PrimitiveCollection) {
+    parent.add(this.collection)
   }
 
   begin(): void {

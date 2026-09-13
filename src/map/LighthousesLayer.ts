@@ -50,8 +50,14 @@ export interface LighthousesLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface (see VesselLayerHost) – what OSM's elevations are measured from. */
   readonly waterSurfaceHeight: number
-  /** Height of the loaded tiles under a position, minus `exclude` (see VesselLayerHost). */
-  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  /** Height of the loaded tiles under a position (see VesselLayerHost). */
+  clampToSurface?(lon: number, lat: number): number | undefined
+  /**
+   * Whether the camera stood still since the last tick – the surface
+   * picks wait for that (see CesiumMap.cameraAtRest); absent, it is
+   * taken to rest.
+   */
+  readonly cameraAtRest?: boolean
   /** Bumped when the loaded tiles changed (see VesselLayerHost). */
   surfaceGeneration?(): number
   /** 0 = day … 1 = full night; the lights come on along it. */
@@ -189,11 +195,6 @@ export class LighthousesLayer {
     this.host.requestRender()
   }
 
-  /** The collection, for the clamp exclusion lists – the map expands it to the points (clamp-exclusions.ts). */
-  clampExclusions(): object[] {
-    return [this.lights]
-  }
-
   /** Debug/tests: the lights registered, clamped to a tower top, shown towards the camera right now, and the level. */
   get info(): { lights: number; clamped: number; shown: number; alpha: number } {
     let clamped = 0
@@ -226,7 +227,8 @@ export class LighthousesLayer {
     )
     const fallback = this.host.waterSurfaceHeight
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
-    let clampBudget = CLAMP_BUDGET_PER_TICK
+    // No pick while the camera moves (see CesiumMap.cameraAtRest)
+    let clampBudget = this.host.cameraAtRest !== false ? CLAMP_BUDGET_PER_TICK : 0
     let changed = false
     for (const record of this.records) {
       if (record.clampedHeight === null && fallback !== this.placedFallback) {
@@ -234,14 +236,15 @@ export class LighthousesLayer {
         changed = true
       }
       if (!this.host.clampToSurface || clampBudget <= 0) continue
-      if (record.clampedHeight !== null && record.clampedGeneration === surfaceGeneration) continue
+      // Once per surface generation, answered or not (the buoys' rule)
+      if (record.clampedGeneration === surfaceGeneration) continue
       if (Cartesian3.distance(camera, record.position) > CLAMP_RANGE_M) continue
       Cartesian3.clone(record.position, sphereScratch.center)
       sphereScratch.radius = 50
       if (cullingVolume.computeVisibility(sphereScratch) === Intersect.OUTSIDE) continue
       clampBudget--
       record.clampedGeneration = surfaceGeneration
-      const h = this.host.clampToSurface(record.lon, record.lat, this.clampExclusions())
+      const h = this.host.clampToSurface(record.lon, record.lat)
       if (h === undefined) continue
       record.clampedHeight = h
       // The tower's top, unless the mesh lost the mast: then OSM's elevation

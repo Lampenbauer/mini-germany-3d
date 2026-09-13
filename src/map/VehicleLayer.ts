@@ -106,16 +106,20 @@ export interface VehicleLayerHost {
   /**
    * Ellipsoid height of the loaded scene geometry under a position – the
    * tiles' own water under a ferry (scene.clampToHeight, an offscreen pick
-   * per call, ~1.4 ms; see VesselLayerHost). `exclude` holds the ferry's
-   * own primitives, her badge and her route's polylines, so she is not
-   * set on her own deck or on the line she sails. Optional: without it
-   * the ferries ride the route profile's water level.
+   * per call, ~1.4 ms, of the tiles alone – the map hides her own body,
+   * her badge and the line she sails for it; see VesselLayerHost).
+   * Optional: without it the ferries ride the route profile's water
+   * level.
    */
-  clampToSurface?(lon: number, lat: number, exclude: object[]): number | undefined
+  clampToSurface?(lon: number, lat: number): number | undefined
+  /**
+   * Whether the camera stood still since the last tick – the surface
+   * picks wait for that (see CesiumMap.cameraAtRest); absent, it is
+   * taken to rest.
+   */
+  readonly cameraAtRest?: boolean
   /** Bumped whenever the loaded tiles changed – a clamped height is read again. */
   surfaceGeneration?(): number
-  /** A line's route polylines (entities), kept out of the ferries' clamp. */
-  routeExclusions?(lineId: string): readonly object[]
   /** 0..1 day→night ramp – the cabin glow fades in along it. */
   readonly nightFactor: number
   readonly pixelRatio: number
@@ -596,11 +600,18 @@ export const FERRY_FLOAT_LIFT = 1.1
  * answer could have changed – the ferry moved FERRY_CLAMP_MOVE_M since
  * the last one, or the tiles under her did (host.surfaceGeneration) –
  * only for ferries on screen, and at most FERRY_CLAMP_BUDGET_PER_TICK a
- * tick; the rest ride the route profile until their turn. A moored
+ * tick; the rest ride the route profile until their turn. A pick that
+ * found no tile waits for the tiles to change like an answered one (the
+ * ships' rule): asked again every tick, the HADAG fleet cost the home
+ * view 217 readPixels a second at rest (measured 2026-09-13). A load
+ * cycle re-reads an answered ferry only within FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE
+ * of the camera (at the reference lens, scaled like the render range),
+ * where the tiles refine – the ships' rule, see VesselLayer. A moored
  * fleet under a resting camera costs nothing.
  */
 const FERRY_CLAMP_BUDGET_PER_TICK = 3
 const FERRY_CLAMP_MOVE_M = 25
+const FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE = 2_000
 /**
  * A ferry's navigation lights are drawn out to this camera distance –
  * the AIS fleet's hull range – at night, whenever she is on the map: a
@@ -694,6 +705,12 @@ export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delay
 
 export class VehicleLayer {
   private vehicles = new Map<string, VehicleRecord>()
+  /**
+   * Every vehicle's group – body, wagons, glow – and the ferries' lights
+   * under one collection, so a surface pick can leave the whole fleet
+   * out with one flag (see CesiumMap.clampToSurface and VesselLayer.root).
+   */
+  readonly root = new PrimitiveCollection({ destroyPrimitives: true })
   /** Rendered line badges (rounded rectangle + line number), one per line
    *  number, colour and delay suffix – see lineBadge for the colour. */
   private badgeCache = new Map<string, LineBadge>()
@@ -751,7 +768,8 @@ export class VehicleLayer {
     private readonly host: VehicleLayerHost,
   ) {
     this.followCamera = new FollowCamera(viewer, host)
-    this.lights = new NavLights(viewer)
+    viewer.scene.primitives.add(this.root)
+    this.lights = new NavLights(this.root)
   }
 
   /** The ferries' lights on at the last tick – the debug API's count. */
@@ -836,19 +854,6 @@ export class VehicleLayer {
     return this.vehicles.get(id)?.lastPosition ?? null
   }
 
-  /**
-   * What a ferry's clamp must not land on: her own body and wagons, her
-   * badge, and the polylines of the line she sails (draped over the same
-   * water, see RoutesLayer). Built per pick – three a tick at most.
-   */
-  private clampExclusions(record: VehicleRecord, snap: VehicleSnapshot): object[] {
-    const list: object[] = [this.lights.primitive]
-    for (let i = 0; i < record.group.length; i++) list.push(record.group.get(i))
-    list.push(record.labelEntity)
-    for (const entity of this.host.routeExclusions?.(snap.lineId) ?? []) list.push(entity)
-    return list
-  }
-
   /** Debug: current ground heights of the vehicles (see __mg3d.groundHeights). */
   getGroundHeights(): { id: string; groundHeight: number }[] {
     return [...this.vehicles.entries()].map(([id, record]) => ({
@@ -918,6 +923,9 @@ export class VehicleLayer {
     let anyVehicleInView = false
     let clampBudget = FERRY_CLAMP_BUDGET_PER_TICK
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
+    // No pick while the camera moves, but for the ferry it follows (see
+    // CesiumMap.cameraAtRest)
+    const cameraAtRest = this.host.cameraAtRest !== false
     // The ferries' lights, rebuilt every tick like their wakes
     const lights = this.lights
     lights.begin()
@@ -1043,18 +1051,19 @@ export class VehicleLayer {
 
       // A ferry floats on the tiles' water (see FERRY_CLAMP_BUDGET_PER_TICK)
       if (snap.mode === 'ferry' && this.host.clampToSurface) {
-        if (clampBudget > 0 && (inView || followed)) {
+        if (clampBudget > 0 && (followed || (inView && cameraAtRest))) {
           const movedM = Math.hypot(
             (snap.lon - record.clampLon) * 111_320 * Math.cos((snap.lat * Math.PI) / 180),
             (snap.lat - record.clampLat) * 111_132,
           )
           const stale =
-            record.clampedHeight === null ||
             movedM > FERRY_CLAMP_MOVE_M ||
-            record.clampedGeneration !== surfaceGeneration
+            (record.clampedGeneration !== surfaceGeneration &&
+              (record.clampedHeight === null ||
+                cameraDistance < FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE * framingScale))
           if (stale) {
             clampBudget--
-            const h = this.host.clampToSurface(snap.lon, snap.lat, this.clampExclusions(record, snap))
+            const h = this.host.clampToSurface(snap.lon, snap.lat)
             record.clampLon = snap.lon
             record.clampLat = snap.lat
             record.clampedGeneration = surfaceGeneration
@@ -1286,7 +1295,7 @@ export class VehicleLayer {
         this.viewer.entities.remove(record.labelEntity)
         // The group takes body, wagons and pool with it. Wagons may still
         // be loading (attachWagon then destroys the late arrivals itself).
-        this.viewer.scene.primitives.remove(record.group)
+        this.root.remove(record.group)
         this.vehicles.delete(id)
         this.host.requestRender()
       }
@@ -1440,7 +1449,7 @@ export class VehicleLayer {
     )
     // All of this vehicle's primitives live in here (see VehicleRecord.group)
     const group = new PrimitiveCollection({ destroyPrimitives: true })
-    this.viewer.scene.primitives.add(group)
+    this.root.add(group)
     let primitive: Primitive | null = null
     let appearance: PerInstanceColorAppearance | null = null
     // Consist layout: wagon centers along the travel axis, vehicle center

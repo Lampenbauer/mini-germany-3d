@@ -512,11 +512,6 @@ export class RoutesLayer {
     polyline.positions = new ConstantProperty(this.routePiecePositions(piece))
   }
 
-  /** A line's route entities – the ferries keep their clamp off them. */
-  entitiesOf(lineId: string): readonly Entity[] {
-    return this.routeEntities.get(lineId) ?? []
-  }
-
   setLineVisible(lineId: string, visible: boolean): void {
     for (const e of this.routeEntities.get(lineId) ?? []) e.show = visible
     this.host.requestRender()

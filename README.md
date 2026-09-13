@@ -786,12 +786,15 @@ live fleet – four minutes behind the clock it is on, so the two sources hand
 over without a jump at the edge.
 
 The ships take their height from the tiles: `scene.clampToHeight` under
-each hull, with the ships' own primitives excluded so a hull does not pick
-itself (`VesselLayer`). Sea level would do at the coast, but inland the
-water is a staircase of lock reaches at levels only Google's mesh knows.
-Each pick is an offscreen render, so it is made only for ships on screen
-and only when its answer could have changed – the ship moved 25 m, or a
-tile load cycle finished (`allTilesLoaded`) – with a cap of three picks a
+each hull, with everything but the tiles hidden for the pick so a hull
+does not pick itself, a buoy or a route line (`VesselLayer`,
+`CesiumMap.clampToSurface`). Sea level would do at the coast, but inland
+the water is a staircase of lock reaches at levels only Google's mesh
+knows. Each pick is an offscreen render, so it is made only for ships on
+screen, only while the camera rests (a followed ship excepted), and only
+when its answer could have changed – the ship moved 25 m, or the tiles
+under it changed (a tile that loaded, at most every two seconds) and the
+ship is near enough for that to matter – with a cap of three picks a
 tick; until a ship is first seen it rides the calibrated sea-level surface.
 
 ### ADS-B (live air traffic)
@@ -1028,6 +1031,8 @@ src/
 │                           # command with its own shader and pick colours
 ├── map/bridge-decks.ts     # Bridge decks read off the tiles per route vertex, for
 │                           # the routes and the vehicles on them
+├── map/surface-generation.ts  # When the layers read their heights off the tiles again:
+│                           # a tile loaded, two seconds apart, never at rest
 ├── components/             # shadcn-style UI (WelcomeScreen, ControlPanel with the city
 │                           # picker, the layers/photo/weather popovers of the map's
 │                           # control rail, the camera path bar over the readings, cards,
