@@ -650,9 +650,12 @@ the selection in `scripts/lib/airfield-lights.mjs`, tested) takes the
 `aeroway=navigationaid` nodes of the box that the map has a light for –
 runway edge, centre line, threshold, touchdown zone, approach, PAPI,
 taxiway edge and centre line, stop bars, guard lights – in the colour
-ICAO gives the kind unless `light:colour` says otherwise, with a terrain
-height like the lamps', into `airfield-lights.json`; Sunday nights with
-the rest of the OSM data, heights reused through `PREV_AIRFIELD_LIGHTS`.
+ICAO gives the kind unless `light:colour` says otherwise, and the
+apron's floodlight masts (`tower:type=lighting`, inside the
+`aeroway=aerodrome` polygons only, via `map_to_area` – a stadium's
+masts burn on match nights) as the kind `flood`, with a terrain height
+like the lamps', into `airfield-lights.json`; Sunday nights with the
+rest of the OSM data, heights reused through `PREV_AIRFIELD_LIGHTS`.
 Counted 2026-09-13, per box: Frankfurt ~10 200, Berlin ~6 400 (BER,
 Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and Finkenwerder),
 Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich ~1 700 (edge
@@ -665,7 +668,12 @@ need no rule: the mappers took Tegel's and Tempelhof's lights down with
 the airports. [AirfieldLightsLayer](src/map/AirfieldLightsLayer.ts)
 draws them as one PointPrimitiveCollection per city – points, not the
 lamps' ground pools, so the lit runway reads from the home view; no
-camera-height fade, half size far out – built lazily along the night
+camera-height fade, half size far out – and the floodlight masts as
+pools of lit apron through a second `StreetLampsLayer` (its pool is a
+parameter since then, `PoolOptions`; `APRON_FLOOD_POOL`: 90 m, cooler
+white, up to a 15 km camera), on the airfield's own level
+(`airfieldLightLevel`) rather than the streets' night; the user wanted
+the pool and no point at the mast top (2026-09-13). Both built lazily along the night
 ramp like the lamps, and by day once the weather's visibility drops
 (`LOW_VISIBILITY_M`, 4 km full, fading in from 6 km – the tower's
 practice is the lighting on under roughly five kilometres; the ramp

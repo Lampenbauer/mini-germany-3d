@@ -25,6 +25,13 @@
  * offset is calibrated. The points stand LIGHT_LIFT above the terrain
  * height – Google's runway lies within a few decimetres of the
  * bare-earth model, and a point half under the mesh would flicker.
+ *
+ * The apron floodlights (kind `flood`, OSM's lighting masts inside the
+ * aerodrome) are not points but pools: a mast thirty metres up lights
+ * a hundred metres of apron, and what the map shows of it is the lit
+ * concrete, the street lamps' effect at six times the width, cooler,
+ * and kept to a higher camera before it fades. A second
+ * StreetLampsLayer draws them, on the same level as the points.
  */
 
 import {
@@ -36,6 +43,8 @@ import {
   type Viewer,
 } from 'cesium'
 import type { AirfieldLightColour, AirfieldLightData } from '@/data/airfield-lights'
+import type { StreetLamp } from '@/data/street-lamps'
+import { STREET_LAMP_POOL, StreetLampsLayer, type PoolOptions } from './StreetLampsLayer'
 
 /** What the layer needs from the map around it – the street lamps' host. */
 export interface AirfieldLightsLayerHost {
@@ -81,6 +90,37 @@ const ALPHA_STEP = 0.05
 export const LOW_VISIBILITY_M = 4_000
 export const LOW_VISIBILITY_OFF_M = 6_000
 
+/**
+ * How lit the airfield is, 0..1: the night ramp or the low-visibility
+ * ramp, whichever is higher – the runway lights and the apron pools
+ * both follow it.
+ */
+export function airfieldLightLevel(nightFactor: number, visibilityM: number | null): number {
+  const byNight = Math.min(1, Math.max(0, (nightFactor - NIGHT_ON) / (NIGHT_FULL - NIGHT_ON)))
+  const byVisibility =
+    visibilityM === null
+      ? 0
+      : Math.min(1, Math.max(0, (LOW_VISIBILITY_OFF_M - visibilityM) / (LOW_VISIBILITY_OFF_M - LOW_VISIBILITY_M)))
+  return Math.max(byNight, byVisibility)
+}
+
+/**
+ * The apron floodlights' pool: a mast lights about a hundred metres of
+ * apron in a cooler white than a street's sodium; the pools stay up to
+ * a higher camera than the lamps' – an apron is read from the home
+ * view – and batch in wider cells, there being a few dozen of them.
+ */
+export const APRON_FLOOD_POOL: PoolOptions = {
+  ...STREET_LAMP_POOL,
+  diameterM: 90,
+  maxAlpha: 0.45,
+  color: Color.fromCssColorString('#e4eeff'),
+  fadeFullHeightM: 6_000,
+  fadeOutHeightM: 15_000,
+  cellDegrees: 0.05,
+  materialType: 'ApronFloodGlow',
+}
+
 const colorScratch = new Color()
 const rimScratch = new Color()
 
@@ -88,7 +128,11 @@ export class AirfieldLightsLayer {
   private readonly viewer: Viewer
   private readonly host: AirfieldLightsLayerHost
   private readonly collection = new PointPrimitiveCollection()
+  /** The apron floodlights' pools – the lamps' layer with the apron's pool, on the airfield's level. */
+  private readonly floods: StreetLampsLayer
   private data: AirfieldLightData | null = null
+  /** How many of the lights are floodlight masts – drawn as pools, not points. */
+  private floodCount = 0
   /** The colour of each point in the collection, in its order – for the repaints along the ramp. */
   private colours: AirfieldLightColour[] = []
   private built = false
@@ -106,6 +150,18 @@ export class AirfieldLightsLayer {
     this.host = host
     this.collection.show = false
     viewer.scene.primitives.add(this.collection)
+    this.floods = new StreetLampsLayer(
+      viewer,
+      {
+        requestRender: () => host.requestRender(),
+        // The pools follow the airfield's level, not the streets' night
+        get nightFactor() {
+          return airfieldLightLevel(host.nightFactor, host.visibilityM)
+        },
+        groundHeightForNhn: (nhn) => host.groundHeightForNhn(nhn),
+      },
+      APRON_FLOOD_POOL,
+    )
   }
 
   /**
@@ -119,6 +175,19 @@ export class AirfieldLightsLayer {
     // OSM (ODbL) and the DGM heights both require visible attribution.
     this.credit = new Credit(data.meta.attribution, false)
     this.viewer.creditDisplay.addStaticCredit(this.credit)
+    // The floodlight masts go to the pool layer; the same attribution
+    // registered twice is shown once
+    const masts: StreetLamp[] = []
+    for (const [lon, lat, nhn, kind] of data.lights) {
+      if (kind === 'flood') masts.push([lon, lat, nhn])
+    }
+    this.floodCount = masts.length
+    if (masts.length > 0) {
+      this.floods.add({
+        meta: { attribution: data.meta.attribution, maxDistanceMeters: 0, minSpacingMeters: 0 },
+        lamps: masts,
+      })
+    }
     this.host.requestRender()
   }
 
@@ -130,6 +199,8 @@ export class AirfieldLightsLayer {
     this.built = false
     this.appliedAlpha = -1
     this.data = null
+    this.floodCount = 0
+    this.floods.clear()
     if (this.credit) {
       this.viewer.creditDisplay.removeStaticCredit(this.credit)
       this.credit = null
@@ -142,16 +213,23 @@ export class AirfieldLightsLayer {
     return this.collection
   }
 
-  /** Debug/tests: lights built into the scene and their current opacity. */
-  get info(): { drawn: number; alpha: number } {
+  /** Debug/tests: lights built into the scene and their current opacity, and the apron pools among them. */
+  get info(): { drawn: number; alpha: number; floods: number } {
     return {
-      drawn: this.built ? (this.data?.lights.length ?? 0) : 0,
+      drawn: this.built ? this.pointCount() : 0,
       alpha: Math.max(0, this.appliedAlpha),
+      floods: this.floods.info.drawn,
     }
+  }
+
+  /** The lights drawn as points – everything but the floodlight masts. */
+  private pointCount(): number {
+    return (this.data?.lights.length ?? 0) - this.floodCount
   }
 
   /** Underground view: the lights go out with the rest of the surface. */
   setUnderground(underground: boolean): void {
+    this.floods.setUnderground(underground)
     if (this.underground === underground) return
     this.underground = underground
     // update() applies it on the frame this requests.
@@ -164,7 +242,8 @@ export class AirfieldLightsLayer {
    * they are dark, which is most of the time.
    */
   update(): void {
-    if (!this.data || this.data.lights.length === 0) return
+    this.floods.update()
+    if (!this.data || this.pointCount() === 0) return
     const alpha = this.underground ? 0 : this.targetAlpha()
     if (alpha < ALPHA_STEP) {
       if (this.collection.show) {
@@ -194,21 +273,15 @@ export class AirfieldLightsLayer {
 
   /** The night ramp or the low-visibility ramp, whichever is higher, 0..1. */
   private targetAlpha(): number {
-    const night = this.host.nightFactor
-    const byNight = Math.min(1, Math.max(0, (night - NIGHT_ON) / (NIGHT_FULL - NIGHT_ON)))
-    const visibility = this.host.visibilityM
-    const byVisibility =
-      visibility === null
-        ? 0
-        : Math.min(1, Math.max(0, (LOW_VISIBILITY_OFF_M - visibility) / (LOW_VISIBILITY_OFF_M - LOW_VISIBILITY_M)))
-    return Math.max(byNight, byVisibility)
+    return airfieldLightLevel(this.host.nightFactor, this.host.visibilityM)
   }
 
-  /** One point per light, at its colour; the alpha follows in applyAlpha. */
+  /** One point per light that is a point, at its colour; the alpha follows in applyAlpha. */
   private build(): void {
     const data = this.data
     if (!data) return
-    for (const [lon, lat, nhn, , colour] of data.lights) {
+    for (const [lon, lat, nhn, kind, colour] of data.lights) {
+      if (kind === 'flood') continue
       this.collection.add({
         position: Cartesian3.fromDegrees(lon, lat, this.host.groundHeightForNhn(nhn) + LIGHT_LIFT),
         pixelSize: LIGHT_PX,
@@ -241,6 +314,7 @@ export class AirfieldLightsLayer {
 
   destroy(): void {
     this.clear()
+    this.floods.destroy()
     this.viewer.scene.primitives.remove(this.collection)
   }
 }

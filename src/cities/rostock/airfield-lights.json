@@ -4,6 +4,9 @@
     "terrainAttribution": "Terrain heights © Mapterhorn (mapterhorn.com), built from © GeoBasis-DE/M-V (DGM1, CC BY 4.0)."
   },
   "lights": [
+    [12.29896,53.91985,36.3,"flood","white"],
+    [12.29899,53.91953,36.1,"flood","white"],
+    [12.29902,53.91922,35.8,"flood","white"],
     [12.26229,53.91899,41.4,"papi","white"],
     [12.2625,53.9199,41.5,"papi","white"],
     [12.29608,53.91629,34.8,"papi","white"],

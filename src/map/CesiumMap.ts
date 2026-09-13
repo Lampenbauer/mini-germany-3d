@@ -3113,8 +3113,8 @@ export class CesiumMap {
     return this.streetLamps.info
   }
 
-  /** Debug/tests: airfield lights built into the scene and their current opacity. */
-  getAirfieldLightInfo(): { drawn: number; alpha: number } {
+  /** Debug/tests: airfield lights built into the scene, their current opacity, and the apron pools built. */
+  getAirfieldLightInfo(): { drawn: number; alpha: number; floods: number } {
     return this.airfieldLights.info
   }
 

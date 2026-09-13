@@ -48,6 +48,13 @@ describe('classifyAirfieldLight', () => {
     expect(classifyAirfieldLight({ highway: 'street_lamp' })).toBeNull()
     expect(classifyAirfieldLight(undefined)).toBeNull()
   })
+
+  it('takes a lighting mast as an apron floodlight, and no other mast', () => {
+    expect(classifyAirfieldLight({ man_made: 'mast', 'tower:type': 'lighting' })).toEqual({ kind: 'flood', colour: 'white' })
+    expect(classifyAirfieldLight({ man_made: 'tower', 'tower:type': 'lighting' })).toEqual({ kind: 'flood', colour: 'white' })
+    expect(classifyAirfieldLight({ man_made: 'mast', 'tower:type': 'communication' })).toBeNull()
+    expect(classifyAirfieldLight({ man_made: 'mast' })).toBeNull()
+  })
 })
 
 describe('selectAirfieldLights', () => {
@@ -63,15 +70,17 @@ describe('selectAirfieldLights', () => {
         node(5, 12.5, 54.1, { aeroway: 'navigationaid', navigationaid: 'rwe' }),
         node(6, 12.2, 54.2, { aeroway: 'navigationaid', navigationaid: 'dme' }),
         { type: 'way', id: 7, tags: { aeroway: 'runway' } },
+        node(8, 12.15, 54.15, { man_made: 'mast', 'tower:type': 'lighting' }),
       ],
       BOX,
     )
     expect(lights).toEqual([
+      [12.15, 54.15, 'flood', 'white'],
       [12.1, 54.1, 'rwe', 'white'],
       [12.1, 54.2, 'rwe', 'white'],
       [12.2, 54.1, 'txe', 'blue'],
     ])
-    expect(countByKind(lights)).toEqual({ rwe: 2, txe: 1 })
+    expect(countByKind(lights)).toEqual({ flood: 1, rwe: 2, txe: 1 })
     expect(selectAirfieldLights([], BOX)).toEqual([])
   })
 

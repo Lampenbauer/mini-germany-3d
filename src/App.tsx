@@ -204,8 +204,8 @@ export interface Mg3dTestApi {
   anyVehicleInView: () => boolean
   /** Street lighting: lamps batched into the scene and their current opacity. */
   streetLamps: () => { drawn: number; alpha: number }
-  /** Airfield lighting: runway and taxiway lights built into the scene and their current opacity. */
-  airfieldLights: () => { drawn: number; alpha: number }
+  /** Airfield lighting: runway and taxiway lights built into the scene, their current opacity, and the apron pools built. */
+  airfieldLights: () => { drawn: number; alpha: number; floods: number }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**

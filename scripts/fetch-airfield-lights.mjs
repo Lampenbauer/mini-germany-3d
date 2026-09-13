@@ -3,8 +3,10 @@
  * Fetches a city's airfield lighting from OpenStreetMap (Overpass API) –
  * every aeroway=navigationaid node inside the box that the map has a
  * light for (see lib/airfield-lights.mjs for the kinds and their
- * colours) – and writes it to src/cities/<slug>/airfield-lights.json,
- * the source for the runway and taxiway lights at night (see
+ * colours), and the apron's floodlight masts (man_made=mast or tower
+ * with tower:type=lighting) inside the aerodrome polygons – and writes
+ * it to src/cities/<slug>/airfield-lights.json, the source for the
+ * runway, taxiway and apron lights at night (see
  * src/map/AirfieldLightsLayer.ts).
  *
  * Every city gets the file, however much or little OSM holds: Frankfurt's
@@ -47,18 +49,28 @@ import { countByKind, selectAirfieldLights } from './lib/airfield-lights.mjs'
 const round1 = (v) => Math.round(v * 10) / 10
 
 /**
- * The navigationaid nodes of the box, tags included. An empty answer is
- * not taken as a mirror failure here – a box without an airfield has no
- * lights – so a half-synced answer is caught only by the comparison with
- * the previous run further down.
+ * The navigationaid nodes of the box and the lighting masts inside its
+ * aerodromes, tags included. An empty answer is not taken as a mirror
+ * failure here – a box without an airfield has no lights – so a
+ * half-synced answer is caught only by the comparison with the previous
+ * run further down.
  */
 async function fetchLightNodes(city) {
   if (process.env.OVERPASS_FILE) {
     console.log(`Reading local Overpass response ${process.env.OVERPASS_FILE}`)
     return JSON.parse(readFileSync(resolve(process.env.OVERPASS_FILE), 'utf8'))
   }
+  const bbox = overpassBbox(city.boundingBox)
+  // The masts only inside the aerodrome polygons (map_to_area turns the
+  // aerodrome ways and relations into areas to filter by): a stadium's
+  // or a port's floodlights are not an airfield's
   const query =
-    `[out:json][timeout:300];node["aeroway"="navigationaid"](${overpassBbox(city.boundingBox)});out qt;`
+    `[out:json][timeout:300];` +
+    `node["aeroway"="navigationaid"](${bbox})->.nav;` +
+    `(way["aeroway"="aerodrome"](${bbox});relation["aeroway"="aerodrome"](${bbox});)->.aerodromes;` +
+    `.aerodromes map_to_area->.grounds;` +
+    `node["man_made"~"^(mast|tower)$"]["tower:type"="lighting"](area.grounds)(${bbox})->.masts;` +
+    `(.nav;.masts;);out qt;`
   return postOverpass(query, {
     validate: (data) => Array.isArray(data?.elements),
   })

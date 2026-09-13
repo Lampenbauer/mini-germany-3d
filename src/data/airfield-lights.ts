@@ -11,8 +11,9 @@ export type AirfieldLightColour = 'white' | 'green' | 'red' | 'blue' | 'yellow'
 /**
  * One light: [longitude, latitude, terrain height in meters NHN, kind,
  * colour]. The kind is OSM's navigationaid value (rwe, rwc, rwt, tdz,
- * als, papi, txe, txc, sbl, cbl, rgl …); the colour is what the map
- * draws.
+ * als, papi, txe, txc, sbl, cbl, rgl …) or `flood` for an apron
+ * floodlight mast, which the map draws as a pool on the apron rather
+ * than a point; the colour is what the map draws.
  */
 export type AirfieldLight = [number, number, number, string, AirfieldLightColour]
 

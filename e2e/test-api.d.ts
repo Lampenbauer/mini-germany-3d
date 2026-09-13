@@ -77,8 +77,8 @@ declare global {
       renderRate: () => number
       anyVehicleInView: () => boolean
       streetLamps: () => { drawn: number; alpha: number }
-      /** Airfield lighting: lights built into the scene and their current opacity. */
-      airfieldLights: () => { drawn: number; alpha: number }
+      /** Airfield lighting: lights built into the scene, their current opacity, and the apron pools built. */
+      airfieldLights: () => { drawn: number; alpha: number; floods: number }
       /** The sun shadow map: switched on, and whether its texture is currently allocated. */
       shadowMap: () => { enabled: boolean; allocated: boolean; size: number }
       /** The device tier and the numbers the map draws with (see src/lib/render-profile.ts). */

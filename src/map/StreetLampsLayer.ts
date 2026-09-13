@@ -13,6 +13,11 @@
  *     that never sees night pays nothing at all, and by the time night
  *     falls the NHN→ellipsoid offset is long calibrated, so the lazy
  *     build also saves the rebuild an early build would need.
+ *
+ * The pool itself is a parameter (PoolOptions): the street lamps' is the
+ * default, the airfields' apron floodlights (AirfieldLightsLayer) run a
+ * second instance with a far wider, cooler pool that stays visible from
+ * higher up.
  */
 
 import {
@@ -85,9 +90,44 @@ const LAMP_MIN_ALPHA = 0.01
  */
 const LAMP_CELL_DEGREES = 0.02
 
+/** What a pool looks like – the street lamps' values are the defaults. */
+export interface PoolOptions {
+  /** Diameter of one pool in meters. */
+  diameterM: number
+  /** Opacity in full night. */
+  maxAlpha: number
+  /** The light's colour, hex (see CLAUDE.md on Cesium and colours). */
+  color: Color
+  /** Meters above the terrain height. */
+  liftM: number
+  /** Camera heights between which the pools fade out. */
+  fadeFullHeightM: number
+  fadeOutHeightM: number
+  /** Grid cell size in degrees for the batching. */
+  cellDegrees: number
+  /**
+   * The material's name in Cesium's material cache, one per pool: a
+   * second instance under a cached name would have Cesium deep-clone the
+   * cached fabric, sprite canvas included, and a canvas cannot be cloned.
+   */
+  materialType: string
+}
+
+export const STREET_LAMP_POOL: PoolOptions = {
+  diameterM: LAMP_POOL_DIAMETER,
+  maxAlpha: LAMP_MAX_ALPHA,
+  color: LAMP_COLOR,
+  liftM: LAMP_LIFT,
+  fadeFullHeightM: LAMP_FADE_FULL_HEIGHT,
+  fadeOutHeightM: LAMP_FADE_OUT_HEIGHT,
+  cellDegrees: LAMP_CELL_DEGREES,
+  materialType: 'StreetLampGlow',
+}
+
 export class StreetLampsLayer {
   private readonly viewer: Viewer
   private readonly host: StreetLampsLayerHost
+  private readonly pool: PoolOptions
   private data: StreetLampData | null = null
   /** One batched primitive per grid cell; empty until the lazy build runs. */
   private cells: Primitive[] = []
@@ -103,9 +143,10 @@ export class StreetLampsLayer {
   /** The data attribution add() registered, taken down again by clear(). */
   private credit: Credit | null = null
 
-  constructor(viewer: Viewer, host: StreetLampsLayerHost) {
+  constructor(viewer: Viewer, host: StreetLampsLayerHost, pool: PoolOptions = STREET_LAMP_POOL) {
     this.viewer = viewer
     this.host = host
+    this.pool = pool
   }
 
   /**
@@ -197,13 +238,14 @@ export class StreetLampsLayer {
     const night = this.host.nightFactor
     if (night <= 0) return 0
     const height = this.viewer.camera.positionCartographic.height
+    const { fadeFullHeightM, fadeOutHeightM, maxAlpha } = this.pool
     const fade =
-      height <= LAMP_FADE_FULL_HEIGHT
+      height <= fadeFullHeightM
         ? 1
-        : height >= LAMP_FADE_OUT_HEIGHT
+        : height >= fadeOutHeightM
           ? 0
-          : 1 - (height - LAMP_FADE_FULL_HEIGHT) / (LAMP_FADE_OUT_HEIGHT - LAMP_FADE_FULL_HEIGHT)
-    return LAMP_MAX_ALPHA * night * fade
+          : 1 - (height - fadeFullHeightM) / (fadeOutHeightM - fadeFullHeightM)
+    return maxAlpha * night * fade
   }
 
   /** Builds the batched cells. Returns false where no 2D canvas exists. */
@@ -213,14 +255,15 @@ export class StreetLampsLayer {
     if (!data || !appearance) return false
 
     const byCell = new Map<string, StreetLamp[]>()
+    const { cellDegrees, diameterM, liftM } = this.pool
     for (const lamp of data.lamps) {
-      const key = `${Math.floor(lamp[0] / LAMP_CELL_DEGREES)}:${Math.floor(lamp[1] / LAMP_CELL_DEGREES)}`
+      const key = `${Math.floor(lamp[0] / cellDegrees)}:${Math.floor(lamp[1] / cellDegrees)}`
       let cell = byCell.get(key)
       if (!cell) byCell.set(key, (cell = []))
       cell.push(lamp)
     }
 
-    const scale = new Cartesian3(LAMP_POOL_DIAMETER, LAMP_POOL_DIAMETER, 1)
+    const scale = new Cartesian3(diameterM, diameterM, 1)
     for (const lamps of byCell.values()) {
       const instances = lamps.map(
         ([lon, lat, nhn]) =>
@@ -228,7 +271,7 @@ export class StreetLampsLayer {
             geometry: new PlaneGeometry({ vertexFormat: VertexFormat.POSITION_AND_ST }),
             modelMatrix: Matrix4.multiplyByScale(
               Transforms.eastNorthUpToFixedFrame(
-                Cartesian3.fromDegrees(lon, lat, this.host.groundHeightForNhn(nhn) + LAMP_LIFT),
+                Cartesian3.fromDegrees(lon, lat, this.host.groundHeightForNhn(nhn) + liftM),
               ),
               scale,
               new Matrix4(),
@@ -290,10 +333,10 @@ export class StreetLampsLayer {
     if (!sprite) return null
     this.material = new Material({
       fabric: {
-        type: 'StreetLampGlow',
+        type: this.pool.materialType,
         uniforms: {
           image: sprite,
-          color: LAMP_COLOR.withAlpha(0),
+          color: this.pool.color.withAlpha(0),
         },
         components: {
           diffuse: 'color.rgb',

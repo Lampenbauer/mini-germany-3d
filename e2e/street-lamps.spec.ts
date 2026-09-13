@@ -42,6 +42,8 @@ test('street lamps follow the sun and the underground view', async ({ page }) =>
   const airfield = () => page.evaluate(() => window.__mg3d!.airfieldLights())
   await expect.poll(async () => (await airfield()).alpha, slowPoll).toBeGreaterThan(0)
   expect((await airfield()).drawn).toBeGreaterThan(10)
+  // Laage's three floodlight masts light their apron as pools
+  await expect.poll(async () => (await airfield()).floods, slowPoll).toBeGreaterThan(0)
 
   // Down there the surface is a dark relief the tunnels show through – a
   // lit street grid over it would only muddy them, and neither would a
@@ -83,5 +85,5 @@ test('?lamps=0 leaves the street and the airfield lighting out entirely', async 
   const info = await page.evaluate(() => window.__mg3d!.streetLamps())
   expect(info.drawn).toBe(0)
   expect(info.alpha).toBe(0)
-  expect(await page.evaluate(() => window.__mg3d!.airfieldLights())).toEqual({ drawn: 0, alpha: 0 })
+  expect(await page.evaluate(() => window.__mg3d!.airfieldLights())).toEqual({ drawn: 0, alpha: 0, floods: 0 })
 })

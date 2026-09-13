@@ -94,7 +94,7 @@ vi.mock('@/map/CesiumMap', () => {
       return { drawn: 0, alpha: 0 }
     }
     getAirfieldLightInfo() {
-      return { drawn: 0, alpha: 0 }
+      return { drawn: 0, alpha: 0, floods: 0 }
     }
     setVisibility() {}
     getVehicleBoxDriftMeters() {
