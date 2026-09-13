@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { t } from '@/lib/i18n'
 
 /**
@@ -44,7 +45,7 @@ function BorrowedCredits(props: { borrow: (host: HTMLElement | null) => void }) 
      */
     <div
       ref={host}
-      className="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground [&_a:hover]:underline [&_a]:font-[550] [&_a]:text-foreground [&_a]:no-underline [&_a]:underline-offset-4 [&_img]:[zoom:0.7] [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2.5"
+      className="pt-4 text-xs leading-relaxed text-muted-foreground [&_a:hover]:underline [&_a]:font-[550] [&_a]:text-foreground [&_a]:no-underline [&_a]:underline-offset-4 [&_img]:[zoom:0.7] [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2.5"
     />
   )
 }
@@ -58,7 +59,10 @@ export function CreditsDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         closeLabel={t('credits.close')}
-        className="max-h-[calc(100dvh-2rem)] rounded-2xl shadow-2xl sm:max-w-md"
+        // Capped at the window and scrolling inside: the list is as long
+        // as the sources on screen, and a tall tileset view or a phone
+        // put its end past the fold with no way to reach it (2026-09-13).
+        className="max-h-[calc(100dvh-2rem)] overflow-hidden rounded-2xl shadow-2xl sm:max-w-md"
       >
         <DialogHeader>
           {/* The same eyebrow the About dialog wears, so the two read as
@@ -77,7 +81,11 @@ export function CreditsDialog(props: {
             {t('credits.lead')}
           </DialogDescription>
         </DialogHeader>
-        <BorrowedCredits borrow={props.borrow} />
+        {/* The list scrolls under the head, which stays put; the rule
+            over it is the scroller's, so it stays at the top of the view */}
+        <ScrollArea className="min-h-0 flex-1 border-t border-border" viewportClassName="scroll-fade-y overscroll-contain">
+          <BorrowedCredits borrow={props.borrow} />
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
