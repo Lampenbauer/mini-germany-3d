@@ -74,6 +74,12 @@ import { StreetLampsLayer } from './StreetLampsLayer'
 import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { BuoysLayer } from './BuoysLayer'
 import { LighthousesLayer } from './LighthousesLayer'
+import {
+  installBufferReadbackCache,
+  readbackCacheInfo,
+  type ReadbackCacheInfo,
+} from './buffer-readback-cache'
+import { renderer } from './cesium-renderer'
 import { SurfaceGeneration } from './surface-generation'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -906,6 +912,10 @@ export class CesiumMap {
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
     }
+    // Every tileset.getHeight ray reads tile geometry back from the GPU;
+    // the cache keeps a copy per buffer (see buffer-readback-cache.ts)
+    installBufferReadbackCache(renderer.Buffer.prototype)
+
     this.viewer = new Viewer(container, {
       baseLayer: false,
       baseLayerPicker: false,
@@ -3210,6 +3220,8 @@ export class CesiumMap {
     tilesTotal: number
     /** A hidden replacement is warming up (see replaceTileset). */
     replacing: boolean
+    /** The GPU readback cache's counters (see buffer-readback-cache.ts). */
+    readbackCache: ReadbackCacheInfo
   } | null {
     const tileset = this.googleTileset
     if (!tileset) return null
@@ -3224,6 +3236,7 @@ export class CesiumMap {
       effectiveSse: Math.round(effectiveSse * 10) / 10,
       tilesTotal: tileStatistics(tileset).numberOfTilesTotal,
       replacing: this.replacement !== null || this.replacementInFlight,
+      readbackCache: readbackCacheInfo(),
     }
   }
 

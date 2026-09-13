@@ -23,6 +23,7 @@ import type {
   PixelDatatype,
   PixelFormat,
 } from 'cesium'
+import type { ReadbackBufferPrototype } from './buffer-readback-cache'
 
 /** The GL context of a scene (scene.context, private). */
 export interface Context {
@@ -148,6 +149,8 @@ interface RendererModule {
   }
   Buffer: {
     createVertexBuffer(options: { context: Context; typedArray: ArrayBufferView; usage: number }): Buffer
+    /** The class's prototype – where the GPU readback cache is installed (buffer-readback-cache.ts). */
+    prototype: ReadbackBufferPrototype
   }
   BufferUsage: { STATIC_DRAW: number; DYNAMIC_DRAW: number }
   ShaderProgram: {

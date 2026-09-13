@@ -1031,6 +1031,8 @@ src/
 │                           # command with its own shader and pick colours
 ├── map/bridge-decks.ts     # Bridge decks read off the tiles per route vertex, for
 │                           # the routes and the vehicles on them
+├── map/buffer-readback-cache.ts  # Keeps what a height ray reads back from the GPU, so the
+│                           # next ray through the same tile reads nothing (a sync stall each)
 ├── map/surface-generation.ts  # When the layers read their heights off the tiles again:
 │                           # a tile loaded, two seconds apart, never at rest
 ├── components/             # shadcn-style UI (WelcomeScreen, ControlPanel with the city

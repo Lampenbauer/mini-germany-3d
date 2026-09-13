@@ -26,7 +26,9 @@
  * tiles, ~1 ms measured on Berlin's real tiles (2026-09-08) – and not
  * scene.clampToHeight, which is an offscreen render pass with a
  * readPixels stall (the ships' cost). The ray only answers where a tile
- * is loaded and selected, which for a vertex on screen is soon.
+ * is loaded and selected, which for a vertex on screen is soon, and it
+ * reads the tile's geometry back from the GPU only once per tile (see
+ * buffer-readback-cache.ts).
  *
  * A ray answers with whatever is on top – or, where the mesh has no
  * deck (Google's photogrammetry loses thin bridges; the Humboldthafen

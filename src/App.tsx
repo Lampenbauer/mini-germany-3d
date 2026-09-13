@@ -291,13 +291,18 @@ export interface Mg3dTestApi {
   } | null
   /**
    * Tile memory diagnostics: whether Cesium's memory ratchet is currently
-   * degrading the LOD (effectiveSse > configuredSse means yes).
+   * degrading the LOD (effectiveSse > configuredSse means yes), the tile
+   * tree's size, and the GPU readback cache's counters (see
+   * map/buffer-readback-cache.ts).
    */
   tileMemory: () => {
     usedMB: number
     cacheMB: number
     configuredSse: number
     effectiveSse: number
+    tilesTotal: number
+    replacing: boolean
+    readbackCache: { hits: number; misses: number; bytes: number }
   } | null
   /** The sun shadow map: switched on, and whether its texture is currently allocated. */
   shadowMap: () => { enabled: boolean; allocated: boolean; size: number }

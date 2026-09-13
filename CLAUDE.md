@@ -1296,11 +1296,31 @@ the hull. The spec waits for the model (`hullReady`), and it keeps its
 frames in the page – four million numbers over the wire cost that
 runner half a minute per frame.
 
+### The GPU readback cache
+
+**The GPU readback cache** ([buffer-readback-cache.ts](src/map/buffer-readback-cache.ts),
+installed on Cesium's `Buffer.prototype` by CesiumMap): `tileset.getHeight`
+is a CPU ray through the loaded tiles (`pickModel`), and for every tile
+primitive whose bounding sphere the ray hits it read the positions and
+the indices back from the GPU (`getBufferSubData`) – Google's tiles keep
+no copy in memory – 2.2 ms a read in Chrome (a pipeline sync), nine to
+fifteen a frame during a flight because `Cesium3DTileset.enableCollision`
+has the scene sample the height under the camera on every frame it
+moves, plus the bridge decks, the stops and the webcams: 1.1 s of a
+4.2 s flight, the biggest single stall in Chrome. The first read of a
+buffer keeps the whole buffer; later reads are served from the copy
+(WeakMap on the buffer object, dropped on `copyFromArrayView`, the
+whole cache let go past `READBACK_CACHE_LIMIT_BYTES` = 64 MB). Measured
+after: `getHeight` 0.3–0.6 ms a call, 1 700 hits to 100 misses over a
+flight, ~10 MB held. `__mg3d.tileMemory().readbackCache` shows the
+counters. The collision itself was left as it is: at 0.4 ms a frame it
+is not worth rationing.
+
 ### `window.__mg3d`
 
 The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
-`replacing`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
+`replacing`, `readbackCache`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
 `groundHeights()`, `aisReplay()`, `aircraftCount()`, `aircraftReplay()`;
@@ -1494,7 +1514,9 @@ the route's own polyline drawn exactly on it at exactly the wrong height
 (a pick has seen the tiles alone only since 2026-09-13), and a vertex
 that gets no answer is simply asked again – at the next surface
 generation, like everything else (see the ships' rules); measured
-2026-09-08 on real tiles: ~1 ms a ray. A ray
+2026-09-08 on real tiles: ~1 ms a ray, and since 2026-09-13 the ray no
+longer reads the tile geometry back from the GPU each time (the readback
+cache under "Rendering and performance"). A ray
 answers with whatever is on top, or – where the mesh lost a thin bridge,
 as at the Humboldthafen – with the water underneath, so a sample is
 trusted only 2.5 m and more above the profile (`DECK_ABOVE_PROFILE_M`;
