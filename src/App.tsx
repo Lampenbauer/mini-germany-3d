@@ -646,8 +646,8 @@ function medianStopNhn(network: PreparedNetwork): number {
 
 /**
  * Where a card stands: the upper right, beside the map, on a desktop –
- * under the weather button, which keeps that corner while a card is
- * up (top-16 is its 1rem + h-9 + a 0.75rem gap) – and on a phone (under
+ * at the height of the weather button, which steps aside to its left
+ * while a card is up (WEATHER_BESIDE_CARD) – and on a phone (under
  * Tailwind's sm, 640 px) a sheet across the foot of the screen, where a
  * thumb reaches it and the map stays in view above. The panel takes the
  * same place there and gives way while a card is up (see the panel's
@@ -655,7 +655,17 @@ function medianStopNhn(network: PreparedNetwork): number {
  * bottom-8 does for the rail.
  */
 const CARD_SLOT =
-  'pointer-events-none absolute right-4 top-16 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
+  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
+
+/**
+ * The weather button's place while a card is up beside it: the card's
+ * 400 px (w-100 in CARD_SHELL, card-parts.tsx) plus the 1rem it stands
+ * from the edge plus a 0.75rem gap – the two share the top edge, the
+ * user's call (2026-09-14; the card stood under the button before).
+ * A slide, not a jump: the card appears at once, and the button moving
+ * over is what says where it went.
+ */
+const WEATHER_BESIDE_CARD = 'sm:right-[26.75rem]'
 
 /**
  * A button on the map's control rail: round, and carrying its own glass –
@@ -4216,13 +4226,21 @@ export default function App() {
 
         {/* The weather is the map's dress rather than a command about it,
             so it sits in the opposite corner from the camera controls, out
-            of the way of both. A card opens under it (CARD_SLOT) rather
-            than in its place: the sky is picked with a card up as much as
-            without one. Only the diagram, which has no sky, takes it away. */}
+            of the way of both. A card opens beside it (CARD_SLOT) rather
+            than in its place – the button steps left to make room
+            (WEATHER_BESIDE_CARD): the sky is picked with a card up as much
+            as without one. Only the diagram, which has no sky, takes it
+            away. */}
         {!linear && (
           // On a phone the upper right is the rail's, so the weather takes
-          // the upper left the panel left free.
-          <div className="pointer-events-none absolute right-4 top-4 z-10 flex justify-end max-sm:right-auto max-sm:left-3">
+          // the upper left the panel left free – and a card is a sheet at
+          // the foot there, so the button has nothing to step aside for.
+          <div
+            className={cn(
+              'pointer-events-none absolute right-4 top-4 z-10 flex justify-end transition-[right] duration-200 max-sm:right-auto max-sm:left-3',
+              cardOpen && WEATHER_BESIDE_CARD,
+            )}
+          >
             <WeatherPopover
               interfaceHidden={interfaceHidden}
               weatherMode={weatherMode}

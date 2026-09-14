@@ -242,8 +242,18 @@ the green the cards' hover is a white wash (`hover:bg-white/12`), the one
 exception to the `--accent` rule besides the About hero's close button,
 for the same reason: a black wash sinks into the green.
 
+**A card stands at the weather button's height, and the button steps
+left beside it (since 2026-09-14).** `CARD_SLOT` is `top-4` like the
+button's wrapper; while `cardOpen` the wrapper takes `WEATHER_BESIDE_CARD`
+(`sm:right-[26.75rem]`: the card's 400 px, `w-100` in `CARD_SHELL`, plus
+its 1rem from the edge plus a 0.75rem gap – a card width that changes
+changes this number) with a short slide, and comes back into the corner
+when the card goes. The card stood under the button before. On a phone
+nothing of it applies: the card is a sheet at the foot and the button
+at the upper left. `e2e/app.spec.ts` measures both places.
+
 **A phone gets one sheet, at the foot of the screen.** Under Tailwind's
-`sm` (640 px) the panel's wrapper and the five card slots (`CARD_SLOT` in
+`sm` (640 px) the panel's wrapper and the card slots (`CARD_SLOT` in
 [src/App.tsx](src/App.tsx)) share one place, `inset-x-3 bottom-9`, and the
 panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
 has room for one sheet, and the card is the one the reader asked for. The

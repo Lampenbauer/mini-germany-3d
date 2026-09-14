@@ -265,18 +265,25 @@ test('selecting a vehicle opens the info card', async () => {
     card.getByTestId('vehicle-trip-stops').getByRole('button').first(),
   ).toHaveAttribute('title', 'Fly to this stop')
 
-  // The weather keeps its corner while the card is up: the card opens
-  // under it (CARD_SLOT in App.tsx), so the sky can be picked with a card
-  // open as well as without one, and the two never overlap.
+  // The weather stays while the card is up, stepping left beside it
+  // (WEATHER_BESIDE_CARD in App.tsx): the card opens at the button's
+  // height, so the sky can be picked with a card open as well as without
+  // one, and the two never overlap.
   const weather = page.getByRole('button', { name: 'Weather' })
   await expect(weather).toBeVisible()
-  const weatherBox = (await weather.boundingBox())!
   const cardBox = (await card.boundingBox())!
-  expect(cardBox.y).toBeGreaterThanOrEqual(weatherBox.y + weatherBox.height)
+  await expect
+    .poll(async () => {
+      const box = (await weather.boundingBox())!
+      return box.x + box.width <= cardBox.x && Math.abs(box.y - cardBox.y) < 1
+    })
+    .toBe(true)
 
   await card.getByRole('button', { name: 'Close selection' }).click()
   await expect(card).not.toBeVisible()
   await expect(weather).toBeVisible()
+  // …and back into its corner once the card is gone
+  await expect.poll(async () => (await weather.boundingBox())!.x + 36 + 16 > 1280 - 1).toBe(true)
 })
 
 test('night services keep running after midnight, daytime service resumes in the morning', async () => {

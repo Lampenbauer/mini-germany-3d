@@ -203,9 +203,9 @@ Static Tiles API as empty tiles.
   one – compass `(C)`, 2D `(2)` / 3D `(3)`, camera reset `(R)`, full screen
   `(F)`.
 - **Weather popover:** upper right, the opposite corner from the camera controls
-  – it dresses the map rather than commanding it. That corner belongs to the
-  cards whenever one is up, and the button gives it up entirely rather than
-  hiding underneath: it leaves the page until the card is closed.
+  – it dresses the map rather than commanding it. A card opens in that corner
+  at the button's height, and the button steps left beside it rather than
+  hiding underneath, so the sky can be picked with a card up.
 - **Compass:** its needle points where the camera looks, on a north-up dial, and
   turns with it. Pressing it brings the view onto the nearest quarter – north,
   east, south or west – and on to the next one when it already stands on one, so
