@@ -493,6 +493,19 @@ export function shadowStrengthForOvercast(grade: number): number {
 const UNDERGROUND_DIM = 0.02
 
 /**
+ * How much a view matrix may differ from the last one for the camera to
+ * count as still (noteCameraAtRest, cameraMovedSinceRender): per
+ * element, so a micron of translation or a nanoradian of turn. A camera
+ * standing 35 m over the Neuer Markt at a near-level pitch had its
+ * matrix churn by 2e-9 a frame with nobody touching it – numerical
+ * noise of Cesium's own camera update – and exact equality then never
+ * saw it rest: every surface pick waited for good, and every frame was
+ * drawn (found 2026-09-14 at exactly that pose, where a pick due within
+ * a tick was still waiting a minute later).
+ */
+const CAMERA_STILL_EPSILON = 1e-6
+
+/**
  * Minimum gap between two hover picks in ms. A pick runs the scene update
  * for a tiny frustum – every selected tile and every vehicle model still
  * has its update called – so one per mouse-move event would put a real
@@ -2496,7 +2509,7 @@ export class CesiumMap {
   /** Once per tick: whether the camera moved since the previous tick (see cameraAtRest). */
   private noteCameraAtRest(): void {
     const viewMatrix = this.viewer.camera.viewMatrix
-    this.cameraAtRest = Matrix4.equals(viewMatrix, this.tickViewMatrix)
+    this.cameraAtRest = Matrix4.equalsEpsilon(viewMatrix, this.tickViewMatrix, CAMERA_STILL_EPSILON)
     Matrix4.clone(viewMatrix, this.tickViewMatrix)
   }
 
@@ -2514,7 +2527,11 @@ export class CesiumMap {
    * a frame for it whether or not anything else asked for one.
    */
   cameraMovedSinceRender(): boolean {
-    return !Matrix4.equals(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
+    return !Matrix4.equalsEpsilon(
+      this.viewer.camera.viewMatrix,
+      this.renderedViewMatrix,
+      CAMERA_STILL_EPSILON,
+    )
   }
 
   /** A chase cam is engaged on a vehicle, a ship or an aircraft – the camera moves per tick. */

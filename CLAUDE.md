@@ -1634,7 +1634,13 @@ all measured (the Firefox investigation below is where they come from):
   rate is watched; the rest catch up the tick the camera stops, a couple
   of seconds for a harbour at the budgets. Measured in Firefox: 14 % of
   a pan's wall time in the picks' `readPixels`, 7 % in their scene
-  updates, before.
+  updates, before. "Still" is `CAMERA_STILL_EPSILON` (1e-6 per matrix
+  element) since 2026-09-14, in `noteCameraAtRest` and
+  `cameraMovedSinceRender` both: a camera 35 m over Rostock's Neuer
+  Markt at a near-level pitch (`height=35&pitch=-9`) had its view
+  matrix churn by 2e-9 a frame with nobody touching it – numerical
+  noise of Cesium's own camera update – and exact equality never saw
+  it rest, so no surface pick ran there and every frame was drawn.
 - **A pick sees the tiles alone.** `clampToSurface` hides every top-level
   primitive but the tileset for the pass and restores it after – the
   fleets under their own root collections (`VesselLayer.root`,
