@@ -8,7 +8,7 @@
  *
  * What the privacy notice says has to stay true to what the app does:
  * which hosts the browser talks to itself (Google's tiles through Cesium
- * ion, Open-Meteo, Windy's pictures), which it reaches only through this
+ * ion, Mapbox's for the flat map, Open-Meteo, Windy's pictures), which it reaches only through this
  * site's own API (aisstream, adsb.fi, gtfs.de), what it keeps in
  * localStorage, and that there are no cookies and no tracking. A new
  * third-party request from the browser, a cookie or an analytics script
@@ -112,6 +112,12 @@ const PRIVACY: Record<Lang, LegalText> = {
         ],
       },
       {
+        heading: 'Flache Karte (Mapbox)',
+        paragraphs: [
+          'Auf Wunsch zeichnet die Karte statt der 3D-Stadt eine flache Straßenkarte (Ebenen → „Flache Karte“). Deren Kacheln lädt dein Browser unmittelbar von Mapbox (Mapbox, Inc., 740 15th Street NW, 5th Floor, Washington, DC 20005, USA); Mapbox erhält dabei deine IP-Adresse und die Adressen der angefragten Kacheln, also den Kartenausschnitt. Solange der Schalter aus ist – und das ist er, wenn du die Seite aufrufst –, geht keine Anfrage an Mapbox. Mapbox überträgt Daten in die USA; die Übermittlung sichern Standardvertragsklauseln (Art. 46 DSGVO) ab. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO, das berechtigte Interesse, die Karte zu zeigen, die du eingeschaltet hast. Mehr unter mapbox.com/legal/privacy.',
+        ],
+      },
+      {
         heading: 'Wetter',
         paragraphs: [
           'Das Wetter über der Stadt – Regen, Bewölkung, Wind, Sicht – kommt von Open-Meteo (open-meteo.com, Schweiz). Dein Browser fragt es alle zehn Minuten unmittelbar dort ab; übertragen werden dabei deine IP-Adresse und die Koordinaten der Stadt, nicht deine eigenen. Die Schweiz gilt nach Art. 45 DSGVO als sicheres Drittland. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.',
@@ -174,6 +180,12 @@ const PRIVACY: Record<Lang, LegalText> = {
         paragraphs: [
           'The 3D city model is Google’s Photorealistic 3D Tiles. Your browser loads them directly from Google (Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Ireland, and Google LLC, USA); Google receives your IP address and the addresses of the tiles requested – that is, which part of the city you are looking at. The tiles are brokered by Cesium ion (Bentley Systems, Inc., 685 Stockton Drive, Exton, PA 19341, USA), the tool the map is drawn with; Cesium sees your IP address too.',
           'Without these data there is no map – they are the service itself, not an ingredient of it. The legal basis is therefore Art. 6 (1) (f) GDPR, the legitimate interest in showing the map you opened this site for. Both providers transfer data to the USA; Google LLC is certified under the EU-US Data Privacy Framework (Art. 45 GDPR), and standard contractual clauses (Art. 46 GDPR) cover the rest. More at policies.google.com/privacy and cesium.com/legal/privacy-policy.',
+        ],
+      },
+      {
+        heading: 'Flat map (Mapbox)',
+        paragraphs: [
+          'On request the map draws a flat street map instead of the 3D city (Layers → "Flat map"). Your browser loads its tiles directly from Mapbox (Mapbox, Inc., 740 15th Street NW, 5th Floor, Washington, DC 20005, USA); Mapbox receives your IP address and the addresses of the tiles requested, that is, the part of the map on screen. As long as the switch is off – and it is when you open the site – no request goes to Mapbox. Mapbox transfers data to the USA; standard contractual clauses (Art. 46 GDPR) cover the transfer. Legal basis: Art. 6 (1) (f) GDPR, the legitimate interest in showing the map you switched on. More at mapbox.com/legal/privacy.',
         ],
       },
       {

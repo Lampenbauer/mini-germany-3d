@@ -161,6 +161,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: false,
         labelsHidden: false,
         webcamsHidden: false,
+        flatBasemap: false,
         clouds: cloudsDefault,
         hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -177,6 +178,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: true,
         labelsHidden: true,
         webcamsHidden: false,
+        flatBasemap: false,
         clouds: cloudsDefault,
         hiddenTraffic: new Set(),
         photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
@@ -195,6 +197,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -204,6 +207,11 @@ describe('layer and pause state in the hash', () => {
     }
     expect(formatUiStateHash(state)).toBe('')
     expect(formatUiStateHash({ ...state, routesHidden: true })).toBe('&routes=0')
+    // The flat map is named, the tiles are what an absent basemap= means
+    expect(formatUiStateHash({ ...state, flatBasemap: true })).toBe('&basemap=flat')
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&basemap=flat').flatBasemap).toBe(true)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&basemap=3d').flatBasemap).toBe(false)
+    expect(parseUiStateHash('#lat=54&lon=12&height=100&basemap=moon').flatBasemap).toBe(false)
     // A stray city= in a hash is simply not a reading
     expect(parseUiStateHash('#lat=53.55&lon=9.99&height=800&city=kiel&routes=0')).toEqual({
       ...state,
@@ -219,6 +227,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -246,6 +255,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -272,6 +282,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: true,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
@@ -289,6 +300,7 @@ describe('layer and pause state in the hash', () => {
         stopsHidden: false,
         labelsHidden: true,
         webcamsHidden: false,
+        flatBasemap: false,
         clouds: cloudsDefault,
         hiddenTraffic: new Set(),
         photo: withTiltShift(DEFAULT_PHOTO_SETTINGS, !miniatureDefault),
@@ -310,6 +322,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -330,6 +343,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: !cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -354,6 +368,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -385,6 +400,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,
@@ -451,6 +467,7 @@ describe('layer and pause state in the hash', () => {
       stopsHidden: false,
       labelsHidden: false,
       webcamsHidden: false,
+      flatBasemap: false,
       clouds: cloudsDefault,
       hiddenTraffic: new Set(),
       photo: DEFAULT_PHOTO_SETTINGS,

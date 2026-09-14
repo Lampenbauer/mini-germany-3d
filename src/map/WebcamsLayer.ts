@@ -298,6 +298,22 @@ export class WebcamsLayer {
     }
   }
 
+  /**
+   * Puts every picture back on the map's ground height and forgets what
+   * was measured on the tiles – the ground changed (see
+   * CesiumMap.setBasemap); update() measures again where it can.
+   */
+  resetHeights(): void {
+    for (const record of this.records.values()) {
+      record.measured = false
+      record.measuredAtGeneration = -1
+      record.groundHeight = this.host.defaultGroundHeight
+      record.billboard.position = this.positionOf(record)
+    }
+    this.rectsDirty = true
+    this.host.requestRender()
+  }
+
   private createRecord(webcam: Webcam): WebcamRecord {
     const measuredHeight = this.host.sampleGroundHeight(webcam.lon, webcam.lat)
     const record: WebcamRecord = {

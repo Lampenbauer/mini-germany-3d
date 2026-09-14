@@ -369,7 +369,7 @@ simulation had never ticked in jsdom.
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the boxes at the lower right: the layers popover (routes, stops, names,
-webcams), the camera's block, the photo popover. The Layers block moved out of
+the flat map, webcams), the camera's block, the photo popover. The Layers block moved out of
 the panel on 2026-09-08 for exactly that reason; do not move map switches back
 into it. All three boxes are built the same way (`RAIL_BOX` + `GROUPED_CONTROL`
 in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
@@ -591,6 +591,49 @@ first frame, where `CameraLens.setFovDeg` writes the lens without a
 dolly walk. `__mg3d.photoSettings()` reads them back; `e2e/camera-hash.spec.ts`
 opens a link with `hide=bus&con=1.2` and takes both away with an edited
 hash.
+
+**The flat map swaps the ground, and everything on it lies at 0 m
+(since 2026-09-14).** The layers popover's "Flat map" switch
+(`basemap=flat` in the hash, `CesiumMap.setBasemap`) takes Google's
+tileset off – destroyed, not hidden: a hidden tileset is still traversed,
+and the tree is what the city switch rebuilds to let go of – and shows
+the bare globe with Mapbox raster tiles on it
+([FlatBasemap](src/map/FlatBasemap.ts)): two `MapboxStyleImageryProvider`
+layers, one style by day and one at night, the night one laid over the
+day's at `nightFactor` as its alpha and a style that would be invisible
+switched off rather than faded (Cesium requests tiles for every shown
+layer whatever its alpha, and Mapbox counts each against the account's
+200 000 a month). Decisions taken with the user: **no terrain** – the
+user wanted the map flat, so every height the city carries is 0 m there,
+the route profile, the stops, the lamps (they follow `groundHeightForNhn`
+on their own through `builtAnchor`), the water the ships ride
+(`waterSurfaceHeight` is 0 on the flat map, but keeps the tiles' number
+offline: the specs' poses were set to it), the apron; the aircraft come
+down by `groundReference` (`flattenedGroundM` on their host) so an
+approach reads as 300 m over the map, not 300 m plus the airport's
+height; the camera comes down and back up with the ground
+(`shiftCameraHeight`) so the picture stands, never in a follow. It is the
+offline path with pictures: `flatGround` (offline or flat) is what
+RoutesLayer and VehicleLayer read instead of `offline` for the heights,
+`defaultGroundHeight` is a getter over `groundReference` since, and every
+clamping layer has a `resetClamps()`/`resetHeights()` for the switch. The
+styles must be **classic** Mapbox styles (built from layers): the two the
+user made in Studio (`lampenbauer/cmu0uxyzx00fg01qy6vovc1kz` day,
+`…/cmu0vcbgm00f801qtaj6c4s47` night) are built on Mapbox Standard – an
+`imports` block, no layers of their own – which the Static Tiles API
+answers with empty 235-byte PNGs, and the map was a bare globe until
+`mapbox/light-v11` and `mapbox/dark-v11` went into `config.flatMap`
+instead; rebuilt on a classic template, the user's ids go back there.
+The token rides like the ion token: `VITE_MAPBOX_TOKEN` from `.env`, the
+domain-locked one in ci.yml; none means no request and a bare globe.
+The tile shader's night, rain wash and cloud shadow do not reach the
+flat map (the imagery is not the tileset); the underground view dims the
+imagery layers' `brightness` instead. Mapbox's attribution is an
+on-screen credit like Windy's, and the privacy notice has a section for
+it in both languages. `tests/flat-basemap.test.ts` pins the blend and
+the layers, `tests/cesium-route-lift.test.ts` the flattened routes,
+`tests/app.test.tsx` the hash, and `e2e/app.spec.ts` throws the switch
+offline (no pictures there – no token in the tests, and no network).
 
 **Every page is built twice: once by the app, once by the build.** The
 prerender plugin in [vite.config.ts](vite.config.ts) runs
@@ -1448,7 +1491,8 @@ for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
 `groundHeights()`, `aisReplay()`, `aircraftCount()`, `aircraftReplay()`;
 `setAisVessels(list)` and `setAircraft(list)` put a fleet on the map where
-no poll runs (offline, the tests).
+no poll runs (offline, the tests); `basemap()`/`setBasemap()` and
+`flatMap()` are the flat map's.
 
 ---
 

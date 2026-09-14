@@ -188,6 +188,20 @@ export class LighthousesLayer {
     this.host.requestRender()
   }
 
+  /**
+   * Forgets every tower top picked off the tiles – the ground changed
+   * under the lights (see CesiumMap.setBasemap): the next sync sets each
+   * at its charted elevation over the fallback water again.
+   */
+  resetClamps(): void {
+    for (const record of this.records) {
+      record.clampedHeight = null
+      record.clampedGeneration = -1
+    }
+    this.placedFallback = Number.NaN
+    this.host.requestRender()
+  }
+
   /** Underground view: the towers are not down there. */
   setUnderground(underground: boolean): void {
     if (this.underground === underground) return

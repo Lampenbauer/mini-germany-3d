@@ -17,7 +17,12 @@ const mockCameraHomeCalls = vi.hoisted(() => ({ count: 0 }))
 const mockCamera = vi.hoisted(() => ({ orientations: 0, tiltShift: false, pitch: -38 }))
 
 /** How each city move was asked for – a flight from the picker, a jump from a link or the welcome screen. */
-const mockMoves = vi.hoisted(() => ({ transitions: [] as string[], renderProfile: undefined as unknown }))
+const mockMoves = vi.hoisted(() => ({
+  transitions: [] as string[],
+  renderProfile: undefined as unknown,
+  /** The ground the map was built on, and every switch since (see setBasemap). */
+  basemaps: [] as string[],
+}))
 
 // Cesium needs WebGL – in jsdom the map is replaced by a mock.
 vi.mock('@/map/CesiumMap', () => {
@@ -25,11 +30,23 @@ vi.mock('@/map/CesiumMap', () => {
     city: unknown
     constructor(
       _container: HTMLElement,
-      opts: { city: unknown; renderProfile?: unknown; onTilesetStatus?: (s: string) => void },
+      opts: {
+        city: unknown
+        renderProfile?: unknown
+        basemap?: string
+        onTilesetStatus?: (s: string) => void
+      },
     ) {
       this.city = opts.city
       mockMoves.renderProfile = opts.renderProfile
+      mockMoves.basemaps = [opts.basemap ?? '3d']
       opts.onTilesetStatus?.('offline')
+    }
+    setBasemap(kind: string) {
+      mockMoves.basemaps.push(kind)
+    }
+    flatMapState() {
+      return { shown: false, day: false, night: false, nightAlpha: 0 }
     }
     get currentCity() {
       return this.city
@@ -530,6 +547,31 @@ describe('App (UI shell)', () => {
     render(<App />)
     expect(window.__mg3d!.renderProfile().tier).toBe('desktop')
     expect(window.__mg3d!.renderProfile().shadowMapSize).toBe(8192)
+  })
+
+  it('opens on the flat map a link names, and the switch writes it back into the hash', async () => {
+    window.history.replaceState(null, '', '/kiel/?welcome=0&offline=1#basemap=flat')
+    render(<App />)
+    await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
+    // Built on the flat map, not switched to it after the first frame
+    expect(mockMoves.basemaps).toEqual(['flat'])
+    expect(window.__mg3d!.basemap()).toBe('flat')
+    await waitFor(() => expect(window.location.hash).toContain('basemap=flat'))
+
+    // The switch in the layers popover
+    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
+    const flat = screen.getByRole('switch', { name: 'Draw a flat street map instead of the 3D city' })
+    expect(flat).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(flat)
+    expect(mockMoves.basemaps).toEqual(['flat', '3d'])
+    expect(window.__mg3d!.basemap()).toBe('3d')
+    // The tiles are the map as it opens, never written out
+    await waitFor(() => expect(window.location.hash).not.toContain('basemap='))
+
+    // An edited hash switches the map the same way
+    window.location.hash = window.location.hash + '&basemap=flat'
+    await waitFor(() => expect(mockMoves.basemaps).toEqual(['flat', '3d', 'flat']))
+    expect(window.__mg3d!.basemap()).toBe('flat')
   })
 
   it('shows the static page again and says why when the app cannot start', () => {

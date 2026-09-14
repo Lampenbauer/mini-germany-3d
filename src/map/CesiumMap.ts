@@ -74,6 +74,8 @@ import { StreetLampsLayer } from './StreetLampsLayer'
 import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { BuoysLayer } from './BuoysLayer'
 import { LighthousesLayer } from './LighthousesLayer'
+import { FlatBasemap } from './FlatBasemap'
+import { DEFAULT_BASEMAP, type Basemap } from '@/lib/basemap'
 import {
   installBufferReadbackCache,
   readbackCacheInfo,
@@ -95,7 +97,12 @@ import type { BuoyData } from '@/data/buoys'
 import type { LighthouseData } from '@/data/lighthouses'
 import type { VehicleSnapshot } from '@/engine/simulation'
 
-export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
+/**
+ * Which ground the map ended up on: Google's tiles, the flat map (see
+ * setBasemap – a street map on the bare globe, no tiles at all), the
+ * offline grid, or the grid as the fallback for tiles that failed.
+ */
+export type TilesetStatus = 'loading' | 'google-3d-tiles' | 'flat' | 'offline' | 'failed'
 
 export { TUNNEL_VISIBILITY }
 export { delayBadgeSuffix }
@@ -111,6 +118,12 @@ export interface CesiumMapOptions {
   offline?: boolean
   /** Fixed ground height in meters (skips all height sampling; debug). */
   fixedGroundHeight?: number
+  /**
+   * The ground the map opens on (see lib/basemap.ts): Google's tiles, or
+   * the flat map – a restored hash passes its own answer here rather
+   * than switching after the first frame. Default: the tiles.
+   */
+  basemap?: Basemap
   /**
    * Tile LOD budget override in drawing-buffer pixels (?sse=…): replaces
    * the default budget including its pixel-ratio scaling. Lower = finer
@@ -827,8 +840,18 @@ export class CesiumMap {
   private replacementInFlight = false
   /** No tree rebuild before this moment (see TILE_TREE_REBUILD_COOLDOWN_MS). */
   private treeRebuildAllowedAt = 0
-  /** Most recently measured plausible ground height – initial value for new vehicles. */
-  private defaultGroundHeight: number
+  /**
+   * Ellipsoidal height of the city's streets as best known – the geoid
+   * offset plus a typical terrain height until the network's median stop
+   * says better, the tiles' own median once the bootstrap has measured
+   * it. What defaultGroundHeight is with the tiles; on the flat map it is
+   * how far the ground was lowered to reach 0 m (see setBasemap).
+   */
+  private groundReference: number
+  /** The ground the map draws from (see setBasemap). */
+  private basemap: Basemap
+  /** The flat map's pictures on the globe (see FlatBasemap). */
+  private readonly flatMap: FlatBasemap
   /** Drawing-buffer pixels per CSS pixel (HiDPI rendering, capped at 2). */
   private readonly effectivePixelRatio: number
   /** 0 = day … 1 = full night; drives the cabin-glow opacity. */
@@ -905,9 +928,8 @@ export class CesiumMap {
     this.profile =
       opts.renderProfile ??
       renderProfileFor('desktop', (navigator as { deviceMemory?: number }).deviceMemory)
-    // Offline (ellipsoid): ground is exactly at 0 m
-    this.defaultGroundHeight =
-      opts.fixedGroundHeight ?? (opts.offline ? 0 : this.groundFirstGuess(opts.city))
+    this.basemap = opts.basemap ?? DEFAULT_BASEMAP
+    this.groundReference = this.groundFirstGuess(opts.city)
 
     if (!opts.offline) {
       Ion.defaultAccessToken = config.cesiumIonToken
@@ -1005,6 +1027,9 @@ export class CesiumMap {
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
+      get flatGround() {
+        return map.flatGround
+      },
       deckHeight: (lineId, direction, distance) =>
         this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
       bridgeStations: (lineId, direction, from, to) =>
@@ -1019,7 +1044,7 @@ export class CesiumMap {
       routeHeightOffset: () => this.routes.heightOffset,
     })
     const groundHeightForNhn = (nhn: number): number =>
-      opts.fixedGroundHeight === undefined && !opts.offline
+      opts.fixedGroundHeight === undefined && !map.flatGround
         ? nhn + map.routes.heightOffset
         : map.defaultGroundHeight
     this.streetLamps = new StreetLampsLayer(this.viewer, {
@@ -1044,7 +1069,7 @@ export class CesiumMap {
     this.buoys = new BuoysLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get waterSurfaceHeight() {
-        return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
+        return map.waterSurfaceHeight
       },
       surfaceGeneration: () => this.surfaceGeneration.current,
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
@@ -1063,7 +1088,7 @@ export class CesiumMap {
     this.lighthouses = new LighthousesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       get waterSurfaceHeight() {
-        return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
+        return map.waterSurfaceHeight
       },
       surfaceGeneration: () => this.surfaceGeneration.current,
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
@@ -1100,7 +1125,9 @@ export class CesiumMap {
         return map.effectivePixelRatio
       },
       vehicleBodyRangeM: this.profile.vehicleBodyRangeM,
-      offline: opts.offline === true,
+      get flatGround() {
+        return map.flatGround
+      },
       fixedGroundHeight: opts.fixedGroundHeight,
       noteCameraFlight: (durationMs) => {
         this.flyingUntil = performance.now() + durationMs
@@ -1162,7 +1189,7 @@ export class CesiumMap {
       // Fallback water level: NHN 0 plus the calibrated offset plus a
       // lift that clears the tiles' wavy water mesh (see VesselLayer).
       get waterSurfaceHeight() {
-        return map.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
+        return map.waterSurfaceHeight
       },
       // The ships float on the tiles' own water (see VesselLayer)
       surfaceGeneration: () => this.surfaceGeneration.current,
@@ -1195,6 +1222,10 @@ export class CesiumMap {
       get geoidHeight() {
         return map.routes.heightOffset
       },
+      // The flat map lowers the ground to 0 m; the traffic comes down with it
+      get flattenedGroundM() {
+        return map.basemap === 'flat' ? map.groundReference : 0
+      },
       surfaceGeneration: () => this.surfaceGeneration.current,
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       get pixelRatio() {
@@ -1220,6 +1251,12 @@ export class CesiumMap {
       },
       windowPosition: (position) => this.windowPosition(position),
       metersPerPixel: (position) => this.metersPerCssPixel(position),
+    })
+    this.flatMap = new FlatBasemap(this.viewer, {
+      requestRender: () => this.requestRender(),
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
     })
     // The miniature look this whole map is named after – on or off from
     // the start as the URL or config.camera.miniatureDefault says, and
@@ -1310,6 +1347,11 @@ export class CesiumMap {
         }),
       )
       opts.onTilesetStatus?.('offline')
+      if (this.basemap === 'flat') this.applyFlatGlobe(true)
+    } else if (this.basemap === 'flat') {
+      // Opened on the flat map: no tiles are asked for at all
+      this.applyFlatGlobe(true)
+      opts.onTilesetStatus?.('flat')
     } else {
       opts.onTilesetStatus?.('loading')
       void this.loadGoogleTiles()
@@ -1523,7 +1565,9 @@ export class CesiumMap {
   private async loadGoogleTiles(): Promise<void> {
     try {
       const tileset = await this.createTileset()
-      if (this.destroyed) {
+      // The map was taken down, or the flat map came up while the
+      // tileset was on its way (see setBasemap)
+      if (this.destroyed || this.basemap === 'flat') {
         tileset.destroy()
         return
       }
@@ -1582,7 +1626,7 @@ export class CesiumMap {
     void this.createTileset()
       .then((tileset) => {
         this.replacementInFlight = false
-        if (this.destroyed) {
+        if (this.destroyed || this.basemap === 'flat') {
           tileset.destroy()
           return
         }
@@ -1719,8 +1763,8 @@ export class CesiumMap {
       window.clearTimeout(this.bootstrapTimer)
       this.bootstrapTimer = null
     }
+    this.groundReference = this.groundFirstGuess(city)
     if (this.opts.fixedGroundHeight === undefined) {
-      this.defaultGroundHeight = this.opts.offline ? 0 : this.groundFirstGuess(city)
       this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
     }
     this.routes.resetHeightOffset(city.terrain.geoidOffsetFallback)
@@ -1839,13 +1883,172 @@ export class CesiumMap {
    */
   setGroundReference(medianStopNhn: number): void {
     if (this.opts.fixedGroundHeight !== undefined || this.opts.offline || this.groundMeasured) return
-    this.defaultGroundHeight = medianStopNhn + this.routes.heightOffset
+    this.groundReference = medianStopNhn + this.routes.heightOffset
     this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
   }
 
   /** Ellipsoidal ground height of a city's streets before anything is measured. */
   private groundFirstGuess(city: City): number {
     return city.terrain.geoidOffsetFallback + FALLBACK_TERRAIN_HEIGHT
+  }
+
+  /**
+   * The ground height a vehicle, a stop, a cloud base is measured from
+   * where nothing better is known: the fixed height of the deterministic
+   * tests, 0 m where the ground is a plane (offline, the flat map), the
+   * city's ground as best known otherwise (groundReference).
+   */
+  private get defaultGroundHeight(): number {
+    return this.opts.fixedGroundHeight ?? (this.flatGround ? 0 : this.groundReference)
+  }
+
+  /**
+   * The ground is a plane at 0 m, known without asking the scene: offline
+   * (the bare ellipsoid) and on the flat map. The route profile, the
+   * lamps' terrain heights and the bridge decks do not apply there.
+   */
+  private get flatGround(): boolean {
+    return this.opts.offline === true || this.basemap === 'flat'
+  }
+
+  /**
+   * The fallback water the ships, the ferries, the buoys and the
+   * lighthouses ride until a pick answers: NHN 0 plus the calibrated
+   * offset plus a lift that clears the tiles' wavy water mesh
+   * (VesselLayer) – and on the flat map the plane itself, 0 m, where
+   * there is no mesh to clear and a hull a metre over the map would show
+   * it. Offline keeps the tiles' number: the specs' poses were set to it.
+   */
+  private get waterSurfaceHeight(): number {
+    return this.basemap === 'flat' ? 0 : this.routes.heightOffset + WATER_SURFACE_FALLBACK_LIFT
+  }
+
+  /** The ground the map draws from (see setBasemap). */
+  get currentBasemap(): Basemap {
+    return this.basemap
+  }
+
+  /**
+   * Switches the ground under everything: Google's tiles, or the flat
+   * map – a street map on the bare globe (see lib/basemap.ts and
+   * FlatBasemap). A swap, not a reload, like the city switch: the layers
+   * keep their records and are told that the ground moved.
+   *
+   * On the flat map every height is 0 m – the user's call (2026-09-14):
+   * no terrain, so the routes' profile, the stops, the lamps, the water
+   * the ships ride and the apron the aircraft stand on all lie on the
+   * one plane, and the air traffic comes down by the city's ground height
+   * (groundReference) so that an approach 300 m over the airport is
+   * 300 m over the map. The tileset goes: it is the tree the city switch
+   * rebuilds to let go of (replaceTileset), and a hidden tileset is still
+   * traversed – switching back builds a fresh one the way the first city
+   * did. The camera comes down with the ground, and back up with it, so
+   * the picture stands; a follow needs none of it (the camera hangs in
+   * its subject's frame, which moves with the ground).
+   */
+  setBasemap(kind: Basemap): void {
+    if (kind === this.basemap || this.destroyed) return
+    const groundBefore = this.defaultGroundHeight
+    this.basemap = kind
+    this.shiftCameraHeight(this.defaultGroundHeight - groundBefore)
+    if (kind === 'flat') {
+      this.dropTileset()
+      this.applyFlatGlobe(true)
+      this.opts.onTilesetStatus?.(this.opts.offline ? 'offline' : 'flat')
+    } else {
+      this.applyFlatGlobe(false)
+      if (!this.opts.offline) {
+        this.opts.onTilesetStatus?.('loading')
+        void this.loadGoogleTiles()
+      }
+    }
+    this.relayoutGround()
+  }
+
+  /** Debug/tests: the flat map's styles as they stand (see FlatBasemap). */
+  flatMapState(): FlatBasemap['state'] {
+    return this.flatMap.state
+  }
+
+  /**
+   * The globe as the flat map wants it – shown, with its pictures, and
+   * with the depth test against it on, so what lies under the plane (a
+   * hull below the waterline, a body in a tunnel) is under the map – or
+   * as the tiles want it. The globe itself stays until the tiles are in
+   * (loadGoogleTiles hides it); offline it wears the grid throughout.
+   */
+  private applyFlatGlobe(flat: boolean): void {
+    const globe = this.viewer.scene.globe
+    if (flat) {
+      globe.show = true
+      globe.depthTestAgainstTerrain = true
+      if (!this.opts.offline) this.flatMap.show(this.nightFactor)
+    } else {
+      this.flatMap.hide()
+      globe.depthTestAgainstTerrain = false
+    }
+    this.requestRender()
+  }
+
+  /** Lets the tileset go, and a replacement on its way with it (see setBasemap). */
+  private dropTileset(): void {
+    const scene = this.viewer.scene
+    if (this.replacement) {
+      scene.primitives.remove(this.replacement.tileset)
+      this.replacement = null
+    }
+    if (this.googleTileset) {
+      // remove() destroys it – all but what Cesium's command bins still
+      // point at, purged after the next frame (see purgeStaleCommands)
+      scene.primitives.remove(this.googleTileset)
+      this.googleTileset = null
+      this.commandPurgePending = true
+    }
+    // A height bootstrap still measuring throws its results away
+    this.bootstrapGeneration++
+    if (this.bootstrapTimer !== null) {
+      window.clearTimeout(this.bootstrapTimer)
+      this.bootstrapTimer = null
+    }
+  }
+
+  /**
+   * Tells every layer that the ground moved under it (see setBasemap):
+   * the routes are rewritten, the vehicles put on the new ground, every
+   * height picked or measured off the tiles forgotten, and a fresh
+   * surface generation has the layers ask again where a pick can answer.
+   * The lamps and the airfield lights follow their anchor on their own.
+   */
+  private relayoutGround(): void {
+    this.routes.relayout()
+    this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
+    this.vehicleLayer.resetClamps()
+    this.vesselLayer.resetClamps()
+    this.aircraftLayer.resetClamps()
+    this.buoys.resetClamps()
+    this.lighthouses.resetClamps()
+    this.stops.resetHeights()
+    this.webcamsLayer.resetHeights()
+    this.surfaceGeneration.bump(performance.now())
+    this.requestRender()
+  }
+
+  /**
+   * Moves the camera up or down by `deltaM` without turning it – the
+   * ground moved by that much under it (see setBasemap). Not in a follow:
+   * there the camera hangs in its subject's frame.
+   */
+  private shiftCameraHeight(deltaM: number): void {
+    if (deltaM === 0) return
+    const camera = this.viewer.camera
+    if (!Matrix4.equals(camera.transform, Matrix4.IDENTITY)) return
+    const carto = camera.positionCartographic
+    camera.setView({
+      destination: Cartesian3.fromRadians(carto.longitude, carto.latitude, carto.height + deltaM),
+      orientation: { heading: camera.heading, pitch: camera.pitch, roll: camera.roll },
+    })
+    this.enforceCameraLimits()
+    this.requestRender()
   }
 
   setCameraHome(animate = true): void {
@@ -2575,6 +2778,7 @@ export class CesiumMap {
     // No weather below ground – the clouds and their shadow go with the sky
     this.clouds.setUnderground(underground)
     this.tileShader?.setUniform('u_underground', underground ? 1 : 0)
+    this.flatMap.setUnderground(underground)
     // The sky belongs to the surface: with the city sunk into a dark relief
     // a bright daylight atmosphere above it reads as an eclipse.
     this.updateSkyVisibility()
@@ -2824,8 +3028,8 @@ export class CesiumMap {
           // Raise the base for all vehicles already running (the ongoing
           // per-tram sampling does the fine-tuning afterwards)
           const median = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)]
-          this.defaultGroundHeight = median
-          this.vehicleLayer.setGroundHeight(median)
+          this.groundReference = median
+          this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
         }
         this.render()
       }
@@ -2846,7 +3050,7 @@ export class CesiumMap {
     heights.sort((a, b) => a - b)
     console.info(
       `[MiniGermany3D] Tile heights determined (ellipsoidal): ` +
-        `min ${heights[0].toFixed(1)} m · median ${this.defaultGroundHeight.toFixed(1)} m · ` +
+        `min ${heights[0].toFixed(1)} m · median ${this.groundReference.toFixed(1)} m · ` +
         `max ${heights[heights.length - 1].toFixed(1)} m (${heights.length} sample points)`,
     )
 
@@ -3041,6 +3245,8 @@ export class CesiumMap {
     this.vehicleLayer.applyNightFactor(night)
     this.vesselLayer.applyNightFactor(night)
     this.aircraftLayer.applyNightFactor(night)
+    // The flat map's night style comes up along the same ramp
+    this.flatMap.applyNight(night)
   }
 
 

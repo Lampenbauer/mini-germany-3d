@@ -59,6 +59,9 @@ env:
   # second token would break that. A build downloaded and served from
   # somewhere other than that domain falls back to the wireframe globe.
   ION_TOKEN_DEPLOY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IlhQN3BHeHU1cE5FUGxsSnYiLCJqdGkiOiIyNTExMGU2Yi03ZmRkLTQ4ZGQtYjZjOS03YWZjNGNkMTE5MGEiLCJpZCI6NDY3MjAyLCJzdWIiOiJMYW1wZSIsImlzcyI6Imh0dHBzOi8vYXBpLmNlc2l1bS5jb20iLCJhdWQiOiJNaW5pIEdlcm1hbnkgM0QiLCJpYXQiOjE3ODkwNTcwODl9.WCStuvJT4BrUy9_nvfL9RtaSuk-yvWE9xjmGOS3IoWg
+  # The Mapbox token for the flat map, the same way: public, and locked
+  # to minigermany3d.com in the Mapbox account (see src/config.ts)
+  MAPBOX_TOKEN_DEPLOY: pk.eyJ1IjoibGFtcGVuYmF1ZXIiLCJhIjoiY211MHY3M2oxMTU1MjJ6czhhZGlxa2Z0OCJ9.fclX9yNUNKjQUowdd-4X2Q
 
 jobs:
   # A restore re-deploys an artifact that already passed all of this on
@@ -329,6 +332,7 @@ jobs:
           # everywhere; the E2E suite runs against the dev server, not
           # this build, so it does not care either way.
           export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_DEPLOY"
+          export VITE_MAPBOX_TOKEN="$MAPBOX_TOKEN_DEPLOY"
           npm run build
 
       - name: Install Playwright Chromium

@@ -95,7 +95,7 @@ function harness(fovDeg: number, cameraHeight: number, paceWholeView = false) {
     routeHeightOffset: 36.5,
     nightFactor: 0,
     pixelRatio: 1,
-    offline: true,
+    flatGround: true,
     fixedGroundHeight: 0,
     noteCameraFlight: () => {},
     paceWholeView,

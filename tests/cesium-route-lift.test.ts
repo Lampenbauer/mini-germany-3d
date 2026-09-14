@@ -14,7 +14,7 @@ interface AddedRoute {
   polyline?: { positions?: Cartesian3[] | ConstantProperty }
 }
 
-function harness() {
+function harness(flat = { flatGround: false }) {
   const added: AddedRoute[] = []
   const removed: AddedRoute[] = []
   const viewer = {
@@ -32,7 +32,13 @@ function harness() {
     },
     creditDisplay: { addStaticCredit: vi.fn(), removeStaticCredit: vi.fn() },
   } as unknown as Viewer
-  const layer = new RoutesLayer(viewer, { requestRender: vi.fn(), offline: false })
+  const layer = new RoutesLayer(viewer, {
+    requestRender: vi.fn(),
+    offline: false,
+    get flatGround() {
+      return flat.flatGround
+    },
+  })
   // A network with terrain heights: its pieces are drawn at absolute heights
   const withHeights: NetworkJson = JSON.parse(JSON.stringify(testNetworkJson))
   withHeights.lines[0].directions[0].heights = [5, 8, 11]
@@ -73,6 +79,30 @@ describe('route lift by camera height', () => {
     expect(h.layer.currentBaseLift).toBe(0.15)
     h.layer.updateForCameraHeight(ROUTE_LIFT_SWITCH_HEIGHT + 20)
     expect(h.layer.currentBaseLift).toBe(0.15)
+  })
+})
+
+describe('the flat map', () => {
+  it('flattens every height-based piece to the lift alone, and relayout() brings the profile back', () => {
+    const flat = { flatGround: false }
+    const h = harness(flat)
+    const piece = h.added.find((e) => e.polyline?.positions)!
+    // The profile plus the offset plus the far lift, as drawn
+    const profiled = h.heightsOf(piece)
+    expect(profiled[1] - profiled[0]).toBeCloseTo(3, 3)
+
+    // The ground became a plane (CesiumMap.setBasemap): 0 m plus the lift
+    flat.flatGround = true
+    h.layer.relayout()
+    h.heightsOf(piece).forEach((height) => expect(height).toBeCloseTo(0.8, 3))
+    // The lift still follows the camera on the plane
+    h.layer.updateForCameraHeight(100)
+    h.heightsOf(piece).forEach((height) => expect(height).toBeCloseTo(0.15, 3))
+
+    // And the tiles again: the profile is where it was, at the near lift
+    flat.flatGround = false
+    h.layer.relayout()
+    h.heightsOf(piece).forEach((height, i) => expect(height).toBeCloseTo(profiled[i] - 0.65, 3))
   })
 })
 

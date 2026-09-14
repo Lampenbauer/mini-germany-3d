@@ -186,7 +186,7 @@ describe('a vehicle badge over a picture', () => {
       routeHeightOffset: 36.5,
       nightFactor: 0,
       pixelRatio: 1,
-      offline: true,
+      flatGround: true,
       fixedGroundHeight: 0,
       noteCameraFlight: () => {},
       obstacles,

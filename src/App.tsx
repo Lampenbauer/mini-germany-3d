@@ -131,6 +131,7 @@ import { WebcamsClient, type Webcam } from '@/lib/webcams'
 import { browserStorage, setWelcomeHidden, welcomeHidden, welcomeWanted } from '@/lib/welcome'
 import type { ScheduleJson } from '@/lib/timetable'
 import { CesiumMap, type TilesetStatus } from '@/map/CesiumMap'
+import type { Basemap } from '@/lib/basemap'
 import { buildLinearSeed, LinearView, type LinearBox } from '@/map/LinearView'
 
 /** Debug/test API that the E2E tests use under window.__mg3d. */
@@ -195,8 +196,13 @@ export interface Mg3dTestApi {
   setLinear: (linear: boolean) => void
   /** Switches to another city the way the panel's picker does (flies there). */
   setCity: (slug: string) => void
-  /** Which basemap the map ended up on ('offline' with ?offline=1). */
+  /** Which ground the map ended up on ('offline' with ?offline=1, 'flat' on the flat map). */
   tilesetStatus: () => TilesetStatus
+  /** The ground the map draws from (see lib/basemap.ts), and the switch the layers popover makes. */
+  basemap: () => Basemap
+  setBasemap: (kind: Basemap) => void
+  /** The flat map's Mapbox styles as they stand (see map/FlatBasemap.ts) – none offline. */
+  flatMap: () => { shown: boolean; day: boolean; night: boolean; nightAlpha: number }
   /** GTFS-RT feed state and how many trips it matched (null = disabled). */
   realtimeStatus: () => RealtimeStatus | null
   lineIds: () => string[]
@@ -836,6 +842,8 @@ export default function App() {
   const currentViewRef = useRef<() => MapView>(() => 'surface')
   /** Picks a reading, so the viewer effect can reach selectView. */
   const selectViewRef = useRef<(view: MapView) => void>(() => {})
+  /** The flat map switch as the test API reaches it (defined with the other layer handlers below). */
+  const handleToggleFlatBasemapRef = useRef<(flat: boolean) => void>(() => {})
   /** Switches the traffic categories as an edited hash names them (see applyHiddenTraffic). */
   const applyHiddenTrafficRef = useRef<(hidden: ReadonlySet<TrafficCategory>) => void>(() => {})
   /** Raises the diagram without a morph, for a link that opens into it. */
@@ -908,6 +916,12 @@ export default function App() {
   const [showLabels, setShowLabels] = useState(true)
   /** The Layers switch for the webcam pictures; the list stays either way. */
   const [showWebcams, setShowWebcams] = useState(true)
+  /**
+   * The Layers switch for the flat map – a street map on the bare globe
+   * in place of Google's tiles, everything on it at 0 m (see
+   * lib/basemap.ts, CesiumMap.setBasemap). Off, the map is the tiles.
+   */
+  const [flatBasemap, setFlatBasemap] = useState(false)
   /**
    * The switch in the weather popover for the volumetric clouds (see
    * CloudLayer). Opens on config.weather.clouds3dDefault; the URL hash
@@ -1181,6 +1195,7 @@ export default function App() {
   const showStopsRef = useRef(showStops)
   const showLabelsRef = useRef(showLabels)
   const showWebcamsRef = useRef(showWebcams)
+  const flatBasemapRef = useRef(flatBasemap)
   const showCloudsRef = useRef(showClouds)
   const photoRef = useRef(photo)
   const pausedRef = useRef(paused)
@@ -1437,6 +1452,10 @@ export default function App() {
       showWebcamsRef.current = false
       setShowWebcams(false)
     }
+    if (uiState.flatBasemap) {
+      flatBasemapRef.current = true
+      setFlatBasemap(true)
+    }
     if (uiState.clouds !== showCloudsRef.current) {
       showCloudsRef.current = uiState.clouds
       setShowClouds(uiState.clouds)
@@ -1521,6 +1540,7 @@ export default function App() {
           stopsHidden: !showStopsRef.current,
           labelsHidden: !showLabelsRef.current,
           webcamsHidden: !showWebcamsRef.current,
+          flatBasemap: flatBasemapRef.current,
           weather: weatherModeRef.current,
           clouds: showCloudsRef.current,
           hiddenTraffic: hiddenTrafficNow(),
@@ -1570,6 +1590,7 @@ export default function App() {
       // default), so no swap has to run before the first frame.
       tiltShift: photoRef.current.tiltShift.enabled,
       clouds: showCloudsRef.current,
+      basemap: flatBasemapRef.current ? 'flat' : '3d',
       fixedGroundHeight: urlOpts.groundHeight,
       maximumScreenSpaceError: urlOpts.maximumScreenSpaceError,
       maxRainDrops: urlOpts.maxRainDrops,
@@ -1650,6 +1671,11 @@ export default function App() {
         showWebcamsRef.current = webcamsVisible
         setShowWebcams(webcamsVisible)
         map.setWebcamsVisible(webcamsVisible)
+      }
+      if (ui.flatBasemap !== flatBasemapRef.current) {
+        flatBasemapRef.current = ui.flatBasemap
+        setFlatBasemap(ui.flatBasemap)
+        map.setBasemap(ui.flatBasemap ? 'flat' : '3d')
       }
       const wantedWeather = hashWeatherMode(ui.weather, liveWeatherAvailable)
       if (wantedWeather !== weatherModeRef.current) handleWeatherMode(wantedWeather)
@@ -2363,6 +2389,9 @@ export default function App() {
       linear: () => linearRef.current,
       setLinear: (want: boolean) => selectViewRef.current(want ? 'linear' : 'surface'),
       tilesetStatus: () => tilesetStatusRef.current,
+      basemap: () => (flatBasemapRef.current ? 'flat' : '3d'),
+      setBasemap: (kind: Basemap) => handleToggleFlatBasemapRef.current(kind === 'flat'),
+      flatMap: () => map.flatMapState(),
       realtimeStatus: () => realtimeStatusRef.current,
       lineIds: () => cityDataRef.current?.network.lines.map((l) => l.id) ?? [],
       secondsOfDay: () => clock.secondsOfDay(),
@@ -3113,6 +3142,15 @@ export default function App() {
     mapRef.current?.setWebcamsVisible(visible)
     writeHashRef.current()
   }, [])
+
+  /** The flat map on or off – the ground under everything (see CesiumMap.setBasemap). */
+  const handleToggleFlatBasemap = useCallback((flat: boolean) => {
+    flatBasemapRef.current = flat
+    setFlatBasemap(flat)
+    mapRef.current?.setBasemap(flat ? 'flat' : '3d')
+    writeHashRef.current()
+  }, [])
+  handleToggleFlatBasemapRef.current = handleToggleFlatBasemap
 
   /**
    * A camera in the panel's list: the map flies to its picture. Switched
@@ -4344,6 +4382,8 @@ export default function App() {
                 showWebcams={showWebcams}
                 webcamsDisabled={underground}
                 onToggleWebcams={handleToggleWebcams}
+                flatBasemap={flatBasemap}
+                onToggleFlatBasemap={handleToggleFlatBasemap}
                 onFlyToWebcam={handleFlyToWebcam}
                 triggerClassName={GROUPED_CONTROL}
               />

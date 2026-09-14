@@ -406,6 +406,20 @@ export class StopsLayer {
   }
 
   /**
+   * Puts every stop back on the map's ground height and forgets what was
+   * measured on the tiles – the ground changed (see CesiumMap.setBasemap).
+   * With tiles, resolveHeights measures the stops near the camera again.
+   */
+  resetHeights(): void {
+    for (const record of this.stopRecords) {
+      record.sampledFrom = Number.POSITIVE_INFINITY
+      record.failedAtGeneration = -1
+      this.placeStop(record, this.host.defaultGroundHeight)
+    }
+    this.host.requestRender()
+  }
+
+  /**
    * An evenly spread subset of the stops for the one-off height bootstrap
    * (see CesiumMap.bootstrapGroundHeights).
    */

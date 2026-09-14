@@ -94,7 +94,7 @@ function harness(
     surfaceGeneration: () => generation,
     nightFactor: night,
     pixelRatio: 1,
-    offline: false,
+    flatGround: false,
     fixedGroundHeight: undefined,
     noteCameraFlight: () => {},
     ...(effects ? { wake: effects.wake, vehiclePositionAt: effects.positionAt } : {}),

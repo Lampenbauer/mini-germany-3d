@@ -151,8 +151,8 @@ export function hiddenModes(hidden: ReadonlySet<TrafficCategory>): Set<TransitMo
 
 /**
  * UI state that rides along in either hash form (camera pose or vehicle):
- * the Routes/Stops/Labels layer toggles, the sky, the webcams and the
- * clouds, the traffic categories switched off, the photo mode, the clock
+ * the Routes/Stops/Labels layer toggles, the flat map, the sky, the
+ * webcams and the clouds, the traffic categories switched off, the photo mode, the clock
  * as it was set by hand, and the pause state. Apart from the sky – which
  * every link names, so that it opens on the one it was copied from –
  * only deviations from the defaults (all layers on, every category on,
@@ -171,6 +171,12 @@ export interface HashUiState {
   labelsHidden: boolean
   /** The webcam pictures switched off in the panel (the layer's own boot flag is ?webcams=0). */
   webcamsHidden: boolean
+  /**
+   * The flat map under everything instead of Google's tiles (see
+   * lib/basemap.ts) – `basemap=flat`; the tiles are the map as it opens
+   * and are never written out.
+   */
+  flatBasemap: boolean
   /**
    * The sky in force – the live weather or one of the three picked ones
    * (see WeatherMode). Written out like the city, every session's sky
@@ -251,6 +257,7 @@ export function formatUiStateHash(state: HashUiState): string {
     (state.stopsHidden ? '&stops=0' : '') +
     (state.labelsHidden ? '&labels=0' : '') +
     (state.webcamsHidden ? '&webcams=0' : '') +
+    (state.flatBasemap ? '&basemap=flat' : '') +
     (hidden.length > 0 ? `&hide=${hidden.join(',')}` : '') +
     (state.weather ? `&weather=${state.weather}` : '') +
     clouds +
@@ -277,6 +284,8 @@ export function parseUiStateHash(hash: string): HashUiState {
     stopsHidden: params.get('stops') === '0',
     labelsHidden: params.get('labels') === '0',
     webcamsHidden: params.get('webcams') === '0',
+    // Any other word, or none, is the tiles
+    flatBasemap: params.get('basemap') === 'flat',
     // An unnamed or misspelled sky is no sky – whether this session can
     // show the one named is the caller's business (see hashWeatherMode).
     weather: isWeatherMode(params.get('weather')) ? (params.get('weather') as WeatherMode) : null,

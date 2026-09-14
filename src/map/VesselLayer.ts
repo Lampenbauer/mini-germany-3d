@@ -1110,6 +1110,20 @@ export class VesselLayer {
    * back is left to the next sync, which knows which hulls are inside
    * VESSEL_BODY_VISIBLE_RANGE.
    */
+  /**
+   * Forgets every height picked off the tiles: the ground changed under
+   * the fleet – the flat map came up, or the tiles came back (see
+   * CesiumMap.setBasemap) – and the next tick places every ship on the
+   * fallback water again and picks anew where a pick can answer.
+   */
+  resetClamps(): void {
+    for (const record of this.vessels.values()) {
+      record.clampedHeight = null
+      record.clampedGeneration = -1
+    }
+    this.host.requestRender()
+  }
+
   setVisible(visible: boolean): void {
     if (visible === this.visible) return
     this.visible = visible

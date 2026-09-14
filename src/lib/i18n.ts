@@ -36,6 +36,8 @@ const en = {
   'layers.showLabels': 'Show vehicle, ship and aircraft labels',
   'layers.webcams': 'Webcams',
   'layers.showWebcams': 'Show webcams',
+  'layers.flatMap': 'Flat map',
+  'layers.showFlatMap': 'Draw a flat street map instead of the 3D city',
   'webcams.flyTo': 'Fly to {name}',
   // What the city is shown under and through, rather than what is drawn
   // on it: the sky in the weather popover, the lens in the camera block.
@@ -381,7 +383,7 @@ const en = {
   'about.notRouting': 'For your next connection, use your transport operator’s app. This map is here to let you look around and discover.',
   'about.notComplete': 'Larger cities show a selection of lines to keep things running smoothly, such as the Metro buses in Berlin and Munich.',
   'about.builtTitle': 'Made possible by open data & 3D',
-  'about.built': 'Routes, stops, lighting, buoys and lighthouses: OpenStreetMap. Timetables: gtfs.de / DELFI. Terrain: the states’ open 1 m elevation models via Mapterhorn. City models: Google Photorealistic 3D Tiles and CesiumJS. Weather: Open-Meteo. Ships: aisstream.io. Aircraft: adsb.fi. Webcams: Windy. You’ll find the licences in the credits at the bottom of the map.',
+  'about.built': 'Routes, stops, lighting, buoys and lighthouses: OpenStreetMap. Timetables: gtfs.de / DELFI. Terrain: the states’ open 1 m elevation models via Mapterhorn. City models: Google Photorealistic 3D Tiles and CesiumJS. Flat map: Mapbox. Weather: Open-Meteo. Ships: aisstream.io. Aircraft: adsb.fi. Webcams: Windy. You’ll find the licences in the credits at the bottom of the map.',
   'about.keyboardLead': 'A few keys to move around your little world. Use them when this dialog is closed.',
   // The keyboard, listed in its own tab. Every entry names what
   // the key does, not the control it stands in for – the reader is
@@ -454,6 +456,8 @@ const de: Record<MessageKey, string> = {
   'layers.showLabels': 'Fahrzeug-, Schiffs- und Flugzeugbeschriftungen anzeigen',
   'layers.webcams': 'Webcams',
   'layers.showWebcams': 'Webcams anzeigen',
+  'layers.flatMap': 'Flache Karte',
+  'layers.showFlatMap': 'Flache Straßenkarte statt der 3D-Stadt zeichnen',
   'webcams.flyTo': 'Zu {name} fliegen',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
@@ -767,7 +771,7 @@ const de: Record<MessageKey, string> = {
   'about.notRouting': 'Für deine nächste Verbindung nimm am besten die App deines Verkehrsbetriebs. Hier kannst du dich umschauen und auf Entdeckungstour gehen.',
   'about.notComplete': 'Damit alles flüssig läuft, zeigen größere Städte eine Auswahl an Linien, etwa die Metrobusse in Berlin und München.',
   'about.builtTitle': 'Dank offener Daten & 3D',
-  'about.built': 'Wege, Haltestellen, Beleuchtung, Tonnen und Leuchtfeuer: OpenStreetMap. Fahrpläne: gtfs.de / DELFI. Gelände: offene 1-m-Höhenmodelle der Länder über Mapterhorn. Stadtmodelle: Google Photorealistic 3D Tiles und CesiumJS. Wetter: Open-Meteo. Schiffe: aisstream.io. Flugzeuge: adsb.fi. Webcams: Windy. Die Lizenzen findest du am unteren Kartenrand.',
+  'about.built': 'Wege, Haltestellen, Beleuchtung, Tonnen und Leuchtfeuer: OpenStreetMap. Fahrpläne: gtfs.de / DELFI. Gelände: offene 1-m-Höhenmodelle der Länder über Mapterhorn. Stadtmodelle: Google Photorealistic 3D Tiles und CesiumJS. Flache Karte: Mapbox. Wetter: Open-Meteo. Schiffe: aisstream.io. Flugzeuge: adsb.fi. Webcams: Windy. Die Lizenzen findest du am unteren Kartenrand.',
   'about.keyboardLead': 'Mit ein paar Tasten durch deine kleine Welt. Die Kürzel funktionieren, sobald du diesen Dialog schließt.',
   'keys.title': 'Tastatur',
   'keys.open': 'Tastaturkürzel',

@@ -129,7 +129,14 @@ export interface VehicleLayerHost {
    * (VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE) where the host says nothing.
    */
   readonly vehicleBodyRangeM?: number
-  readonly offline: boolean
+  /**
+   * The ground is a plane at defaultGroundHeight, known without asking
+   * the scene – offline (the bare ellipsoid) and on the flat map (see
+   * CesiumMap.setBasemap): the route profile does not apply, a vehicle
+   * rides the ground height it was given. Read per tick: the flat map is
+   * switched at runtime.
+   */
+  readonly flatGround: boolean
   /** Fixed ground height for the deterministic tests, if set. */
   readonly fixedGroundHeight: number | undefined
   /** A camera flight is starting – keeps the render loop at full rate. */
@@ -836,6 +843,19 @@ export class VehicleLayer {
    */
   setGroundHeight(height: number): void {
     for (const record of this.vehicles.values()) record.groundHeight = height
+    this.host.requestRender()
+  }
+
+  /**
+   * Forgets every water height the ferries picked off the tiles – the
+   * ground changed under them (see CesiumMap.setBasemap); the next tick
+   * floats each on the profile again and picks anew where it can.
+   */
+  resetClamps(): void {
+    for (const record of this.vehicles.values()) {
+      record.clampedHeight = null
+      record.clampedGeneration = -1
+    }
   }
 
   /**
@@ -1014,11 +1034,11 @@ export class VehicleLayer {
       // offset) whenever the direction carries DGM heights – deterministic,
       // congruent with the route polylines, and free of ray casts – except
       // on a bridge, where the deck measured on the tiles stands in for
-      // the profile (the routes take the same one). In offline mode the
-      // ground is the bare ellipsoid, where NHN heights would float
-      // mid-air, so the fallback below applies there too.
+      // the profile (the routes take the same one). Offline and on the
+      // flat map the ground is a plane (host.flatGround), where NHN
+      // heights would float mid-air, so the fallback below applies there.
       const routeGroundHeight =
-        this.host.fixedGroundHeight === undefined && !this.host.offline && snap.nhn !== undefined
+        this.host.fixedGroundHeight === undefined && !this.host.flatGround && snap.nhn !== undefined
           ? (this.host.bridgeDeckHeight?.(snap.lineId, snap.direction, snap.distance) ??
             snap.nhn + this.host.routeHeightOffset)
           : undefined

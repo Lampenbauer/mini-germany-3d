@@ -1,7 +1,8 @@
 /**
  * The layers button, above the camera block: what is drawn on the map.
  *
- * Routes, stops, the names on the vehicles, ships and aircraft, and the city's live
+ * Routes, stops, the names on the vehicles, ships and aircraft, the flat
+ * map under all of it, and the city's live
  * webcams. It used to be a block in the control panel, between the clock
  * and the line list – but none of that is about the timetable, and the
  * panel is long enough without it. Here it sits with the other controls
@@ -49,6 +50,13 @@ export interface LayersPopoverProps {
   webcamsDisabled: boolean
   /** A camera in the list was clicked: the map flies to its picture. */
   onFlyToWebcam: (id: number) => void
+  /**
+   * The flat map: a street map on the bare globe in place of Google's
+   * tiles, everything on it at 0 m (see lib/basemap.ts). The one switch
+   * here that changes the ground rather than what lies on it.
+   */
+  flatBasemap: boolean
+  onToggleFlatBasemap: (flat: boolean) => void
   /** Extra classes for the trigger – the rail styles its buttons itself. */
   triggerClassName?: string
 }
@@ -159,6 +167,16 @@ export function LayersPopover(props: LayersPopoverProps) {
               aria-label={t('layers.showLabels')}
               checked={props.showLabels}
               onCheckedChange={props.onToggleLabels}
+            />
+          </div>
+          {/* The ground itself, under the rows above: a street map instead
+              of the photo tiles, and with it every height flattened. */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm">{t('layers.flatMap')}</span>
+            <Switch
+              aria-label={t('layers.showFlatMap')}
+              checked={props.flatBasemap}
+              onCheckedChange={props.onToggleFlatBasemap}
             />
           </div>
           {props.webcams.length > 0 && (

@@ -111,6 +111,15 @@ export interface AircraftLayerHost {
    */
   readonly geoidHeight: number
   /**
+   * How far the map's ground has been lowered under the real one: 0 with
+   * the tiles, and on the flat map the city's ground height, which is
+   * flattened to 0 m there (see CesiumMap.setBasemap). Every reported
+   * altitude comes down by it, so an approach 300 m over the airport
+   * shows 300 m over the map and not 300 m plus the airport's own height.
+   * Absent, nothing is lowered.
+   */
+  readonly flattenedGroundM?: number
+  /**
    * Ellipsoid height of the loaded scene geometry under a position –
    * the tiles' own apron (scene.clampToHeight: an offscreen pick per
    * call, of the tiles alone). undefined where nothing is loaded yet or
@@ -567,8 +576,11 @@ export class AircraftLayer {
         height = (record.clampedHeight ?? this.host.defaultGroundHeight) + size.heightM / 2
       } else {
         // The track carries the geometric altitude where the aircraft
-        // reports one, the pressure altitude otherwise (see Aircraft)
-        height = aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight
+        // reports one, the pressure altitude otherwise (see Aircraft) –
+        // over a ground the flat map may have lowered
+        height =
+          (aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight) -
+          (this.host.flattenedGroundM ?? 0)
       }
       const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
       Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
@@ -815,6 +827,19 @@ export class AircraftLayer {
    * Hiding is applied here so the switch acts at once; bringing the
    * bodies back is left to the next sync, which knows the cutoffs.
    */
+  /**
+   * Forgets every apron height picked off the tiles – the ground changed
+   * under the traffic (see CesiumMap.setBasemap); the next tick stands
+   * every aircraft on the ground on the map's ground again.
+   */
+  resetClamps(): void {
+    for (const record of this.aircraft.values()) {
+      record.clampedHeight = null
+      record.clampedGeneration = -1
+    }
+    this.host.requestRender()
+  }
+
   setVisible(visible: boolean): void {
     if (visible === this.visible) return
     this.visible = visible
@@ -962,9 +987,8 @@ export class AircraftLayer {
     const height =
       sample.altM === null
         ? this.host.defaultGroundHeight + size.heightM / 2
-        : aircraft.altGeomM !== null
-          ? sample.altM
-          : sample.altM + this.host.geoidHeight
+        : (aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight) -
+          (this.host.flattenedGroundM ?? 0)
     const position = Cartesian3.fromDegrees(sample.lon, sample.lat, height)
     const matrix = Transforms.headingPitchRollToFixedFrame(
       position,

@@ -63,8 +63,13 @@ declare global {
       vehicleScreenPosition: (id: string) => { x: number; y: number } | null
       stopScreenPosition: (id: string) => { x: number; y: number } | null
       dataSource: string
-      /** Which basemap the map ended up on ('offline' with ?offline=1). */
-      tilesetStatus: () => 'loading' | 'google-3d-tiles' | 'offline' | 'failed'
+      /** Which ground the map ended up on ('offline' with ?offline=1, 'flat' on the flat map). */
+      tilesetStatus: () => 'loading' | 'google-3d-tiles' | 'flat' | 'offline' | 'failed'
+      /** The ground the map draws from (src/lib/basemap.ts), and the layers popover's switch. */
+      basemap: () => '3d' | 'flat'
+      setBasemap: (kind: '3d' | 'flat') => void
+      /** The flat map's Mapbox styles as they stand – none offline (src/map/FlatBasemap.ts). */
+      flatMap: () => { shown: boolean; day: boolean; night: boolean; nightAlpha: number }
       /** GTFS-RT feed state and matched trips (null = disabled). */
       realtimeStatus: () => { state: string; matchedCount: number } | null
       lineIds: () => string[]
@@ -256,6 +261,8 @@ declare global {
          * ready to draw.
          */
         primitives: { length: number; get: (index: number) => { id?: unknown; ready?: boolean } }
+        /** The globe under the flat map (see CesiumMap.applyFlatGlobe). */
+        globe: { show: boolean; depthTestAgainstTerrain: boolean }
       }
       entities: {
         values: {

@@ -532,4 +532,26 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(0)
   await expect.poll(async () => (await lighthouses()).alpha, slowPoll).toBe(0)
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
+
+  // The flat map, over the same water: offline it has no pictures (no
+  // Mapbox request without a token, and none in the tests), but the
+  // ground is switched all the same – the globe takes the depth test,
+  // the marks are set on the flat water again, the hash names it – and
+  // the tiles come back the same way. The loop runs on through both.
+  const ticks = () => page.evaluate(() => window.__mg3d!.loopTicks())
+  let tick = await ticks()
+  await page.evaluate(() => window.__mg3d!.setBasemap('flat'))
+  expect(await page.evaluate(() => window.__mg3d!.basemap())).toBe('flat')
+  expect(await page.evaluate(() => window.__mg3d!.tilesetStatus())).toBe('offline')
+  expect(await page.evaluate(() => window.__mg3d!.flatMap().shown)).toBe(false)
+  expect(await page.evaluate(() => window.__cesiumViewer!.scene.globe.depthTestAgainstTerrain)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('basemap=flat')
+  await expect.poll(ticks, slowPoll).toBeGreaterThan(tick + 2)
+  expect((await buoys()).shown).toBeGreaterThan(10)
+  tick = await ticks()
+  await page.evaluate(() => window.__mg3d!.setBasemap('3d'))
+  expect(await page.evaluate(() => window.__cesiumViewer!.scene.globe.depthTestAgainstTerrain)).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toContain('basemap=')
+  await expect.poll(ticks, slowPoll).toBeGreaterThan(tick + 2)
+  expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 })

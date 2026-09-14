@@ -319,6 +319,21 @@ export class BuoysLayer {
     this.host.requestRender()
   }
 
+  /**
+   * Forgets every height picked off the tiles – the water changed under
+   * the marks (see CesiumMap.setBasemap): the next sync sets each on the
+   * fallback surface again and picks anew where a pick can answer.
+   */
+  resetClamps(): void {
+    for (const record of this.records) {
+      record.clampedHeight = null
+      record.clampedGeneration = -1
+    }
+    // A fallback that did not move still has to be applied again
+    this.placedFallback = Number.NaN
+    this.host.requestRender()
+  }
+
   /** Underground view: the water is not down there. */
   setUnderground(underground: boolean): void {
     if (this.underground === underground) return

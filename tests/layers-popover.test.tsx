@@ -6,9 +6,9 @@ import { setLanguage } from '@/lib/i18n'
 
 /**
  * The layers popover on the map's control rail: the switches for routes,
- * stops and names, and under them the Webcams row – a switch like the
- * others, a caret that folds the city's cameras out, and a click on a
- * camera that flies to it.
+ * stops, names and the flat map, and under them the Webcams row – a
+ * switch like the others, a caret that folds the city's cameras out, and
+ * a click on a camera that flies to it.
  */
 
 beforeEach(() => {
@@ -20,6 +20,7 @@ function layers(overrides: Partial<LayersPopoverProps> = {}) {
   const onToggleWebcams = vi.fn()
   const onFlyToWebcam = vi.fn()
   const onToggleRoutes = vi.fn()
+  const onToggleFlatBasemap = vi.fn()
   const props: LayersPopoverProps = {
     interfaceHidden: false,
     showRoutes: true,
@@ -36,13 +37,15 @@ function layers(overrides: Partial<LayersPopoverProps> = {}) {
     webcamsDisabled: false,
     onToggleWebcams,
     onFlyToWebcam,
+    flatBasemap: false,
+    onToggleFlatBasemap,
     ...overrides,
   }
   render(<LayersPopover {...props} />)
   // The only button before the popover opens, and its name follows the
   // interface language – the German case would not find "Layers".
   fireEvent.click(screen.getByRole('button'))
-  return { onToggleWebcams, onFlyToWebcam, onToggleRoutes }
+  return { onToggleWebcams, onFlyToWebcam, onToggleRoutes, onToggleFlatBasemap }
 }
 
 describe('the layers popover', () => {
@@ -55,6 +58,14 @@ describe('the layers popover', () => {
     expect(screen.getByRole('switch', { name: 'Show vehicle, ship and aircraft labels' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('switch', { name: 'Show routes' }))
     expect(h.onToggleRoutes).toHaveBeenCalledWith(false)
+  })
+
+  it('switches the flat map on and off – the ground under the rest', () => {
+    const h = layers()
+    const flat = screen.getByRole('switch', { name: 'Draw a flat street map instead of the 3D city' })
+    expect(flat).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(flat)
+    expect(h.onToggleFlatBasemap).toHaveBeenCalledWith(true)
   })
 
   it('is left out while the city has no cameras', () => {

@@ -21,6 +21,36 @@ export const config = {
   cesiumIonToken: (import.meta.env?.VITE_CESIUM_ION_TOKEN as string | undefined) ?? '',
 
   /**
+   * The flat map – the layers popover's alternative to the 3D tiles (see
+   * lib/basemap.ts and map/FlatBasemap.ts): Mapbox raster tiles of two
+   * styles of the site's own, one drawn for the day and one for the
+   * night. The token is a public one and, like the Ion token above, comes
+   * from the environment only: the deployed site is built with one
+   * restricted to its own domain (see .github/workflows/ci.yml), a local
+   * checkout takes an unrestricted one from .env. Empty means no Mapbox
+   * access: the flat map is then the bare dark globe with the offline
+   * grid, and nothing is requested from Mapbox at all.
+   */
+  flatMap: {
+    mapboxToken: (import.meta.env?.VITE_MAPBOX_TOKEN as string | undefined) ?? '',
+    /**
+     * The styles, as `mapbox://styles/<user>/<id>` names them: one drawn
+     * by day, one at night, laid over the day's along the sun's ramp.
+     * They have to be CLASSIC styles – built from layers, like Mapbox's
+     * own light-v11 and dark-v11 – because the map draws them as raster
+     * tiles through the Static Tiles API, and a style built on Mapbox
+     * Standard (Studio's default template since 2024, an `imports` block
+     * with no layers of its own) comes out of that API as empty tiles:
+     * the site's own two styles, lampenbauer/cmu0uxyzx00fg01qy6vovc1kz
+     * (day) and lampenbauer/cmu0vcbgm00f801qtaj6c4s47 (night), are such
+     * and drew a bare globe (2026-09-14). Rebuilt on a classic template
+     * in Studio, their ids go here.
+     */
+    day: { user: 'mapbox', styleId: 'light-v11' },
+    night: { user: 'mapbox', styleId: 'dark-v11' },
+  },
+
+  /**
    * Filtered GTFS-Realtime endpoint (JSON, a few KB). Served by the Vite
    * middleware in the dev server, by api/realtime.php in production – both
    * fetch and filter the >10 MB Germany feed server-side (60 s cache) down

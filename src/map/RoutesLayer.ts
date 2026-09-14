@@ -37,6 +37,14 @@ export interface RoutesLayerHost {
    */
   readonly offline: boolean
   /**
+   * The ground is a plane at 0 m – offline, or on the flat map (see
+   * CesiumMap.setBasemap): every height-based piece lies at 0 m plus its
+   * lift, profile, deck and offset set aside. Read per rewrite: the flat
+   * map is switched at runtime, and relayout() rewrites the pieces then.
+   * Absent, the ground is the profile's (the layer tests).
+   */
+  readonly flatGround?: boolean
+  /**
    * Ellipsoidal height of a bridge deck measured on the tiles under a
    * point of a direction (see map/bridge-decks.ts), undefined where the
    * profile height applies. Optional: without it every piece rides the
@@ -216,6 +224,16 @@ export class RoutesLayer {
     if (underground === this.underground) return
     this.underground = underground
     this.host.requestRender()
+  }
+
+  /**
+   * The ground changed under the routes – the flat map came up or the
+   * tiles came back (see CesiumMap.setBasemap): every height-based piece
+   * is rewritten where the host now puts it. The draped pieces (the
+   * ferries' lines over the tiles) follow the surface on their own.
+   */
+  relayout(): void {
+    this.applyRouteHeightOffset()
   }
 
   /** Current NHN→ellipsoidal offset – the vehicles ride on it too. */
@@ -461,6 +479,10 @@ export class RoutesLayer {
     const lift = this.baseLift + piece.lift
     if (this.host.offline) {
       return piece.path.map(([lon, lat], i) => Cartesian3.fromDegrees(lon, lat, piece.heights[i] + lift))
+    }
+    // The flat map: the profile the pieces carry is flattened away
+    if (this.host.flatGround) {
+      return piece.path.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, lift))
     }
     const offset = this.routeHeightOffset
     const { lineId, direction, path, cum, heights } = piece
