@@ -535,8 +535,11 @@ stay true: a new third-party request from the browser, a cookie or an
 analytics script is a change to `legal.ts` as much as to the code, and
 to the German text first – it is the binding one, the English says so.
 The email in `OPERATOR` is written obfuscated on purpose (the user's
-call); the log retention in the hosting section ("nach kurzer Zeit")
-should be read against the hoster's AVV.
+call). The hosting section mirrors the KAS setting "Logs & Statistiken"
+as it stood on 2026-09-14 – IP addresses shortened by two octets
+(11.22.0.0), log files deleted after 90 days, a Webalizer-style access
+statistic generated from them – so a change to that setting is a change
+to the text, and the other way round.
 
 **The clock rides in the hash as it was set, never as it runs (since
 2026-09-13).** `date=YYYY-MM-DD` is the day picked in the panel's

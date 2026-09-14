@@ -93,13 +93,14 @@ const PRIVACY: Record<Lang, LegalText> = {
       {
         heading: 'Kurz gesagt',
         paragraphs: [
-          'Diese Seite setzt keine Cookies, hat kein Tracking, keine Analyse-Werkzeuge, keine Werbung und kein Konto. Was sie verarbeitet, ergibt sich aus dem, was eine Karte im Browser braucht: Der Server, der sie ausliefert, sieht deine IP-Adresse – und die Dienste, von denen die Karte ihre Stadtmodelle, das Wetter und die Webcam-Bilder holt, sehen sie ebenfalls. Alles Weitere steht unten.',
+          'Diese Seite setzt keine Cookies, hat kein Tracking, keine Analyse-Skripte, keine Werbung und kein Konto. Was sie verarbeitet, ergibt sich aus dem, was eine Karte im Browser braucht: Der Server, der sie ausliefert, sieht deine IP-Adresse und behält sie nur gekürzt – und die Dienste, von denen die Karte ihre Stadtmodelle, das Wetter und die Webcam-Bilder holt, sehen sie ebenfalls. Alles Weitere steht unten.',
         ],
       },
       {
         heading: 'Hosting und Server-Logfiles',
         paragraphs: [
-          'Die Seite wird bei ALL-INKL.COM – Neue Medien Münnich, Hauptstraße 68, 02742 Friedersdorf, gehostet. Bei jedem Aufruf speichert der Server in seinen Logfiles die IP-Adresse deines Geräts, Datum und Uhrzeit, die aufgerufene Adresse, die übertragene Datenmenge, die zuvor besuchte Seite (Referrer) und den verwendeten Browser (User-Agent). Diese Daten braucht es, um die Seite auszuliefern und den Betrieb abzusichern; sie werden nach kurzer Zeit gelöscht und mit keinen anderen Daten zusammengeführt.',
+          'Die Seite wird bei ALL-INKL.COM – Neue Medien Münnich, Hauptstraße 68, 02742 Friedersdorf, gehostet. Bei jedem Aufruf schreibt der Server in seine Logfiles die IP-Adresse deines Geräts – gekürzt um ihre letzten beiden Stellen, aus 11.22.33.44 wird 11.22.0.0, sodass sie sich keinem Anschluss mehr zuordnen lässt –, Datum und Uhrzeit, die aufgerufene Adresse, die übertragene Datenmenge, die zuvor besuchte Seite (Referrer) und den verwendeten Browser (User-Agent). Die Logfiles braucht es, um den Betrieb abzusichern und Fehler zu finden; sie werden nach 90 Tagen gelöscht und mit keinen anderen Daten zusammengeführt.',
+          'Aus den Logfiles erstellt der Hoster eine zusammengefasste Zugriffsstatistik – Seitenaufrufe je Tag, Browser, Herkunftsseiten –, die nur die gekürzten Adressen kennt und niemanden einzeln ausweist.',
           'Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO – mein berechtigtes Interesse an einem sicheren und funktionierenden Betrieb. Mit dem Hoster besteht ein Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO.',
         ],
       },
@@ -157,13 +158,14 @@ const PRIVACY: Record<Lang, LegalText> = {
       {
         heading: 'In short',
         paragraphs: [
-          'This site sets no cookies and has no tracking, no analytics, no advertising and no accounts. What it processes follows from what a map in a browser needs: the server that delivers it sees your IP address – and so do the services the map fetches its city models, the weather and the webcam pictures from. Everything else is below.',
+          'This site sets no cookies and has no tracking, no analytics scripts, no advertising and no accounts. What it processes follows from what a map in a browser needs: the server that delivers it sees your IP address and keeps it only shortened – and the services the map fetches its city models, the weather and the webcam pictures from see it too. Everything else is below.',
         ],
       },
       {
         heading: 'Hosting and server logs',
         paragraphs: [
-          'The site is hosted by ALL-INKL.COM – Neue Medien Münnich, Hauptstraße 68, 02742 Friedersdorf, Germany. On every request the server writes to its log files the IP address of your device, the date and time, the address requested, the amount of data transferred, the page you came from (referrer) and the browser you use (user agent). These data are needed to deliver the site and keep it secure; they are deleted after a short time and never combined with other data.',
+          'The site is hosted by ALL-INKL.COM – Neue Medien Münnich, Hauptstraße 68, 02742 Friedersdorf, Germany. On every request the server writes to its log files the IP address of your device – shortened by its last two parts, 11.22.33.44 becomes 11.22.0.0, so that it can no longer be traced to a connection –, the date and time, the address requested, the amount of data transferred, the page you came from (referrer) and the browser you use (user agent). The log files are needed to keep the site secure and to find faults; they are deleted after 90 days and never combined with other data.',
+          'From the log files the host builds an aggregated access statistic – page views per day, browsers, referring sites – which knows only the shortened addresses and singles out nobody.',
           'The legal basis is Art. 6 (1) (f) GDPR – my legitimate interest in a secure and working site. A data processing agreement under Art. 28 GDPR is in place with the host.',
         ],
       },
