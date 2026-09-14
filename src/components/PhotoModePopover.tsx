@@ -163,7 +163,11 @@ export function PhotoModePopover(props: PhotoModePopoverProps) {
         <ScrollArea className="max-h-[calc(100dvh-3.625rem)]" viewportClassName="scroll-fade-y">
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">{t('photo.title')}</div>
+              {/* The button's own icon before the title, as in the layers popover */}
+              <div className="flex items-center gap-2">
+                <Aperture aria-hidden className="text-muted-foreground size-4" />
+                <div className="text-sm font-medium">{t('photo.title')}</div>
+              </div>
               <Button
                 variant="ghost"
                 size="icon-sm"

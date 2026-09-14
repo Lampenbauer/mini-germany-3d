@@ -136,7 +136,13 @@ export function LayersPopover(props: LayersPopoverProps) {
           list keeps its own scroll (see WebcamsRow). */}
       <PopoverContent side="left" className="pointer-events-auto w-64">
         <div className="flex flex-col gap-2">
-          <div className="text-sm font-medium">{t('layers.title')}</div>
+          {/* The button's own icon before the title – the popover and the
+              round button that opened it are one thing (the bar over the
+              readings does the same with its clapperboard) */}
+          <div className="flex items-center gap-2">
+            <Layers aria-hidden className="text-muted-foreground size-4" />
+            <div className="text-sm font-medium">{t('layers.title')}</div>
+          </div>
           <div className="flex items-center justify-between">
             <span className="text-sm">{t('layers.routes')}</span>
             <Switch
