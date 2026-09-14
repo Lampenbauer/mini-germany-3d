@@ -159,6 +159,10 @@ vi.mock('@/map/CesiumMap', () => {
     // dialog that borrows them is covered in credits-dialog.test.tsx.
     onCreditsRequested() {}
     borrowCreditList() {}
+    addGlobeCredit() {}
+    get nightLevel() {
+      return 0
+    }
     hasVehicle() {
       return false
     }
@@ -340,15 +344,21 @@ describe('App (UI shell)', () => {
     vi.useFakeTimers()
     render(<App />)
     const rail = screen.getByTestId('map-rail')
+    // Half opacity while the pointer is elsewhere (jsdom can hover), full under it
+    expect(rail).toHaveClass('opacity-50')
+    expect(rail).toHaveClass('hover:opacity-100')
     expect(rail).not.toHaveClass('opacity-0')
     await vi.advanceTimersByTimeAsync(9_999)
     expect(rail).not.toHaveClass('opacity-0')
     await vi.advanceTimersByTimeAsync(1)
     expect(rail).toHaveClass('opacity-0')
+    // The one opacity at a time: the fade takes the half's place, not a seat beside it
+    expect(rail).not.toHaveClass('opacity-50')
     // The focus inside keeps it readable for a keyboard whatever the pointer does
     expect(rail).toHaveClass('focus-within:opacity-100')
     fireEvent.pointerMove(window)
     expect(rail).not.toHaveClass('opacity-0')
+    expect(rail).toHaveClass('opacity-50')
   })
 
   it('pause button toggles between pause and resume', () => {
@@ -549,7 +559,7 @@ describe('App (UI shell)', () => {
     expect(window.__mg3d!.renderProfile().shadowMapSize).toBe(8192)
   })
 
-  it('opens on the flat map a link names, and the switch writes it back into the hash', async () => {
+  it('opens on the flat map a link names, and the globe writes it back into the hash', async () => {
     window.history.replaceState(null, '', '/kiel/?welcome=0&offline=1#basemap=flat')
     render(<App />)
     await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
@@ -558,13 +568,12 @@ describe('App (UI shell)', () => {
     expect(window.__mg3d!.basemap()).toBe('flat')
     await waitFor(() => expect(window.location.hash).toContain('basemap=flat'))
 
-    // The switch in the layers popover
-    fireEvent.click(screen.getByRole('button', { name: 'Layers' }))
-    const flat = screen.getByRole('switch', { name: 'Draw a flat street map instead of the 3D city' })
-    expect(flat).toHaveAttribute('aria-checked', 'true')
-    fireEvent.click(flat)
+    // The globe in the middle of the rail names the ground a click brings
+    expect(screen.queryByRole('button', { name: 'Switch to the flat street map' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to the 3D city' }))
     expect(mockMoves.basemaps).toEqual(['flat', '3d'])
     expect(window.__mg3d!.basemap()).toBe('3d')
+    expect(screen.getByRole('button', { name: 'Switch to the flat street map' })).toBeInTheDocument()
     // The tiles are the map as it opens, never written out
     await waitFor(() => expect(window.location.hash).not.toContain('basemap='))
 

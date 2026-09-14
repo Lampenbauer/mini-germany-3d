@@ -13,6 +13,7 @@ import {
   Cartesian3,
   Cartographic,
   Color,
+  Credit,
   createGooglePhotorealistic3DTileset,
   CustomShader,
   Entity,
@@ -2471,6 +2472,28 @@ export class CesiumMap {
   /** Open-Meteo attribution (CC-BY 4.0) – call once when weather is enabled. */
   addWeatherCredit(): void {
     this.weather.addCredit()
+  }
+
+  /**
+   * The credit for the stills of Germany on the rail's globe
+   * (public/globe/, see GlobeIllustration): Mapbox's Static Images,
+   * whose terms want their attribution somewhere on the page when the
+   * picture itself carries none – an 84 px disc cannot. In the credit
+   * list rather than on screen, like adsb.fi's; the maps are Mapbox's
+   * and OpenStreetMap's, the satellite picture Maxar's.
+   */
+  addGlobeCredit(): void {
+    this.viewer.creditDisplay.addStaticCredit(
+      new Credit(
+        'Globe: &copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; Maxar',
+        false,
+      ),
+    )
+  }
+
+  /** The night ramp as the map has it, 0 = day … 1 = full night (see updateNightFactor). */
+  get nightLevel(): number {
+    return this.nightFactor
   }
 
   /** Debug/test: raindrops currently on screen. */

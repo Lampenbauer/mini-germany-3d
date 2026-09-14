@@ -36,8 +36,6 @@ const en = {
   'layers.showLabels': 'Show vehicle, ship and aircraft labels',
   'layers.webcams': 'Webcams',
   'layers.showWebcams': 'Show webcams',
-  'layers.flatMap': 'Flat map',
-  'layers.showFlatMap': 'Draw a flat street map instead of the 3D city',
   'webcams.flyTo': 'Fly to {name}',
   // What the city is shown under and through, rather than what is drawn
   // on it: the sky in the weather popover, the lens in the camera block.
@@ -338,6 +336,9 @@ const en = {
   'view.controls': 'View controls',
   'view.fullscreen': 'Full screen',
   'view.exitFullscreen': 'Leave full screen',
+  /** The globe on the rail names the ground a click on it switches TO, like the full-screen button. */
+  'basemap.toFlat': 'Switch to the flat street map',
+  'basemap.to3d': 'Switch to the 3D city',
   /** The view tabs name what they show, not what pressing them does. */
   'view.readings': 'View',
   'view.surface': 'Surface',
@@ -456,8 +457,6 @@ const de: Record<MessageKey, string> = {
   'layers.showLabels': 'Fahrzeug-, Schiffs- und Flugzeugbeschriftungen anzeigen',
   'layers.webcams': 'Webcams',
   'layers.showWebcams': 'Webcams anzeigen',
-  'layers.flatMap': 'Flache Karte',
-  'layers.showFlatMap': 'Flache Straßenkarte statt der 3D-Stadt zeichnen',
   'webcams.flyTo': 'Zu {name} fliegen',
   'scene.tiltShift': 'Miniatureffekt',
   'scene.showTiltShift': 'Miniatureffekt anzeigen',
@@ -734,6 +733,8 @@ const de: Record<MessageKey, string> = {
   'view.controls': 'Ansichtssteuerung',
   'view.fullscreen': 'Vollbild',
   'view.exitFullscreen': 'Vollbild verlassen',
+  'basemap.toFlat': 'Zur flachen Straßenkarte wechseln',
+  'basemap.to3d': 'Zur 3D-Stadt wechseln',
   'view.readings': 'Ansicht',
   'view.surface': 'Oberfläche',
   'view.underground': 'Untergrund',

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import {
   Building2,
   CircleHelp,
@@ -10,6 +18,8 @@ import {
 } from 'lucide-react'
 import { ControlPanel, type CityChoice, type LineToggleInfo } from '@/components/ControlPanel'
 import { LayersPopover, type WebcamChoice } from '@/components/LayersPopover'
+import { GlobeIllustration } from '@/components/GlobeIllustration'
+import { orbitLayout, type OrbitPlace } from '@/lib/rail-orbit'
 import { CompassIcon } from '@/components/CompassIcon'
 import { PhotoModePopover } from '@/components/PhotoModePopover'
 import { CameraPathBar, type CameraPathControls } from '@/components/CameraPathBar'
@@ -635,22 +645,6 @@ function medianStopNhn(network: PreparedNetwork): number {
 }
 
 /**
- * A button inside the view-control group at the lower right: the group
- * draws the frame and the glass, each button only its own hairline to the
- * one above it. Everything here has to beat the secondary variant, which
- * tailwind-merge lets the later class win.
- */
-const GROUPED_CONTROL =
-  'rounded-none border-t border-border/60 bg-transparent shadow-none first:border-t-0'
-
-/**
- * The glass box a rail button sits in, whether it holds one button or
- * five. Built the same way in every case on purpose: a bordered box
- * around a borderless button is 2 px wider than the same button carrying
- * its own border, and a lone button styled by hand ended up narrower than
- * the group above it.
- */
-/**
  * Where a card stands: the upper right, beside the map, on a desktop –
  * under the weather button, which keeps that corner while a card is
  * up (top-16 is its 1rem + h-9 + a 0.75rem gap) – and on a phone (under
@@ -663,8 +657,45 @@ const GROUPED_CONTROL =
 const CARD_SLOT =
   'pointer-events-none absolute right-4 top-16 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
 
-const RAIL_BOX =
-  'pointer-events-auto flex flex-col overflow-hidden rounded-md border border-border/60 bg-card/85 shadow-xs backdrop-blur-xl'
+/**
+ * A button on the map's control rail: round, and carrying its own glass –
+ * the hairline border, the frosted card colour, the blur – because every
+ * button there stands on its own now (see the dial below and
+ * lib/rail-orbit.ts); the boxes that once held them in columns are gone.
+ * Everything here has to beat the secondary variant, which
+ * tailwind-merge lets the later class win.
+ */
+const ROUND_CONTROL =
+  'pointer-events-auto rounded-full border border-border/60 bg-card/85 shadow-xs backdrop-blur-xl'
+
+/** The dial's geometry – computed once, it never changes (see lib/rail-orbit.ts). */
+const RAIL_ORBIT = orbitLayout()
+
+/**
+ * A place on the dial: on a desktop the child stands at the slot's
+ * corner inside the rail's box, absolutely; on a phone – or with no
+ * place given, in the diagram's short column – it is simply the next
+ * item of the column. The offsets travel as CSS variables so the same
+ * markup can be flowed below Tailwind's sm and placed above it.
+ */
+function OrbitSlot(props: { place: OrbitPlace | null; className?: string; children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        'pointer-events-none',
+        props.place && 'sm:absolute sm:top-(--y) sm:left-(--x)',
+        props.className,
+      )}
+      style={
+        props.place
+          ? ({ '--x': `${props.place.left}px`, '--y': `${props.place.top}px` } as CSSProperties)
+          : undefined
+      }
+    >
+      {props.children}
+    </div>
+  )
+}
 
 /**
  * A tooltip that also teaches the key: "Back to the city (R)". The key goes
@@ -988,6 +1019,12 @@ export default function App() {
    * stays the real one.
    */
   const [temperatureC, setTemperatureC] = useState<number | null>(null)
+  /**
+   * The night as the rail's globe shows it – the map's ramp in steps
+   * of a twentieth, so the UI tick re-renders the globe a handful of
+   * times per dusk and not every quarter second (see GlobeIllustration).
+   */
+  const [globeNight, setGlobeNight] = useState(0)
   const [showAisVessels, setShowAisVessels] = useState(urlOpts.ais)
   const [showAircraft, setShowAircraft] = useState(urlOpts.aircraft)
   /** H: the whole interface out of the way (see the effect below). */
@@ -995,9 +1032,13 @@ export default function App() {
   /**
    * The pointer has rested for RAIL_IDLE_MS: the rail fades. Never on a
    * device that cannot hover – there a finger between touches is always
-   * at rest, and the rail would fade into every visit for good.
+   * at rest, and the rail would fade into every visit for good. The
+   * same device keeps the rail at full opacity all the time: the half
+   * opacity it stands at while the pointer is elsewhere (railDimmed)
+   * is a hover's counterpart, and a finger never hovers.
    */
   const [railIdle, setRailIdle] = useState(false)
+  const [railDimmed] = useState(() => !hoverUnavailable())
   useEffect(() => {
     if (hoverUnavailable()) return
     return watchPointerIdle(window, RAIL_IDLE_MS, setRailIdle)
@@ -1613,6 +1654,8 @@ export default function App() {
     // own lightbox on it; the credits belong in the same dialog as the
     // rest of this interface (see CreditsDialog).
     map.onCreditsRequested(() => setCreditsOpen(true))
+    // The stills of Germany on the rail's globe are Mapbox's
+    map.addGlobeCredit()
 
     // The diagram lives over the map inside the same stage, so the morph
     // can start from where the map has each line on screen right now.
@@ -2216,6 +2259,7 @@ export default function App() {
               // The reading on the weather button follows the same moment,
               // whichever sky is picked; same-value updates bail out in React
               setTemperatureC(reading?.temperatureC ?? null)
+              setGlobeNight(Math.round(map.nightLevel * 20) / 20)
               // Below ground there is no weather: no drops falling around the
               // camera, and no overcast grade on a city seen from underneath.
               const weatherVisible = !undergroundRef.current
@@ -4342,170 +4386,251 @@ export default function App() {
           </SegmentedControl>
         </div>
 
-        {/* Map controls at the lower right: the four that only ever aim
-            the camera or the window, joined into one block – compass,
-            2D/3D, camera reset, and full screen last. All of it belongs to
-            the map, so the diagram keeps only full screen, which is the
-            window's. */}
-        {/* On a phone the column stands at the top instead, clear of the
-            sheet at the foot; the boxes close up a little so the three of
-            them end above where the sheet opens to. */}
-        {/* Faded out once the pointer has rested a while (railIdle): the
-            boxes are not what a hand at rest is looking at. The fade is
-            slow, the way back on the first movement quick; the focus
-            inside keeps it, for a reader stepping through by keyboard. */}
+        {/* The map's controls at the lower right, on a dial: the globe
+            in the middle switches the ground under everything – Google's
+            tiles or the flat street map, and it shows the one a click
+            brings – and the small round buttons stand on an arc around
+            it, from the About button at the lower left over the layers,
+            the photo mode, the compass and 2D/3D at the top to the camera
+            reset and full screen on the right (lib/rail-orbit.ts). The
+            diagram keeps only full screen, the window's, and About, the
+            reader's, in a short column: nothing else there is on screen. */}
+        {/* On a phone the same buttons stand in a column at the top,
+            clear of the sheet at the foot, and the desktop-only ones –
+            the photo mode, full screen – leave. */}
+        {/* At half its opacity while the pointer is elsewhere (railDimmed,
+            the user's call of 2026-09-14 – the camera path bar's manner),
+            full under it or with the focus inside, for a reader stepping
+            through by keyboard. The way back under the pointer is quick,
+            the step down waits a moment: the wrapper lets the pointer
+            through to the map between the buttons, so a pointer crossing
+            the dial leaves and enters it at every gap, and without the
+            delay the rail would flicker on its way across – a second, the
+            user's call, so a hand that lingers beside a button is not
+            dimmed under. Faded out
+            entirely once the pointer has rested a while (railIdle): the
+            buttons are not what a hand at rest is looking at. That fade
+            is slow, the way back on the first movement quick. */}
         <div
           data-testid="map-rail"
           className={cn(
-            'pointer-events-none absolute right-4 bottom-8 z-10 flex flex-col items-end gap-3 transition-opacity duration-150 focus-within:opacity-100 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto max-sm:gap-2',
+            'pointer-events-none absolute right-4 bottom-8 z-10 transition-opacity duration-150 focus-within:opacity-100 focus-within:delay-0 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto',
+            railDimmed && 'opacity-50 delay-1000 hover:opacity-100 hover:delay-0',
             railIdle && 'opacity-0 duration-1000',
           )}
         >
-          {/* What is drawn on the map, above the block that aims the camera
-              at it: routes, stops, the names, the webcams. Its own button
-              rather than a fifth in the group below – that group is the
-              camera's, and none of this points anywhere. It goes with the
-              map in the diagram, as the camera's block does: nothing it
-              switches is on screen there. The switches themselves outlive
-              the reading, so the map comes back as it was left. */}
-          {!linear && (
-            <div className={RAIL_BOX}>
-              <LayersPopover
-                interfaceHidden={interfaceHidden}
-                showRoutes={showRoutes}
-                onToggleRoutes={handleToggleRoutes}
-                showStops={showStops}
-                onToggleStops={handleToggleStops}
-                showLabels={showLabels}
-                onToggleLabels={handleToggleLabels}
-                webcams={webcamChoices}
-                showWebcams={showWebcams}
-                webcamsDisabled={underground}
-                onToggleWebcams={handleToggleWebcams}
-                flatBasemap={flatBasemap}
-                onToggleFlatBasemap={handleToggleFlatBasemap}
-                onFlyToWebcam={handleFlyToWebcam}
-                triggerClassName={GROUPED_CONTROL}
-              />
+          <div
+            className={cn(
+              'relative flex flex-col items-end gap-2',
+              !linear && 'sm:block sm:h-(--orbit-h) sm:w-(--orbit-w)',
+            )}
+            style={
+              {
+                '--orbit-w': `${RAIL_ORBIT.width}px`,
+                '--orbit-h': `${RAIL_ORBIT.height}px`,
+              } as CSSProperties
+            }
+          >
+            {/* The camera's own buttons, as one group for a screen reader:
+                compass, 2D/3D, camera reset, the photo mode, full screen.
+                On the dial each stands in its slot; on a phone they are the
+                head of the column. The group is a box the size of the dial
+                that lets the pointer through to the map between them. */}
+            <div
+              role="group"
+              aria-label={t('view.controls')}
+              className={cn(
+                'flex flex-col items-end gap-2',
+                !linear && 'sm:absolute sm:inset-0 sm:block',
+              )}
+            >
+              {!linear && (
+                <OrbitSlot place={RAIL_ORBIT.slots.compass}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className={ROUND_CONTROL}
+                        aria-label={alignHeadingLabel}
+                        onClick={handleAlignHeading}
+                      >
+                        {/* The needle points where the camera looks on a
+                            north-up dial, so the icon reads as the view's own
+                            compass – solid end north, hollow end south. */}
+                        <CompassIcon
+                          className="size-4 transition-transform duration-300 ease-out"
+                          style={{ transform: `rotate(${cameraHeading}deg)` }}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">{withKey(alignHeadingLabel, 'C')}</TooltipContent>
+                  </Tooltip>
+                </OrbitSlot>
+              )}
+              {!linear && (
+                <OrbitSlot place={RAIL_ORBIT.slots.tilt}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className={cn(ROUND_CONTROL, 'font-bold')}
+                        aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
+                        onClick={handleToggleViewMode}
+                      >
+                        {cameraIs2D ? '3D' : '2D'}
+                      </Button>
+                    </TooltipTrigger>
+                    {/* The digit names the view to be in, not the flip: from
+                        2D the key that gets you out is 3 (see the key handler). */}
+                    <TooltipContent side="left">
+                      {cameraIs2D ? withKey(t('camera.to3d'), '3') : withKey(t('camera.to2d'), '2')}
+                    </TooltipContent>
+                  </Tooltip>
+                </OrbitSlot>
+              )}
+              {!linear && (
+                <OrbitSlot place={RAIL_ORBIT.slots.home}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className={ROUND_CONTROL}
+                        aria-label={t('camera.reset')}
+                        onClick={handleResetCamera}
+                      >
+                        <Home aria-hidden />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">{withKey(t('camera.reset'), 'R')}</TooltipContent>
+                  </Tooltip>
+                </OrbitSlot>
+              )}
+              {/* The photo mode – lens, exposure, grade and the miniature
+                  look – is a camera on the map, not a command to it, so it
+                  goes with the map and not with the diagram. A lens, an
+                  exposure and a miniature blur are a desktop's pleasures:
+                  on a phone the button leaves (see lib/viewport.ts). */}
+              {!linear && (
+                <OrbitSlot place={RAIL_ORBIT.slots.photo} className="max-sm:hidden">
+                  <PhotoModePopover
+                    interfaceHidden={interfaceHidden}
+                    settings={photo}
+                    onChange={handlePhotoChange}
+                    cameraPathOpen={cameraPathOpen}
+                    onToggleCameraPath={() => setCameraPathOpen((open) => !open)}
+                    triggerClassName={ROUND_CONTROL}
+                  />
+                </OrbitSlot>
+              )}
+              {/* Full screen is the window's, not the camera's – it stays
+                  in the diagram. A phone's browser is its own full screen. */}
+              {fullscreenAvailable && (
+                <OrbitSlot place={linear ? null : RAIL_ORBIT.slots.fullscreen} className="max-sm:hidden">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className={ROUND_CONTROL}
+                        aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
+                        aria-pressed={fullscreen}
+                        onClick={handleToggleFullscreen}
+                      >
+                        {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      {withKey(fullscreen ? t('view.exitFullscreen') : t('view.fullscreen'), 'F')}
+                    </TooltipContent>
+                  </Tooltip>
+                </OrbitSlot>
+              )}
             </div>
-          )}
-          <div role="group" aria-label={t('view.controls')} className={RAIL_BOX}>
+            {/* What is drawn on the map: routes, stops, the names, the
+                webcams. Not in the camera's group – none of this points
+                anywhere. It goes with the map in the diagram: nothing it
+                switches is on screen there. The switches themselves outlive
+                the reading, so the map comes back as it was left. */}
             {!linear && (
+              <OrbitSlot place={RAIL_ORBIT.slots.layers}>
+                <LayersPopover
+                  interfaceHidden={interfaceHidden}
+                  showRoutes={showRoutes}
+                  onToggleRoutes={handleToggleRoutes}
+                  showStops={showStops}
+                  onToggleStops={handleToggleStops}
+                  showLabels={showLabels}
+                  onToggleLabels={handleToggleLabels}
+                  webcams={webcamChoices}
+                  showWebcams={showWebcams}
+                  webcamsDisabled={underground}
+                  onToggleWebcams={handleToggleWebcams}
+                  onFlyToWebcam={handleFlyToWebcam}
+                  triggerClassName={ROUND_CONTROL}
+                />
+              </OrbitSlot>
+            )}
+            {/* The ground itself, in the middle of the dial: a globe wearing
+                the look a click on it brings – the street map while the
+                tiles are up, the photographed earth on the flat map (see
+                lib/basemap.ts, GlobeIllustration). The one large button on
+                the map; on a phone it is one of the column. */}
+            {!linear && (
+              <OrbitSlot place={RAIL_ORBIT.globe}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      // size-21 is ORBIT_GLOBE_PX (lib/rail-orbit.ts): the
+                      // dial is laid out for exactly this diameter. No border:
+                      // the picture's own rim of shade is its edge.
+                      className={cn(
+                        ROUND_CONTROL,
+                        'overflow-hidden border-0 p-0 transition-transform hover:scale-105 sm:size-21',
+                      )}
+                      aria-label={flatBasemap ? t('basemap.to3d') : t('basemap.toFlat')}
+                      onClick={() => handleToggleFlatBasemap(!flatBasemap)}
+                    >
+                      <GlobeIllustration
+                        city={city.slug}
+                        look={flatBasemap ? 'photo' : 'streets'}
+                        night={globeNight}
+                        className="size-full"
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {flatBasemap ? t('basemap.to3d') : t('basemap.toFlat')}
+                  </TooltipContent>
+                </Tooltip>
+              </OrbitSlot>
+            )}
+            {/* What the map is, and the keyboard at the end of it. It is not
+                a control of the map: it commands nothing and aims nothing,
+                it is where the reader is told what they are looking at, so
+                it stands at the foot of the dial, apart from the camera's
+                group. */}
+            <OrbitSlot place={linear ? null : RAIL_ORBIT.slots.about}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="secondary"
                     size="icon"
-                    className={GROUPED_CONTROL}
-                    aria-label={alignHeadingLabel}
-                    onClick={handleAlignHeading}
+                    className={ROUND_CONTROL}
+                    aria-label={t('about.open')}
+                    aria-pressed={aboutOpen}
+                    onClick={() => setAboutOpen((open) => !open)}
                   >
-                    {/* The needle points where the camera looks on a
-                        north-up dial, so the icon reads as the view's own
-                        compass – solid end north, hollow end south. */}
-                    <CompassIcon
-                      className="size-4 transition-transform duration-300 ease-out"
-                      style={{ transform: `rotate(${cameraHeading}deg)` }}
-                    />
+                    <CircleHelp aria-hidden />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">{withKey(alignHeadingLabel, 'C')}</TooltipContent>
+                <TooltipContent side="left">{t('about.open')}</TooltipContent>
               </Tooltip>
-            )}
-            {!linear && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className={cn(GROUPED_CONTROL, 'font-bold')}
-                    aria-label={cameraIs2D ? t('camera.to3d') : t('camera.to2d')}
-                    onClick={handleToggleViewMode}
-                  >
-                    {cameraIs2D ? '3D' : '2D'}
-                  </Button>
-                </TooltipTrigger>
-                {/* The digit names the view to be in, not the flip: from
-                    2D the key that gets you out is 3 (see the key handler). */}
-                <TooltipContent side="left">
-                  {cameraIs2D ? withKey(t('camera.to3d'), '3') : withKey(t('camera.to2d'), '2')}
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {!linear && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className={GROUPED_CONTROL}
-                    aria-label={t('camera.reset')}
-                    onClick={handleResetCamera}
-                  >
-                    <Home aria-hidden />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">{withKey(t('camera.reset'), 'R')}</TooltipContent>
-              </Tooltip>
-            )}
-            {/* The photo mode – lens, exposure, grade and the miniature
-                look – is a camera on the map, not a command to it, so it
-                goes with the map and not with the diagram. */}
-            {!linear && (
-              // A lens, an exposure and a miniature blur are a desktop's
-              // pleasures: on a phone the button leaves (see lib/viewport.ts)
-              <PhotoModePopover
-                interfaceHidden={interfaceHidden}
-                settings={photo}
-                onChange={handlePhotoChange}
-                cameraPathOpen={cameraPathOpen}
-                onToggleCameraPath={() => setCameraPathOpen((open) => !open)}
-                triggerClassName={cn(GROUPED_CONTROL, 'max-sm:hidden')}
-              />
-            )}
-            {/* Full screen is the window's, not the camera's – it stays */}
-            {fullscreenAvailable && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    // A phone's browser is its own full screen
-                    className={cn(GROUPED_CONTROL, 'max-sm:hidden')}
-                    aria-label={fullscreen ? t('view.exitFullscreen') : t('view.fullscreen')}
-                    aria-pressed={fullscreen}
-                    onClick={handleToggleFullscreen}
-                  >
-                    {fullscreen ? <Minimize aria-hidden /> : <Maximize aria-hidden />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {withKey(fullscreen ? t('view.exitFullscreen') : t('view.fullscreen'), 'F')}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-          {/* What the map is, and the keyboard at the end of it – on its
-              own below the block. It is not a control of the map: it
-              commands nothing and aims nothing, it is where the reader is
-              told what they are looking at, so it stands apart from the
-              group rather than in it. */}
-          <div className={RAIL_BOX}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className={GROUPED_CONTROL}
-                  aria-label={t('about.open')}
-                  aria-pressed={aboutOpen}
-                  onClick={() => setAboutOpen((open) => !open)}
-                >
-                  <CircleHelp aria-hidden />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">{t('about.open')}</TooltipContent>
-            </Tooltip>
+            </OrbitSlot>
           </div>
         </div>
       </div>

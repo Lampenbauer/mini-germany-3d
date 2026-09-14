@@ -133,10 +133,12 @@ moved, and follow it into:
 
 Worked example: adding a city means `definitions.ts`, the README intro *and*
 Cities section *and* attribution list, `city.name.<slug>` in both i18n
-tables, a new `tests/<slug>.test.ts`, and a run of
-`scripts/build-og-images.mjs` for its link-preview picture — six places,
-one of which compiles fine while being wrong (the picture is the one a
-test catches: `tests/site-pages.test.ts` wants one per page).
+tables, a new `tests/<slug>.test.ts`, a run of
+`scripts/build-og-images.mjs` for its link-preview picture and one of
+`scripts/build-globe-images.mjs` for the rail globe's three stills of
+it — seven places, two of which compile fine while being wrong (the
+pictures are what a test catches: `tests/site-pages.test.ts` wants one
+per page, `tests/globe-illustration.test.tsx` three per city).
 
 **Commits land on `main`.** `git checkout -b`, `git switch -c` and
 `git checkout -- .` are denied by the permission policy here, so the working
@@ -257,8 +259,9 @@ the title went first; and nothing inside a card may call
 `scrollIntoView`, which scrolls every scrollable ancestor – the vehicle
 card's stop list took the card's head off screen with it, so it scrolls
 its own viewport now. The weather moves to the upper left, the readings
-to the top centre, the rail to the upper right with `gap-2`, so its three
-boxes end above where the sheet opens. The line diagram, the photo mode
+to the top centre, the rail to the upper right as a column of round
+buttons with `gap-2` – the globe among them at button size – which ends
+above where the sheet opens. The line diagram, the photo mode
 and full screen are not offered (`max-sm:hidden`), and `selectView`
 refuses `'linear'` on a narrow viewport, so a link cannot open it either.
 `e2e/mobile-layout.spec.ts` pins all of it at 393×852 with touch. Not
@@ -368,19 +371,63 @@ simulation had never ticked in jsdom.
 
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
-to the boxes at the lower right: the layers popover (routes, stops, names,
-the flat map, webcams), the camera's block, the photo popover. The Layers block moved out of
+to the rail at the lower right: the layers popover (routes, stops, names,
+webcams), the camera's buttons, the photo popover, and the ground itself. The Layers block moved out of
 the panel on 2026-09-08 for exactly that reason; do not move map switches back
-into it. All three boxes are built the same way (`RAIL_BOX` + `GROUPED_CONTROL`
-in [src/App.tsx](src/App.tsx)) – a lone button styled by hand comes out 2 px
-narrower than the group above it, because the group's border sits outside its
-buttons. Since 2026-09-12 the rail fades out once the pointer has rested
+into it. Since 2026-09-14 the rail is a **dial** (the user's design from
+an earlier project): a round globe in the middle, 84 px (`size-21`;
+100 and 92 were tried and found large – the buttons stand on the ring
+a 92 px globe would fill, `ORBIT_RING_PX`, and only the globe shrank)
+– the ground switch, Google's tiles or
+the flat street map, wearing the look a click brings: the city on the
+map from above, as Mapbox's light map while the tiles are up, the dark
+map crossfaded over it along the night ramp (`globeNight` in App.tsx,
+the map's `nightLevel` in twentieths), the satellite picture on the
+flat map ([GlobeIllustration](src/components/GlobeIllustration.tsx)).
+A city switch crossfades to the next city's picture: the one left
+behind stays beneath while the next fades in over `GLOBE_FADE_MS`
+through `@starting-style` (Tailwind's `starting:` variant – the
+`animate-in`/`fade-in` classes shadcn's popover carries are dead in
+this build, no `tw-animate-css` is installed) and is dropped on
+`transitionend`, or after the same time where none fires. The stills
+are three per city from Mapbox's Static Images API in `public/globe/`
+(the city limits centred, zoomed to fit the disc with a quarter level
+of margin), drawn once by `scripts/build-globe-images.mjs` with the
+unrestricted token and committed – nothing is fetched at run time, so
+the privacy notice is untouched, and their credit stands in the credit
+list (`CesiumMap.addGlobeCredit`), as Mapbox's terms want when the
+picture carries none. A new city needs a run of the script;
+`tests/globe-illustration.test.tsx` fails until it has one. No gloss
+and no border on the globe (the user's call): the picture with its rim
+of shade is the button. A vector globe from Natural Earth came first
+and showed the whole of Europe, then Germany, then Germany as Mapbox's
+still; the user wanted the city (2026-09-14). Every other button is round
+and stands on an arc around it, 35° apart from the About button at
+the lower left over the layers, the photo mode, the compass and 2D/3D
+at the top to the camera reset and full screen on the right
+([src/lib/rail-orbit.ts](src/lib/rail-orbit.ts), pure; `tests/rail-orbit.test.ts`
+proves nothing overlaps). Each button carries its own glass
+(`ROUND_CONTROL` in [src/App.tsx](src/App.tsx)); the columns of boxes
+and their `RAIL_BOX`/`GROUPED_CONTROL` are gone. The slots are absolute
+positions from `sm` up, handed over as CSS variables (`OrbitSlot`), and
+a plain column below it – a phone gets the same buttons stacked at the
+upper right, the globe among them at button size; the diagram keeps a
+short column of full screen and About, since nothing else on the dial
+is on screen there. A button the browser has not got (full screen on
+iOS) leaves its slot empty rather than moving the rest. No zoom and no
+measure button, by the user's call. The rail stands at half its opacity
+while the pointer is elsewhere (`railDimmed`, the same day, the camera
+path bar's manner) and comes back under it or with the focus inside;
+the step down waits a second, because the wrapper lets the pointer
+through to the map between the buttons and a pointer crossing the dial
+would otherwise flicker at every gap – never where `(hover: none)` holds,
+where a finger never hovers and the rail would stay dim for good. Since 2026-09-12 the rail fades out once the pointer has rested
 `RAIL_IDLE_MS` (10 s) – a slow fade, a quick return on the first movement,
 press, wheel or key ([src/lib/pointer-idle.ts](src/lib/pointer-idle.ts),
 `watchPointerIdle` on the window, `railIdle` in App.tsx) – and keeps
 `focus-within:opacity-100` for a reader stepping through it by keyboard.
 Never where `(hover: none)` holds: a finger between touches is always at
-rest, and the rail would fade into every visit for good. The boxes stay
+rest, and the rail would fade into every visit for good. The buttons stay
 in the layout and clickable while faded; the pointer that reaches them
 has moved, so they are back before it arrives.
 
@@ -593,7 +640,7 @@ opens a link with `hide=bus&con=1.2` and takes both away with an edited
 hash.
 
 **The flat map swaps the ground, and everything on it lies at 0 m
-(since 2026-09-14).** The layers popover's "Flat map" switch
+(since 2026-09-14).** The globe in the middle of the rail's dial
 (`basemap=flat` in the hash, `CesiumMap.setBasemap`) takes Google's
 tileset off – destroyed, not hidden: a hidden tileset is still traversed,
 and the tree is what the city switch rebuilds to let go of – and shows
