@@ -10,8 +10,8 @@
  * implementation, never a copy of it.
  *
  * The fixture's messages are spread 90 s apart from a fixed instant, so
- * the run crosses three hour boundaries; a last batch 73½ hours later
- * opens an hour whose creation prunes the first one (72 hours kept).
+ * the run crosses three hour boundaries; a last batch 121½ hours later
+ * opens an hour whose creation prunes the first one (120 hours kept).
  */
 
 import { execFileSync } from 'node:child_process'
@@ -29,7 +29,7 @@ const NOW = 1_800_000_000_000
 
 const messages = JSON.parse(readFileSync(fixture, 'utf8'))
 const entries = messages.map((message, i) => ({ atMs: NOW + i * 90_000, message }))
-const LATE = NOW + 73.5 * 3_600_000
+const LATE = NOW + 121.5 * 3_600_000
 for (const [i, message] of messages.slice(0, 10).entries()) {
   entries.push({ atMs: LATE + i * 90_000, message })
 }

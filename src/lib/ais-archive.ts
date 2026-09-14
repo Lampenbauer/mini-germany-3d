@@ -1,5 +1,5 @@
 /**
- * The AIS archive: the harbour traffic of the last three days, recorded
+ * The AIS archive: the harbour traffic of the last five days, recorded
  * by the keeper as it listens and replayed by the app when the clock is
  * set into the past.
  *

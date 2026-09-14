@@ -661,7 +661,7 @@ describe('App (UI shell)', () => {
     // The panel shows what the link set, as if it had been typed here
     expect(screen.getByLabelText('Set simulation time')).toHaveValue('06:15')
     expect(
-      screen.getByRole('button', { name: 'Set simulation date (two days back to a week ahead)' }),
+      screen.getByRole('button', { name: 'Set simulation date (four days back to a week ahead)' }),
     ).toHaveTextContent(`${parseInt(tomorrow.slice(8), 10)}.`)
     // … and the hash keeps carrying it, unchanged by the running clock
     fireEvent.click(screen.getByRole('button', { name: 'Pause simulation' }))
@@ -764,10 +764,10 @@ describe('App (UI shell)', () => {
     expect(screen.getByLabelText('Set simulation time')).toHaveValue('')
   })
 
-  it('sets the simulated day from the calendar, two days back to a week ahead, and Now brings it back', async () => {
+  it('sets the simulated day from the calendar, four days back to a week ahead, and Now brings it back', async () => {
     render(<App />)
     const trigger = screen.getByRole('button', {
-      name: 'Set simulation date (two days back to a week ahead)',
+      name: 'Set simulation date (four days back to a week ahead)',
     })
     // The button opens on the day the simulation stands on – today, until
     // one is picked – in the one shape every language gets: "8. Sep 2026"
@@ -778,15 +778,15 @@ describe('App (UI shell)', () => {
     fireEvent.click(trigger)
     // react-day-picker's month is a grid; its day buttons carry data-day
     const calendar = await screen.findByRole('grid')
-    // The calendar's days: the two days before today – the ones the AIS
+    // The calendar's days: the four days before today – the ones the AIS
     // archive still holds – and a week from today can be picked, the rest
     // is disabled
     const today = berlinDateKey(Date.now())
     const tomorrow = berlinDateKey(Date.now() + 86_400_000)
-    const twoDaysAgo = berlinDateKey(Date.now() - 2 * 86_400_000)
+    const fourDaysAgo = berlinDateKey(Date.now() - 4 * 86_400_000)
     const dayButtons = [...calendar.querySelectorAll<HTMLButtonElement>('button[data-day]')]
     const enabled = dayButtons.filter((b) => !b.disabled)
-    expect(enabled).toHaveLength(10)
+    expect(enabled).toHaveLength(12)
     const dayNumber = String(parseInt(tomorrow.slice(8), 10))
     const tomorrowButton = enabled.find((b) => b.textContent === dayNumber)!
     const secondsBefore = window.__mg3d!.secondsOfDay()
@@ -806,10 +806,10 @@ describe('App (UI shell)', () => {
     const earliest = [...reopened.querySelectorAll<HTMLButtonElement>('button[data-day]')].filter(
       (b) => !b.disabled,
     )[0]
-    expect(earliest.textContent).toBe(String(parseInt(twoDaysAgo.slice(8), 10)))
+    expect(earliest.textContent).toBe(String(parseInt(fourDaysAgo.slice(8), 10)))
     fireEvent.click(earliest)
-    expect(window.__mg3d!.dateKey()).toBe(twoDaysAgo)
-    expect(trigger).toHaveTextContent(shortDay(twoDaysAgo))
+    expect(window.__mg3d!.dateKey()).toBe(fourDaysAgo)
+    expect(trigger).toHaveTextContent(shortDay(fourDaysAgo))
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
     expect(window.__mg3d!.dateKey()).toBe(today)
     // … and gives the day up again with the clock, back to today, off the URL

@@ -1,5 +1,5 @@
 /**
- * The sky's recording: the air traffic of the last three days, recorded
+ * The sky's recording: the air traffic of the last five days, recorded
  * by a keeper as it polls and replayed by the app when the clock is set
  * into the past – the harbour's archive (ais-archive.ts) for the
  * aircraft, on the same hour files (archive-hours.ts).

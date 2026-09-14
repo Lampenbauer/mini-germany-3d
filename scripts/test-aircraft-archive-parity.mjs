@@ -18,7 +18,7 @@
  * and comes back (gone from the snapshot, then a static line again),
  * and callsigns that appear late (a static line mid-hour). The polls
  * start ten minutes before an hour boundary and run across it; a last
- * batch three days later opens an hour whose creation prunes the first.
+ * batch five days later opens an hour whose creation prunes the first.
  *
  * Third check: the cover circle the keeper polls (php aircraft.php
  * --cover) must be the one aircraft-archive.ts derives from the city
@@ -41,8 +41,8 @@ const fixture = join(root, 'tests/fixtures/adsb-aircraft.json')
 const START = 1_800_000_000_000 - 10 * 60_000
 const POLL_MS = 15_000
 const POLLS = 300
-/** 72 h 40 min later: the hour it opens keeps the recording from 08:30 the first day on – hour 07 goes, hour 08 stays. */
-const LATE = START + 72 * 3_600_000 + 40 * 60_000
+/** 120 h 40 min later: the hour it opens keeps the recording from 08:30 the first day on – hour 07 goes, hour 08 stays. */
+const LATE = START + 120 * 3_600_000 + 40 * 60_000
 
 // PHP walks the cities/ folders in alphabetical order – so does the writer here
 const cities = [...CITIES]
@@ -146,10 +146,10 @@ const ok = (() => {
   const wanted = [
     'berlin/2027-01-15T08',
     'berlin/2027-01-15T09',
-    'berlin/2027-01-18T08',
+    'berlin/2027-01-20T08',
     'frankfurt/2027-01-15T08',
     'frankfurt/2027-01-15T09',
-    'frankfurt/2027-01-18T08',
+    'frankfurt/2027-01-20T08',
   ]
   if (JSON.stringify(expectedNames) !== JSON.stringify(wanted)) {
     return fail(`❌ The sequence should leave ${wanted.join(', ')}; it left ${expectedNames.join(', ')}`)

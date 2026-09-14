@@ -57,9 +57,9 @@ describe('weatherAt', () => {
   })
 
   it('reaches back over the days the calendar offers, counted in UTC', () => {
-    // Two Berlin days back begin at 22:00 UTC of the evening before – the
-    // third UTC day back covers it (see WEATHER_PAST_DAYS)
-    expect(WEATHER_PAST_DAYS).toBeGreaterThanOrEqual(3)
+    // Four Berlin days back begin at 22:00 UTC of the evening before – the
+    // fifth UTC day back covers it (see WEATHER_PAST_DAYS)
+    expect(WEATHER_PAST_DAYS).toBeGreaterThanOrEqual(5)
   })
 })
 

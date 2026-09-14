@@ -203,10 +203,10 @@ describe('AircraftArchiveWriter', () => {
       DLH3Y_STATIC,
       ['3c65a2', nextHour + 4_500, 54.3, 12.1, 10850.9, 10553.7, 457.7, 291.8, 297.7, 4.9, -0.5, false],
     ])
-    // Three days later the first hour is pruned when a new one opens
-    const later = NOW + 73 * ARCHIVE_HOUR_MS
+    // Five days later the first hour is pruned when a new one opens
+    const later = NOW + 121 * ARCHIVE_HOUR_MS
     writer.record(state, { ac: [airliner()] }, later)
-    expect([...files.keys()].sort()).toEqual(['rostock/2027-01-15T09', 'rostock/2027-01-18T09'])
+    expect([...files.keys()].sort()).toEqual(['rostock/2027-01-15T09', 'rostock/2027-01-20T09'])
   })
 
   it('snapshots only the fresh aircraft inside the circle, sorted by address', () => {

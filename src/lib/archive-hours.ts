@@ -9,11 +9,11 @@
  */
 
 /**
- * How long a recording is kept: three days, the two the calendar offers
+ * How long a recording is kept: five days, the four the calendar offers
  * behind today plus today itself. Mirror of MG3D_AIS_ARCHIVE_KEEP_HOURS
  * and MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS.
  */
-export const ARCHIVE_KEEP_HOURS = 72
+export const ARCHIVE_KEEP_HOURS = 120
 export const ARCHIVE_HOUR_MS = 3_600_000
 /**
  * A simulated moment this far behind the real clock is replayed from the

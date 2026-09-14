@@ -96,7 +96,7 @@ describe('the aircraft in the control panel', () => {
     fireEvent.focus(info)
     const note = await screen.findAllByText(/fly in real time/i)
     expect(note.length).toBeGreaterThan(0)
-    expect(note[0]).toHaveTextContent(/set back – up to two days – replays the traffic recorded then/i)
+    expect(note[0]).toHaveTextContent(/set back – up to four days – replays the traffic recorded then/i)
     expect(note[0]).toHaveTextContent(/only pausing holds them/i)
   })
 

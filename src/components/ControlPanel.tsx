@@ -101,7 +101,7 @@ export interface ControlPanelProps {
   enteredTime: string | null
   /** Set the simulation time to "HH:MM"; '' withdraws the entry (the clock runs on). */
   onSetTime: (hhmm: string) => void
-  /** Set the simulated calendar day, "YYYY-MM-DD" (two days back to a week ahead). */
+  /** Set the simulated calendar day, "YYYY-MM-DD" (four days back to a week ahead). */
   onSetDate: (dateKey: string) => void
   /** Reset the simulation time to the real clock, giving up the day and the time entered. */
   onResetTime: () => void
@@ -162,14 +162,14 @@ const MODE_ORDER: readonly TransitMode[] = TRANSIT_MODES
  */
 const DATE_PICKER_DAYS_AHEAD = 7
 /**
- * How far back: the two days whose harbour and air traffic the
+ * How far back: the four days whose harbour and air traffic the
  * recordings still hold (ARCHIVE_KEEP_HOURS in lib/archive-hours.ts –
- * three days, this one included) and whose weather the feed answers for
+ * five days, this one included) and whose weather the feed answers for
  * (WEATHER_PAST_DAYS in lib/weather.ts). The timetable is the same on
  * any day; the ships, the aircraft and the sky are what a day in the
  * past has to show.
  */
-const DATE_PICKER_DAYS_BACK = 2
+const DATE_PICKER_DAYS_BACK = 4
 
 /** A "YYYY-MM-DD" day as the local-time Date the calendar shows it as. */
 function localDay(dateKey: string): Date {
@@ -276,7 +276,7 @@ export function ControlPanel(props: ControlPanelProps) {
   // does. The day picked and the time typed are the app's (pickedDate,
   // enteredTime): they go into the URL, and a link brings them back.
   const [dateOpen, setDateOpen] = useState(false)
-  // The picker's range: two days back to a week ahead, as calendar days in
+  // The picker's range: four days back to a week ahead, as calendar days in
   // the timetable's zone. Re-read on every render – the panel renders once
   // a second for the clock, so midnight moves the range on its own. The
   // calendar speaks local Dates; a Berlin day is handed to it as the local

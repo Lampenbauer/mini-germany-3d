@@ -18,7 +18,7 @@ const en = {
   'sim.pause': 'Pause simulation',
   'sim.resume': 'Resume simulation',
   'sim.setTime': 'Set simulation time',
-  'sim.setDate': 'Set simulation date (two days back to a week ahead)',
+  'sim.setDate': 'Set simulation date (four days back to a week ahead)',
   'sim.now': 'Now',
   'sim.timeLapse': 'Time-lapse',
   // The notice (a toast) when the clock is moved past the present – see
@@ -117,7 +117,7 @@ const en = {
   'traffic.showAis': 'Show the AIS ships',
   'traffic.aisClockLabel': 'What the clock does to the ships',
   'traffic.aisClockNote':
-    'The ships sail in real time, and a clock set back – up to two days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
+    'The ships sail in real time, and a clock set back – up to four days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
   'traffic.running': '{count} out now',
   'traffic.aisCount': '{count} ships',
   // The air traffic after the ships – every aircraft over the city's
@@ -128,7 +128,7 @@ const en = {
   'traffic.aircraftCount': '{count} aircraft',
   'traffic.aircraftClockLabel': 'What the clock does to the aircraft',
   'traffic.aircraftClockNote':
-    'The aircraft fly in real time, and a clock set back – up to two days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
+    'The aircraft fly in real time, and a clock set back – up to four days – replays the traffic recorded then. A clock set ahead leaves them in the present; only pausing holds them.',
   // City card (the network in numbers, behind the panel head's info button)
   'city.facts': '{name} in numbers',
   'city.factsSubtitle': 'The network in numbers',
@@ -379,7 +379,7 @@ const en = {
   'about.notTitle': 'Moving to the timetable',
   'about.notLive': 'The trains and buses follow their timetables, with reported delays taken into account. Their positions are calculated, rather than tracked by GPS. A train running three minutes late appears where it would have been three minutes earlier.',
   'about.shipsTitle': 'The harbour and the sky are live',
-  'about.notShips': 'Ships and aircraft are the exception: their positions come from AIS and ADS-B transponders. When a ship or an aircraft sends an update, it moves on the map too – and the last three days of both are kept, so a clock set back replays the harbour and the sky as they were.',
+  'about.notShips': 'Ships and aircraft are the exception: their positions come from AIS and ADS-B transponders. When a ship or an aircraft sends an update, it moves on the map too – and the last five days of both are kept, so a clock set back replays the harbour and the sky as they were.',
   'about.exploreTitle': 'A place to explore',
   'about.notRouting': 'For your next connection, use your transport operator’s app. This map is here to let you look around and discover.',
   'about.notComplete': 'Larger cities show a selection of lines to keep things running smoothly, such as the Metro buses in Berlin and Munich.',
@@ -441,7 +441,7 @@ const de: Record<MessageKey, string> = {
   'sim.pause': 'Simulation pausieren',
   'sim.resume': 'Simulation fortsetzen',
   'sim.setTime': 'Simulationszeit einstellen',
-  'sim.setDate': 'Simulationsdatum wählen (zwei Tage zurück bis in einer Woche)',
+  'sim.setDate': 'Simulationsdatum wählen (vier Tage zurück bis in einer Woche)',
   'sim.now': 'Jetzt',
   'sim.timeLapse': 'Zeitraffer',
   'sim.aheadNotice': 'Schiffe und Flugzeuge bleiben in Echtzeit',
@@ -529,14 +529,14 @@ const de: Record<MessageKey, string> = {
   'traffic.showAis': 'AIS-Schiffe anzeigen',
   'traffic.aisClockLabel': 'Was die Uhr mit den Schiffen macht',
   'traffic.aisClockNote':
-    'Die Schiffe fahren in Echtzeit, und eine zurückgestellte Uhr – bis zu zwei Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
+    'Die Schiffe fahren in Echtzeit, und eine zurückgestellte Uhr – bis zu vier Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
   'traffic.aircraft': 'Flugzeuge',
   'traffic.aircraftHint': 'Echter Flugverkehr',
   'traffic.showAircraft': 'Flugzeuge anzeigen',
   'traffic.aircraftCount': '{count} Flugzeuge',
   'traffic.aircraftClockLabel': 'Was die Uhr mit den Flugzeugen macht',
   'traffic.aircraftClockNote':
-    'Die Flugzeuge fliegen in Echtzeit, und eine zurückgestellte Uhr – bis zu zwei Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
+    'Die Flugzeuge fliegen in Echtzeit, und eine zurückgestellte Uhr – bis zu vier Tage – spielt den damals aufgezeichneten Verkehr ab. Eine vorgestellte Uhr lässt sie in der Gegenwart; nur die Pause hält sie an.',
   'traffic.running': '{count} unterwegs',
   'traffic.aisCount': '{count} Schiffe',
   // City card (the network in numbers, behind the panel head's info button)
@@ -767,7 +767,7 @@ const de: Record<MessageKey, string> = {
   'about.notTitle': 'Unterwegs nach Fahrplan',
   'about.notLive': 'Bahnen und Busse folgen ihrem Fahrplan, gemeldete Verspätungen werden eingerechnet. Ihre Positionen sind berechnet, nicht per GPS gemessen. Eine Bahn mit drei Minuten Verspätung erscheint dort, wo sie drei Minuten früher gewesen wäre.',
   'about.shipsTitle': 'Im Hafen und am Himmel wird’s live',
-  'about.notShips': 'Schiffe und Flugzeuge sind die Ausnahme: Ihre Positionen stammen von AIS- und ADS-B-Transpondern. Wenn ein Schiff oder ein Flugzeug ein Update sendet, bewegt es sich auch auf der Karte weiter – und die letzten drei Tage von beiden bleiben erhalten, sodass eine zurückgestellte Uhr Hafen und Himmel zeigt, wie sie waren.',
+  'about.notShips': 'Schiffe und Flugzeuge sind die Ausnahme: Ihre Positionen stammen von AIS- und ADS-B-Transpondern. Wenn ein Schiff oder ein Flugzeug ein Update sendet, bewegt es sich auch auf der Karte weiter – und die letzten fünf Tage von beiden bleiben erhalten, sodass eine zurückgestellte Uhr Hafen und Himmel zeigt, wie sie waren.',
   'about.exploreTitle': 'Platz zum Entdecken',
   'about.notRouting': 'Für deine nächste Verbindung nimm am besten die App deines Verkehrsbetriebs. Hier kannst du dich umschauen und auf Entdeckungstour gehen.',
   'about.notComplete': 'Damit alles flüssig läuft, zeigen größere Städte eine Auswahl an Linien, etwa die Metrobusse in Berlin und München.',

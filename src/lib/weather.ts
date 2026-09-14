@@ -17,13 +17,13 @@
  */
 
 /**
- * How many days back the series reaches. The calendar offers two days
+ * How many days back the series reaches. The calendar offers four days
  * behind today (DATE_PICKER_DAYS_BACK in ControlPanel.tsx – the days the
  * ships' and the aircraft's recordings hold), and the feed counts its
  * days in UTC: the earliest day's midnight in Berlin is 22:00 UTC of the
- * evening before, so three UTC days cover the calendar's two.
+ * evening before, so five UTC days cover the calendar's four.
  */
-export const WEATHER_PAST_DAYS = 3
+export const WEATHER_PAST_DAYS = 5
 /** The feed's grid, and what a series without a second step is assumed to run on. */
 export const WEATHER_STEP_MS = 900_000
 

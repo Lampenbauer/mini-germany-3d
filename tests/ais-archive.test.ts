@@ -160,9 +160,9 @@ describe('AisArchiveWriter', () => {
       [2, NOW + 2 * AIS_ARCHIVE_HOUR_MS + 1_000],
       [3, NOW + AIS_ARCHIVE_HOUR_MS + 50 * 60_000],
     ])
-    // Three days on, the first hours are gone with the next file opened
-    writer.record(state, positionReport(4, 54.1, 12.1), NOW + 74 * AIS_ARCHIVE_HOUR_MS)
-    expect([...files.keys()].sort()).toEqual(['rostock/2027-01-15T10', 'rostock/2027-01-18T10'])
+    // Five days on, the first hours are gone with the next file opened
+    writer.record(state, positionReport(4, 54.1, 12.1), NOW + 122 * AIS_ARCHIVE_HOUR_MS)
+    expect([...files.keys()].sort()).toEqual(['rostock/2027-01-15T10', 'rostock/2027-01-20T10'])
   })
 
   it('snapshots only the ships inside the box, sorted by MMSI', () => {

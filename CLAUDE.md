@@ -1604,8 +1604,8 @@ opened an empty card would be worse than one that opens the harbour.
 **The harbour is recorded, and a clock set back replays it (since
 2026-09-11).** Every fix the keeper hears also goes into an archive – one
 NDJSON file per city and UTC hour, a snapshot of every ship alive at the
-top of each so an hour reads on its own, three days kept
-(`AIS_ARCHIVE_KEEP_HOURS`), the writer in
+top of each so an hour reads on its own, five days kept
+(`AIS_ARCHIVE_KEEP_HOURS`, 120 h – three until 2026-09-14), the writer in
 [src/lib/ais-archive.ts](src/lib/ais-archive.ts) with its PHP twin in
 `ais.php` and `scripts/test-ais-archive-parity.mjs` holding the two to the
 same files. The app asks the same endpoint for `&hour=…` whenever the
@@ -1621,7 +1621,7 @@ live (the user's choice), a pause holds whichever source drew the
 picture; where nothing was recorded – before the archive began, an hour
 the keeper missed, a day older than the retention – the water is empty,
 never today's ships on yesterday's date. The calendar in the panel offers
-the two days behind today for exactly this (`DATE_PICKER_DAYS_BACK`), the
+the four days behind today for exactly this (`DATE_PICKER_DAYS_BACK`), the
 timetable being the same service day throughout. Two traps: the archive
 directory is **above the docroot** beside the API keys (`ais-archive/`),
 because the deploy's `rsync --delete` empties the docroot nightly – never
@@ -1826,7 +1826,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   is the AIS archive's pattern on the shared hour files
   (`archive-hours.ts`): a line per fix, a static line when the callsign,
   registration, type, category, squawk or position source change, a
-  snapshot per hour, three days, `&hour=`/`&from=` reading, the PHP twin
+  snapshot per hour, five days, `&hour=`/`&from=` reading, the PHP twin
   in `aircraft.php`, `scripts/test-aircraft-archive-parity.mjs` holding
   the two to the same files. What differs is the source: adsb.fi answers
   polls, one a second for every city together, so the per-city polls
@@ -1994,15 +1994,16 @@ its own past: the same forecast endpoint answers `past_days=` on the
 quarter-hour grid its models run on (`minutely_15`, the grid `current`
 is the newest step of – checked 2026-09-11, the two agree to the value),
 so [src/lib/weather.ts](src/lib/weather.ts) fetches the last
-`WEATHER_PAST_DAYS` days and the rest of today in one 16 kB request
-every ten minutes, and the UI tick in `App.tsx` takes the step of
+`WEATHER_PAST_DAYS` days and the rest of today in one request (16 kB
+for three days, ~25 kB for five) every ten minutes, and the UI tick in `App.tsx` takes the step of
 `min(simMs, now)` out of it (`weatherAt`) for the rain, the overcast
 grade, the clouds' wind, the temperature on the weather button and the
 visibility that lights the airfield by day (see the airfield paragraph
 under "Cities and the data pipeline").
-Decisions: three UTC days back, because the calendar's two Berlin days
-begin at 22:00 UTC of the evening before (`DATE_PICKER_DAYS_BACK`
-carries the reason); a clock set ahead shows the present's sky, never
+Decisions: five UTC days back (three until 2026-09-14, when the
+archives and the calendar grew by two days), because the calendar's
+four Berlin days begin at 22:00 UTC of the evening before
+(`DATE_PICKER_DAYS_BACK` carries the reason); a clock set ahead shows the present's sky, never
 the forecast the answer also holds – a forecast is not a fact, and the
 ships and the aircraft stay in the present too; a moment the series
 does not reach is a dry, open sky, never today's weather on another

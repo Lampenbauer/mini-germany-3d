@@ -34,7 +34,7 @@
  * the src/cities folders two levels up.
  *
  * The sky is recorded as well, the way ais.php records the harbour:
- * three days in one file per city and UTC hour, above the docroot
+ * five days in one file per city and UTC hour, above the docroot
  * (mg3d_aircraft_archive_dir), replayed by the app when its clock is set
  * into the past – see src/lib/aircraft-archive.ts for the format and the
  * reasons. The recorder is the keeper cron, which calls this script
@@ -90,11 +90,11 @@ const MG3D_AIRCRAFT_TRACK_KEEP_MS = 180_000;
 const MG3D_AIRCRAFT_TRACK_MAX_POINTS = 60;
 const MG3D_METERS_PER_FOOT = 0.3048;
 /**
- * The archive: three days in one file per city and UTC hour – see
+ * The archive: five days in one file per city and UTC hour – see
  * src/lib/aircraft-archive.ts. Mirror of ARCHIVE_KEEP_HOURS and
  * ARCHIVE_SETTLE_MS in archive-hours.ts (the AIS archive's numbers).
  */
-const MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS = 72;
+const MG3D_AIRCRAFT_ARCHIVE_KEEP_HOURS = 120;
 const MG3D_AIRCRAFT_ARCHIVE_SETTLE_SECONDS = 60;
 /** How often the keeper polls the cover circle – the recording's resolution. Mirror of AIRCRAFT_KEEPER_INTERVAL_MS. */
 const MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS = 10;

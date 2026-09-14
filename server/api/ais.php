@@ -109,13 +109,13 @@ const MG3D_AIS_TRACK_KEEP_MS = 10 * 60_000;
 /** Hard cap per vessel – a runaway-transmitter backstop. */
 const MG3D_AIS_TRACK_MAX_POINTS = 40;
 /**
- * The archive: every fix, kept for three days in one file per city and
+ * The archive: every fix, kept for five days in one file per city and
  * UTC hour, so the app can replay the harbour when its clock is set into
  * the past – see src/lib/ais-archive.ts for the format and the reasons,
  * and mg3d_ais_archive_dir for where it lives. Mirror of
  * AIS_ARCHIVE_KEEP_HOURS and AIS_ARCHIVE_SETTLE_MS there.
  */
-const MG3D_AIS_ARCHIVE_KEEP_HOURS = 72;
+const MG3D_AIS_ARCHIVE_KEEP_HOURS = 120;
 const MG3D_AIS_ARCHIVE_SETTLE_SECONDS = 60;
 
 // ---------------------------------------------------------------------------
