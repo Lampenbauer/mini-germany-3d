@@ -89,7 +89,7 @@ describe('FlatBasemap', () => {
 
     // The underground view dims both, and the surface lifts them again
     flat.setUnderground(true)
-    expect(d.layers.every((layer) => layer.brightness < 0.1)).toBe(true)
+    expect(d.layers.every((layer) => layer.brightness === 0.35)).toBe(true)
     flat.setUnderground(false)
     expect(d.layers.every((layer) => layer.brightness === 1)).toBe(true)
 

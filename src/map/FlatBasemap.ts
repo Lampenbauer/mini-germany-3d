@@ -27,12 +27,15 @@ const MAPBOX_CREDIT =
   '<a href="https://www.mapbox.com/map-feedback/" target="_blank" rel="noopener">Improve this map</a>'
 
 /**
- * The imagery in the underground view: dimmed to the same dark relief
- * the tile shader makes of the photo tiles (UNDERGROUND_DIM there is in
- * linear light; an imagery layer's brightness is applied in the same
- * space, and this lands at about the same luminance on screen).
+ * The imagery in the underground view: dimmed to a dark relief the way
+ * the tile shader dims the photo tiles, but faintly readable – the user
+ * wanted the streets still there under the tunnels (2026-09-14). Not
+ * the tile shader's number: UNDERGROUND_DIM is applied in linear light
+ * and reads as ~35 % on screen, while an imagery layer's brightness
+ * scales the sampled colour as it is (GlobeFS mixes towards black by
+ * it), so 0.06 was near black and this is the ~35 % directly.
  */
-const UNDERGROUND_BRIGHTNESS = 0.06
+const UNDERGROUND_BRIGHTNESS = 0.35
 
 export interface FlatBasemapHost {
   requestRender(): void
