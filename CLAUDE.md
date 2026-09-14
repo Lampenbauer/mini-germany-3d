@@ -1225,8 +1225,8 @@ Consequences to keep in mind:
   ([src/lib/render-profile.ts](src/lib/render-profile.ts)) handed in by
   `App.tsx`: two tiers, `desktop` with every number as measured here and
   `mobile` – a touch screen whose shorter side is under 900 CSS px, or
-  any device reporting 2 GB or less – with a 2048 cascade (64 MB), a
-  pixel-ratio cap of 1.5, tiles at 8 CSS px instead of 6, a
+  any device reporting 2 GB or less – with a 2048 cascade (64 MB),
+  tiles at 8 CSS px instead of 6, a
   384 + 192 MB tile budget, a 100k tile-tree limit, bodies out to 2 km
   instead of 3.5, a 600-drop rain pool and no ship effects (smoke,
   wakes). `?tier=` forces either;
@@ -1235,7 +1235,10 @@ Consequences to keep in mind:
   mid-range phone gives a tab well under a gigabyte) rather than
   measured frame by frame – measure on a phone before tuning them, with
   `renderPacing()` and `tileMemory()`, the same way the desktop's were.
-  A new rendering knob goes into the profile, not beside it.
+  A new rendering knob goes into the profile, not beside it. The
+  pixel-ratio cap (`maxPixelRatio`) is 2 on both tiers since 2026-09-14
+  (the user's call; the phone's was 1.5): a 3× phone still draws at 2×,
+  a 2× screen at its own.
 - **MSAA is off on both tiers** since 2026-09-13 (`msaaSamples: 1` in both
   profiles – the user's call for the desktop, which had run at 2× since
   2026-09-08, down from Cesium's default of 4). At 4× it was the most expensive

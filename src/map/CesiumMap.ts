@@ -991,7 +991,7 @@ export class CesiumMap {
       shadows: false,
     })
 
-    // Cap the effective pixel ratio (2× on the desktop, 1.5× on a phone):
+    // Cap the effective pixel ratio (2× on both tiers; a phone reports 3×):
     // beyond that the extra sharpness is invisible but the fill-rate cost
     // keeps growing quadratically.
     const pixelRatio = window.devicePixelRatio || 1

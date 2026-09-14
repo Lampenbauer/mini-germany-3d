@@ -52,7 +52,8 @@ export interface RenderProfile {
   /**
    * The device pixel ratio the drawing buffer follows, at most. Phones
    * report 3× and would draw nine times the pixels of a 1× screen for a
-   * sharpness the fill rate cannot pay for; 1.5× keeps text readable.
+   * sharpness the fill rate cannot pay for; 2× on both tiers (the phone
+   * ran at 1.5× until 2026-09-14, and its text read soft for it).
    */
   maxPixelRatio: number
   /**
@@ -111,7 +112,7 @@ export function renderProfileFor(tier: DeviceTier, deviceMemoryGb: number | unde
       tier,
       shadowMapSize: 2048,
       msaaSamples: 1,
-      maxPixelRatio: 1.5,
+      maxPixelRatio: 2,
       tileSseCssPx: 8,
       tileCacheMb: 384,
       tileOverflowMb: 192,

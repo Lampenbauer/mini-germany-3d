@@ -67,7 +67,8 @@ describe('the render profile', () => {
     // No multisampling on either tier
     expect(small.msaaSamples).toBe(1)
     expect(big.msaaSamples).toBe(1)
-    expect(small.maxPixelRatio).toBeLessThan(big.maxPixelRatio)
+    // The pixel-ratio cap is the one number both tiers share (2× since 2026-09-14)
+    expect(small.maxPixelRatio).toBe(big.maxPixelRatio)
     expect(small.tileSseCssPx).toBeGreaterThan(big.tileSseCssPx)
     expect(small.tileCacheMb + small.tileOverflowMb).toBeLessThan(1024)
     expect(small.tileTreeLimit).toBeLessThan(big.tileTreeLimit)

@@ -299,7 +299,7 @@ Static Tiles API as empty tiles.
 | `?seamarks=0` | Leave the seamarks – buoys and lighthouses – off (the specs over the water boot so, to keep their frames comparable) |
 | `?webcams=0` | Leave the live webcam pictures out |
 | `?drops=40` | Cap the rain drop pool (debug/E2E – visible rain pins the render loop at animation rate) |
-| `?tier=mobile` / `?tier=desktop` | Force the device tier the map draws with (`src/lib/render-profile.ts`): a phone gets a 2048 shadow cascade instead of 8192, a pixel ratio of at most 1.5, coarser tiles and a smaller tile budget, vehicle bodies out to 2 km instead of 3.5, and neither exhaust nor wakes on the ships. Read from the touch screen, its size and the device memory otherwise; the override measures one profile on the other's hardware |
+| `?tier=mobile` / `?tier=desktop` | Force the device tier the map draws with (`src/lib/render-profile.ts`): a phone gets a 2048 shadow cascade instead of 8192, coarser tiles and a smaller tile budget, vehicle bodies out to 2 km instead of 3.5, and neither exhaust nor wakes on the ships. Read from the touch screen, its size and the device memory otherwise; the override measures one profile on the other's hardware |
 | `?rain=0` | Disable the live-weather overlays (real Open-Meteo precipitation and cloud cover, following the simulated clock over the calendar's days) |
 | `?ais=0` | Open with the live AIS ships switched off – the "AIS ships" switch at the end of the traffic list turns them back on |
 | `?aircraft=0` | Open with the live air traffic switched off – the "Aircraft" switch after the ships turns it back on |
