@@ -11,7 +11,7 @@
  * of the newest fix therefore stalled ships for minutes and teleported
  * them when the correction landed; with the delay, the next fix has
  * almost always arrived before the playback needs it. The track is
- * pruned after ten minutes; what it drops, the archive keeps for three
+ * pruned after ten minutes; what it drops, the archive keeps for five
  * days (ais-archive.ts), and a clock set into the past plays that back
  * the same way, the same delay behind the simulated moment.
  *
@@ -40,6 +40,15 @@ export interface AisVessel {
   cogDeg: number | null
   /** True heading in degrees (AIS "not available" 511 → null). */
   headingDeg: number | null
+  /**
+   * The course over the ground of her last fix UNDER WAY (SOG of
+   * AIS_UNDER_WAY_SOG_KN and more), kept while she lies still. A moored
+   * ship's own COG is what her GNSS makes of its drift, or "not
+   * available"; without a heading – the inland barges carry no gyro –
+   * this is the course she came in on, and the playback lays her along
+   * it (playbackSample). Null until she has been heard moving.
+   */
+  lastCourseDeg: number | null
   /** AIS navigational status (0 under way, 5 moored, …), null unknown. */
   navStatus: number | null
   /** AIS ship type code (60s passenger, 70s cargo, …), 0 = unknown. */
@@ -56,6 +65,15 @@ export interface AisVessel {
 
 /** Vessels drop out of the LIST after this long without a position. */
 export const AIS_EXPIRE_MS = 30 * 60_000
+
+/**
+ * The speed from which a fix's course over the ground is a course. GNSS
+ * drift at a berth reads as a few tenths of a knot with a course that
+ * points anywhere; from half a knot the receiver has real motion to
+ * derive a direction from. The lights' "moving" reads the same number
+ * (VesselLayer).
+ */
+export const AIS_UNDER_WAY_SOG_KN = 0.5
 
 /**
  * How long a vessel's record survives in the STATE beyond its last
@@ -142,6 +160,10 @@ function cog(value: number | undefined): number | null {
 function heading(value: number | undefined): number | null {
   return value === undefined || value >= 511 ? null : value
 }
+/** Whether a fix's speed makes its course a course; an unreported speed is given the benefit. */
+function underWaySog(sogKn: number | null): boolean {
+  return sogKn === null || sogKn >= AIS_UNDER_WAY_SOG_KN
+}
 
 function dimensions(dim: RawDimension | undefined): { length: number | null; width: number | null } {
   const length = (dim?.A ?? 0) + (dim?.B ?? 0)
@@ -167,6 +189,7 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
     sogKn: null,
     cogDeg: null,
     headingDeg: null,
+    lastCourseDeg: null,
     navStatus: null,
     typeCode: 0,
     lengthM: null,
@@ -192,6 +215,7 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
     vessel.sogKn = sog(report.Sog)
     vessel.cogDeg = cog(report.Cog)
     vessel.headingDeg = heading(report.TrueHeading)
+    if (vessel.cogDeg !== null && underWaySog(vessel.sogKn)) vessel.lastCourseDeg = vessel.cogDeg
     if ('NavigationalStatus' in report) {
       const status = (report as { NavigationalStatus?: number }).NavigationalStatus
       vessel.navStatus = status ?? vessel.navStatus
@@ -258,8 +282,28 @@ export interface AisPlaybackSample {
   underWay: boolean
 }
 
-function pointSample(p: AisTrackPoint): AisPlaybackSample {
-  return { lon: p[2], lat: p[1], bearingDeg: p[5] ?? p[4] ?? 0, underWay: false }
+/**
+ * The bearing a fix states on its own: the heading, or the course over
+ * the ground of a fix under way. A course at rest is drift, not a
+ * direction, and says nothing here.
+ */
+function fixBearing(p: AisTrackPoint): number | null {
+  return p[5] ?? (underWaySog(p[3]) ? p[4] : null)
+}
+
+/**
+ * Which way a ship at rest lies: along the course she last held under
+ * way, failing that along whatever course her fixes report at rest (a
+ * receiver that froze its last course is right more often than not),
+ * failing that north – the one direction that is a guess and nothing
+ * else.
+ */
+function restingBearing(vessel: AisVessel, driftCogDeg: number | null): number {
+  return vessel.lastCourseDeg ?? driftCogDeg ?? 0
+}
+
+function pointSample(vessel: AisVessel, p: AisTrackPoint): AisPlaybackSample {
+  return { lon: p[2], lat: p[1], bearingDeg: fixBearing(p) ?? restingBearing(vessel, p[4]), underWay: false }
 }
 
 /**
@@ -276,8 +320,8 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
       ? vessel.track
       : [[vessel.positionAt, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg]]
   const last = track[track.length - 1]
-  if (renderMs <= track[0][0]) return pointSample(track[0])
-  if (renderMs >= last[0]) return pointSample(last)
+  if (renderMs <= track[0][0]) return pointSample(vessel, track[0])
+  if (renderMs >= last[0]) return pointSample(vessel, last)
 
   let i = 0
   while (i + 1 < track.length && track[i + 1][0] <= renderMs) i++
@@ -294,11 +338,12 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
   // ~0.3 kn over the segment – below is berth wobble, not movement.
   const underWay = dtMs > 0 && meters / (dtMs / 1000) >= 0.15
 
-  // Bearing: ease the reported heading (course as fallback) along the
-  // shortest arc; without either, a segment long enough to trust gives
-  // its own azimuth.
-  const h0 = p0[5] ?? p0[4]
-  const h1 = p1[5] ?? p1[4]
+  // Bearing: ease the reported heading (the course under way as
+  // fallback) along the shortest arc; without either, a segment long
+  // enough to trust gives its own azimuth; a ship lying still lies as
+  // she came in.
+  const h0 = fixBearing(p0)
+  const h1 = fixBearing(p1)
   let bearingDeg: number
   if (h0 !== null && h1 !== null) {
     const dh = ((h1 - h0 + 540) % 360) - 180
@@ -306,7 +351,7 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
   } else if (meters > 5) {
     bearingDeg = ((Math.atan2(eastM, northM) * 180) / Math.PI + 360) % 360
   } else {
-    bearingDeg = h1 ?? h0 ?? 0
+    bearingDeg = h1 ?? h0 ?? restingBearing(vessel, p1[4] ?? p0[4])
   }
   return { lon, lat, bearingDeg, underWay }
 }

@@ -33,11 +33,19 @@ const NOW = 1_800_000_000_000
 const ROSTOCK = { slug: 'rostock', box: { west: 11.9, south: 54.0, east: 12.4, north: 54.4 } }
 const KIEL = { slug: 'kiel', box: { west: 10.0, south: 54.2, east: 10.4, north: 54.6 } }
 
-function positionReport(mmsi: number, lat: number, lon: number, sog = 8, name?: string): AisRawMessage {
+function positionReport(
+  mmsi: number,
+  lat: number,
+  lon: number,
+  sog = 8,
+  name?: string,
+  kinematics: { cog?: number; hdg?: number; nav?: number } = {},
+): AisRawMessage {
+  const { cog = 90, hdg = 92, nav = 0 } = kinematics
   return {
     MessageType: 'PositionReport',
     MetaData: { MMSI: mmsi, ShipName: name ?? '', latitude: lat, longitude: lon },
-    Message: { PositionReport: { Latitude: lat, Longitude: lon, Sog: sog, Cog: 90, TrueHeading: 92, NavigationalStatus: 0 } },
+    Message: { PositionReport: { Latitude: lat, Longitude: lon, Sog: sog, Cog: cog, TrueHeading: hdg, NavigationalStatus: nav } },
   }
 }
 
@@ -107,11 +115,12 @@ describe('AisArchiveWriter', () => {
     // The first message opened the file: its snapshot already holds the
     // ship and that first fix, nothing is written twice
     expect(hour).toEqual([
-      { mmsi: 1, name: 'DENEB', typeCode: 70, lengthM: 52, widthM: 12, draughtM: 3.5 },
+      { mmsi: 1, name: 'DENEB', typeCode: 70, lengthM: 52, widthM: 12, draughtM: 3.5, lastCourseDeg: null },
       [1, NOW, 54.1, 12.1, null, null, null, null],
+      // The course she moves on is in the fix, not in a static line of its own
       [1, NOW + 60_000, 54.11, 12.11, 8, 90, 92, 0],
       // A ship first seen gets her static line even with nothing learnt
-      { mmsi: 2, name: 'SKIFF', typeCode: 0, lengthM: null, widthM: null, draughtM: null },
+      { mmsi: 2, name: 'SKIFF', typeCode: 0, lengthM: null, widthM: null, draughtM: null, lastCourseDeg: null },
       [2, NOW + 90_000, 54.2, 12.2, 0, 90, 92, 0],
     ])
     // Kiel heard nothing – no file
@@ -128,6 +137,31 @@ describe('AisArchiveWriter', () => {
     writer.record(state, staticReport(1, 54.1, 12.1, 'DENEB'), NOW + 3_000)
     const statics = lines('rostock', '2027-01-15T08').filter((line) => !Array.isArray(line))
     expect(statics.map((line) => (line as { name: string }).name)).toEqual(['', 'DENEB'])
+  })
+
+  it('carries the course a ship came in on in the snapshot, and writes no line for it under way', () => {
+    const { store, lines } = memoryStore()
+    const writer = new AisArchiveWriter(store, [ROSTOCK])
+    const state: AisState = new Map()
+    // A barge without a gyro: three fixes under way on changing courses,
+    // then moored with the course her receiver makes of its drift. One
+    // static line at first sight (the snapshot's, taken after the merge,
+    // so it already holds that first course) – the courses ride in the fixes
+    const barge = (lat: number, sog: number, cog: number, atMs: number) =>
+      writer.record(state, positionReport(1, lat, 12.1, sog, '', { cog, hdg: 511 }), atMs)
+    barge(54.1, 8, 200, NOW)
+    barge(54.11, 8, 220, NOW + 60_000)
+    barge(54.12, 8, 245, NOW + 120_000)
+    barge(54.12, 0, 17, NOW + 180_000)
+    expect(lines('rostock', '2027-01-15T08').filter((line) => !Array.isArray(line))).toEqual([
+      { mmsi: 1, name: '', typeCode: 0, lengthM: null, widthM: null, draughtM: null, lastCourseDeg: 200 },
+    ])
+    // The next hour's snapshot says which way she lies; her fix at rest cannot
+    barge(54.12, 0, 17, NOW + AIS_ARCHIVE_HOUR_MS)
+    expect(lines('rostock', '2027-01-15T09')).toEqual([
+      { mmsi: 1, name: '', typeCode: 0, lengthM: null, widthM: null, draughtM: null, lastCourseDeg: 245 },
+      [1, NOW + AIS_ARCHIVE_HOUR_MS, 54.12, 12.1, 0, 17, null, 0],
+    ])
   })
 
   it('files a ship under every city whose box she is in, and none other', () => {
@@ -149,7 +183,7 @@ describe('AisArchiveWriter', () => {
     // ago and is not carried – the live list would not have her either
     writer.record(state, positionReport(2, 54.21, 12.21, 0), NOW + AIS_ARCHIVE_HOUR_MS + 60_000)
     expect(lines('rostock', '2027-01-15T09')).toEqual([
-      { mmsi: 2, name: 'SKIFF', typeCode: 0, lengthM: null, widthM: null, draughtM: null },
+      { mmsi: 2, name: 'SKIFF', typeCode: 0, lengthM: null, widthM: null, draughtM: null, lastCourseDeg: null },
       [2, NOW + AIS_ARCHIVE_HOUR_MS + 60_000, 54.21, 12.21, 0, 90, 92, 0],
     ])
     // A ship still fresh is carried with her LAST fix, at its own time
@@ -256,6 +290,27 @@ describe('AisReplay', () => {
     expect(replay.vesselsAt(NOW)).toHaveLength(1)
     expect(replay.vesselsAt(NOW + 60_000 + 30 * 60_000)).toHaveLength(1)
     expect(replay.vesselsAt(NOW + 60_000 + 30 * 60_000 + 1)).toEqual([])
+  })
+
+  it('reads the course a ship came in on off her fixes, and off the snapshot where they are all at rest', () => {
+    const replay = new AisReplay()
+    const at = (t: number, sog: number, cog: number | null): AisArchiveFix => [1, t, 54.1, 12.1, sog, cog, null, 0]
+    replay.add([
+      { ...statics(1, 'BARGE'), lastCourseDeg: 245 },
+      at(NOW, 0, 17),
+      at(NOW + 60_000, 0, null),
+      at(NOW + 120_000, 6, 300),
+      at(NOW + 180_000, 0.3, 12),
+    ])
+    // Every loaded fix at rest: the snapshot's course, not the drift of the fix
+    expect(replay.vesselsAt(NOW + 60_000)[0].lastCourseDeg).toBe(245)
+    // A fix under way since: its course, and it survives the fixes at rest after
+    expect(replay.vesselsAt(NOW + 120_000)[0].lastCourseDeg).toBe(300)
+    expect(replay.vesselsAt(NOW + 180_000)[0].lastCourseDeg).toBe(300)
+    // A snapshot written before the field existed, and nothing under way: none
+    const older = new AisReplay()
+    older.add([statics(1, 'BARGE'), at(NOW, 0, 17)])
+    expect(older.vesselsAt(NOW)[0].lastCourseDeg).toBeNull()
   })
 
   it('clamps the track to the first fix while the sampled moment lies before it', () => {

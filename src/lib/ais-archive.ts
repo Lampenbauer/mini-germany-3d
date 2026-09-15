@@ -56,6 +56,7 @@ import {
 import {
   AIS_EXPIRE_MS,
   AIS_PLAYBACK_DELAY_MS,
+  AIS_UNDER_WAY_SOG_KN,
   aisStateVessels,
   mergeAisMessage,
   type AisRawMessage,
@@ -98,7 +99,13 @@ export type AisArchiveFix = [
   number | null,
 ]
 
-/** A vessel's static data as the archive keeps it – the fields no fix carries. */
+/**
+ * A vessel's static data as the archive keeps it – the fields no fix
+ * carries, and the course she last held under way (AisVessel.lastCourseDeg),
+ * which a snapshot's fix – her last, at rest – cannot say: a barge moored
+ * since the morning is laid along it by the replay as by the live poll.
+ * Absent on lines written before it existed.
+ */
 export interface AisArchiveStatic {
   mmsi: number
   name: string
@@ -106,6 +113,7 @@ export interface AisArchiveStatic {
   lengthM: number | null
   widthM: number | null
   draughtM: number | null
+  lastCourseDeg?: number | null
 }
 
 export type AisArchiveLine = AisArchiveFix | AisArchiveStatic
@@ -138,6 +146,7 @@ function staticOf(vessel: AisVessel): AisArchiveStatic {
     lengthM: vessel.lengthM,
     widthM: vessel.widthM,
     draughtM: vessel.draughtM,
+    lastCourseDeg: vessel.lastCourseDeg,
   }
 }
 
@@ -163,8 +172,13 @@ function fixOf(vessel: AisVessel): AisArchiveFix {
   ]
 }
 
+/**
+ * What a change of static data is judged by: the line without the
+ * course, which changes with every fix under way and is carried by the
+ * fixes themselves – a static line per fix would double the recording.
+ */
 function staticSignature(vessel: AisVessel): string {
-  return JSON.stringify(staticOf(vessel))
+  return JSON.stringify({ ...staticOf(vessel), lastCourseDeg: undefined })
 }
 
 /**
@@ -267,6 +281,20 @@ interface ReplayVessel {
 }
 
 /**
+ * The course of the last fix under way at or before index `at` – what
+ * the live state keeps as lastCourseDeg, read off the recording. Null
+ * where every loaded fix is at rest; the static line then says what the
+ * keeper knew when the hour opened.
+ */
+function lastCourseAt(fixes: readonly AisArchiveFix[], at: number): number | null {
+  for (let i = at; i >= 0; i--) {
+    const fix = fixes[i]
+    if (fix[5] !== null && (fix[4] === null || fix[4] >= AIS_UNDER_WAY_SOG_KN)) return fix[5]
+  }
+  return null
+}
+
+/**
  * The recording in memory, per vessel, answering with the fleet as of a
  * moment. Lines go in in file order – hours in order, each hour's
  * snapshot first – so a fix is almost always appended; the snapshot that
@@ -337,6 +365,7 @@ export class AisReplay {
         sogKn: fix[4],
         cogDeg: fix[5],
         headingDeg: fix[6],
+        lastCourseDeg: lastCourseAt(fixes, at) ?? statics?.lastCourseDeg ?? null,
         navStatus: fix[7],
         typeCode: statics?.typeCode ?? 0,
         lengthM: statics?.lengthM ?? null,

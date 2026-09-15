@@ -231,6 +231,7 @@ declare global {
               sogKn: number | null
               cogDeg: number | null
               headingDeg: number | null
+              lastCourseDeg: number | null
               navStatus: number | null
               typeCode: number
               lengthM: number | null

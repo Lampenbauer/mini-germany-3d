@@ -73,6 +73,7 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0, navStatus = 0) =>
           sogKn,
           cogDeg: courseDeg,
           headingDeg: courseDeg,
+          lastCourseDeg: courseDeg,
           navStatus,
           typeCode: 70,
           lengthM: 180,

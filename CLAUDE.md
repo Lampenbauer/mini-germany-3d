@@ -1620,6 +1620,30 @@ simulation makes while a ship waits for the poller's first answer and then for
 her own next fix. It expires silently, and it must stay that way: a link that
 opened an empty card would be worse than one that opens the harbour.
 
+**A ship at rest lies along the course she came in on (since
+2026-09-15).** Measured that evening in Hamburg: 253 of 417 moored ships
+reported no heading (511 – the inland barges carry no gyro), 159 of
+those no COG either, and the rest a COG at 0 kn that is GNSS drift –
+so 60 % of the berthed fleet lay north or anywhere, crosswise to the
+quay and through each other. The rule is in `playbackSample`
+([ais-extract.ts](src/lib/ais-extract.ts)): a heading is always taken; a
+COG counts only from `AIS_UNDER_WAY_SOG_KN` (0.5 kn – the lights'
+"moving" reads the same number); at rest she lies along
+`AisVessel.lastCourseDeg`, the COG of her last fix under way, which the
+state keeps (TS and PHP, `mergeAisMessage`) for as long as she transmits
+– a barge that came in a week ago still has it, the keeper's state
+outlives deploys; failing that her drift course, failing that north.
+The archive's static line carries the field so the replay lays a ship
+moored since the morning the same way, but a change of it alone writes
+no line (`staticSignature` leaves it out; the fixes under way carry the
+courses) – a static line per fix would double the recording. What it
+cannot do: a ship never heard moving keeps today's guess, and a ship
+that turned to moor bow-out lies the wrong way round. The real fix for
+both is the quay: the nearest shoreline segment from OSM's water
+polygons as a Sunday pipeline product, with the last course only to
+pick which end is the bow – agreed with the user as the second step,
+not built yet.
+
 **The harbour is recorded, and a clock set back replays it (since
 2026-09-11).** Every fix the keeper hears also goes into an archive – one
 NDJSON file per city and UTC hour, a snapshot of every ship alive at the

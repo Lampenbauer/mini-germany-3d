@@ -14,8 +14,8 @@
  *
  * Response (also served while a refresh is still pending):
  *   { "timestamp": <unix ms of the state>, "vessels": [ { mmsi, name,
- *     lat, lon, sogKn, cogDeg, headingDeg, navStatus, typeCode,
- *     lengthM, widthM, draughtM, positionAt, track }, ... ] }
+ *     lat, lon, sogKn, cogDeg, headingDeg, lastCourseDeg, navStatus,
+ *     typeCode, lengthM, widthM, draughtM, positionAt, track }, ... ] }
  * track is the vessel's recent fixes ([unix ms, lat, lon, sogKn, cogDeg,
  * headingDeg], oldest first): the app renders the fleet 4 minutes behind
  * the wall clock and interpolates BETWEEN these – see the playback notes
@@ -108,6 +108,8 @@ const MG3D_AIS_STATIC_KEEP_MS = 48 * 3600_000;
 const MG3D_AIS_TRACK_KEEP_MS = 10 * 60_000;
 /** Hard cap per vessel – a runaway-transmitter backstop. */
 const MG3D_AIS_TRACK_MAX_POINTS = 40;
+/** From this speed a fix's COG is a course, not GNSS drift. Mirror of ais-extract.ts. */
+const MG3D_AIS_UNDER_WAY_SOG_KN = 0.5;
 /**
  * The archive: every fix, kept for five days in one file per city and
  * UTC hour, so the app can replay the harbour when its clock is set into
@@ -163,6 +165,7 @@ function mg3d_ais_default_vessel(int $mmsi): array
         'sogKn' => null,
         'cogDeg' => null,
         'headingDeg' => null,
+        'lastCourseDeg' => null,
         'navStatus' => null,
         'typeCode' => 0,
         'lengthM' => null,
@@ -203,6 +206,11 @@ function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
         $vessel['sogKn'] = mg3d_ais_sog($report['Sog'] ?? null);
         $vessel['cogDeg'] = mg3d_ais_cog($report['Cog'] ?? null);
         $vessel['headingDeg'] = mg3d_ais_heading($report['TrueHeading'] ?? null);
+        // The course she last held under way survives her lying still –
+        // a moored ship's own COG is drift (see AIS_UNDER_WAY_SOG_KN).
+        if ($vessel['cogDeg'] !== null && ($vessel['sogKn'] === null || $vessel['sogKn'] >= MG3D_AIS_UNDER_WAY_SOG_KN)) {
+            $vessel['lastCourseDeg'] = $vessel['cogDeg'];
+        }
         if (array_key_exists('NavigationalStatus', $report)) {
             $vessel['navStatus'] = $report['NavigationalStatus'] ?? $vessel['navStatus'];
         }
@@ -425,7 +433,11 @@ function mg3d_ais_archive_file(string $dir, string $slug, string $hourKey): stri
     return $dir . '/' . $slug . '/' . $hourKey . '.ndjson';
 }
 
-/** A vessel's static data as the archive keeps it – the fields no fix carries. */
+/**
+ * A vessel's static data as the archive keeps it – the fields no fix
+ * carries, and the course she last held under way, which a snapshot's
+ * fix (her last, at rest) cannot say.
+ */
 function mg3d_ais_archive_static(array $vessel): array
 {
     return [
@@ -435,7 +447,20 @@ function mg3d_ais_archive_static(array $vessel): array
         'lengthM' => $vessel['lengthM'],
         'widthM' => $vessel['widthM'],
         'draughtM' => $vessel['draughtM'],
+        'lastCourseDeg' => $vessel['lastCourseDeg'],
     ];
+}
+
+/**
+ * What a change of static data is judged by: the line without the
+ * course, which changes with every fix under way and is carried by the
+ * fixes themselves. Mirror of staticSignature in ais-archive.ts.
+ */
+function mg3d_ais_archive_static_signature(array $vessel): string
+{
+    $static = mg3d_ais_archive_static($vessel);
+    unset($static['lastCourseDeg']);
+    return json_encode($static);
 }
 
 /**
@@ -491,13 +516,13 @@ function mg3d_ais_archive_record(array &$state, array $raw, int $nowMs, array $c
     if (!is_int($mmsi) || $mmsi <= 0) return;
     $before = $state[$mmsi] ?? null;
     $beforePositionAt = $before['positionAt'] ?? 0;
-    $beforeStatic = $before === null ? null : json_encode(mg3d_ais_archive_static($before));
+    $beforeStatic = $before === null ? null : mg3d_ais_archive_static_signature($before);
     mg3d_ais_merge($state, $raw, $nowMs);
     $vessel = $state[$mmsi] ?? null;
     if ($vessel === null) return;
 
     $lines = '';
-    if (json_encode(mg3d_ais_archive_static($vessel)) !== $beforeStatic) {
+    if (mg3d_ais_archive_static_signature($vessel) !== $beforeStatic) {
         $lines .= json_encode(mg3d_ais_archive_static($vessel)) . "\n";
     }
     if ($vessel['positionAt'] !== $beforePositionAt) {

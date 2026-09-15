@@ -27,6 +27,7 @@ const legacyVessel = {
   sogKn: 8.4,
   cogDeg: 90,
   headingDeg: 92,
+  lastCourseDeg: null,
   navStatus: 0,
   typeCode: 70,
   lengthM: 52,

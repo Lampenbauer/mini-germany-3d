@@ -118,6 +118,7 @@ function normalizeVessel(raw: AisVessel, skewMs: number): AisVessel {
     sogKn: num(raw.sogKn),
     cogDeg: num(raw.cogDeg),
     headingDeg: num(raw.headingDeg),
+    lastCourseDeg: num(raw.lastCourseDeg),
     navStatus: num(raw.navStatus),
     typeCode: num(raw.typeCode) ?? 0,
     lengthM: num(raw.lengthM),

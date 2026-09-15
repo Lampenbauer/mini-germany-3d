@@ -52,7 +52,7 @@ import {
   type Entity,
   type Viewer,
 } from 'cesium'
-import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, playbackSample, type AisVessel } from '@/lib/ais-extract'
+import { AIS_EXPIRE_MS, AIS_PLAYBACK_DELAY_MS, AIS_UNDER_WAY_SOG_KN, playbackSample, type AisVessel } from '@/lib/ais-extract'
 import {
   VESSEL_SIDELIGHT_ARC_DEG,
   portLightSeen,
@@ -1036,7 +1036,7 @@ export class VesselLayer {
         // whose segments a berthed ship's GNSS wobble can push over the
         // playback's threshold for a minute at a time, and which carries
         // no motion at its ends; the track only where she reports none
-        const moving = vessel.sogKn !== null ? vessel.sogKn >= 0.5 : sample.underWay
+        const moving = vessel.sogKn !== null ? vessel.sogKn >= AIS_UNDER_WAY_SOG_KN : sample.underWay
         const mode = vesselLightsMode(vessel.navStatus, moving)
         if (mode !== 'off') {
           const points = vesselLightPoints(spec)

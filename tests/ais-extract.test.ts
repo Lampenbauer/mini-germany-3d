@@ -32,6 +32,7 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     sogKn: 8,
     cogDeg: 90,
     headingDeg: null,
+    lastCourseDeg: null,
     navStatus: 0,
     typeCode: 0,
     lengthM: null,
@@ -132,6 +133,30 @@ describe('mergeAisMessage', () => {
     expect(v.name).toBe('NAMED')
     expect(v.typeCode).toBe(0)
     expect(v.lengthM).toBeNull()
+  })
+
+  it('keeps the course a ship last held under way while she lies still', () => {
+    const state: AisState = new Map()
+    const report = (sog: number, cog: number, t: number) =>
+      mergeAisMessage(
+        state,
+        {
+          MessageType: 'PositionReport',
+          MetaData: { MMSI: 7, latitude: 54.1, longitude: 12.1 },
+          Message: { PositionReport: { Latitude: 54.1, Longitude: 12.1, Sog: sog, Cog: cog, TrueHeading: 511 } },
+        },
+        t,
+      )
+    report(6.2, 200, NOW)
+    expect(state.get(7)!.lastCourseDeg).toBe(200)
+    report(1.1, 245, NOW + 1)
+    expect(state.get(7)!.lastCourseDeg).toBe(245)
+    // Below AIS_UNDER_WAY_SOG_KN the course is drift and leaves no trace,
+    // and "not available" none either
+    report(0.3, 17, NOW + 2)
+    report(0, 360, NOW + 3)
+    expect(state.get(7)!.cogDeg).toBeNull()
+    expect(state.get(7)!.lastCourseDeg).toBe(245)
   })
 
   it('digests the full capture into one record per vessel', () => {
@@ -282,6 +307,32 @@ describe('playbackSample', () => {
       ],
     })
     expect(playbackSample(v, REN).bearingDeg).toBeCloseTo(0, 4)
+  })
+
+  it('lays a ship at rest along the course she came in on, not along her drift', () => {
+    // No gyro: the heading is never reported. The last fix under way said
+    // 245; at the berth the receiver reports 17 one minute and nothing the next
+    const moored = vessel({
+      sogKn: 0,
+      cogDeg: 17,
+      lastCourseDeg: 245,
+      track: [point(REN - 30_000, 0, 0, { sog: 0, cog: 17 }), point(REN + 30_000, 0, 0, { sog: 0, cog: null })],
+    })
+    expect(playbackSample(moored, REN).bearingDeg).toBe(245)
+    expect(playbackSample(moored, REN + 60_000).bearingDeg).toBe(245)
+    // Never heard moving: her own course is the best there is, north the last resort
+    expect(playbackSample(vessel({ ...moored, lastCourseDeg: null }), REN).bearingDeg).toBe(17)
+    expect(playbackSample(vessel({ ...moored, lastCourseDeg: null }), REN + 60_000).bearingDeg).toBe(0)
+    // A reported heading wins over all of it, at rest as under way
+    const gyro = vessel({ ...moored, track: [point(REN - 30_000, 0, 0, { sog: 0, cog: 17, hdg: 90 })] })
+    expect(playbackSample(gyro, REN).bearingDeg).toBe(90)
+    // Coming in: the course under way eases into the resting bearing
+    // without a turn – the last fix under way is the course she keeps
+    const arriving = vessel({
+      lastCourseDeg: 245,
+      track: [point(REN - 30_000, 0, 0, { sog: 2, cog: 245 }), point(REN + 30_000, 0.00001, 0, { sog: 0, cog: 17 })],
+    })
+    expect(playbackSample(arriving, REN).bearingDeg).toBe(245)
   })
 
   it('does not report berth wobble as under way', () => {

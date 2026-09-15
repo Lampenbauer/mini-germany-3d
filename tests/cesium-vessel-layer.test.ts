@@ -37,6 +37,7 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
     sogKn: 0,
     cogDeg: null,
     headingDeg: 163,
+    lastCourseDeg: null,
     navStatus: 0,
     typeCode: 0,
     lengthM: 52,

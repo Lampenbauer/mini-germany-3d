@@ -24,7 +24,7 @@ const NOW = 1_800_000_000_000
 
 /** Every field the browser expects on a vessel. */
 const REQUIRED = [
-  'mmsi', 'name', 'lat', 'lon', 'sogKn', 'cogDeg', 'headingDeg',
+  'mmsi', 'name', 'lat', 'lon', 'sogKn', 'cogDeg', 'headingDeg', 'lastCourseDeg',
   'navStatus', 'typeCode', 'lengthM', 'widthM', 'draughtM', 'positionAt', 'track',
 ]
 
