@@ -899,6 +899,8 @@ export class VehicleLayer {
   sync(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
+    /** The simulated clock the snapshots stand at (epoch ms) – the ferries' wake runs on it. */
+    simMs = performance.now(),
   ): {
     anyVehicleInView: boolean
     nearestBodyMeters: number
@@ -914,7 +916,7 @@ export class VehicleLayer {
     const entities = this.viewer.entities
     entities.suspendEvents()
     try {
-      return this.syncBatched(snapshots, visibleLines)
+      return this.syncBatched(snapshots, visibleLines, simMs)
     } finally {
       entities.resumeEvents()
     }
@@ -923,6 +925,7 @@ export class VehicleLayer {
   private syncBatched(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
+    simMs: number,
   ): {
     anyVehicleInView: boolean
     nearestBodyMeters: number
@@ -952,11 +955,12 @@ export class VehicleLayer {
     const night = this.host.nightFactor
     const lightsOn = night >= FERRY_LIGHTS_MIN_NIGHT
     // The ferries' wakes are rebuilt every tick from the timetable's past
-    // (see Wake); the clock they fade on is the real one here
+    // (see Wake), on the simulated clock the timetable runs on: the foam
+    // lies where the clock's moment had the ferry lay it, and a pause
+    // holds it with her
     const wake = this.host.wake
     const positionAt = this.host.vehiclePositionAt
-    const wakeNow = performance.now()
-    wake?.begin(wakeNow)
+    wake?.begin(simMs)
     /**
      * Distance to the closest drawn vehicle BODY – not the same as
      * anyVehicleInView, which reaches out to the render range. The map's
@@ -1123,7 +1127,15 @@ export class VehicleLayer {
             surfaceHeight: record.groundHeight,
             seed: hashId(snap.id),
           })
-          if (wake.fadeFrameDue && inView) this.host.requestRender()
+          // The foam churns where it lies: a frame once that shows at her
+          // distance (the ships' rule); a wake left standing fades, a frame
+          // now and then shows it
+          if (inView) {
+            const pxPerMeter = pxPerMeterAtUnit / Math.max(1, cameraDistance)
+            if (wake.fadeFrameDue || wake.metersSinceRendered * pxPerMeter >= motionThreshold) {
+              this.host.requestRender()
+            }
+          }
         }
       }
 

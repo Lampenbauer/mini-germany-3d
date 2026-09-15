@@ -30,13 +30,25 @@
  * every crest; with the bias the foam stays over the water it lies on
  * and still goes behind a quay or a hull in front of it. Polygon offset
  * cannot do this here – the logarithmic depth buffer writes the depth
- * from the fragment shader, which polygon offset does not touch. The
- * foam's streaks come from a small value noise in the fragment shader,
- * long along the ribbon and fine across it, seeded per ship.
+ * from the fragment shader, which polygon offset does not touch.
  *
- * Nothing here animates on its own: the wake changes as the ship moves,
- * and the frames the ship earns show it; a wake fading behind a stopped
- * ship asks for a frame now and then (WAKE_FADE_FRAME_S). Lit like the
+ * The foam's streaks come from a small value noise in the fragment
+ * shader, long along the ribbon and fine across it, seeded per ship –
+ * and the foam lies in the WATER, not on the ship: every point of a
+ * ribbon carries the moment its foam was made (the ships' clock less
+ * the pose's age, as a distance at WAKE_STREAK_MPS), so a streak stays
+ * where it was laid while the ship runs on from it, and the bow wave's
+ * foam streams aft along the flank. Until 2026-09-15 the pattern was
+ * measured from the stern and rode along with the hull, which read as
+ * painted on. On top of that the pattern churns: the noise has a third
+ * axis the shader walks along with the ships' clock (u_churn, held by a
+ * pause, no faster than PLUME_MAX_RATE under the time-lapse like the
+ * smoke), so a patch of foam breaks up and re-forms where it lies and
+ * the ribbon's edge frays and mends. Stateless still: any frame is right
+ * by itself. The churn asks for frames the way the smoke does – once its
+ * own motion since the frame last drawn (WAKE_CHURN_MPS) is a visible
+ * step at the ship's distance – and a wake fading behind a stopped ship
+ * asks for one now and then besides (WAKE_FADE_FRAME_S). Lit like the
  * clouds and the smoke. Off in the mobile profile (RenderProfile.shipEffects).
  */
 
@@ -51,6 +63,7 @@ import {
 } from 'cesium'
 import { renderer, type Buffer, type DrawCommand, type FrameState } from './cesium-renderer'
 import { cloudLight } from './CloudLayer'
+import { PLUME_MAX_RATE } from './FunnelSmoke'
 
 /** How long the wash lasts, and how far apart the ship's poses are read, in seconds. */
 export const WAKE_LIFE_S = 40
@@ -62,6 +75,14 @@ export const WAKE_FULL_SPEED_MPS = 5
 export const WAKE_MAX_DISTANCE_M = 4000
 /** A wake behind a ship that stopped fades; a frame this often shows it going. */
 export const WAKE_FADE_FRAME_S = 1
+/**
+ * The nominal speed the foam pattern is laid at: a second of the ships'
+ * clock is this many metres of pattern along the wake, so the streaks
+ * keep their length in the water whatever the ship's own speed.
+ */
+export const WAKE_STREAK_MPS = 4
+/** How fast the churning foam moves on screen, for the frame rule – like the smoke's PLUME_MOTION_MPS. */
+export const WAKE_CHURN_MPS = 2
 /** The Kelvin angle: the arms spread this much to either side per metre behind the bow. */
 export const KELVIN_SPREAD = Math.tan((19.47 * Math.PI) / 180)
 /** Metres the foam floats over the water level it is given, and more with distance for the coarse far tiles. */
@@ -85,17 +106,18 @@ const STILL_M = 0.2
 /**
  * Per-instance layout, one ribbon segment: its two ends as high and low
  * floats (12), the unit vector across the ribbon at each end (6), the
- * half-width and opacity at each end (4), the distance along the wake
- * at the first end and the seed (2).
+ * half-width and opacity at each end (4), the foam pattern's phase at
+ * each end (2) and the seed (1).
  */
-const FLOATS_PER_INSTANCE = 24
+const FLOATS_PER_INSTANCE = 25
 const STRIDE_BYTES = FLOATS_PER_INSTANCE * 4
 const P0_OFFSET = 0
 const P1_OFFSET = 6
 const PERP0_OFFSET = 12
 const PERP1_OFFSET = 15
 const PROFILE_OFFSET = 18
-const TRACK_OFFSET = 22
+const PHASE_OFFSET = 22
+const SEED_OFFSET = 24
 const INITIAL_CAPACITY = 2048
 /** Margin on the bounding sphere for the ribbons' width. */
 const BOUNDS_MARGIN_M = 100
@@ -111,7 +133,8 @@ const ATTRIBUTE_LOCATIONS = {
   a_perp0: 5,
   a_perp1: 6,
   a_profile: 7,
-  a_track: 8,
+  a_phase: 8,
+  a_seed: 9,
 }
 
 /*
@@ -131,7 +154,8 @@ in vec3 a_p1Low;
 in vec3 a_perp0;
 in vec3 a_perp1;
 in vec4 a_profile;
-in vec2 a_track;
+in vec2 a_phase;
+in float a_seed;
 
 uniform float u_maxDistance;
 uniform float u_lift;
@@ -165,9 +189,9 @@ void main()
     czm_vertexLogDepth(czm_projection * vec4(positionEC * (1.0 - u_depthBias), 1.0));
 #endif
     v_across = t;
-    v_along = a_track.x + s * length(p1EC.xyz - p0EC.xyz);
+    v_along = mix(a_phase.x, a_phase.y, s);
     v_alpha = drawn ? alpha : 0.0;
-    v_seed = a_track.y;
+    v_seed = a_seed;
 }
 `
 
@@ -175,6 +199,10 @@ void main()
  * The foam: soft across the ribbon, and streaked along it by a value
  * noise that is stretched lengthwise – a wake is combed by its own
  * motion. Two octaves, seeded per ship so no two wakes share a pattern.
+ * The noise is three-dimensional: the third axis is the churn clock, so
+ * the pattern morphs in place with time, and the fine octave frays the
+ * ribbon's edge. The lattice is periodic (NOISE_PERIOD cells) so the
+ * hash never sees the large coordinates a long session grows.
  */
 const FRAGMENT_SHADER = /* glsl */ `
 in float v_across;
@@ -183,28 +211,37 @@ in float v_alpha;
 in float v_seed;
 
 uniform vec3 u_color;
+uniform float u_churn;
 
-float hash(vec2 p)
+const float NOISE_PERIOD = 4096.0;
+
+float hash(vec3 p)
 {
-    return fract(sin(dot(p, vec2(127.1, 311.7)) + v_seed * 0.731) * 43758.5453123);
+    p = mod(p, NOISE_PERIOD);
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7)) + v_seed * 0.731) * 43758.5453123);
 }
 
-float noise(vec2 p)
+float noise(vec3 p)
 {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
+    vec3 i = floor(p);
+    vec3 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    float x00 = mix(hash(i), hash(i + vec3(1.0, 0.0, 0.0)), f.x);
+    float x10 = mix(hash(i + vec3(0.0, 1.0, 0.0)), hash(i + vec3(1.0, 1.0, 0.0)), f.x);
+    float x01 = mix(hash(i + vec3(0.0, 0.0, 1.0)), hash(i + vec3(1.0, 0.0, 1.0)), f.x);
+    float x11 = mix(hash(i + vec3(0.0, 1.0, 1.0)), hash(i + vec3(1.0, 1.0, 1.0)), f.x);
+    return mix(mix(x00, x10, f.y), mix(x01, x11, f.y), f.z);
 }
 
 void main()
 {
-    float across = 1.0 - smoothstep(0.35, 1.0, abs(v_across));
-    // Long along the wake, fine across it
-    float n = noise(vec2(v_along * 0.09, v_across * 2.5)) * 0.65
-            + noise(vec2(v_along * 0.31, v_across * 6.0)) * 0.35;
+    // Long along the wake, fine across it; the fine octave churns faster
+    float coarse = noise(vec3(v_along * 0.09, v_across * 2.5, u_churn * 0.3));
+    float fine = noise(vec3(v_along * 0.31, v_across * 6.0, u_churn * 0.7));
+    float n = coarse * 0.65 + fine * 0.35;
     float foam = smoothstep(0.28, 0.8, n);
+    // The edge frays with the fine foam
+    float across = 1.0 - smoothstep(0.35, 1.0, abs(v_across) + (fine - 0.5) * 0.25);
     float alpha = across * v_alpha * (0.3 + 0.7 * foam);
     if (alpha <= 0.003)
     {
@@ -274,11 +311,12 @@ export interface WakeHost {
   readonly overcast: number
 }
 
-/** A point of a ribbon: where, which way across, how wide, how bright, how far along. */
+/** A point of a ribbon: where, how wide, how bright, and where in the foam pattern (see phaseAt). */
 interface RibbonPoint {
   position: Cartesian3
   halfWidth: number
   alpha: number
+  phase: number
 }
 
 /** One of the ship's past poses, resolved on the water: her ends, the way she moved, how hard. */
@@ -311,6 +349,13 @@ export class Wake {
   /** The ships' clock as of the last frame drawn – what a fading wake's frames are measured from. */
   private renderedMs = Number.NaN
   private clockMs = Number.NaN
+  /** The ships' clock at the first tick: the foam pattern's phases are seconds from here (see phaseAt). */
+  private epochMs = Number.NaN
+  /** Seconds the foam has churned – the shader's clock (see begin). */
+  private churnS = 0
+  /** The churn as of the frame last drawn (see markRendered). */
+  private renderedChurnS = 0
+  private lastRealMs: number | null = null
 
   constructor(private readonly host: WakeHost) {}
 
@@ -319,11 +364,36 @@ export class Wake {
     return this.count
   }
 
-  /** Starts a new set for the tick – the layer adds its ships' wakes, then commits. */
-  begin(nowMs: number): void {
+  /**
+   * Starts a new set for the tick – the layer adds its ships' wakes, then
+   * commits. `nowMs` is the ships' clock, the one the samples' ages are
+   * measured on. The churn runs on it: by the time that passed, paused
+   * with it, and no faster than PLUME_MAX_RATE times the real time – the
+   * time-lapse must not flicker the foam; a clock jumped back leaves it
+   * standing.
+   */
+  begin(nowMs: number, realNowMs = performance.now()): void {
     this.count = 0
     this.anchors.length = 0
+    if (Number.isNaN(this.epochMs)) this.epochMs = nowMs
+    if (!Number.isNaN(this.clockMs) && this.lastRealMs !== null) {
+      const dt = (nowMs - this.clockMs) / 1000
+      const realDt = Math.max(0, (realNowMs - this.lastRealMs) / 1000)
+      if (dt > 0) this.churnS += Math.min(dt, realDt * PLUME_MAX_RATE)
+    }
     this.clockMs = nowMs
+    this.lastRealMs = realNowMs
+  }
+
+  /**
+   * Where in the foam pattern a point lies: the moment its foam was made
+   * – the ships' clock less the pose's age – as metres at the nominal
+   * speed, so the same water keeps the same foam from tick to tick while
+   * the ship runs on. `alongM` metres further back along the hull are
+   * that much earlier (the bow wave's foam streams aft).
+   */
+  private phaseAt(ageS: number, alongM = 0): number {
+    return ((this.clockMs - this.epochMs) / 1000 - ageS) * WAKE_STREAK_MPS - alongM
   }
 
   /**
@@ -354,6 +424,7 @@ export class Wake {
         position: this.onWater(pose, pose.trailing * halfLength, 0, hull.surfaceHeight),
         halfWidth: hull.beamM * (WASH_HALF_WIDTH_FRESH + (WASH_HALF_WIDTH_OLD - WASH_HALF_WIDTH_FRESH) * f),
         alpha: WASH_OPACITY * wakeIntensity(pose.speedMps) * Math.pow(1 - f, 1.5),
+        phase: this.phaseAt(pose.ageS),
       })
     }
     this.addRibbon(wash, hull.seed)
@@ -374,6 +445,7 @@ export class Wake {
           position: this.onWater(now, stem + now.trailing * back * hull.lengthM, side * spread * hull.beamM, hull.surfaceHeight),
           halfWidth: width * hull.beamM,
           alpha: BOW_OPACITY * intensity * fade,
+          phase: this.phaseAt(0, back * hull.lengthM),
         })
       }
       this.addRibbon(flank, hull.seed + 50 + side)
@@ -384,7 +456,12 @@ export class Wake {
     // way she made
     for (const side of [-1, 1]) {
       const arm: RibbonPoint[] = [
-        { position: this.onWater(now, stem, 0, hull.surfaceHeight), halfWidth: 0.08 * hull.beamM, alpha: ARM_OPACITY * intensity },
+        {
+          position: this.onWater(now, stem, 0, hull.surfaceHeight),
+          halfWidth: 0.08 * hull.beamM,
+          alpha: ARM_OPACITY * intensity,
+          phase: this.phaseAt(0),
+        },
       ]
       let behind = halfLength
       for (let i = 1; i < poses.length; i++) {
@@ -396,6 +473,7 @@ export class Wake {
           position: this.onWater(pose, 0, side * behind * KELVIN_SPREAD, hull.surfaceHeight),
           halfWidth: 0.08 * hull.beamM + 0.02 * behind,
           alpha: ARM_OPACITY * wakeIntensity(pose.speedMps) * Math.pow(1 - f, 2),
+          phase: this.phaseAt(pose.ageS),
         })
       }
       this.addRibbon(arm, hull.seed + 70 + side)
@@ -457,23 +535,12 @@ export class Wake {
         ? Cartesian3.normalize(perpScratch, new Cartesian3())
         : new Cartesian3(1, 0, 0)
     })
-    let along = 0
     for (let i = 0; i + 1 < points.length; i++) {
-      const a = points[i]
-      const b = points[i + 1]
-      this.addSegment(a, b, perps[i], perps[i + 1], along, seed)
-      along += Cartesian3.distance(a.position, b.position)
+      this.addSegment(points[i], points[i + 1], perps[i], perps[i + 1], seed)
     }
   }
 
-  private addSegment(
-    a: RibbonPoint,
-    b: RibbonPoint,
-    perpA: Cartesian3,
-    perpB: Cartesian3,
-    along: number,
-    seed: number,
-  ): void {
+  private addSegment(a: RibbonPoint, b: RibbonPoint, perpA: Cartesian3, perpB: Cartesian3, seed: number): void {
     const index = this.count++
     if ((index + 1) * FLOATS_PER_INSTANCE > this.instances.length) {
       const grown = new Float32Array(this.instances.length * 2)
@@ -504,8 +571,9 @@ export class Wake {
     this.instances[base + PROFILE_OFFSET + 1] = b.halfWidth
     this.instances[base + PROFILE_OFFSET + 2] = a.alpha
     this.instances[base + PROFILE_OFFSET + 3] = b.alpha
-    this.instances[base + TRACK_OFFSET] = along
-    this.instances[base + TRACK_OFFSET + 1] = seed
+    this.instances[base + PHASE_OFFSET] = a.phase
+    this.instances[base + PHASE_OFFSET + 1] = b.phase
+    this.instances[base + SEED_OFFSET] = seed
     this.anchors.push(Cartesian3.clone(a.position), Cartesian3.clone(b.position))
   }
 
@@ -526,7 +594,8 @@ export class Wake {
     halfWidthTo: number
     alphaFrom: number
     alphaTo: number
-    along: number
+    phaseFrom: number
+    phaseTo: number
     seed: number
   } {
     const base = index * FLOATS_PER_INSTANCE
@@ -544,8 +613,9 @@ export class Wake {
       halfWidthTo: i[base + PROFILE_OFFSET + 1],
       alphaFrom: i[base + PROFILE_OFFSET + 2],
       alphaTo: i[base + PROFILE_OFFSET + 3],
-      along: i[base + TRACK_OFFSET],
-      seed: i[base + TRACK_OFFSET + 1],
+      phaseFrom: i[base + PHASE_OFFSET],
+      phaseTo: i[base + PHASE_OFFSET + 1],
+      seed: i[base + SEED_OFFSET],
     }
   }
 
@@ -558,14 +628,20 @@ export class Wake {
     return Number.isNaN(this.renderedMs) || this.clockMs - this.renderedMs >= WAKE_FADE_FRAME_S * 1000
   }
 
+  /** How far the churning foam has moved on its own since the frame last drawn, in metres. */
+  get metersSinceRendered(): number {
+    return (this.churnS - this.renderedChurnS) * WAKE_CHURN_MPS
+  }
+
   /** The map drew a frame. */
   markRendered(): void {
     this.renderedMs = this.clockMs
+    this.renderedChurnS = this.churnS
   }
 
   /** Debug and tests. */
-  get state(): { drawn: number; supported: boolean } {
-    return { drawn: this.count, supported: !this.unsupported }
+  get state(): { drawn: number; supported: boolean; churnS: number } {
+    return { drawn: this.count, supported: !this.unsupported, churnS: this.churnS }
   }
 
   /** The foam's colour for the sun over the first segment – one fleet, one harbour. */
@@ -618,7 +694,8 @@ export class Wake {
         attribute(ATTRIBUTE_LOCATIONS.a_perp0, 3, PERP0_OFFSET),
         attribute(ATTRIBUTE_LOCATIONS.a_perp1, 3, PERP1_OFFSET),
         attribute(ATTRIBUTE_LOCATIONS.a_profile, 4, PROFILE_OFFSET),
-        attribute(ATTRIBUTE_LOCATIONS.a_track, 2, TRACK_OFFSET),
+        attribute(ATTRIBUTE_LOCATIONS.a_phase, 2, PHASE_OFFSET),
+        attribute(ATTRIBUTE_LOCATIONS.a_seed, 1, SEED_OFFSET),
       ],
     })
     const shaderProgram =
@@ -654,6 +731,7 @@ export class Wake {
         u_liftPerMeter: () => WAKE_LIFT_PER_METER,
         u_depthBias: () => WAKE_DEPTH_BIAS,
         u_color: () => this.color,
+        u_churn: () => this.churnS,
       },
     })
     // The old vertex array takes its buffers with it; the program lives on

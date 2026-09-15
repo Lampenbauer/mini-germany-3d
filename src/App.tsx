@@ -2021,6 +2021,7 @@ export default function App() {
               : map.syncVehicles(
                   snapshots,
                   mapNetworkDrawnRef.current ? visibleLinesRef.current : NO_LINES,
+                  simMs,
                 )
             // The diagram reads the same snapshots on its own axis
             if (linearRef.current || morphRef.current > 0) {

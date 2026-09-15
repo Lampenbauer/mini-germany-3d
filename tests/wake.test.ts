@@ -1,12 +1,15 @@
 import { Cartesian3, Cartographic } from 'cesium'
 import { describe, expect, it } from 'vitest'
+import { PLUME_MAX_RATE } from '@/map/FunnelSmoke'
 import {
   KELVIN_SPREAD,
+  WAKE_CHURN_MPS,
   WAKE_FADE_FRAME_S,
   WAKE_FULL_SPEED_MPS,
   WAKE_LIFE_S,
   WAKE_MIN_SPEED_MPS,
   WAKE_STEP_S,
+  WAKE_STREAK_MPS,
   Wake,
   wakeColor,
   wakeIntensity,
@@ -102,11 +105,13 @@ describe('Wake', () => {
     expect(fresh.north).toBeCloseTo(-50, 0)
     expect(Math.abs(fresh.east)).toBeLessThan(0.5)
     expect(fresh.height).toBeCloseTo(SURFACE, 1)
-    // Each segment carries on where the last one ended, further astern
+    // Each segment carries on where the last one ended, further astern,
+    // its foam made that much earlier (the pattern's phase runs back)
     for (let i = 1; i < wash.length; i++) {
       expect(Cartesian3.distance(wash[i].from, wash[i - 1].to)).toBeLessThan(0.01)
       expect(place(wash[i].to).north).toBeLessThan(place(wash[i].from).north)
-      expect(wash[i].along).toBeGreaterThan(wash[i - 1].along)
+      expect(wash[i].phaseFrom).toBeCloseTo(wash[i - 1].phaseTo, 5)
+      expect(wash[i].phaseFrom).toBeCloseTo(wash[i - 1].phaseFrom - WAKE_STEP_S * WAKE_STREAK_MPS, 5)
     }
     const oldest = wash[wash.length - 1]
     expect(oldest.halfWidthTo).toBeGreaterThan(wash[0].halfWidthFrom)
@@ -172,6 +177,51 @@ describe('Wake', () => {
     wake.add([run[0]], hull)
     wake.commit()
     expect(wake.drawn).toBe(0)
+  })
+
+  it('keeps the foam in the water: the same spot wears the same phase after the ship ran on', () => {
+    const wake = new Wake(host)
+    wake.begin(10_000, 0)
+    wake.add(straightRun(5, 0), hull)
+    wake.commit()
+    const laid = wake.segmentAt(0)
+    // A step later she is 10 m further north: the water her stern was
+    // over is now the second pose's, with the phase it had
+    wake.begin(10_000 + WAKE_STEP_S * 1000, WAKE_STEP_S * 1000)
+    const ahead = straightRun(5, 0).map((s) => ({ ...s, lat: s.lat + (5 * WAKE_STEP_S) / 111_132 }))
+    wake.add(ahead, hull)
+    wake.commit()
+    const later = wake.segmentAt(1)
+    expect(Cartesian3.distance(later.from, laid.from)).toBeLessThan(0.01)
+    expect(later.phaseFrom).toBeCloseTo(laid.phaseFrom, 4)
+    // The fresh foam at her stern is newer by the step
+    expect(wake.segmentAt(0).phaseFrom).toBeCloseTo(laid.phaseFrom + WAKE_STEP_S * WAKE_STREAK_MPS, 4)
+    // The bow wave's foam streams aft along the flank: the stem is newest
+    const poses = WAKE_LIFE_S / WAKE_STEP_S - 1
+    const flank = wake.segmentAt(poses - 1)
+    expect(flank.phaseFrom).toBeGreaterThan(flank.phaseTo)
+  })
+
+  it('churns on the ships’ clock – held by a pause, capped under the time-lapse – and owes a frame once that shows', () => {
+    const wake = new Wake(host)
+    wake.begin(0, 0)
+    wake.markRendered()
+    expect(wake.metersSinceRendered).toBe(0)
+    // A second of the ships' clock in a second of real time
+    wake.begin(1000, 1000)
+    expect(wake.state.churnS).toBeCloseTo(1, 6)
+    expect(wake.metersSinceRendered).toBeCloseTo(WAKE_CHURN_MPS, 6)
+    wake.markRendered()
+    expect(wake.metersSinceRendered).toBe(0)
+    // The clock stands (a pause): no churn, however long the real time
+    wake.begin(1000, 5000)
+    expect(wake.state.churnS).toBeCloseTo(1, 6)
+    // A minute of the clock in a second of real time: the smoke's cap
+    wake.begin(61_000, 6000)
+    expect(wake.state.churnS).toBeCloseTo(1 + PLUME_MAX_RATE, 6)
+    // A clock set back leaves it standing
+    wake.begin(1000, 7000)
+    expect(wake.state.churnS).toBeCloseTo(1 + PLUME_MAX_RATE, 6)
   })
 
   it('starts each tick afresh, and asks for a frame while foam fades unseen', () => {

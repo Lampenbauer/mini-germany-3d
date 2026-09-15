@@ -913,9 +913,16 @@ export class VesselLayer {
             surfaceHeight: surface,
             seed: vessel.mmsi % 977,
           })
-          // A wake left standing fades on its own; a frame now and then shows it
-          if (wake.fadeFrameDue && this.isOnScreen(cullingVolume, record.displayPosition)) {
-            this.host.requestRender()
+          // The foam churns where it lies: a frame once that shows at her
+          // distance, the smoke's rule; and a wake left standing fades on
+          // its own, a frame now and then shows it. Either keeps the ticks
+          // at the motion pace – the churn is what a 500 ms tick would step
+          if (this.isOnScreen(cullingVolume, record.displayPosition)) {
+            anyMovingVesselInView = true
+            const pxPerMeter = pxPerMeterAtUnit / Math.max(1, distance)
+            if (wake.fadeFrameDue || wake.metersSinceRendered * pxPerMeter >= motionThreshold) {
+              this.host.requestRender()
+            }
           }
         }
       }

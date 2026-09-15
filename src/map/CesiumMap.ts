@@ -2511,6 +2511,8 @@ export class CesiumMap {
   syncVehicles(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
+    /** The simulated clock the snapshots stand at (epoch ms); the ferries' wake runs on it (see VehicleLayer). */
+    simMs?: number,
   ): {
     anyVehicleInView: boolean
     nearestBodyMeters: number
@@ -2523,7 +2525,7 @@ export class CesiumMap {
     this.bridgeDecks.update()
     this.buoys.sync()
     this.lighthouses.sync()
-    const info = this.vehicleLayer.sync(snapshots, visibleLines)
+    const info = this.vehicleLayer.sync(snapshots, visibleLines, simMs)
     this.nearestVehicleMeters = info.nearestBodyMeters
     this.applyShadowState()
     return info

@@ -1322,6 +1322,25 @@ behind a quay. The replay's track window reaches
 this. Two `Wake` primitives, one per fleet, because the two layers
 start and commit their sets at different moments of the tick.
 
+The foam itself lies in the water and churns (since 2026-09-15; the
+user found it "zu statisch" – the pattern was measured from the stern
+and rode along with the hull, painted on). Every ribbon point carries
+the moment its foam was made – the ships' clock less the pose's age,
+as metres at `WAKE_STREAK_MPS` – so the same water wears the same
+streak from tick to tick while the ship runs on, and the bow wave's
+foam streams aft along the flank; on top, the noise has a third axis
+walked by a churn clock (`u_churn`) that runs on the ships' clock like
+the smoke's – held by a pause, capped at `PLUME_MAX_RATE` under the
+time-lapse – so a patch breaks up and re-forms where it lies and the
+edge frays. Still stateless. The churn earns frames the smoke's way
+(`metersSinceRendered` at `WAKE_CHURN_MPS` against the motion
+threshold at the ship's distance) and keeps the vessel ticks at the
+motion pace while a wake is on screen; the ferries' wake runs on the
+simulated clock for it (`syncVehicles` takes `simMs` since), where it
+was on `performance.now()` – a pause left the foam streaming past a
+standing ferry otherwise. The noise lattice is periodic (4096 cells)
+so the sin hash never sees the coordinates a long session grows.
+
 ### The city handover is one frame – nothing may pile up in it
 
 The map changes hands halfway through the flight to the next city
