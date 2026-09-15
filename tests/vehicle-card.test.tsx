@@ -5,8 +5,12 @@ import { VehicleCard, formatDelay, formatDelayLong } from '@/components/VehicleC
 import { config } from '@/config'
 import type { InterchangeOption } from '@/lib/interchange'
 import type { TripProgress, VehicleSnapshot } from '@/engine/simulation'
+import { offThePhone, onAPhone } from './phone'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  offThePhone()
+})
 
 const vehicle: VehicleSnapshot = {
   id: '1-0-510',
@@ -303,18 +307,28 @@ describe('VehicleCard summary', () => {
     expect(screen.queryByTestId('vehicle-interchange')).toBeNull()
   })
 
-  it('folds to its head on the fold button and opens again', () => {
+  it('folds to its head on a phone and opens again, the follow in the head throughout', () => {
     // The panel's fold button beside the close button (CardHead): on a
     // phone the card is a sheet over the map, and folded it keeps the
-    // head – line, origin and destination – and nothing under it.
+    // head – line, origin and destination, the follow as an icon button
+    // in the corner – and nothing under it.
+    onAPhone()
     renderCard()
+    const follow = screen.getByRole('button', { name: 'Follow tram' })
+    expect(follow.closest('[data-slot="card-header"]')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
     expect(screen.getByText(/Hafenallee/)).toBeInTheDocument()
     expect(screen.queryByTestId('vehicle-trip-stops')).toBeNull()
     expect(screen.queryByTestId('vehicle-arrival')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Follow tram' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Follow tram' })).toBe(follow)
     fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
     expect(screen.getByTestId('vehicle-trip-stops')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Follow tram' })).toBeInTheDocument()
+  })
+
+  it('keeps the follow in the body on a desktop', () => {
+    renderCard()
+    const follow = screen.getByRole('button', { name: 'Follow tram' })
+    expect(follow.closest('[data-slot="card-content"]')).not.toBeNull()
+    expect(follow).toHaveTextContent('Follow tram')
   })
 })

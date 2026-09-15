@@ -1,6 +1,4 @@
-import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { CardBody, CardHead, CardShell, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
 import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_ICON } from '@/components/mode-icon'
@@ -93,7 +91,11 @@ export function StopCard({
   )
 
   return (
-    <CardShell data-testid="stop-card">
+    <CardShell
+      data-testid="stop-card"
+      // The flight to the stop – in the body on a desktop, in the head on a phone (card-parts.tsx)
+      action={{ label: t('stop.flyTo'), onClick: () => onFlyTo(stop) }}
+    >
       <CardHead
         eyebrow={
           <>
@@ -194,13 +196,6 @@ export function StopCard({
             </div>
           </div>
         )}
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => onFlyTo(stop)}>
-            <Crosshair aria-hidden />
-            {t('stop.flyTo')}
-          </Button>
-        </div>
       </CardBody>
     </CardShell>
   )

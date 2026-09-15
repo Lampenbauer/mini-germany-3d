@@ -7,8 +7,10 @@
  * screen, the photo mode and full screen. The markup does that with
  * `max-sm:` variants; this is for the few decisions that are state
  * rather than style – the panel opening folded, a link's `view=linear`
- * being read as the map. Read at the moment asked, never watched: a
- * phone does not become a desktop mid-session.
+ * being read as the map, a card's fold button and its action standing
+ * in the head rather than the body (CardShell in card-parts.tsx, where
+ * the DOM differs and not just the style). Read at the moment asked,
+ * never watched: a phone does not become a desktop mid-session.
  */
 export function narrowViewport(): boolean {
   return (

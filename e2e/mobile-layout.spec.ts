@@ -64,15 +64,29 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(852 - 30)
   await expect(panel).toBeHidden()
 
-  // The card folds to its head with the panel's fold button (CardHead in
-  // card-parts.tsx): the stops and the follow button go, the head with
-  // the line and its termini stays at the foot, and the map above it
-  // grows by what the body took
+  // The card's action – the follow – is an icon button in the head on a
+  // phone, first in the corner's row before the fold and close buttons
+  // (CardShell's action in card-parts.tsx), not the labelled button at
+  // the foot of the body it is on a desktop
+  const follow = card.getByRole('button', { name: 'Follow tram' })
+  const fold = card.getByRole('button', { name: 'Collapse card' })
+  const close = card.getByRole('button', { name: 'Close selection' })
+  const [followBox, foldBox, closeBox] = await Promise.all(
+    [follow, fold, close].map(async (button) => (await button.boundingBox())!),
+  )
+  expect(followBox.x + followBox.width).toBeLessThanOrEqual(foldBox.x + 1)
+  expect(foldBox.x + foldBox.width).toBeLessThanOrEqual(closeBox.x + 1)
+  expect(Math.abs(followBox.y - closeBox.y)).toBeLessThan(1)
+  expect(followBox.height).toBeLessThanOrEqual(40)
+
+  // The card folds to its head with the panel's fold button (CardHead):
+  // the stops go, the head with the line, its termini and the follow
+  // stays at the foot, and the map above it grows by what the body took
   const stops = card.getByTestId('vehicle-trip-stops')
   await expect(stops).toBeVisible()
-  await card.getByRole('button', { name: 'Collapse card' }).click()
+  await fold.click()
   await expect(stops).toBeHidden()
-  await expect(card.getByRole('button', { name: 'Follow tram' })).toBeHidden()
+  await expect(follow).toBeVisible()
   await expect(card.getByTestId('vehicle-status')).toBeVisible()
   const folded = (await card.boundingBox())!
   expect(folded.height).toBeLessThan(cardBox.height / 2)

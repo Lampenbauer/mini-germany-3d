@@ -1,6 +1,5 @@
-import { ArrowLeftRight, ArrowRight, Crosshair } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { CardBody, CardHead, CardShell, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
@@ -79,7 +78,11 @@ export function LineCard({
     .sort((a, b) => a.at - b.at)
 
   return (
-    <CardShell data-testid="line-card">
+    <CardShell
+      data-testid="line-card"
+      // The flight to the line – in the body on a desktop, in the head on a phone (card-parts.tsx)
+      action={{ label: t('line.flyTo'), onClick: onFlyTo }}
+    >
       <CardHead
         className={ink.text}
         style={{ backgroundColor: color }}
@@ -253,13 +256,6 @@ export function LineCard({
             </div>
           </ScrollArea>
         )}
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onFlyTo}>
-            <Crosshair aria-hidden />
-            {t('line.flyTo')}
-          </Button>
-        </div>
       </CardBody>
     </CardShell>
   )

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, Crosshair } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ArrowRight } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { CardBody, CardHead, CardShell, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
@@ -253,7 +252,15 @@ export function VehicleCard({
   const ModeIcon = MODE_ICON[vehicle.mode]
   const ink = headInk(vehicle.color)
   return (
-    <CardShell data-testid="vehicle-card">
+    <CardShell
+      data-testid="vehicle-card"
+      // The follow – in the body on a desktop, in the head on a phone (card-parts.tsx)
+      action={{
+        label: following ? t('follow.stop') : t(FOLLOW_KEY[vehicle.mode]),
+        onClick: onToggleFollow,
+        pressed: following,
+      }}
+    >
       {/* The line's colour as the head, the way the vehicle wears it on
           the map; the ink follows the colour's lightness (headInk) and
           the number inverts to it with the colour as its own ink. */}
@@ -366,17 +373,6 @@ export function VehicleCard({
             </div>
           </div>
         )}
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant={following ? 'default' : 'outline'}
-            size="sm"
-            onClick={onToggleFollow}
-          >
-            <Crosshair aria-hidden />
-            {following ? t('follow.stop') : t(FOLLOW_KEY[vehicle.mode])}
-          </Button>
-        </div>
       </CardBody>
     </CardShell>
   )

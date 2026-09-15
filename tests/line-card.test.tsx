@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { headInk, relativeLuminance } from '@/components/card-parts'
 import { LineCard } from '@/components/LineCard'
 import type { LineActivity, LineProfile, LineVehicle } from '@/lib/line-profile'
+import { offThePhone, onAPhone } from './phone'
 
 /**
  * The line card. Every row is optional in the data – a line can have no
@@ -11,7 +12,10 @@ import type { LineActivity, LineProfile, LineVehicle } from '@/lib/line-profile'
  * the ones where a row has to disappear rather than show a zero.
  */
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  offThePhone()
+})
 
 function profile(overrides: Partial<LineProfile> = {}): LineProfile {
   return {
@@ -122,12 +126,16 @@ describe('LineCard', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('folds to its head on the fold button', () => {
-    show(profile())
+  it('folds to its head on a phone, the flight to the line in the head with it', () => {
+    onAPhone()
+    const { onFlyTo } = show(profile())
+    const flyTo = screen.getByRole('button', { name: 'Fly to the line' })
+    expect(flyTo.closest('[data-slot="card-header"]')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
     expect(screen.getByTestId('line-name')).toBeInTheDocument()
     expect(screen.queryByTestId('line-route')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Fly to the line' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Fly to the line' }))
+    expect(onFlyTo).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
     expect(screen.getByTestId('line-route')).toBeInTheDocument()
   })

@@ -275,21 +275,37 @@ and scrolls as a whole (`CARD_SHELL` in
 [card-parts.tsx](src/components/card-parts.tsx)). Since 2026-09-15 every
 card folds to its head there, with the panel's fold button
 (`ArrowsToLineIcon`/`ArrowsFromLineIcon`) beside the close button, and
-the fold is the parts' business, not the cards': `CardShell` (the card
-in the shell's clothes) holds the state and hands it down by context,
-`CardHead` shows the button (`sm:hidden`, so a desktop's corner keeps to
-the close button) and `CardBody` renders nothing while folded, as the
-panel does – a card is the three in a row and carries nothing of it
-itself, so a new card cannot miss it. The head's own rows (the stop's
-lines, the city's mode chips) stay with the head: a follow on a phone
-ran behind a sheet that covered a good half of the screen, and folded
-the head still names what was picked. A card opens unfolded (it was
-asked for) and keeps its fold from one vehicle to the next while it
-stays up; the user asked for the followed three first and then for
-every card. The vehicle card's stop list is its own component
-(`TripStops`) since, so that it centres its marker when the body comes
-back. Each card's test pins the fold, `e2e/mobile-layout.spec.ts`
-measures it and `e2e/app.spec.ts` wants the button hidden on a desktop.
+its one action – the follow, the flight to the stop or the line –
+stands in the head as an icon button before the fold button, so that
+it is there with the card folded (the user's two asks of that day; the
+city card has no action). Both are the parts' business, not the
+cards': `CardShell` (the card in the shell's clothes) holds the fold
+and the `action` a card declares on it (`CardAction`: label, click,
+`pressed` for a running follow) and hands them down by context,
+`CardHead` shows the two buttons, `CardBody` renders nothing while
+folded, as the panel does, and on a desktop ends with the action as
+the labelled button it always was there – a card is the three in a
+row and carries nothing of it itself, so a new card cannot miss it.
+Whether it is a phone's sheet the shell reads once when made
+(`narrowViewport`, the panel's way), not with a `max-sm:` variant like
+everything else on a phone: the action stands in a different place of
+the DOM on the two, and the same button twice, one hidden by a
+stylesheet, is two buttons of one name to every jsdom test and to a
+reader without the stylesheet. So jsdom, which has no `matchMedia`,
+renders every card as a desktop's, and a test of the phone's head
+calls `onAPhone()` from `tests/phone.ts` before rendering (and
+`offThePhone()` after). The pressed follow in the head is a wash of the
+head's own ink (`aria-pressed:bg-current/20`), white on the deep
+colours and dark on the light ones, where a fixed white sank into
+Rostock's bus 19. The head's own rows (the stop's lines, the city's mode
+chips) stay with the head: a follow on a phone ran behind a sheet that
+covered a good half of the screen, and folded the head still names
+what was picked. A card opens unfolded (it was asked for) and keeps its
+fold from one vehicle to the next while it stays up. The vehicle card's
+stop list is its own component (`TripStops`) since, so that it centres
+its marker when the body comes back. Each card's test pins the fold
+and the action's two places, `e2e/mobile-layout.spec.ts` measures both
+and `e2e/app.spec.ts` wants the desktop's labelled button and no fold.
 Two traps found on
 2026-09-10 while building it: the card's children must not shrink
 (`max-sm:[&>*]:shrink-0`) – the head clips its illustration with

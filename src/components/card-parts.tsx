@@ -6,12 +6,13 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react'
-import { X } from 'lucide-react'
+import { Crosshair, X } from 'lucide-react'
 import { ArrowsFromLineIcon, ArrowsToLineIcon } from '@/components/ArrowsToLineIcon'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { narrowViewport } from '@/lib/viewport'
 
 /**
  * The parts the six cards are built from, so a city, a line, a vehicle,
@@ -41,57 +42,110 @@ const CARD_SHELL =
   'max-sm:w-auto max-sm:max-h-[60dvh] max-sm:overflow-y-auto max-sm:[&>*]:shrink-0'
 
 /**
+ * The one thing a card offers to do – follow the vehicle, the ship or
+ * the aircraft, fly to the stop or the line – declared on the shell and
+ * placed by the parts: on a desktop the body ends with it as a labelled
+ * button, on a phone it is an icon button in the head, first in the
+ * corner's row, so that it is there with the card folded to its head.
+ * The icon is the crosshair every one of them wore.
+ */
+export interface CardAction {
+  /** What the button says – its name, on a phone, where only the icon shows. */
+  label: string
+  onClick: () => void
+  /** In force, as a follow that is running – shown pressed, and named for stopping it. */
+  pressed?: boolean
+}
+
+/**
  * Every card folds to its head on a phone, the way the control panel
  * folds to its clock: the shell (CardShell) holds whether it is folded,
  * the head (CardHead) shows the panel's fold button beside the close
  * button, and the body (CardBody) leaves while folded, as the panel's
  * does – so a card is built from the three and carries nothing of it
  * itself. Folded, the head alone stays at the foot of the screen, its
- * own rows included (the stop's lines, the city's mode chips), and still
- * names what was picked, while the map above it comes back into view: a
- * follow ran behind a sheet that covered a good half of the screen. A
- * card opens unfolded (it was asked for) and keeps its fold from one
- * vehicle to the next while it stays up; a new card starts afresh. On a
- * desktop the card stands beside the map with nothing to uncover, so the
- * button is a phone's (`sm:hidden`) and the corner keeps to the close
- * button there.
+ * own rows included (the stop's lines, the city's mode chips) and the
+ * card's action in its corner, and still names what was picked, while
+ * the map above it comes back into view: a follow ran behind a sheet
+ * that covered a good half of the screen. A card opens unfolded (it was
+ * asked for) and keeps its fold from one vehicle to the next while it
+ * stays up; a new card starts afresh. On a desktop the card stands
+ * beside the map with nothing to uncover, so the corner keeps to the
+ * close button there and the action stays in the body.
+ *
+ * Whether it is a phone's sheet is read once, when the shell is made
+ * (`narrowViewport`, the panel's way – a phone does not become a desktop
+ * mid-session), rather than left to the `max-sm:` variants everything
+ * else on a phone is done with: the action stands in a different place
+ * of the DOM on the two, and the same button twice, one of them hidden
+ * by a stylesheet, is two buttons of one name to every test and to
+ * every reader without the stylesheet.
  */
-interface CardFold {
+interface CardShellState {
+  /** A phone's sheet at the foot of the screen, not a desktop's card beside the map. */
+  phone: boolean
   collapsed: boolean
   toggle: () => void
+  action: CardAction | null
 }
 
-const CardFoldContext = createContext<CardFold | null>(null)
+const CardShellContext = createContext<CardShellState | null>(null)
 
-function useCardFold(): CardFold {
-  const fold = useContext(CardFoldContext)
-  if (!fold) throw new Error('A card head or body belongs inside a CardShell')
-  return fold
+function useCardShell(): CardShellState {
+  const shell = useContext(CardShellContext)
+  if (!shell) throw new Error('A card head or body belongs inside a CardShell')
+  return shell
 }
 
-/** The card itself, in the shell's clothes, holding the fold for the head and the body in it. */
-export function CardShell({ className, ...props }: ComponentProps<typeof Card>) {
+/** The card itself, in the shell's clothes, holding the fold and the action for the head and the body in it. */
+export function CardShell({
+  action = null,
+  className,
+  ...props
+}: ComponentProps<typeof Card> & { action?: CardAction | null }) {
+  const [phone] = useState(narrowViewport)
   const [collapsed, setCollapsed] = useState(false)
   return (
-    <CardFoldContext value={{ collapsed, toggle: () => setCollapsed((c) => !c) }}>
+    <CardShellContext value={{ phone, collapsed, toggle: () => setCollapsed((c) => !c), action }}>
       <Card className={cn(CARD_SHELL, className)} {...props} />
-    </CardFoldContext>
+    </CardShellContext>
   )
 }
 
-/** What stands under the head – left out entirely while the card is folded. */
-export function CardBody({ className, ...props }: ComponentProps<typeof CardContent>) {
-  const { collapsed } = useCardFold()
-  if (collapsed) return null
-  return <CardContent className={cn('flex flex-col gap-3 px-5 pt-4 pb-4', className)} {...props} />
+/**
+ * What stands under the head – left out entirely while the card is
+ * folded, and ending, on a desktop, with the card's action as the
+ * labelled button it always was there.
+ */
+export function CardBody({ className, children, ...props }: ComponentProps<typeof CardContent>) {
+  const shell = useCardShell()
+  if (shell.collapsed) return null
+  return (
+    <CardContent className={cn('flex flex-col gap-3 px-5 pt-4 pb-4', className)} {...props}>
+      {children}
+      {!shell.phone && shell.action && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant={shell.action.pressed ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={shell.action.pressed}
+            onClick={shell.action.onClick}
+          >
+            <Crosshair aria-hidden />
+            {shell.action.label}
+          </Button>
+        </div>
+      )}
+    </CardContent>
+  )
 }
 
 /**
- * The head of a card: eyebrow over title over lead, the fold button and
- * the close button in the corner, and whatever row the caller adds under
- * it (mode chips, the stop's lines). `behind` is drawn first and
- * absolutely – the city card's illustration – inside the head's own
- * stacking context.
+ * The head of a card: eyebrow over title over lead, the close button in
+ * the corner – on a phone with the card's action and the fold button
+ * before it – and whatever row the caller adds under it (mode chips, the
+ * stop's lines). `behind` is drawn first and absolutely – the city card's
+ * illustration – inside the head's own stacking context.
  */
 export function CardHead(props: {
   /** Ground and ink – `bg-brand`, `bg-slate-800 text-slate-50`, or a `style`. */
@@ -110,7 +164,7 @@ export function CardHead(props: {
   onClose: () => void
   children?: ReactNode
 }) {
-  const fold = useCardFold()
+  const shell = useCardShell()
   return (
     <CardHeader
       className={cn('relative isolate gap-0 overflow-hidden px-5 pt-4 pb-4', props.className)}
@@ -136,16 +190,33 @@ export function CardHead(props: {
           {props.lead && <p className={cn('mt-1 text-sm', props.leadClassName)}>{props.lead}</p>}
         </div>
         <div className="-mt-1 -mr-2 flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="sm:hidden"
-            aria-label={fold.collapsed ? t('card.expand') : t('card.collapse')}
-            aria-expanded={!fold.collapsed}
-            onClick={fold.toggle}
-          >
-            {fold.collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
-          </Button>
+          {shell.phone && shell.action && (
+            // Pressed – a follow running – as a wash of the head's own ink,
+            // which is white on the deep colours and near-black on the
+            // light ones (headInk): a fixed white or black would sink into
+            // one of the two.
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="aria-pressed:bg-current/20"
+              aria-label={shell.action.label}
+              aria-pressed={shell.action.pressed}
+              onClick={shell.action.onClick}
+            >
+              <Crosshair aria-hidden />
+            </Button>
+          )}
+          {shell.phone && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={shell.collapsed ? t('card.expand') : t('card.collapse')}
+              aria-expanded={!shell.collapsed}
+              onClick={shell.toggle}
+            >
+              {shell.collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
+            </Button>
+          )}
           <Button variant="ghost" size="icon-sm" aria-label={props.closeLabel} onClick={props.onClose}>
             <X aria-hidden />
           </Button>

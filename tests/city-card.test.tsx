@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CityCard, type CityCardProps } from '@/components/CityCard'
 import type { CityActivity, CityProfile } from '@/lib/city-profile'
 import { setLanguage } from '@/lib/i18n'
+import { offThePhone, onAPhone } from './phone'
 
 /**
  * The city card. Like the line card's, its rows are optional in the data –
@@ -14,6 +15,7 @@ import { setLanguage } from '@/lib/i18n'
 
 afterEach(() => {
   cleanup()
+  offThePhone()
   setLanguage('en')
 })
 
@@ -98,8 +100,9 @@ describe('the city card', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('folds to its head on the fold button, the mode chips with it', () => {
+  it('folds to its head on a phone, the mode chips with it', () => {
     // The head keeps its own row (the chips) – it is the body that goes
+    onAPhone()
     card()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
     expect(screen.getByTestId('city-card-name')).toHaveTextContent('Rostock')

@@ -1,5 +1,4 @@
-import { Crosshair, Plane } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Plane } from 'lucide-react'
 import { CardBody, CardHead, CardShell, EyebrowDot, Stat } from '@/components/card-parts'
 import type { Aircraft } from '@/lib/aircraft-extract'
 import {
@@ -50,7 +49,15 @@ export function AircraftCard({
   onClose,
 }: AircraftCardProps) {
   return (
-    <CardShell data-testid="aircraft-card">
+    <CardShell
+      data-testid="aircraft-card"
+      // The follow – in the body on a desktop, in the head on a phone (card-parts.tsx)
+      action={{
+        label: following ? t('follow.stop') : t('follow.aircraft'),
+        onClick: onToggleFollow,
+        pressed: following,
+      }}
+    >
       <CardHead
         className="bg-blue-800 text-blue-50"
         eyebrow={
@@ -125,12 +132,6 @@ export function AircraftCard({
             muted={aircraft.onGround || aircraft.verticalRateMps === null}
             testId="aircraft-climb"
           />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant={following ? 'default' : 'outline'} size="sm" onClick={onToggleFollow}>
-            <Crosshair aria-hidden />
-            {following ? t('follow.stop') : t('follow.aircraft')}
-          </Button>
         </div>
       </CardBody>
     </CardShell>

@@ -1,5 +1,4 @@
-import { Crosshair, Ship } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Ship } from 'lucide-react'
 import { CardBody, CardHead, CardShell, EyebrowDot, Stat } from '@/components/card-parts'
 import type { AisVessel } from '@/lib/ais-extract'
 import { t } from '@/lib/i18n'
@@ -59,7 +58,15 @@ export function VesselCard({
   const draughtM = vessel.draughtM ?? null
 
   return (
-    <CardShell data-testid="vessel-card">
+    <CardShell
+      data-testid="vessel-card"
+      // The follow – in the body on a desktop, in the head on a phone (card-parts.tsx)
+      action={{
+        label: following ? t('follow.stop') : t('follow.vessel'),
+        onClick: onToggleFollow,
+        pressed: following,
+      }}
+    >
       <CardHead
         className="bg-slate-800 text-slate-50"
         eyebrow={
@@ -126,12 +133,6 @@ export function VesselCard({
             muted={draughtM === null}
             testId="vessel-draught"
           />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant={following ? 'default' : 'outline'} size="sm" onClick={onToggleFollow}>
-            <Crosshair aria-hidden />
-            {following ? t('follow.stop') : t('follow.vessel')}
-          </Button>
         </div>
       </CardBody>
     </CardShell>

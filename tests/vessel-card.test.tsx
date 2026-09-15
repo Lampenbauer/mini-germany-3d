@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VesselCard } from '@/components/VesselCard'
 import type { AisVessel } from '@/lib/ais-extract'
 import { formatFixAge, navStatusKey, vesselTypeKey } from '@/lib/vessel-info'
+import { offThePhone, onAPhone } from './phone'
 
 /**
  * The card for a clicked AIS ship. Everything it shows is optional in the
@@ -11,7 +12,10 @@ import { formatFixAge, navStatusKey, vesselTypeKey } from '@/lib/vessel-info'
  * often send none – so the interesting cases are the missing ones.
  */
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  offThePhone()
+})
 
 const NOW = 1_800_000_000_000
 
@@ -132,22 +136,47 @@ describe('VesselCard', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('folds to its head on the fold button and opens again', () => {
+  it('offers no fold on a desktop, where the card stands beside the map', () => {
+    show(vessel())
+    expect(screen.queryByRole('button', { name: 'Collapse card' })).toBeNull()
+  })
+
+  it('folds to its head on a phone, the follow going into the head with it', () => {
     // The panel's fold button, beside the close button (CardHead): on a
     // phone the card is a sheet over the harbour, and folded it leaves
-    // the ship's name and nothing else. Opens unfolded.
-    show(vessel())
+    // the ship's name and the follow – an icon button in the head there,
+    // first in the corner's row – and nothing else. Opens unfolded.
+    onAPhone()
+    const { onToggleFollow } = show(vessel())
+    const head = within(document.querySelector<HTMLElement>('[data-slot="card-header"]')!)
+    const body = within(document.querySelector<HTMLElement>('[data-slot="card-content"]')!)
+    expect(head.getByRole('button', { name: 'Follow vessel' })).toHaveAttribute('aria-pressed', 'false')
+    expect(head.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Follow vessel',
+      'Collapse card',
+      'Close selection',
+    ])
+    expect(body.queryByRole('button', { name: 'Follow vessel' })).toBeNull()
     const fold = screen.getByRole('button', { name: 'Collapse card' })
     expect(fold).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(fold)
     expect(screen.getByTestId('vessel-name')).toHaveTextContent('DENEB')
     expect(screen.queryByTestId('vessel-speed')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Follow vessel' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Follow vessel' }))
+    expect(onToggleFollow).toHaveBeenCalledOnce()
     const unfold = screen.getByRole('button', { name: 'Expand card' })
     expect(unfold).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(unfold)
     expect(screen.getByTestId('vessel-speed')).toHaveTextContent('8.4 kn')
     expect(screen.getByRole('button', { name: 'Collapse card' })).toBeInTheDocument()
+  })
+
+  it('shows the follow pressed in the head while the camera is chasing', () => {
+    onAPhone()
+    show(vessel(), { following: true })
+    const stop = screen.getByRole('button', { name: 'Stop following' })
+    expect(stop).toHaveAttribute('aria-pressed', 'true')
+    expect(stop.closest('[data-slot="card-header"]')).not.toBeNull()
   })
 })
 

@@ -4,8 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StopCard, type StopInfo } from '@/components/StopCard'
 import type { StopDeparture } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
+import { offThePhone, onAPhone } from './phone'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  offThePhone()
+})
 
 /** 08:30 – the fixture departures sit a few minutes after it. */
 const SIM_SECONDS = 8 * 3600 + 30 * 60
@@ -155,14 +159,18 @@ describe('StopCard', () => {
     expect(onFlyTo).toHaveBeenCalledWith(stop)
   })
 
-  it('folds to its head on the fold button, the serving lines with it', () => {
-    // The lines calling here are the head's own row and stay; the
-    // departures and the flight go with the body
-    renderCard()
+  it('folds to its head on a phone, the serving lines and the flight with it', () => {
+    // The lines calling here are the head's own row and stay, and so
+    // does the flight to the stop, an icon button in the head on a
+    // phone; the departures go with the body
+    onAPhone()
+    const onFlyTo = vi.fn()
+    renderCard({ onFlyTo })
     fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
     expect(screen.getByTestId('stop-lines')).toBeInTheDocument()
     expect(screen.queryByText('Departures')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Fly to stop' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Fly to stop' }))
+    expect(onFlyTo).toHaveBeenCalledWith(stop)
     fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
     expect(screen.getByText('Departures')).toBeInTheDocument()
   })

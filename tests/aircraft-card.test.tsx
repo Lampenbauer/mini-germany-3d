@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AircraftCard } from '@/components/AircraftCard'
 import type { Aircraft } from '@/lib/aircraft-extract'
 import { setLanguage } from '@/lib/i18n'
+import { offThePhone, onAPhone } from './phone'
 
 /**
  * The card for a clicked aircraft. Everything on it is what a
@@ -15,6 +16,7 @@ import { setLanguage } from '@/lib/i18n'
 afterEach(() => {
   cleanup()
   setLanguage('en')
+  offThePhone()
 })
 
 const NOW = 1_800_000_000_000
@@ -132,11 +134,13 @@ describe('AircraftCard', () => {
     expect(screen.getByRole('button', { name: 'Stop following' })).toBeInTheDocument()
   })
 
-  it('folds to its head on the fold button, like the ship card', () => {
+  it('folds to its head on a phone, like the ship card, the follow staying in the head', () => {
+    onAPhone()
     show(aircraft())
     fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
     expect(screen.getByTestId('aircraft-name')).toHaveTextContent('DLH3Y')
     expect(screen.queryByTestId('aircraft-altitude')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Follow aircraft' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
     expect(screen.getByTestId('aircraft-altitude')).toBeInTheDocument()
   })
