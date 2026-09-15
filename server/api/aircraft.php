@@ -17,7 +17,7 @@
  *     headingDeg, verticalRateMps, rollDeg, squawk, source, positionAt,
  *     track }, ... ] }
  * track is the aircraft's recent fixes ([unix ms, lat, lon, altM, gsKn,
- * trackDeg, verticalRateMps], oldest first): the app renders the traffic
+ * trackDeg, verticalRateMps, headingDeg], oldest first): the app renders the traffic
  * a few seconds behind the wall clock and interpolates BETWEEN these –
  * see the playback notes in src/lib/aircraft-extract.ts.
  *
@@ -217,6 +217,7 @@ function mg3d_aircraft_merge(array &$state, array $raw, int $positionAt): void
         $aircraft['gsKn'],
         $aircraft['trackDeg'],
         $aircraft['verticalRateMps'],
+        $aircraft['headingDeg'],
     ];
     $track = [];
     foreach ($aircraft['track'] as $point) {

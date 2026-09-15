@@ -63,7 +63,7 @@ function point(
   t: number,
   latOff = 0,
   lonOff = 0,
-  k: { alt?: number | null; gs?: number | null; track?: number | null; rate?: number | null } = {},
+  k: { alt?: number | null; gs?: number | null; track?: number | null; rate?: number | null; hdg?: number | null } = {},
 ): AircraftTrackPoint {
   return [
     t,
@@ -73,6 +73,7 @@ function point(
     k.gs !== undefined ? k.gs : 250,
     k.track !== undefined ? k.track : 90,
     k.rate !== undefined ? k.rate : 0,
+    k.hdg !== undefined ? k.hdg : null,
   ]
 }
 
@@ -123,7 +124,7 @@ describe('mergeAdsbAircraft', () => {
       source: 'adsb',
       positionAt: NOW,
     })
-    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5]])
+    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5, 297.68]])
   })
 
   it('reads the ground, the missing fields and the multilaterated source', () => {
@@ -266,6 +267,72 @@ describe('aircraftPlaybackSample', () => {
     const s = aircraftPlaybackSample(a, NOW - AIRCRAFT_PLAYBACK_DELAY_MS)
     expect(s.lon).toBe(8.1)
     expect(s.altM).toBe(10850.9)
+  })
+
+  it('points the nose along the heading, eased on its own arc, and the bearing along the track', () => {
+    // Crabbing into a crosswind: the nose 20° off the track, the whole way
+    const a = aircraft({
+      track: [point(NOW, 0, 0, { track: 350, hdg: 10 }), point(NOW + 10_000, 0.02, 0, { track: 10, hdg: 30 })],
+    })
+    const s = aircraftPlaybackSample(a, NOW + 5000)
+    expect(s.bearingDeg).toBeCloseTo(0, 6)
+    expect(s.noseDeg).toBeCloseTo(20, 6)
+    // Without a heading the nose is the bearing
+    expect(aircraftPlaybackSample(aircraft({ track: [point(NOW), point(NOW + 10_000, 0.02)] }), NOW + 5000).noseDeg).toBeCloseTo(
+      90,
+      6,
+    )
+  })
+
+  it('keeps a parked aircraft pointing where it did, whatever its fixes wobble', () => {
+    // On the apron the transponder reports the heading and no track; the
+    // fixes wander a few metres. Neither their azimuth nor north is a
+    // direction – the heading is, and where it goes quiet the last one known
+    const parked = aircraft({
+      onGround: true,
+      track: [
+        point(NOW, 0, 0, { alt: null, gs: 0, track: null, hdg: 285 }),
+        point(NOW + 10_000, 0.00003, 0.00004, { alt: null, gs: 0, track: null, hdg: 285 }),
+        point(NOW + 20_000, 0, 0, { alt: null, gs: 0, track: null, hdg: null }),
+        point(NOW + 30_000, 0.00004, -0.00003, { alt: null, gs: 0, track: null, hdg: null }),
+      ],
+    })
+    for (const t of [NOW - 1000, NOW + 5000, NOW + 15_000, NOW + 25_000, NOW + 35_000]) {
+      const s = aircraftPlaybackSample(parked, t)
+      expect(s.noseDeg).toBe(285)
+      expect(s.bearingDeg).toBe(285)
+      expect(s.moving).toBe(false)
+    }
+    // Nothing ever known: north, and steady
+    const mute = aircraft({
+      onGround: true,
+      track: [point(NOW, 0, 0, { alt: null, gs: 0, track: null }), point(NOW + 10_000, 0.00003, 0.00004, { alt: null, gs: 0, track: null })],
+    })
+    expect(aircraftPlaybackSample(mute, NOW + 5000).noseDeg).toBe(0)
+  })
+
+  it('holds the nose through a pushback and a stale track', () => {
+    // Pushed back: moving south-west tail first, the nose on its heading
+    // north-east the whole way. The track a taxiing aircraft still carries
+    // is the number of its last velocity message and must not swing the nose
+    const pushback = aircraft({
+      onGround: true,
+      track: [
+        point(NOW, 0, 0, { alt: null, gs: 3, track: 250, hdg: 70 }),
+        point(NOW + 10_000, -0.0001, -0.0002, { alt: null, gs: 3, track: 250, hdg: 70 }),
+        point(NOW + 20_000, -0.0002, -0.0004, { alt: null, gs: 3, track: 250, hdg: 70 }),
+      ],
+    })
+    expect(aircraftPlaybackSample(pushback, NOW + 5000).noseDeg).toBe(70)
+    expect(aircraftPlaybackSample(pushback, NOW + 15_000).noseDeg).toBe(70)
+    // Reckoned on past the last fix: still nose first along the heading
+    expect(aircraftPlaybackSample(pushback, NOW + 25_000).noseDeg).toBe(70)
+    expect(aircraftPlaybackSample(pushback, NOW + 25_000).bearingDeg).toBe(250)
+  })
+
+  it('reads a track point written before the heading existed as one without', () => {
+    const a = aircraft({ track: [[NOW, 50.2, 8.1, null, 0, null, null], [NOW + 10_000, 50.2, 8.1, null, 0, 40, null]] })
+    expect(aircraftPlaybackSample(a, NOW + 5000).noseDeg).toBe(40)
   })
 
   it('carries a null altitude for an aircraft on the ground', () => {

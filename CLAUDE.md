@@ -1986,12 +1986,30 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   track and climb rate for `AIRCRAFT_RECKON_MAX_MS`, then freezes –
   hanging in the sky is the lesser wrong, flying into a building the
   greater. An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
-- **Pose.** The nose follows `true_heading` where reported (the crab
-  angle off the track), the pitch is `atan2(vertical rate, ground speed)`
-  capped at 12°, the bank is the reported `roll` or the coordinated turn
-  the track rate implies, capped at 35°. Cesium's HPR frame: positive
-  pitch is nose up, positive roll is right wing down, which is what
-  readsb's `roll` means too.
+- **Pose.** The nose follows `true_heading` where reported, the pitch
+  is `atan2(vertical rate, ground speed)` capped at 12°, the bank is the
+  reported `roll` or the coordinated turn the track rate implies, capped
+  at 35°. Cesium's HPR frame: positive pitch is nose up, positive roll
+  is right wing down, which is what readsb's `roll` means too. Since
+  2026-09-15 the heading rides in the track point (its eighth element,
+  absent on points an older state wrote) and the playback eases it on
+  its own arc as `noseDeg`, beside `bearingDeg` for the motion; the
+  layer draws the nose and chases along the bearing. It was the motion
+  bearing plus the crab of the record's latest heading against its
+  latest track, and the user saw the aircraft spin 180° on the apron:
+  polled at Frankfurt that evening, nearly every aircraft on the ground
+  reports a heading and NO track (the surface position message carries
+  the one and not the other), so the bearing was the azimuth of a
+  parked transponder's wobble where it exceeded 5 m and north where it
+  did not – and a taxiing aircraft that still carried a track had the
+  stale number of its last velocity message, which the crab measured
+  the fresh heading against. Rules now: a segment's azimuth is a
+  direction only with real movement (a metre a second); standing, an
+  aircraft keeps the last direction known from its track – the heading
+  first for the nose, the track first for the bearing – and north is
+  only for one that never said either; a pushback moves the aircraft
+  tail first with the nose on its heading. `tests/aircraft-extract.test.ts`
+  pins the crab, the parked wobble, the pushback and the old point shape.
 - **Bodies.** Seven archetypes in `scripts/lib/aircraft-fleet.mjs`,
   stretched per type from the table in
   [src/lib/aircraft-info.ts](src/lib/aircraft-info.ts) (ICAO designator →

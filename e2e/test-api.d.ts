@@ -175,7 +175,7 @@ declare global {
               squawk: string
               source: 'adsb' | 'mlat' | 'other'
               positionAt: number
-              track: [number, number, number, number | null, number | null, number | null, number | null][]
+              track: [number, number, number, number | null, number | null, number | null, number | null, (number | null)?][]
             }[]
           | null,
       ) => void

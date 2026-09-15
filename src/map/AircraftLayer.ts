@@ -588,12 +588,13 @@ export class AircraftLayer {
         Cartesian3.clone(target, record.displayPosition)
       }
 
-      // The nose: the true heading where reported, crabbed off the track
-      // it moves along; else the track itself
-      const crab = aircraft.headingDeg !== null && aircraft.trackDeg !== null
-        ? ((aircraft.headingDeg - aircraft.trackDeg + 540) % 360) - 180
-        : 0
-      const targetBearing = (sample.bearingDeg + crab + 360) % 360
+      // The nose: the playback's, eased along the heading's own arc –
+      // until 2026-09-15 it was the motion bearing plus the crab of the
+      // record's LATEST heading against its latest track, and a track
+      // that flipped between two fixes (a parked transponder's, or the
+      // stale one a taxiing aircraft keeps) swung the nose through 180°
+      // and back while the heading itself never moved
+      const targetBearing = sample.noseDeg
       const bearingGap = ((targetBearing - record.displayBearing + 540) % 360) - 180
       record.displayBearing =
         Math.abs(bearingGap) < 0.05
@@ -992,7 +993,7 @@ export class AircraftLayer {
     const position = Cartesian3.fromDegrees(sample.lon, sample.lat, height)
     const matrix = Transforms.headingPitchRollToFixedFrame(
       position,
-      new HeadingPitchRoll(CesiumMath.toRadians(sample.bearingDeg - 90), 0, 0),
+      new HeadingPitchRoll(CesiumMath.toRadians(sample.noseDeg - 90), 0, 0),
     )
     const highlighted = this.selectedHex === aircraft.hex
     const color = highlighted
@@ -1047,13 +1048,13 @@ export class AircraftLayer {
       labelPosition,
       labelText,
       displayPosition: Cartesian3.clone(position),
-      displayBearing: sample.bearingDeg,
+      displayBearing: sample.noseDeg,
       displayPitch: 0,
       displayRoll: 0,
       lastPosition: Cartesian3.clone(position),
-      lastBearing: sample.bearingDeg,
+      lastBearing: sample.noseDeg,
       renderedPosition: Cartesian3.clone(position),
-      renderedBearing: sample.bearingDeg,
+      renderedBearing: sample.noseDeg,
       renderedStamp: this.renderStamp,
       clampedHeight: null,
       clampLon: sample.lon,

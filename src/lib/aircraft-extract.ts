@@ -25,10 +25,16 @@
 
 /**
  * One recorded fix: [unix ms, lat, lon, altitude m, ground speed kn,
- * track °, vertical rate m/s] – kinematics as of that moment, nulls as
- * in the record. The altitude is the geometric one where the aircraft
- * reports it and the pressure altitude otherwise (see Aircraft.altGeomM
- * for what the layer does about the difference); null on the ground.
+ * track °, vertical rate m/s, true heading °] – kinematics as of that
+ * moment, nulls as in the record. The altitude is the geometric one
+ * where the aircraft reports it and the pressure altitude otherwise
+ * (see Aircraft.altGeomM for what the layer does about the difference);
+ * null on the ground. The heading is where the nose points and is
+ * played back on its own arc (aircraftPlaybackSample): on the apron it
+ * is the only direction most aircraft report – the surface position
+ * message carries it and no track – and the one that stands while a
+ * pushback moves the aircraft backwards. Absent on points a state file
+ * wrote before it existed, which reads as null.
  */
 export type AircraftTrackPoint = [
   number,
@@ -38,6 +44,7 @@ export type AircraftTrackPoint = [
   number | null,
   number | null,
   number | null,
+  (number | null)?,
 ]
 
 /** One tracked aircraft, as the feed last reported it. */
@@ -312,6 +319,7 @@ export function mergeAdsbAircraft(state: AircraftState, raw: AdsbRawAircraft, po
     aircraft.gsKn,
     aircraft.trackDeg,
     aircraft.verticalRateMps,
+    aircraft.headingDeg,
   ])
   aircraft.track = aircraft.track
     .filter((p) => positionAt - p[0] <= AIRCRAFT_TRACK_KEEP_MS)
@@ -360,8 +368,15 @@ export interface AircraftPlaybackSample {
   lat: number
   /** Altitude as the track carries it (see AircraftTrackPoint); null on the ground. */
   altM: number | null
-  /** Direction of motion in degrees. */
+  /** Direction of motion in degrees – what the chase camera looks along. */
   bearingDeg: number
+  /**
+   * Where the nose points, in degrees – the pose drawn: the true heading
+   * where the aircraft reports one (crabbed off the track in the air,
+   * standing while a pushback moves it backwards on the ground), the
+   * direction of motion otherwise.
+   */
+  noseDeg: number
   gsKn: number | null
   verticalRateMps: number | null
   /** How fast the track is turning, degrees per second (0 where it cannot be told). */
@@ -376,12 +391,48 @@ export interface AircraftPlaybackSample {
   reckoned: boolean
 }
 
-function pointSample(p: AircraftTrackPoint, moving: boolean, reckoned: boolean): AircraftPlaybackSample {
+/**
+ * The last value a field had at or before index `i` of the track – the
+ * direction an aircraft that reports none at the moment (a parked one,
+ * whose transponder sends no track, or none at all) was last known to
+ * have. Null where the track never carried one.
+ */
+function lastKnown(track: readonly AircraftTrackPoint[], i: number, field: 5 | 7): number | null {
+  for (let j = i; j >= 0; j--) {
+    const value = track[j][field] ?? null
+    if (value !== null) return value
+  }
+  return null
+}
+
+/**
+ * The directions of a fix that reports none itself: the direction of
+ * motion is the last track known, failing that the last heading; the
+ * nose is the last heading known, failing that the direction of motion.
+ * North – a guess and nothing else – only for a track that never said
+ * either. Standing still an aircraft keeps pointing where it did: no
+ * direction is ever made up from the wobble of a parked transponder's
+ * fixes, which spun the aircraft on the apron before this (2026-09-15).
+ */
+function knownDirections(track: readonly AircraftTrackPoint[], i: number): { bearingDeg: number; noseDeg: number } {
+  const trackDeg = lastKnown(track, i, 5)
+  const headingDeg = lastKnown(track, i, 7)
+  const bearingDeg = trackDeg ?? headingDeg ?? 0
+  return { bearingDeg, noseDeg: headingDeg ?? bearingDeg }
+}
+
+function pointSample(
+  track: readonly AircraftTrackPoint[],
+  i: number,
+  moving: boolean,
+  reckoned: boolean,
+): AircraftPlaybackSample {
+  const p = track[i]
   return {
     lon: p[2],
     lat: p[1],
     altM: p[3],
-    bearingDeg: p[5] ?? 0,
+    ...knownDirections(track, i),
     gsKn: p[4],
     verticalRateMps: p[6],
     turnRateDegPerS: 0,
@@ -393,6 +444,11 @@ function pointSample(p: AircraftTrackPoint, moving: boolean, reckoned: boolean):
 /** Shortest signed arc from one bearing to another, in degrees. */
 function bearingDelta(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180
+}
+
+/** The arc from `a` to `b` at `u`, the short way round; null unless both are known. */
+function easeArc(a: number | null, b: number | null, u: number): number | null {
+  return a !== null && b !== null ? (a + bearingDelta(a, b) * u + 360) % 360 : null
 }
 
 /**
@@ -417,11 +473,12 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
             aircraft.gsKn,
             aircraft.trackDeg,
             aircraft.verticalRateMps,
+            aircraft.headingDeg,
           ],
         ]
   const last = track[track.length - 1]
-  if (renderMs <= track[0][0]) return pointSample(track[0], false, false)
-  if (renderMs >= last[0]) return reckon(last, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
+  if (renderMs <= track[0][0]) return pointSample(track, 0, false, false)
+  if (renderMs >= last[0]) return reckon(track, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
 
   let i = 0
   while (i + 1 < track.length && track[i + 1][0] <= renderMs) i++
@@ -441,8 +498,10 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
   const moving = dtMs > 0 && meters / (dtMs / 1000) >= 1
 
   // Bearing: ease the reported track along the shortest arc; without
-  // one on either end, a segment long enough to trust gives its own
-  // azimuth. The turn rate is the same arc over the segment's time.
+  // one on either end, a segment with real movement gives its own
+  // azimuth; standing, the last direction known (never the azimuth of
+  // a parked transponder's wobble). The turn rate is the same arc over
+  // the segment's time.
   const h0 = p0[5]
   const h1 = p1[5]
   let bearingDeg: number
@@ -451,11 +510,17 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
     const dh = bearingDelta(h0, h1)
     bearingDeg = (h0 + dh * u + 360) % 360
     turnRateDegPerS = dtMs > 0 ? dh / (dtMs / 1000) : 0
-  } else if (meters > 5) {
+  } else if (moving && meters > 5) {
     bearingDeg = ((Math.atan2(eastM, northM) * 180) / Math.PI + 360) % 360
   } else {
-    bearingDeg = h1 ?? h0 ?? 0
+    bearingDeg = knownDirections(track, i + 1).bearingDeg
   }
+  // The nose: the heading eased on its own arc where both fixes report
+  // one – a taxiing aircraft's track, where it reports one at all, is a
+  // stale number from its last velocity message, so the heading is
+  // never derived from it – else the last heading known, else the bearing
+  const heading = easeArc(p0[7] ?? null, p1[7] ?? null, u)
+  const noseDeg = heading ?? lastKnown(track, i + 1, 7) ?? bearingDeg
   const lerpNullable = (a: number | null, b: number | null): number | null =>
     a !== null && b !== null ? a + (b - a) * u : (b ?? a)
   return {
@@ -463,6 +528,7 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
     lat,
     altM,
     bearingDeg,
+    noseDeg,
     gsKn: lerpNullable(p0[4], p1[4]),
     verticalRateMps: lerpNullable(p0[6], p1[6]),
     turnRateDegPerS,
@@ -477,11 +543,12 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
  * Without a speed or a track there is nothing to fly on with, and the
  * aircraft stands on the fix.
  */
-function reckon(last: AircraftTrackPoint, aheadMs: number): AircraftPlaybackSample {
+function reckon(track: readonly AircraftTrackPoint[], aheadMs: number): AircraftPlaybackSample {
+  const last = track[track.length - 1]
   const gsKn = last[4]
   const trackDeg = last[5]
   if (gsKn === null || trackDeg === null || gsKn < 1 || aheadMs <= 0) {
-    return pointSample(last, false, aheadMs > 0)
+    return pointSample(track, track.length - 1, false, aheadMs > 0)
   }
   const seconds = aheadMs / 1000
   const meters = gsKn * KNOT_MPS * seconds
@@ -496,6 +563,7 @@ function reckon(last: AircraftTrackPoint, aheadMs: number): AircraftPlaybackSamp
     lat,
     altM,
     bearingDeg: trackDeg,
+    noseDeg: lastKnown(track, track.length - 1, 7) ?? trackDeg,
     gsKn,
     verticalRateMps: last[6],
     turnRateDegPerS: 0,
