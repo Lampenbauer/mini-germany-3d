@@ -326,7 +326,20 @@ the vehicle card's stop list took the card's body along with it, so it
 scrolls its own viewport now. The weather moves to the upper left, the readings
 to the top centre, the rail to the upper right as a column of round
 buttons with `gap-2` – the globe among them at button size – which ends
-above where the sheet opens. The line diagram, the photo mode
+above where the sheet opens; the three share one top edge, the phone's
+12 px inset (`top-3`; the weather kept the desktop's `top-4` and stood
+4 px under the rail's first button until 2026-09-15 – edges are what
+the user aligns by, not centres: the readings' box is 10 px taller than
+the round buttons and starts on the same line). The popovers keep to
+that edge too: a popover's collision padding is the inset of the
+viewport it opens on (`PHONE_POPOVER_EDGE_PADDING`, 12, against
+`POPOVER_EDGE_PADDING`'s 16 – in [ui/popover.tsx](src/components/ui/popover.tsx),
+read through `narrowViewport` when the content renders), so the
+weather's opens on its button's top edge rather than 4 px under it, and
+the layers popover hangs from the top of the rail's column on a phone
+(`railRef`, a `PopoverAnchor` in place of the button; top-aligned) so
+it opens on the same line beside the column, where from its button it
+opened 38 px down the screen. On a desktop nothing of this applies. The line diagram, the photo mode
 and full screen are not offered (`max-sm:hidden`), and `selectView`
 refuses `'linear'` on a narrow viewport, so a link cannot open it either.
 `e2e/mobile-layout.spec.ts` pins all of it at 393×852 with touch. Not

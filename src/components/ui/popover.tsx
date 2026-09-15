@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useEffect, useState } from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { cn } from '@/lib/utils'
+import { narrowViewport } from '@/lib/viewport'
 
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
@@ -11,21 +12,31 @@ function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimiti
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+/** What a popover is placed against instead of its trigger, where one is given (see LayersPopover). */
+function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
+}
+
 /**
  * How close to the window's edges a popover may come, in px. Radix
  * flips and shifts a popover to keep it inside the window; this keeps
  * it a step short of the edge as well, so a tall one (the photo mode's
  * knobs) never touches the top or bottom and a wide one never sits
  * against a side. A scroll area inside a popover budgets for it – see
- * the photo popover's ceiling.
+ * the photo popover's ceiling. It is the inset the controls keep from
+ * the edges – `4` (16 px) on a desktop, `3` (12 px) on a phone (the
+ * `max-sm:` variants in App.tsx) – so that a popover shifted to an edge
+ * stands on the controls' own line: the weather's opened 4 px under
+ * its button on a phone while the padding was 16 there too.
  */
 export const POPOVER_EDGE_PADDING = 16
+export const PHONE_POPOVER_EDGE_PADDING = 12
 
 function PopoverContent({
   className,
   align = 'end',
   sideOffset = 8,
-  collisionPadding = POPOVER_EDGE_PADDING,
+  collisionPadding = narrowViewport() ? PHONE_POPOVER_EDGE_PADDING : POPOVER_EDGE_PADDING,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -47,7 +58,7 @@ function PopoverContent({
   )
 }
 
-export { Popover, PopoverTrigger, PopoverContent }
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }
 
 /**
  * The open state of a popover that goes away with the interface. Radix

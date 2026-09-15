@@ -918,6 +918,8 @@ export default function App() {
   const linearBoxRef = useRef<() => LinearBox>(() => ({ width: 0 }))
   /** The control panel, so the diagram can lay its rows out beside it. */
   const panelRef = useRef<HTMLDivElement>(null)
+  /** The rail's wrapper – the layers popover hangs from its top on a phone (LayersPopover's railRef). */
+  const railRef = useRef<HTMLDivElement>(null)
   /** The test API, so the city session can flip its ready flag. */
   const apiRef = useRef<Mg3dTestApi | null>(null)
   /**
@@ -4249,9 +4251,12 @@ export default function App() {
           // On a phone the upper right is the rail's, so the weather takes
           // the upper left the panel left free – and a card is a sheet at
           // the foot there, so the button has nothing to step aside for.
+          // On the phone's own inset, top-3 like the readings and the rail
+          // (it kept the desktop's top-4 and stood 4 px lower than the
+          // rail's first button until 2026-09-15).
           <div
             className={cn(
-              'pointer-events-none absolute right-4 top-4 z-10 flex justify-end transition-[right] duration-200 max-sm:right-auto max-sm:left-3',
+              'pointer-events-none absolute right-4 top-4 z-10 flex justify-end transition-[right] duration-200 max-sm:top-3 max-sm:right-auto max-sm:left-3',
               cardOpen && WEATHER_BESIDE_CARD,
             )}
           >
@@ -4444,6 +4449,7 @@ export default function App() {
             buttons are not what a hand at rest is looking at. That fade
             is slow, the way back on the first movement quick. */}
         <div
+          ref={railRef}
           data-testid="map-rail"
           className={cn(
             'pointer-events-none absolute right-4 bottom-8 z-10 transition-opacity duration-150 focus-within:opacity-100 focus-within:delay-0 max-sm:top-3 max-sm:right-3 max-sm:bottom-auto',
@@ -4602,6 +4608,7 @@ export default function App() {
                   onToggleWebcams={handleToggleWebcams}
                   onFlyToWebcam={handleFlyToWebcam}
                   triggerClassName={ROUND_CONTROL}
+                  railRef={railRef}
                 />
               </OrbitSlot>
             )}

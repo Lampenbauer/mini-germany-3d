@@ -55,6 +55,31 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   expect(railBox.x + railBox.width).toBeLessThanOrEqual(393)
   const tabs = page.getByRole('radiogroup', { name: 'View' })
   expect((await tabs.boundingBox())!.y).toBeLessThan(100)
+  // The weather, the readings and the rail share one top edge, the phone's
+  // 12 px inset – the weather's round button level with the rail's first
+  const weatherBox = (await page.getByRole('button', { name: /^Weather/ }).boundingBox())!
+  const railButtonBox = (await page.getByTestId('map-rail').getByRole('button').first().boundingBox())!
+  expect(weatherBox.y).toBeCloseTo(12, 0)
+  expect((await tabs.boundingBox())!.y).toBeCloseTo(weatherBox.y, 0)
+  expect(railButtonBox.y).toBeCloseTo(weatherBox.y, 0)
+  expect(railButtonBox.height).toBeCloseTo(weatherBox.height, 0)
+  // …and so do the popovers that open from the row: the weather's beside
+  // its button, the layers' beside the rail's column (hung from its top,
+  // LayersPopover's railRef), both on the phone's own edge padding
+  // (PHONE_POPOVER_EDGE_PADDING) rather than 4 px under it
+  const popover = page.locator('[data-slot="popover-content"]')
+  await page.getByRole('button', { name: /^Weather/ }).click()
+  await expect(popover).toBeVisible()
+  expect((await popover.boundingBox())!.y).toBeCloseTo(weatherBox.y, 0)
+  await page.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
+  await page.getByRole('button', { name: 'Layers' }).click()
+  await expect(popover).toBeVisible()
+  const layersBox = (await popover.boundingBox())!
+  expect(layersBox.y).toBeCloseTo(weatherBox.y, 0)
+  expect(layersBox.x + layersBox.width).toBeLessThanOrEqual(railButtonBox.x)
+  await page.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
   await expect(page.getByRole('radio', { name: 'Line diagram' })).toBeHidden()
   await expect(page.getByRole('button', { name: 'Photo mode' })).toBeHidden()
   await expect(page.getByRole('button', { name: 'Full screen' })).toBeHidden()

@@ -12,14 +12,21 @@
  * what it is handed and reports every flip straight back.
  */
 
-import { memo } from 'react'
+import { memo, useState, type RefObject } from 'react'
 import { Camera, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger, usePopoverOpen } from '@/components/ui/popover'
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+  usePopoverOpen,
+} from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { t } from '@/lib/i18n'
+import { narrowViewport } from '@/lib/viewport'
 
 /** One webcam as the layer list names it. */
 export interface WebcamChoice {
@@ -51,6 +58,14 @@ export interface LayersPopoverProps {
   onFlyToWebcam: (id: number) => void
   /** Extra classes for the trigger – the rail styles its buttons itself. */
   triggerClassName?: string
+  /**
+   * The rail's column, for a phone: the popover hangs from its top there
+   * rather than from the button, so it opens on the row's top edge like
+   * the weather's, beside the column (the user's call, 2026-09-15; from
+   * its button, bottom-aligned, it opened 38 px down the screen). On a
+   * desktop the button on the dial stays the anchor.
+   */
+  railRef?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -115,8 +130,12 @@ const WebcamsRow = memo(function WebcamsRow(props: {
 
 export function LayersPopover(props: LayersPopoverProps) {
   const [open, setOpen] = usePopoverOpen(props.interfaceHidden)
+  // Read once, when made – a phone does not become a desktop mid-session
+  const [phone] = useState(narrowViewport)
+  const fromRail = phone && props.railRef !== undefined
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      {fromRail && <PopoverAnchor virtualRef={props.railRef} />}
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
@@ -133,8 +152,14 @@ export function LayersPopover(props: LayersPopoverProps) {
         <TooltipContent side="left">{t('layers.title')}</TooltipContent>
       </Tooltip>
       {/* A city with many webcams can outgrow a short window, so that
-          list keeps its own scroll (see WebcamsRow). */}
-      <PopoverContent side="left" className="pointer-events-auto w-64">
+          list keeps its own scroll (see WebcamsRow). Top-aligned with the
+          rail's column on a phone (railRef), bottom-aligned with the
+          button on the dial otherwise. */}
+      <PopoverContent
+        side="left"
+        align={fromRail ? 'start' : 'end'}
+        className="pointer-events-auto w-64"
+      >
         <div className="flex flex-col gap-2">
           {/* The button's own icon before the title – the popover and the
               round button that opened it are one thing (the bar over the
