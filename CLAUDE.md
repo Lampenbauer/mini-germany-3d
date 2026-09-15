@@ -49,6 +49,17 @@ shortcut skips [tsconfig.app.json](tsconfig.app.json), which is what includes
 `tests/`. A tuple error in a test once passed locally and failed CI exactly
 this way.
 
+**There is no formatter, and no linter either.** The repo carries no
+Prettier configuration (no `.prettierrc`, no `prettier` key in
+`package.json`, no `format` script) and no ESLint config – the code is
+formatted by hand: single quotes, no semicolons, trailing commas, lines
+around 100 columns where the file keeps to it. `npx prettier --write`
+therefore runs with Prettier's defaults – double quotes, semicolons,
+80 columns – and rewrites every line of every file it touches. It did
+on 2026-09-15: four component files were restored from HEAD with
+`git show HEAD:<file> > <file>` and the edits made again by hand. Do
+not run it; match the surrounding code instead.
+
 **Unit tests run in Node; a DOM is opted into per file.** The `test` block in
 [vite.config.ts](vite.config.ts) sets `environment: 'node'`, and the 18 files
 that render or touch `window`/`document` open with
