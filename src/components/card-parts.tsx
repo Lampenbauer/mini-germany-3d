@@ -10,6 +10,7 @@ import { Crosshair, X } from 'lucide-react'
 import { ArrowsFromLineIcon, ArrowsToLineIcon } from '@/components/ArrowsToLineIcon'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { narrowViewport } from '@/lib/viewport'
@@ -30,16 +31,19 @@ import { narrowViewport } from '@/lib/viewport'
 
 /**
  * The shell every card wears: glass over the map, 400 px wide beside it
- * on a desktop; on a phone as wide as the sheet's slot at the foot of
- * the screen (CARD_SLOT in App.tsx), at most a good half of the screen
- * high, and scrolling inside where its content runs past that.
+ * on a desktop and no taller than the screen less its margin; on a phone
+ * as wide as the sheet's slot at the foot of the screen (CARD_SLOT in
+ * App.tsx) and at most a good half of the screen high, so the map keeps
+ * the upper half. Past either cap the body scrolls under the head
+ * (CardBody), never the card as a whole: the head, with the close
+ * button and the card's action in it, stands whatever the body holds.
+ * It scrolled as a whole on a phone until 2026-09-15, and a long stop
+ * list took the head, the close button and the follow off the top of
+ * the screen with it.
  */
 const CARD_SHELL =
   'pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl ' +
-  // Scrolling as a whole, so nothing inside may give way to make it fit:
-  // the head clips its illustration (overflow-hidden), which lets a flex
-  // column shrink it to its eyebrow – the title went first, on a phone.
-  'max-sm:w-auto max-sm:max-h-[60dvh] max-sm:overflow-y-auto max-sm:[&>*]:shrink-0'
+  'sm:max-h-[calc(100dvh-2rem)] max-sm:w-auto max-sm:max-h-[60dvh]'
 
 /**
  * The one thing a card offers to do – follow the vehicle, the ship or
@@ -115,28 +119,37 @@ export function CardShell({
 /**
  * What stands under the head – left out entirely while the card is
  * folded, and ending, on a desktop, with the card's action as the
- * labelled button it always was there.
+ * labelled button it always was there. It is the card's one scrolling
+ * part: where the card would grow past its cap (CARD_SHELL) the body
+ * gives way and scrolls, the head above it does not (`shrink-0` there,
+ * `min-h-0` here – a flex item will not shrink below its content
+ * otherwise). The app's own scroll area rather than the browser's bar
+ * for the same reason every other list here uses it (ui/scroll-area.tsx),
+ * with the fade that says what is cut off, and contained, so that a
+ * finger running past the body's end does not pull at the page.
  */
 export function CardBody({ className, children, ...props }: ComponentProps<typeof CardContent>) {
   const shell = useCardShell()
   if (shell.collapsed) return null
   return (
-    <CardContent className={cn('flex flex-col gap-3 px-5 pt-4 pb-4', className)} {...props}>
-      {children}
-      {!shell.phone && shell.action && (
-        <div className="flex items-center gap-2">
-          <Button
-            variant={shell.action.pressed ? 'default' : 'outline'}
-            size="sm"
-            aria-pressed={shell.action.pressed}
-            onClick={shell.action.onClick}
-          >
-            <Crosshair aria-hidden />
-            {shell.action.label}
-          </Button>
-        </div>
-      )}
-    </CardContent>
+    <ScrollArea className="min-h-0" viewportClassName="scroll-fade-y overscroll-contain">
+      <CardContent className={cn('flex flex-col gap-3 px-5 pt-4 pb-4', className)} {...props}>
+        {children}
+        {!shell.phone && shell.action && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant={shell.action.pressed ? 'default' : 'outline'}
+              size="sm"
+              aria-pressed={shell.action.pressed}
+              onClick={shell.action.onClick}
+            >
+              <Crosshair aria-hidden />
+              {shell.action.label}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </ScrollArea>
   )
 }
 
@@ -167,7 +180,11 @@ export function CardHead(props: {
   const shell = useCardShell()
   return (
     <CardHeader
-      className={cn('relative isolate gap-0 overflow-hidden px-5 pt-4 pb-4', props.className)}
+      // shrink-0: the head keeps its height where the card is capped and
+      // the body scrolls (CardBody); without it the flex column shrank
+      // the head to its eyebrow – it clips its illustration with
+      // overflow-hidden, so nothing held it open – and the title went first.
+      className={cn('relative isolate shrink-0 gap-0 overflow-hidden px-5 pt-4 pb-4', props.className)}
       style={props.style}
     >
       {props.behind}

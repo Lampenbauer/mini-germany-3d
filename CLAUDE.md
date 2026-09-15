@@ -273,9 +273,13 @@ panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
 has room for one sheet, and the card is the one the reader asked for. The
 panel opens folded there (`narrowViewport()` in
 [src/lib/viewport.ts](src/lib/viewport.ts), read once – a phone does not
-become a desktop mid-session) and unfolds to `55dvh`; a card is `60dvh`
-and scrolls as a whole (`CARD_SHELL` in
-[card-parts.tsx](src/components/card-parts.tsx)). Since 2026-09-15 every
+become a desktop mid-session) and unfolds to `55dvh`; a card is at most
+`60dvh` (`CARD_SHELL` in
+[card-parts.tsx](src/components/card-parts.tsx)) – and the screen less
+its margin on a desktop – with its head standing and its body scrolling
+under it (`CardBody`, the app's ScrollArea), never the card as a whole:
+it did until 2026-09-15, and a long stop list carried the head with the
+close button and the follow off the top of the screen. Since 2026-09-15 every
 card folds to its head there, with the panel's fold button
 (`ArrowsToLineIcon`/`ArrowsFromLineIcon`) beside the close button, and
 its one action – the follow, the flight to the stop or the line –
@@ -310,13 +314,13 @@ its marker when the body comes back. Each card's test pins the fold
 and the action's two places, `e2e/mobile-layout.spec.ts` measures both
 and `e2e/app.spec.ts` wants the desktop's labelled button and no fold.
 Two traps found on
-2026-09-10 while building it: the card's children must not shrink
-(`max-sm:[&>*]:shrink-0`) – the head clips its illustration with
-`overflow-hidden`, which lets a flex column shrink it to its eyebrow, and
-the title went first; and nothing inside a card may call
-`scrollIntoView`, which scrolls every scrollable ancestor – the vehicle
-card's stop list took the card's head off screen with it, so it scrolls
-its own viewport now. The weather moves to the upper left, the readings
+2026-09-10 while building it: the head must not shrink (`shrink-0` on
+`CardHead`'s header; the body takes the squeeze with `min-h-0`) – it
+clips its illustration with `overflow-hidden`, which lets a flex column
+shrink it to its eyebrow, and the title went first; and nothing inside a
+card may call `scrollIntoView`, which scrolls every scrollable ancestor –
+the vehicle card's stop list took the card's body along with it, so it
+scrolls its own viewport now. The weather moves to the upper left, the readings
 to the top centre, the rail to the upper right as a column of round
 buttons with `gap-2` – the globe among them at button size – which ends
 above where the sheet opens. The line diagram, the photo mode

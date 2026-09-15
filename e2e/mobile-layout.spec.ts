@@ -127,4 +127,29 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   // A link asking for the diagram gets the map
   await page.evaluate(() => window.__mg3d!.setLinear(true))
   expect(await page.evaluate(() => window.__mg3d!.linear())).toBe(false)
+
+  // A card taller than its cap scrolls in its body under a head that
+  // stands (CardBody in card-parts.tsx): the close button and the
+  // follow stay in reach however long the stop list. A short screen
+  // makes any vehicle card overflow its 60dvh; the card once scrolled
+  // as a whole and took its head off the top of the screen.
+  await page.setViewportSize({ width: 393, height: 600 })
+  await page.evaluate(() => window.__mg3d!.selectVehicle(window.__mg3d!.vehicles()[0].id))
+  await expect(card).toBeVisible()
+  const body = card.locator('[data-slot="scroll-area-viewport"]').first()
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  const head = card.locator('[data-slot="card-header"]')
+  const headBefore = (await head.boundingBox())!
+  await body.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  expect(await body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  const headAfter = (await head.boundingBox())!
+  expect(headAfter.y).toBeCloseTo(headBefore.y, 0)
+  expect(headAfter.height).toBeCloseTo(headBefore.height, 0)
+  await expect(card.getByRole('button', { name: 'Close selection' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
+  expect((await card.boundingBox())!.height).toBeLessThanOrEqual(600 * 0.6 + 1)
+  await page.evaluate(() => window.__mg3d!.selectVehicle(null))
+  await page.setViewportSize({ width: 393, height: 852 })
 })

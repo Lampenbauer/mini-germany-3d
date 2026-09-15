@@ -105,8 +105,8 @@ function statusText(vehicle: VehicleSnapshot): string {
  * another vehicle is selected. The list keeps the user's scroll position
  * in between. The list's own viewport is scrolled, not the marker
  * brought into view: scrollIntoView scrolls every scrollable ancestor
- * too, and on a phone the card itself is one (CardShell) – it went to
- * the marker and took its head along.
+ * too, and the card's body is one (CardBody) – it went to the marker
+ * and took the card along.
  */
 function TripStops({
   vehicleId,
