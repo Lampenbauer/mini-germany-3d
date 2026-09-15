@@ -143,10 +143,23 @@ body {
   height: 100%;
 }
 
-/* Cesium-Credits lesbar, aber dezent */
+/*
+ * Cesium's credits, legible but quiet. The Viewer places the bar itself,
+ * as inline styles on every resize (Viewer.js: left 5px, right 0,
+ * bottom 3px), and its stylesheet pads it 5px on the right, so the line
+ * ran from 5px to 5px short of the side edges and 3px over the bottom
+ * one. The user wanted 2px more on either side and 1px more below
+ * (2026-09-15): padding rather than offsets, because the inline `left`
+ * and `bottom` would need an !important to move and the padding does
+ * not – the text starts 7px in, ends 7px short and stands 4px over the
+ * bottom edge.
+ */
 .cesium-viewer-bottom {
   font-size: 10px;
   opacity: 0.85;
+  padding-left: 2px;
+  padding-right: 7px;
+  padding-bottom: 1px;
 }
 
 /*
@@ -168,6 +181,21 @@ body {
  */
 .cesium-viewer-bottom img {
   zoom: 0.7;
+}
+
+/*
+ * Cesium writes the credits as one run of inline boxes with no whitespace
+ * between a credit, its delimiter (a padded "•") and the next credit, so
+ * a line can only break inside a credit's own words. On a phone the line
+ * "Cesium ion · Webcams: Windy.com · Upgrade for commercial use. ·
+ * Google · Data attribution" broke after "commercial", 60 px short of the
+ * edge, because "use.", the delimiter and Google's logo were one
+ * unbreakable piece (seen 2026-09-15). An inline-block is a soft wrap
+ * opportunity on either side, so each delimiter is made one: the line
+ * fills to the edge and breaks between credits.
+ */
+.cesium-viewer-bottom .cesium-credit-delimiter {
+  display: inline-block;
 }
 
 /* Render native time/date pickers in the dark theme */

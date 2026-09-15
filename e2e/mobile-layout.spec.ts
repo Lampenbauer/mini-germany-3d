@@ -38,7 +38,16 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   expect(panelBox.y).toBeGreaterThan(852 / 2)
   expect(panelBox.width).toBeGreaterThan(360)
   expect(panelBox.y + panelBox.height).toBeCloseTo(852 - 48, 0)
-  expect(creditTop - (panelBox.y + panelBox.height)).toBeGreaterThanOrEqual(24)
+  // 24 px measured (the bar's top is the Cesium ion logo's, 4 px over the
+  // edge since index.css pads it); a good margin is what is asked
+  expect(creditTop - (panelBox.y + panelBox.height)).toBeGreaterThanOrEqual(20)
+  // The bar itself stands 4 px over the bottom edge, 1 more than Cesium's own 3
+  const creditBottom = await page.evaluate(() => {
+    const bar = document.querySelector('.cesium-viewer-bottom')!
+    const rect = bar.getBoundingClientRect()
+    return rect.bottom - parseFloat(getComputedStyle(bar).paddingBottom)
+  })
+  expect(852 - creditBottom).toBeCloseTo(4, 0)
   await expect(page.getByRole('button', { name: 'Expand panel' })).toBeVisible()
   await expect(page.getByText('Traffic')).toBeHidden()
   // Unfolded it stops at a good half of the screen and scrolls inside
@@ -152,6 +161,58 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   // A link asking for the diagram gets the map
   await page.evaluate(() => window.__mg3d!.setLinear(true))
   expect(await page.evaluate(() => window.__mg3d!.linear())).toBe(false)
+
+  // The credit line fills the width. Cesium writes a credit, its
+  // delimiter and the next credit with no whitespace between them, one
+  // unbreakable run, and on a phone the line broke inside a credit 60 px
+  // short of the edge (index.css makes each delimiter a break
+  // opportunity). Three on-screen credits like the live scene's – Windy's
+  // two and Google's – put a second line under the Cesium ion logo; each
+  // line's leftover has to be narrower than the piece that starts the
+  // next line, or that piece would have fitted.
+  await page.evaluate(() => {
+    const viewer = window.__cesiumViewer as unknown as {
+      creditDisplay: {
+        constructor: { cesiumCredit: { constructor: new (html: string, showOnScreen: boolean) => unknown } }
+        addStaticCredit(credit: unknown): void
+      }
+      scene: { requestRender(): void }
+    }
+    const Credit = viewer.creditDisplay.constructor.cesiumCredit.constructor
+    for (const html of [
+      '<a href="https://www.windy.com/">Webcams: Windy.com</a>',
+      '<a href="https://api.windy.com/">Upgrade for commercial use.</a>',
+      '<span>Google Maps</span>',
+    ]) {
+      viewer.creditDisplay.addStaticCredit(new Credit(html, true))
+    }
+    viewer.scene.requestRender()
+  })
+  await expect(page.locator('.cesium-viewer-bottom')).toContainText('Google Maps')
+  const creditLines = await page.evaluate(() => {
+    const bar = document.querySelector('.cesium-viewer-bottom')!.getBoundingClientRect()
+    const pieces = document.querySelectorAll(
+      '.cesium-viewer-bottom .cesium-credit-wrapper, .cesium-viewer-bottom .cesium-credit-delimiter, .cesium-viewer-bottom .cesium-credit-expand-link',
+    )
+    const rects = [...pieces].flatMap((el) =>
+      [...el.getClientRects()].map((r) => ({ left: r.left, right: r.right, top: r.top })),
+    )
+    const lines: { top: number; right: number; firstWidth: number }[] = []
+    for (const r of rects.sort((a, b) => a.top - b.top || a.left - b.left)) {
+      const line = lines.find((l) => Math.abs(l.top - r.top) < 6)
+      if (line) line.right = Math.max(line.right, r.right)
+      else lines.push({ top: r.top, right: r.right, firstWidth: r.right - r.left })
+    }
+    // 7 px of padding on the right (index.css), the line's own edge
+    return { barRight: bar.right - 7, firstLeft: Math.min(...rects.map((r) => r.left)), lines }
+  })
+  expect(creditLines.lines.length).toBeGreaterThanOrEqual(2)
+  // …and starts 7 px in, 2 more than Cesium's own 5 (index.css)
+  expect(creditLines.firstLeft).toBeCloseTo(7, 0)
+  for (let i = 1; i < creditLines.lines.length; i++) {
+    const leftover = creditLines.barRight - creditLines.lines[i - 1].right
+    expect(leftover).toBeLessThan(creditLines.lines[i].firstWidth)
+  }
 
   // A card taller than its cap scrolls in its body under a head that
   // stands (CardBody in card-parts.tsx): the close button and the

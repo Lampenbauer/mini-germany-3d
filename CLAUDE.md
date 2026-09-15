@@ -267,11 +267,22 @@ at the upper left. `e2e/app.spec.ts` measures both places.
 `sm` (640 px) the panel's wrapper and the card slots (`CARD_SLOT` in
 [src/App.tsx](src/App.tsx)) share one place, `inset-x-3 bottom-12`
 (`bottom-9` until 2026-09-15, when the user found the sheet's foot too
-close to the credit line: 13 px over the credit bar, 25 now – move the
+close to the credit line: 13 px over the credit bar, 24 now – move the
 two together, they are one sheet), at `z-20` over the map's controls,
 which are `z-10` like every other wrapper (where a card reaches into
 the rail, the card lies on top – the user's call of 2026-09-15, after a
-short phone's rail stood over the sheet's head), and the
+short phone's rail stood over the sheet's head). The credit line under
+the sheet breaks between credits since the same day: Cesium writes a
+credit, its "•" and the next credit with no whitespace between them,
+one unbreakable run, and on a phone the line broke inside Windy's
+credit 60 px short of the edge – `.cesium-credit-delimiter` is an
+inline-block in [index.css](src/index.css), a soft wrap opportunity on
+either side; the phone spec injects three credits and wants every line
+filled. The same rule pads the bar so the line starts and ends 7 px
+from the sides and stands 4 px over the bottom edge (Cesium's own 5, 5
+and 3; the user's numbers) – padding, because the Viewer writes `left`,
+`right` and `bottom` as inline styles on every resize and an offset
+would need an `!important`. And the
 panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
 has room for one sheet, and the card is the one the reader asked for. The
 panel opens folded there (`narrowViewport()` in

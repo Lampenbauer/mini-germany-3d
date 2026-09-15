@@ -655,9 +655,10 @@ function medianStopNhn(network: PreparedNetwork): number {
  * same place there and gives way while a card is up (see the panel's
  * wrapper below), and bottom-12 clears the Cesium credit line the way
  * bottom-8 does for the rail – with room to spare: at bottom-9 the
- * sheet's foot stood 13 px over the credit bar (which begins 23 px
- * from the edge) and the credit read as the sheet's own footnote, the
- * user's call of 2026-09-15; 25 px now. z-20, over the map's controls
+ * sheet's foot stood 13 px over the credit bar (which begins 24 px
+ * from the edge, its own padding included) and the credit read as the
+ * sheet's own footnote, the user's call of 2026-09-15; 24 px now. z-20,
+ * over the map's controls
  * (the rail, the readings, the weather: z-10 like every wrapper here,
  * ordered by their place in the markup): where a card reaches into
  * them – a tall card on a short desktop window, the sheet against the
