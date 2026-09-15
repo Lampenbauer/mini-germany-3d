@@ -27,12 +27,18 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   // Nothing pushes the page wider than the screen
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
-  // The panel: a sheet at the foot, as wide as the screen less its gutters, folded
+  // The panel: a sheet at the foot, as wide as the screen less its gutters,
+  // folded – and clear of the Cesium credit line under it by a good
+  // margin (the user found 13 px too close; CARD_SLOT in App.tsx)
+  const creditTop = await page.evaluate(
+    () => document.querySelector('.cesium-viewer-bottom')!.getBoundingClientRect().top,
+  )
   const panel = page.getByTestId('app-title').locator('xpath=ancestor::*[@data-slot="card"]')
   const panelBox = (await panel.boundingBox())!
   expect(panelBox.y).toBeGreaterThan(852 / 2)
   expect(panelBox.width).toBeGreaterThan(360)
-  expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(852 - 30)
+  expect(panelBox.y + panelBox.height).toBeCloseTo(852 - 48, 0)
+  expect(creditTop - (panelBox.y + panelBox.height)).toBeGreaterThanOrEqual(24)
   await expect(page.getByRole('button', { name: 'Expand panel' })).toBeVisible()
   await expect(page.getByText('Traffic')).toBeHidden()
   // Unfolded it stops at a good half of the screen and scrolls inside
@@ -60,8 +66,10 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   await expect(card).toBeVisible()
   const cardBox = (await card.boundingBox())!
   expect(cardBox.width).toBeGreaterThan(360)
-  expect(cardBox.y).toBeGreaterThan(852 * 0.35)
-  expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(852 - 30)
+  // At most a good half of the screen high (CARD_SHELL), the map above it
+  expect(cardBox.height).toBeLessThanOrEqual(852 * 0.6 + 1)
+  // The same foot as the panel's: the two are one sheet
+  expect(cardBox.y + cardBox.height).toBeCloseTo(panelBox.y + panelBox.height, 0)
   await expect(panel).toBeHidden()
 
   // The card's action – the follow – is an icon button in the head on a

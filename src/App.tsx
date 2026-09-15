@@ -653,11 +653,14 @@ function medianStopNhn(network: PreparedNetwork): number {
  * Tailwind's sm, 640 px) a sheet across the foot of the screen, where a
  * thumb reaches it and the map stays in view above. The panel takes the
  * same place there and gives way while a card is up (see the panel's
- * wrapper below), and bottom-9 clears the Cesium credit line the way
- * bottom-8 does for the rail.
+ * wrapper below), and bottom-12 clears the Cesium credit line the way
+ * bottom-8 does for the rail – with room to spare: at bottom-9 the
+ * sheet's foot stood 13 px over the credit bar (which begins 23 px
+ * from the edge) and the credit read as the sheet's own footnote, the
+ * user's call of 2026-09-15; 25 px now.
  */
 const CARD_SLOT =
-  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9'
+  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12'
 
 /**
  * The weather button's place while a card is up beside it: the card's
@@ -4187,7 +4190,7 @@ export default function App() {
         <div
           ref={panelRef}
           className={cn(
-            'pointer-events-none absolute left-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-9',
+            'pointer-events-none absolute left-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12',
             cardOpen && 'max-sm:hidden',
           )}
         >
