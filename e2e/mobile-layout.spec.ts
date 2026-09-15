@@ -150,6 +150,24 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   await expect(card.getByRole('button', { name: 'Close selection' })).toBeVisible()
   await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
   expect((await card.boundingBox())!.height).toBeLessThanOrEqual(600 * 0.6 + 1)
+
+  // Where the sheet reaches into the rail's column, the card lies over
+  // the controls, not under them (CARD_SLOT's z-20): the point where the
+  // two overlap belongs to the card
+  const shortCard = (await card.boundingBox())!
+  // The whole column – the globe and the About button stand outside the
+  // "View controls" group, at its foot, and are the ones the sheet meets
+  const shortRail = (await page.getByTestId('map-rail').boundingBox())!
+  const overlapTop = Math.max(shortCard.y, shortRail.y)
+  const overlapBottom = Math.min(shortCard.y + shortCard.height, shortRail.y + shortRail.height)
+  expect(overlapBottom - overlapTop).toBeGreaterThan(20)
+  const probe = { x: shortRail.x + shortRail.width / 2, y: (overlapTop + overlapBottom) / 2 }
+  expect(
+    await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-testid="vehicle-card"]') !== null,
+      probe,
+    ),
+  ).toBe(true)
   await page.evaluate(() => window.__mg3d!.selectVehicle(null))
   await page.setViewportSize({ width: 393, height: 852 })
 })

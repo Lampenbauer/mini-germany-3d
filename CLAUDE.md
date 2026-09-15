@@ -268,7 +268,10 @@ at the upper left. `e2e/app.spec.ts` measures both places.
 [src/App.tsx](src/App.tsx)) share one place, `inset-x-3 bottom-12`
 (`bottom-9` until 2026-09-15, when the user found the sheet's foot too
 close to the credit line: 13 px over the credit bar, 25 now – move the
-two together, they are one sheet), and the
+two together, they are one sheet), at `z-20` over the map's controls,
+which are `z-10` like every other wrapper (where a card reaches into
+the rail, the card lies on top – the user's call of 2026-09-15, after a
+short phone's rail stood over the sheet's head), and the
 panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
 has room for one sheet, and the card is the one the reader asked for. The
 panel opens folded there (`narrowViewport()` in

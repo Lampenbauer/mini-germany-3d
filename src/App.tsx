@@ -657,10 +657,17 @@ function medianStopNhn(network: PreparedNetwork): number {
  * bottom-8 does for the rail – with room to spare: at bottom-9 the
  * sheet's foot stood 13 px over the credit bar (which begins 23 px
  * from the edge) and the credit read as the sheet's own footnote, the
- * user's call of 2026-09-15; 25 px now.
+ * user's call of 2026-09-15; 25 px now. z-20, over the map's controls
+ * (the rail, the readings, the weather: z-10 like every wrapper here,
+ * ordered by their place in the markup): where a card reaches into
+ * them – a tall card on a short desktop window, the sheet against the
+ * rail's column on a short phone – the card is what was asked for and
+ * lies on top, the user's call the same day. The panel's wrapper below
+ * is z-20 for the same reason; the portalled popovers, tooltips and
+ * dialogs stay above both at z-50.
  */
 const CARD_SLOT =
-  'pointer-events-none absolute right-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12'
+  'pointer-events-none absolute right-4 top-4 z-20 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12'
 
 /**
  * The weather button's place while a card is up beside it: the card's
@@ -4190,7 +4197,7 @@ export default function App() {
         <div
           ref={panelRef}
           className={cn(
-            'pointer-events-none absolute left-4 top-4 z-10 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12',
+            'pointer-events-none absolute left-4 top-4 z-20 max-sm:inset-x-3 max-sm:top-auto max-sm:bottom-12',
             cardOpen && 'max-sm:hidden',
           )}
         >
