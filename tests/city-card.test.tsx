@@ -98,6 +98,17 @@ describe('the city card', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('folds to its head on the fold button, the mode chips with it', () => {
+    // The head keeps its own row (the chips) – it is the body that goes
+    card()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(screen.getByTestId('city-card-name')).toHaveTextContent('Rostock')
+    expect(screen.getByLabelText('Tram 5/6')).toBeInTheDocument()
+    expect(screen.queryByTestId('city-lines')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
+    expect(screen.getByTestId('city-lines')).toBeInTheDocument()
+  })
+
   it('leaves the phrases out that would say nothing', () => {
     card({
       profile: profile({

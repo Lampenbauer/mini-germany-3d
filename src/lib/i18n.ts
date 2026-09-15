@@ -212,6 +212,9 @@ const en = {
   'welcome.cities': 'Cities',
   'welcome.open': 'Open {name}',
   'welcome.skip': 'Don’t show this welcome screen on your next visit',
+  // Every card's fold button, on a phone (CardHead in card-parts.tsx)
+  'card.collapse': 'Collapse card',
+  'card.expand': 'Expand card',
   // Vehicle card
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Next stop',
@@ -615,6 +618,8 @@ const de: Record<MessageKey, string> = {
   'welcome.cities': 'Städte',
   'welcome.open': '{name} öffnen',
   'welcome.skip': 'Diese Willkommensansicht bei deinem nächsten Besuch nicht mehr anzeigen',
+  'card.collapse': 'Karte einklappen',
+  'card.expand': 'Karte ausklappen',
   'vehicle.status': 'Status',
   'vehicle.nextStop': 'Nächster Halt',
   'vehicle.stops': 'Haltestellen',

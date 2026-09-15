@@ -121,6 +121,16 @@ describe('LineCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close line' }))
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  it('folds to its head on the fold button', () => {
+    show(profile())
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(screen.getByTestId('line-name')).toBeInTheDocument()
+    expect(screen.queryByTestId('line-route')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Fly to the line' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
+    expect(screen.getByTestId('line-route')).toBeInTheDocument()
+  })
 })
 
 describe('LineCard live rows', () => {

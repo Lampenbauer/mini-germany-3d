@@ -259,6 +259,9 @@ test('selecting a vehicle opens the info card', async () => {
   await expect(card).toBeVisible()
   await expect(card.getByTestId('vehicle-next-stop')).toHaveText(tram.nextStopName)
   await expect(card.getByRole('button', { name: 'Follow tram' })).toBeVisible()
+  // The fold button is a phone's (e2e/mobile-layout.spec.ts): beside the
+  // map there is nothing under the card to uncover
+  await expect(card.getByRole('button', { name: 'Collapse card' })).toBeHidden()
 
   // Every stop of the trip is a camera flight – the tooltip says so
   await expect(

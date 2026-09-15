@@ -1,7 +1,6 @@
 import { Crosshair, Ship } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { CARD_SHELL, CardHead, EyebrowDot, Stat } from '@/components/card-parts'
+import { CardBody, CardHead, CardShell, EyebrowDot, Stat } from '@/components/card-parts'
 import type { AisVessel } from '@/lib/ais-extract'
 import { t } from '@/lib/i18n'
 import {
@@ -60,10 +59,7 @@ export function VesselCard({
   const draughtM = vessel.draughtM ?? null
 
   return (
-    <Card
-      className={CARD_SHELL}
-      data-testid="vessel-card"
-    >
+    <CardShell data-testid="vessel-card">
       <CardHead
         className="bg-slate-800 text-slate-50"
         eyebrow={
@@ -110,7 +106,7 @@ export function VesselCard({
         onClose={onClose}
       />
 
-      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+      <CardBody>
         <div className="grid grid-cols-3 gap-2">
           <Stat
             label={t('vessel.speed')}
@@ -137,7 +133,7 @@ export function VesselCard({
             {following ? t('follow.stop') : t('follow.vessel')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </CardBody>
+    </CardShell>
   )
 }

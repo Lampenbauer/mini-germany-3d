@@ -1,9 +1,8 @@
 import { ArrowLeftRight, ArrowRight, Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { CARD_SHELL, CardHead, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
+import { CardBody, CardHead, CardShell, LineChip, SectionLabel, Stat, headInk } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import { formatDelay } from '@/components/VehicleCard'
 import { MODE_KEY, t } from '@/lib/i18n'
@@ -80,10 +79,7 @@ export function LineCard({
     .sort((a, b) => a.at - b.at)
 
   return (
-    <Card
-      className={CARD_SHELL}
-      data-testid="line-card"
-    >
+    <CardShell data-testid="line-card">
       <CardHead
         className={ink.text}
         style={{ backgroundColor: color }}
@@ -116,7 +112,7 @@ export function LineCard({
         onClose={onClose}
       />
 
-      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+      <CardBody>
         <div className="grid grid-cols-2 gap-2">
           <Stat
             label={t('line.service')}
@@ -264,7 +260,7 @@ export function LineCard({
             {t('line.flyTo')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </CardBody>
+    </CardShell>
   )
 }

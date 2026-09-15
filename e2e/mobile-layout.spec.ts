@@ -63,6 +63,22 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
   expect(cardBox.y).toBeGreaterThan(852 * 0.35)
   expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(852 - 30)
   await expect(panel).toBeHidden()
+
+  // The card folds to its head with the panel's fold button (CardHead in
+  // card-parts.tsx): the stops and the follow button go, the head with
+  // the line and its termini stays at the foot, and the map above it
+  // grows by what the body took
+  const stops = card.getByTestId('vehicle-trip-stops')
+  await expect(stops).toBeVisible()
+  await card.getByRole('button', { name: 'Collapse card' }).click()
+  await expect(stops).toBeHidden()
+  await expect(card.getByRole('button', { name: 'Follow tram' })).toBeHidden()
+  await expect(card.getByTestId('vehicle-status')).toBeVisible()
+  const folded = (await card.boundingBox())!
+  expect(folded.height).toBeLessThan(cardBox.height / 2)
+  expect(folded.y + folded.height).toBeCloseTo(cardBox.y + cardBox.height, 0)
+  await card.getByRole('button', { name: 'Expand card' }).click()
+  await expect(stops).toBeVisible()
   await page.evaluate(() => window.__mg3d!.selectVehicle(null))
   await expect(card).toBeHidden()
   await expect(panel).toBeVisible()

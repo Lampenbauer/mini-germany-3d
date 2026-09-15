@@ -261,7 +261,25 @@ panel opens folded there (`narrowViewport()` in
 [src/lib/viewport.ts](src/lib/viewport.ts), read once – a phone does not
 become a desktop mid-session) and unfolds to `55dvh`; a card is `60dvh`
 and scrolls as a whole (`CARD_SHELL` in
-[card-parts.tsx](src/components/card-parts.tsx)). Two traps found on
+[card-parts.tsx](src/components/card-parts.tsx)). Since 2026-09-15 every
+card folds to its head there, with the panel's fold button
+(`ArrowsToLineIcon`/`ArrowsFromLineIcon`) beside the close button, and
+the fold is the parts' business, not the cards': `CardShell` (the card
+in the shell's clothes) holds the state and hands it down by context,
+`CardHead` shows the button (`sm:hidden`, so a desktop's corner keeps to
+the close button) and `CardBody` renders nothing while folded, as the
+panel does – a card is the three in a row and carries nothing of it
+itself, so a new card cannot miss it. The head's own rows (the stop's
+lines, the city's mode chips) stay with the head: a follow on a phone
+ran behind a sheet that covered a good half of the screen, and folded
+the head still names what was picked. A card opens unfolded (it was
+asked for) and keeps its fold from one vehicle to the next while it
+stays up; the user asked for the followed three first and then for
+every card. The vehicle card's stop list is its own component
+(`TripStops`) since, so that it centres its marker when the body comes
+back. Each card's test pins the fold, `e2e/mobile-layout.spec.ts`
+measures it and `e2e/app.spec.ts` wants the button hidden on a desktop.
+Two traps found on
 2026-09-10 while building it: the card's children must not shrink
 (`max-sm:[&>*]:shrink-0`) – the head clips its illustration with
 `overflow-hidden`, which lets a flex column shrink it to its eyebrow, and

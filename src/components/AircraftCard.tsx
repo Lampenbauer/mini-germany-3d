@@ -1,7 +1,6 @@
 import { Crosshair, Plane } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { CARD_SHELL, CardHead, EyebrowDot, Stat } from '@/components/card-parts'
+import { CardBody, CardHead, CardShell, EyebrowDot, Stat } from '@/components/card-parts'
 import type { Aircraft } from '@/lib/aircraft-extract'
 import {
   aircraftTitle,
@@ -51,7 +50,7 @@ export function AircraftCard({
   onClose,
 }: AircraftCardProps) {
   return (
-    <Card className={CARD_SHELL} data-testid="aircraft-card">
+    <CardShell data-testid="aircraft-card">
       <CardHead
         className="bg-blue-800 text-blue-50"
         eyebrow={
@@ -106,7 +105,7 @@ export function AircraftCard({
         onClose={onClose}
       />
 
-      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+      <CardBody>
         <div className="grid grid-cols-3 gap-2">
           <Stat
             label={t('aircraft.altitude')}
@@ -133,7 +132,7 @@ export function AircraftCard({
             {following ? t('follow.stop') : t('follow.aircraft')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </CardBody>
+    </CardShell>
   )
 }

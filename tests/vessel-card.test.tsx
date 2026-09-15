@@ -131,6 +131,24 @@ describe('VesselCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close selection' }))
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  it('folds to its head on the fold button and opens again', () => {
+    // The panel's fold button, beside the close button (CardHead): on a
+    // phone the card is a sheet over the harbour, and folded it leaves
+    // the ship's name and nothing else. Opens unfolded.
+    show(vessel())
+    const fold = screen.getByRole('button', { name: 'Collapse card' })
+    expect(fold).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(fold)
+    expect(screen.getByTestId('vessel-name')).toHaveTextContent('DENEB')
+    expect(screen.queryByTestId('vessel-speed')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Follow vessel' })).toBeNull()
+    const unfold = screen.getByRole('button', { name: 'Expand card' })
+    expect(unfold).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(unfold)
+    expect(screen.getByTestId('vessel-speed')).toHaveTextContent('8.4 kn')
+    expect(screen.getByRole('button', { name: 'Collapse card' })).toBeInTheDocument()
+  })
 })
 
 describe('vessel-info', () => {

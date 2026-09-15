@@ -1,8 +1,7 @@
 import { Crosshair } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { CARD_SHELL, CardHead, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
+import { CardBody, CardHead, CardShell, LineChip, SectionLabel, lineChipClass } from '@/components/card-parts'
 import type { InterchangeOption } from '@/lib/interchange'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { StopDeparture } from '@/engine/simulation'
@@ -94,10 +93,7 @@ export function StopCard({
   )
 
   return (
-    <Card
-      className={CARD_SHELL}
-      data-testid="stop-card"
-    >
+    <CardShell data-testid="stop-card">
       <CardHead
         eyebrow={
           <>
@@ -122,7 +118,7 @@ export function StopCard({
         </span>
       </CardHead>
 
-      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+      <CardBody>
         <div className="flex flex-col gap-1">
           <SectionLabel>{t('stop.departures')}</SectionLabel>
           {departures.length === 0 ? (
@@ -205,7 +201,7 @@ export function StopCard({
             {t('stop.flyTo')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </CardBody>
+    </CardShell>
   )
 }

@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { ArrowRight, Crosshair } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { CARD_SHELL, CardHead, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
+import { CardBody, CardHead, CardShell, LineChip, SectionLabel, Stat, headInk, lineChipClass } from '@/components/card-parts'
 import { MODE_ICON } from '@/components/mode-icon'
 import type { TripProgress, TripStop, VehicleSnapshot } from '@/engine/simulation'
 import type { InterchangeOption } from '@/lib/interchange'
@@ -94,6 +93,126 @@ function statusText(vehicle: VehicleSnapshot): string {
   return vehicle.inTunnel ? `${base} · ${t('vehicle.inTunnel')}` : base
 }
 
+/**
+ * The trip's stops as a vertical timeline: one dot per stop, each row
+ * draws the line segment from its dot down to the next one, and the
+ * vehicle marker sits on that segment at its current travel progress
+ * (on the dot itself while dwelling). Served stops are dimmed; the
+ * destination dot is filled in the line colour.
+ *
+ * A component of its own so that the marker is brought into view
+ * whenever the list appears – with the card, and again after a fold,
+ * which takes the body out and puts it back (CardBody) – as well as when
+ * another vehicle is selected. The list keeps the user's scroll position
+ * in between. The list's own viewport is scrolled, not the marker
+ * brought into view: scrollIntoView scrolls every scrollable ancestor
+ * too, and on a phone the card itself is one (CardShell) – it went to
+ * the marker and took its head along.
+ */
+function TripStops({
+  vehicleId,
+  color,
+  stops,
+  markerIndex,
+  markerFraction,
+  nextIndex,
+  onFlyToStop,
+}: {
+  vehicleId: string
+  color: string
+  stops: TripStop[]
+  markerIndex: number
+  markerFraction: number
+  /** The row that is the snapshot's "next stop" (the vehicle-next-stop test id). */
+  nextIndex: number
+  onFlyToStop: (stop: TripStop) => void
+}) {
+  const listRef = useRef<HTMLOListElement | null>(null)
+  useEffect(() => {
+    const marker = listRef.current?.querySelector<HTMLElement>('[data-vehicle-position]')
+    const viewport = marker?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
+    if (!marker || !viewport) return
+    const markerRect = marker.getBoundingClientRect()
+    const viewportRect = viewport.getBoundingClientRect()
+    viewport.scrollTop +=
+      markerRect.top - viewportRect.top - viewport.clientHeight / 2 + markerRect.height / 2
+  }, [vehicleId])
+
+  return (
+    <ScrollArea
+      className="max-h-52"
+      viewportClassName="scroll-fade-y"
+      data-testid="vehicle-trip-stops"
+    >
+      <ol ref={listRef} className="flex flex-col text-sm">
+        {stops.map((stop, index) => {
+          const isLast = index === stops.length - 1
+          const hasMarker = index === markerIndex
+          return (
+            <li
+              key={`${index}-${stop.name}`}
+              className="relative"
+              data-vehicle-position={hasMarker ? 'true' : undefined}
+            >
+              <button
+                type="button"
+                className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent"
+                aria-label={t('vehicle.flyToStop', { name: stop.name })}
+                title={t('vehicle.flyToThisStop')}
+                onClick={() => onFlyToStop(stop)}
+              >
+                <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>
+                  {/* Segment to the next stop (dot center to dot center) */}
+                  {!isLast && (
+                    <span className="absolute -bottom-2.5 left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-border" />
+                  )}
+                  <span
+                    className={`relative mt-1.25 size-2.5 rounded-full border-2 bg-card ${
+                      stop.passed && !hasMarker ? 'opacity-40' : ''
+                    }`}
+                    style={{
+                      borderColor: color,
+                      backgroundColor: isLast ? color : undefined,
+                    }}
+                  />
+                  {hasMarker && (
+                    <span
+                      data-testid="vehicle-position"
+                      // Ringed in the same white the line diagram rings
+                      // its vehicle dots with (LinearView.sync), so a
+                      // vehicle reads the same mark in both readings.
+                      className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[oklch(0.9842_0.0034_247.86)]"
+                      style={{
+                        top: `calc(${markerFraction * 100}% + 0.625rem)`,
+                        backgroundColor: color,
+                      }}
+                    />
+                  )}
+                </span>
+                <span
+                  className={`flex min-w-0 items-baseline gap-2 pb-2 ${
+                    stop.passed ? 'opacity-50' : ''
+                  }`}
+                >
+                  <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                    {formatArrival(stop.arrivalSec)}
+                  </span>
+                  <span
+                    className="truncate"
+                    data-testid={index === nextIndex ? 'vehicle-next-stop' : undefined}
+                  >
+                    {stop.name}
+                  </span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </ScrollArea>
+  )
+}
+
 export function VehicleCard({
   vehicle,
   tripProgress,
@@ -131,29 +250,10 @@ export function VehicleCard({
       )
     : []
 
-  // Bring the vehicle marker into view when a (new) vehicle is selected –
-  // the list keeps the user's scroll position afterwards. The list's own
-  // viewport is scrolled, not the marker brought into view: scrollIntoView
-  // scrolls every scrollable ancestor too, and on a phone the card itself
-  // is one (CARD_SHELL) – it went to the marker and took its head along.
-  const listRef = useRef<HTMLOListElement | null>(null)
-  useEffect(() => {
-    const marker = listRef.current?.querySelector<HTMLElement>('[data-vehicle-position]')
-    const viewport = marker?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
-    if (!marker || !viewport) return
-    const markerRect = marker.getBoundingClientRect()
-    const viewportRect = viewport.getBoundingClientRect()
-    viewport.scrollTop +=
-      markerRect.top - viewportRect.top - viewport.clientHeight / 2 + markerRect.height / 2
-  }, [vehicle.id])
-
   const ModeIcon = MODE_ICON[vehicle.mode]
   const ink = headInk(vehicle.color)
   return (
-    <Card
-      className={CARD_SHELL}
-      data-testid="vehicle-card"
-    >
+    <CardShell data-testid="vehicle-card">
       {/* The line's colour as the head, the way the vehicle wears it on
           the map; the ink follows the colour's lightness (headInk) and
           the number inverts to it with the colour as its own ink. */}
@@ -195,7 +295,7 @@ export function VehicleCard({
         onClose={onClose}
       />
 
-      <CardContent className="flex flex-col gap-3 px-5 pt-4 pb-4">
+      <CardBody>
         <div className="grid grid-cols-2 gap-2">
           {/* Arrival at the destination: the value is already in the list
               (delay applied), just buried at its bottom – this lifts it
@@ -229,82 +329,15 @@ export function VehicleCard({
         <div className="flex flex-col gap-1">
           <SectionLabel>{stops.length > 0 ? t('vehicle.stops') : t('vehicle.nextStop')}</SectionLabel>
           {stops.length > 0 ? (
-            // Vertical timeline: one dot per stop, each row draws the line
-            // segment from its dot down to the next one, and the vehicle
-            // marker sits on that segment at its current travel progress
-            // (on the dot itself while dwelling). Served stops are dimmed;
-            // the destination dot is filled in the line color.
-            <ScrollArea
-              className="max-h-52"
-              viewportClassName="scroll-fade-y"
-              data-testid="vehicle-trip-stops"
-            >
-              <ol ref={listRef} className="flex flex-col text-sm">
-                {stops.map((stop, index) => {
-                  const isLast = index === stops.length - 1
-                  const hasMarker = index === markerIndex
-                  return (
-                    <li
-                      key={`${index}-${stop.name}`}
-                      className="relative"
-                      data-vehicle-position={hasMarker ? 'true' : undefined}
-                    >
-                      <button
-                        type="button"
-                        className="-mx-1 flex w-full cursor-pointer gap-2 rounded-md px-1 text-left transition-colors hover:bg-accent"
-                        aria-label={t('vehicle.flyToStop', { name: stop.name })}
-                        title={t('vehicle.flyToThisStop')}
-                        onClick={() => onFlyToStop(stop)}
-                      >
-                        <span className="relative flex w-3 shrink-0 justify-center" aria-hidden>
-                          {/* Segment to the next stop (dot center to dot center) */}
-                          {!isLast && (
-                            <span className="absolute -bottom-2.5 left-1/2 top-2.5 w-0.5 -translate-x-1/2 bg-border" />
-                          )}
-                          <span
-                            className={`relative mt-1.25 size-2.5 rounded-full border-2 bg-card ${
-                              stop.passed && !hasMarker ? 'opacity-40' : ''
-                            }`}
-                            style={{
-                              borderColor: vehicle.color,
-                              backgroundColor: isLast ? vehicle.color : undefined,
-                            }}
-                          />
-                          {hasMarker && (
-                            <span
-                              data-testid="vehicle-position"
-                              // Ringed in the same white the line diagram rings
-                              // its vehicle dots with (LinearView.sync), so a
-                              // vehicle reads the same mark in both readings.
-                              className="absolute left-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[oklch(0.9842_0.0034_247.86)]"
-                              style={{
-                                top: `calc(${markerFraction * 100}% + 0.625rem)`,
-                                backgroundColor: vehicle.color,
-                              }}
-                            />
-                          )}
-                        </span>
-                        <span
-                          className={`flex min-w-0 items-baseline gap-2 pb-2 ${
-                            stop.passed ? 'opacity-50' : ''
-                          }`}
-                        >
-                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                            {formatArrival(stop.arrivalSec)}
-                          </span>
-                          <span
-                            className="truncate"
-                            data-testid={index === nextIndex ? 'vehicle-next-stop' : undefined}
-                          >
-                            {stop.name}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ol>
-            </ScrollArea>
+            <TripStops
+              vehicleId={vehicle.id}
+              color={vehicle.color}
+              stops={stops}
+              markerIndex={markerIndex}
+              markerFraction={markerFraction}
+              nextIndex={nextIndex}
+              onFlyToStop={onFlyToStop}
+            />
           ) : (
             // No timetable window (edge case) – at least name the next stop
             <span className="text-sm" data-testid="vehicle-next-stop">
@@ -344,7 +377,7 @@ export function VehicleCard({
             {following ? t('follow.stop') : t(FOLLOW_KEY[vehicle.mode])}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </CardBody>
+    </CardShell>
   )
 }

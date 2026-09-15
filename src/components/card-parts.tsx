@@ -1,40 +1,98 @@
-import type { CSSProperties, ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { X } from 'lucide-react'
+import { ArrowsFromLineIcon, ArrowsToLineIcon } from '@/components/ArrowsToLineIcon'
 import { Button } from '@/components/ui/button'
-import { CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 /**
- * The parts the five cards are built from, so a city, a line, a vehicle,
- * a stop and a ship read as one family: a head with an eyebrow, a title
- * and a lead; figures on tiles; section labels in the panel's own voice;
- * and the line's number in its colour.
+ * The parts the six cards are built from, so a city, a line, a vehicle,
+ * a stop, a ship and an aircraft read as one family: a shell that folds,
+ * a head with an eyebrow, a title and a lead, a body under it; figures
+ * on tiles; section labels in the panel's own voice; and the line's
+ * number in its colour.
  *
  * What differs between the cards is the head's ground, and that follows
- * the map's own divide (see CLAUDE.md, "Three kinds of name"): the
+ * the map's own divide (see CLAUDE.md, "Four kinds of name"): the
  * network's green for the city and its stops, the line's colour for the
- * line and its vehicles, the harbour's slate for a ship.
+ * line and its vehicles, the harbour's slate for a ship, the sky's blue
+ * for an aircraft.
  */
 
-/**
- * The head of a card: eyebrow over title over lead, the close button in
- * the corner, and whatever row the caller adds under it (mode chips, the
- * stop's lines). `behind` is drawn first and absolutely – the city card's
- * illustration – inside the head's own stacking context.
- */
 /**
  * The shell every card wears: glass over the map, 400 px wide beside it
  * on a desktop; on a phone as wide as the sheet's slot at the foot of
  * the screen (CARD_SLOT in App.tsx), at most a good half of the screen
  * high, and scrolling inside where its content runs past that.
  */
-export const CARD_SHELL =
+const CARD_SHELL =
   'pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl ' +
   // Scrolling as a whole, so nothing inside may give way to make it fit:
   // the head clips its illustration (overflow-hidden), which lets a flex
   // column shrink it to its eyebrow – the title went first, on a phone.
   'max-sm:w-auto max-sm:max-h-[60dvh] max-sm:overflow-y-auto max-sm:[&>*]:shrink-0'
 
+/**
+ * Every card folds to its head on a phone, the way the control panel
+ * folds to its clock: the shell (CardShell) holds whether it is folded,
+ * the head (CardHead) shows the panel's fold button beside the close
+ * button, and the body (CardBody) leaves while folded, as the panel's
+ * does – so a card is built from the three and carries nothing of it
+ * itself. Folded, the head alone stays at the foot of the screen, its
+ * own rows included (the stop's lines, the city's mode chips), and still
+ * names what was picked, while the map above it comes back into view: a
+ * follow ran behind a sheet that covered a good half of the screen. A
+ * card opens unfolded (it was asked for) and keeps its fold from one
+ * vehicle to the next while it stays up; a new card starts afresh. On a
+ * desktop the card stands beside the map with nothing to uncover, so the
+ * button is a phone's (`sm:hidden`) and the corner keeps to the close
+ * button there.
+ */
+interface CardFold {
+  collapsed: boolean
+  toggle: () => void
+}
+
+const CardFoldContext = createContext<CardFold | null>(null)
+
+function useCardFold(): CardFold {
+  const fold = useContext(CardFoldContext)
+  if (!fold) throw new Error('A card head or body belongs inside a CardShell')
+  return fold
+}
+
+/** The card itself, in the shell's clothes, holding the fold for the head and the body in it. */
+export function CardShell({ className, ...props }: ComponentProps<typeof Card>) {
+  const [collapsed, setCollapsed] = useState(false)
+  return (
+    <CardFoldContext value={{ collapsed, toggle: () => setCollapsed((c) => !c) }}>
+      <Card className={cn(CARD_SHELL, className)} {...props} />
+    </CardFoldContext>
+  )
+}
+
+/** What stands under the head – left out entirely while the card is folded. */
+export function CardBody({ className, ...props }: ComponentProps<typeof CardContent>) {
+  const { collapsed } = useCardFold()
+  if (collapsed) return null
+  return <CardContent className={cn('flex flex-col gap-3 px-5 pt-4 pb-4', className)} {...props} />
+}
+
+/**
+ * The head of a card: eyebrow over title over lead, the fold button and
+ * the close button in the corner, and whatever row the caller adds under
+ * it (mode chips, the stop's lines). `behind` is drawn first and
+ * absolutely – the city card's illustration – inside the head's own
+ * stacking context.
+ */
 export function CardHead(props: {
   /** Ground and ink – `bg-brand`, `bg-slate-800 text-slate-50`, or a `style`. */
   className?: string
@@ -52,6 +110,7 @@ export function CardHead(props: {
   onClose: () => void
   children?: ReactNode
 }) {
+  const fold = useCardFold()
   return (
     <CardHeader
       className={cn('relative isolate gap-0 overflow-hidden px-5 pt-4 pb-4', props.className)}
@@ -76,15 +135,21 @@ export function CardHead(props: {
           </CardTitle>
           {props.lead && <p className={cn('mt-1 text-sm', props.leadClassName)}>{props.lead}</p>}
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="-mt-1 -mr-2 shrink-0"
-          aria-label={props.closeLabel}
-          onClick={props.onClose}
-        >
-          <X aria-hidden />
-        </Button>
+        <div className="-mt-1 -mr-2 flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="sm:hidden"
+            aria-label={fold.collapsed ? t('card.expand') : t('card.collapse')}
+            aria-expanded={!fold.collapsed}
+            onClick={fold.toggle}
+          >
+            {fold.collapsed ? <ArrowsFromLineIcon /> : <ArrowsToLineIcon />}
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label={props.closeLabel} onClick={props.onClose}>
+            <X aria-hidden />
+          </Button>
+        </div>
       </div>
       {props.children}
     </CardHeader>

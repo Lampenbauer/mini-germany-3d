@@ -302,4 +302,19 @@ describe('VehicleCard summary', () => {
     renderCard({ tripProgress: { ...progress, position: 0 } })
     expect(screen.queryByTestId('vehicle-interchange')).toBeNull()
   })
+
+  it('folds to its head on the fold button and opens again', () => {
+    // The panel's fold button beside the close button (CardHead): on a
+    // phone the card is a sheet over the map, and folded it keeps the
+    // head – line, origin and destination – and nothing under it.
+    renderCard()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(screen.getByText(/Hafenallee/)).toBeInTheDocument()
+    expect(screen.queryByTestId('vehicle-trip-stops')).toBeNull()
+    expect(screen.queryByTestId('vehicle-arrival')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Follow tram' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
+    expect(screen.getByTestId('vehicle-trip-stops')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Follow tram' })).toBeInTheDocument()
+  })
 })

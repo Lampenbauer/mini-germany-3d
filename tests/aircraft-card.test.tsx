@@ -132,6 +132,15 @@ describe('AircraftCard', () => {
     expect(screen.getByRole('button', { name: 'Stop following' })).toBeInTheDocument()
   })
 
+  it('folds to its head on the fold button, like the ship card', () => {
+    show(aircraft())
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(screen.getByTestId('aircraft-name')).toHaveTextContent('DLH3Y')
+    expect(screen.queryByTestId('aircraft-altitude')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
+    expect(screen.getByTestId('aircraft-altitude')).toBeInTheDocument()
+  })
+
   it('speaks German', () => {
     setLanguage('de')
     show(aircraft())

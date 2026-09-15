@@ -154,4 +154,16 @@ describe('StopCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fly to stop' }))
     expect(onFlyTo).toHaveBeenCalledWith(stop)
   })
+
+  it('folds to its head on the fold button, the serving lines with it', () => {
+    // The lines calling here are the head's own row and stay; the
+    // departures and the flight go with the body
+    renderCard()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse card' }))
+    expect(screen.getByTestId('stop-lines')).toBeInTheDocument()
+    expect(screen.queryByText('Departures')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Fly to stop' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand card' }))
+    expect(screen.getByText('Departures')).toBeInTheDocument()
+  })
 })
