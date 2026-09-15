@@ -1132,6 +1132,9 @@ export class CesiumMap {
       // The ferries float on the tiles' own water like the AIS fleet
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       surfaceGeneration: () => this.surfaceGeneration.current,
+      get tilesLoading() {
+        return map.getRenderHints().tilesLoading
+      },
       get nightFactor() {
         return map.nightFactor
       },
@@ -1205,9 +1208,18 @@ export class CesiumMap {
       get waterSurfaceHeight() {
         return map.waterSurfaceHeight
       },
+      // At the coast the water level is known – NHN 0, right to the tide
+      // – and a pick is judged against it (see water-clamp.ts); inland
+      // the water is a staircase only the tiles know
+      get knownWaterHeight() {
+        return map.city.terrain.waterLevelNhn === null ? null : map.routes.heightOffset
+      },
       // The ships float on the tiles' own water (see VesselLayer)
       surfaceGeneration: () => this.surfaceGeneration.current,
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
+      get tilesLoading() {
+        return map.getRenderHints().tilesLoading
+      },
       get pixelRatio() {
         return map.effectivePixelRatio
       },
@@ -2365,6 +2377,25 @@ export class CesiumMap {
   /** Debug/test: what the funnel smoke is doing (see FunnelSmoke.state); null in a profile without it. */
   funnelSmokeState(): FunnelSmoke['state'] | null {
     return this.funnelSmoke?.state ?? null
+  }
+
+  /**
+   * What the picks under the ships and the ferries answered and what
+   * was made of it (see water-clamp.ts): the rules, the verdicts
+   * counted, every hull with an answer, and the water level the city
+   * knows, if any.
+   */
+  waterClampState(): {
+    knownWaterM: number | null
+    ships: VesselLayer['clampReport']
+    ferries: VehicleLayer['ferryClampReport']
+  } {
+    return {
+      knownWaterM:
+        this.city.terrain.waterLevelNhn === null ? null : Math.round(this.routes.heightOffset * 10) / 10,
+      ships: this.vesselLayer.clampReport,
+      ferries: this.vehicleLayer.ferryClampReport,
+    }
   }
 
   /** Debug/test: the foam patches drawn for the AIS fleet and the ferries (see Wake.state); null in a profile without them. */

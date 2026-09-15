@@ -268,6 +268,8 @@ export interface Mg3dTestApi {
   funnelSmoke: () => ReturnType<CesiumMap['funnelSmokeState']>
   /** The foam patches drawn for the AIS fleet and the ferries (see map/Wake.ts); null in a profile without them. */
   wake: () => ReturnType<CesiumMap['wakeState']>
+  /** The picks under the ships and the ferries, judged: rules, verdicts, every hull with an answer (see map/water-clamp.ts). */
+  waterClamp: () => ReturnType<CesiumMap['waterClampState']>
   /**
    * Puts a fleet on the map as if the AIS poll had delivered it – for the
    * tests, which run offline where no poll exists. null takes it away
@@ -2490,6 +2492,7 @@ export default function App() {
       cloudState: () => map.cloudState(),
       funnelSmoke: () => map.funnelSmokeState(),
       wake: () => map.wakeState(),
+      waterClamp: () => map.waterClampState(),
       setAisVessels: (vessels: AisVessel[] | null) => {
         aisInjectedRef.current = vessels
         aisVesselsRef.current = vessels ?? []

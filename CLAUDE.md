@@ -1567,7 +1567,7 @@ The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`, `readbackCache`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
-`cloudState()`, `funnelSmoke()`, `wake()`, `tiltShiftState()`,
+`cloudState()`, `funnelSmoke()`, `wake()`, `waterClamp()`, `tiltShiftState()`,
 `groundHeights()`, `aisReplay()`, `aircraftCount()`, `aircraftReplay()`;
 `setAisVessels(list)` and `setAircraft(list)` put a fleet on the map where
 no poll runs (offline, the tests); `basemap()`/`setBasemap()` and
@@ -1732,6 +1732,63 @@ all measured (the Firefox investigation below is where they come from):
   a ship's own hull under her ray made every clamp two passes, six
   readPixels, with 1 200 `Model.update`s each – 7.9 ms a clamp in Chrome,
   10.5 in Firefox; 2.1 and 3.2 ms now.
+- **A pick's answer is judged, not taken (since 2026-09-15).** The tiles
+  carry the ships Google photographed at their berths and every bridge
+  deck, and a hull at such a berth stood on the twin's deck, a tug
+  passing under the Köhlbrandbrücke rode over it. The pick answers with
+  the highest thing at the position and over water nothing lies under
+  the surface, so its error is always upward – which is the lever:
+  [water-clamp.ts](src/map/water-clamp.ts) (pure, `tests/water-clamp.test.ts`)
+  judges every answer against the references at hand and holds one that
+  stands too far over all of them, at the cost of a comparison, never a
+  second pick. Three references, any one of which admits a pick: the
+  hull's own last level (a rise of at most `riseM`, 3 m, a fall always –
+  but only a level read *fine* vouches: within `CLAMP_FINE_RANGE_AT_REFERENCE`,
+  1.5 km, with the tiles loaded (`host.tilesLoading`), because a coarse
+  tile answers metres under the water and a level read off one would
+  hold the true water back as a rise, for good on a hull at rest); the
+  water level the city knows (`knownWaterHeight` on the host – NHN 0
+  over the ellipsoid, `routes.heightOffset`, where `waterLevelNhn` is
+  set; a ferry's route profile in VehicleLayer), as a band of `aboveM`
+  (4 m) over it – Hamburg's tide as photographed and the mesh's
+  undulation fit, a box ship's deck or any bridge does not – and
+  `belowM` (8 m) under it, because the mesh's water sags: the
+  Köhlbrand's middle reads five metres under NHN 0 (probed on the real
+  tiles that day); and inland the lowest level accepted for a neighbour
+  in the same `cellM` (300 m) cell, read fine (`VesselLayer.neighbourFloor`,
+  built once per tick when first asked). A held answer leaves the hull
+  on her level, or on the reference it was held against (the lifted
+  fallback surface for the known level, the floor itself inland), and
+  waits for the next tile generation like an accepted one (`pickedHeight`
+  is what the staleness rule reads now). Inland, `confirmPicks` (4)
+  moved picks agreeing on a higher level make it hers – a lock lifts her
+  into a reach kilometres long, a bridge deck is crossed in one or two
+  picks – but a re-read of the same spot confirms nothing, and where the
+  level is known nothing is ever confirmed: the coast has no lock that
+  lifts a ship out of the band, and a coaster sent along the car
+  terminal quay reached three agreeing picks on it before the water took
+  her back. A level taken with nothing to judge it by is `provisional`:
+  the first hulls picked after a city arrives, before any floor stands,
+  may be on a twin, and a floor that appears later drops it. Verified
+  over the real tiles the same evening: the box ships at the Waltershof
+  and Burchardkai berths lie at the water inside their twins instead of
+  on them, and a coaster served from a mocked `/api/ais` through the
+  bridge's deck (the mesh has it at 53.5195–53.5205 N, 9.9414–9.9434 E;
+  over the channel's middle the deck is lost, as at the Humboldthafen)
+  kept her 39.2 m through picks of 90.7 and 88.9. Known and open: a lone
+  inland ship at rest on her twin – nothing is there to judge her first
+  pick by – and a lone one whose fine first pick was still a little low;
+  a water-level grid from the terrain model, sampled inside OSM's water
+  polygons in the Sunday run, would be the reference that closes both
+  and the better fallback before the first pick (Frankfurt's fleet rides
+  87 m under the Main until then). The buoys and the lighthouses are not
+  judged: a buoy never moves and a lighthouse wants the top.
+  `__mg3d.waterClamp()` reads the rules, the verdicts counted and every
+  hull with an answer. Two lessons from the probe: `__mg3d.setAisVessels`
+  is overwritten by the next poll answer online, so a ship put on the
+  real tiles has to come through a mocked `/api/ais` route; and a
+  height grid probed with `scene.clampToHeight` over the water is the
+  quickest way to see what the mesh holds at a place.
 The **ferry route lines** drape over the tiles the same way
 since 2026-09-08: `clampToGround` polylines, the per-frame classification
 every other route avoids, because NHN 0 plus offset plus a 1.25 m lift

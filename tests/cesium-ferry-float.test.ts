@@ -138,6 +138,25 @@ describe('ferries float on the tiles', () => {
     expect(h.clamp).toHaveBeenCalledTimes(4)
   })
 
+  it('keep the profile where the pick stands on a twin at the pier or a bridge deck, and take the water', () => {
+    // The photographed ferry at her pier: 23 m over the profile's water
+    let answer = 60
+    const h = harness(() => answer)
+    h.layer.sync([snapshot('f', 'ferry')], h.visible)
+    expect(h.groundOf('f')).toBe(OFFSET)
+    expect(h.layer.ferryClampReport).toEqual({
+      counts: { accepted: 0, confirmed: 0, held: 1 },
+      ferries: [{ id: 'f', pickedM: 60, acceptedM: null, heldM: null, heldPicks: 0, profileM: OFFSET }],
+    })
+    // Held like answered: not asked again until the tiles change
+    h.layer.sync([snapshot('f', 'ferry')], h.visible)
+    expect(h.clamp).toHaveBeenCalledTimes(1)
+    answer = 38.2
+    h.bumpGeneration()
+    h.layer.sync([snapshot('f', 'ferry')], h.visible)
+    expect(h.groundOf('f')).toBe(38.2)
+  })
+
   it('pick at most three ferries a tick, the rest follow next tick', () => {
     const h = harness(() => 37.9)
     const fleet = ['a', 'b', 'c', 'd'].map((id) => snapshot(id, 'ferry'))

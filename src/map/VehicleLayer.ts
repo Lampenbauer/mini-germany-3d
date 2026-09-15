@@ -54,6 +54,7 @@ import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
 import { LIGHT_GREEN, LIGHT_RED, LIGHT_WHITE, NavLights } from './NavLights'
+import { judgeWaterPick, resetWaterClamp, type WaterClampVerdict } from './water-clamp'
 import {
   VESSEL_SIDELIGHT_ARC_DEG,
   portLightSeen,
@@ -118,6 +119,8 @@ export interface VehicleLayerHost {
    * taken to rest.
    */
   readonly cameraAtRest?: boolean
+  /** Tiles still loading for the view – a pick made now is not read fine (see VesselLayerHost). */
+  readonly tilesLoading?: boolean
   /** Bumped whenever the loaded tiles changed – a clamped height is read again. */
   surfaceGeneration?(): number
   /** 0..1 day→night ramp – the cabin glow fades in along it. */
@@ -250,11 +253,18 @@ interface VehicleRecord {
   /** Frame counter of the last height query (sampling is staggered). */
   lastSampleFrame: number
   /**
-   * Ferries only: the water height clamped to the tiles, null until a
-   * pick answered; where and at which surface generation it was read
-   * (see FERRY_CLAMP_MOVE_M).
+   * Ferries only: the water height clamped to the tiles – the last pick
+   * accepted as water against her route profile (see water-clamp.ts),
+   * null until one is – with the pick's raw answer, a higher answer held
+   * back and its count, and where and at which surface generation the
+   * last pick was made (see FERRY_CLAMP_MOVE_M).
    */
   clampedHeight: number | null
+  provisional: boolean
+  fine: boolean
+  heldHeight: number | null
+  heldPicks: number
+  pickedHeight: number | null
   clampLon: number
   clampLat: number
   clampedGeneration: number
@@ -614,11 +624,17 @@ export const FERRY_FLOAT_LIFT = 1.1
  * cycle re-reads an answered ferry only within FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE
  * of the camera (at the reference lens, scaled like the render range),
  * where the tiles refine – the ships' rule, see VesselLayer. A moored
- * fleet under a resting camera costs nothing.
+ * fleet under a resting camera costs nothing. And the answer is judged
+ * against her route profile, which lies on the water the pipeline
+ * knows (water-clamp.ts, the ships' rule again): a pick on the
+ * photographed ferry at her pier or on a bridge deck is held, and she
+ * rides the profile.
  */
 const FERRY_CLAMP_BUDGET_PER_TICK = 3
 const FERRY_CLAMP_MOVE_M = 25
 const FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE = 2_000
+/** Within this a pick is read fine (the ships' CLAMP_FINE_RANGE_AT_REFERENCE). */
+const FERRY_CLAMP_FINE_RANGE_AT_REFERENCE = 1_500
 /**
  * A ferry's navigation lights are drawn out to this camera distance –
  * the AIS fleet's hull range – at night, whenever she is on the map: a
@@ -712,6 +728,8 @@ export function delayBadgeSuffix(snap: Pick<VehicleSnapshot, 'realtime' | 'delay
 
 export class VehicleLayer {
   private vehicles = new Map<string, VehicleRecord>()
+  /** Verdicts on the ferries' picks since the layer was built (see ferryClampReport). */
+  private readonly ferryClampCounts: Record<WaterClampVerdict, number> = { accepted: 0, confirmed: 0, held: 0 }
   /**
    * Every vehicle's group – body, wagons, glow – and the ferries' lights
    * under one collection, so a surface pick can leave the whole fleet
@@ -853,9 +871,42 @@ export class VehicleLayer {
    */
   resetClamps(): void {
     for (const record of this.vehicles.values()) {
-      record.clampedHeight = null
+      resetWaterClamp(record)
+      record.pickedHeight = null
       record.clampedGeneration = -1
     }
+  }
+
+  /**
+   * What the picks under the ferries answered and what was made of it
+   * (see VesselLayer.clampReport and __mg3d.waterClamp): the verdicts
+   * counted since the layer was built and every ferry with an answer.
+   */
+  get ferryClampReport(): {
+    counts: Record<WaterClampVerdict, number>
+    ferries: {
+      id: string
+      pickedM: number
+      acceptedM: number | null
+      heldM: number | null
+      heldPicks: number
+      profileM: number
+    }[]
+  } {
+    const tenth = (value: number | null) => (value === null ? null : Math.round(value * 10) / 10)
+    const ferries = []
+    for (const [id, record] of this.vehicles) {
+      if (record.pickedHeight === null) continue
+      ferries.push({
+        id,
+        pickedM: tenth(record.pickedHeight) as number,
+        acceptedM: tenth(record.clampedHeight),
+        heldM: tenth(record.heldHeight),
+        heldPicks: record.heldPicks,
+        profileM: tenth(record.groundHeight) as number,
+      })
+    }
+    return { counts: { ...this.ferryClampCounts }, ferries }
   }
 
   /**
@@ -1080,10 +1131,11 @@ export class VehicleLayer {
             (snap.lon - record.clampLon) * 111_320 * Math.cos((snap.lat * Math.PI) / 180),
             (snap.lat - record.clampLat) * 111_132,
           )
+          const moved = movedM > FERRY_CLAMP_MOVE_M
           const stale =
-            movedM > FERRY_CLAMP_MOVE_M ||
+            moved ||
             (record.clampedGeneration !== surfaceGeneration &&
-              (record.clampedHeight === null ||
+              (record.pickedHeight === null ||
                 cameraDistance < FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE * framingScale))
           if (stale) {
             clampBudget--
@@ -1091,7 +1143,21 @@ export class VehicleLayer {
             record.clampLon = snap.lon
             record.clampLat = snap.lat
             record.clampedGeneration = surfaceGeneration
-            if (h !== undefined) record.clampedHeight = h
+            if (h !== undefined) {
+              // Judged against her profile, which lies on the water the
+              // pipeline knows: a pick on a photographed twin at her pier
+              // or on a bridge deck is held, and she rides the profile
+              record.pickedHeight = h
+              const fine =
+                cameraDistance < FERRY_CLAMP_FINE_RANGE_AT_REFERENCE * framingScale &&
+                !this.host.tilesLoading
+              const verdict = judgeWaterPick(
+                record,
+                { height: h, moved, fine },
+                { known: routeGroundHeight ?? null, neighbours: null },
+              )
+              this.ferryClampCounts[verdict]++
+            }
           }
         }
         if (record.clampedHeight !== null && record.groundHeight !== record.clampedHeight) {
@@ -1621,6 +1687,11 @@ export class VehicleLayer {
       groundHeight: this.host.defaultGroundHeight,
       lastSampleFrame: -HEIGHT_SAMPLE_INTERVAL, // sample immediately on the first frame
       clampedHeight: null,
+      provisional: false,
+      fine: false,
+      heldHeight: null,
+      heldPicks: 0,
+      pickedHeight: null,
       clampLon: snap.lon,
       clampLat: snap.lat,
       clampedGeneration: -1,

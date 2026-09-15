@@ -57,12 +57,18 @@ function harness({
   wake,
   paceWholeView,
   cameraAtRest,
+  knownWater,
+  tilesLoading,
 }: {
   cameraLon?: number
   cameraHeight?: number
   frustum?: Intersect
   /** The tiles under the ships: a height per pick and the load generation. */
   clamp?: { surface: (lon: number, lat: number) => number | undefined; generation: () => number }
+  /** The water level the city knows – a coast; absent, an inland city. */
+  knownWater?: number
+  /** Tiles still loading for the view – a pick made now is not read fine. */
+  tilesLoading?: boolean
   /** The exhaust plumes the layer feeds (see FunnelSmoke), where the profile has them. */
   smoke?: FunnelSmoke
   /** The fleet's wakes (see Wake), where the profile has them. */
@@ -117,6 +123,8 @@ function harness({
     ...(wake ? { wake } : {}),
     ...(paceWholeView ? { paceWholeView } : {}),
     ...(cameraAtRest === undefined ? {} : { cameraAtRest }),
+    ...(knownWater === undefined ? {} : { knownWaterHeight: knownWater }),
+    ...(tilesLoading === undefined ? {} : { tilesLoading }),
     ...(clamp
       ? {
           clampToSurface: (lon: number, lat: number) => clamp.surface(lon, lat),
@@ -616,6 +624,120 @@ describe('VesselLayer', () => {
       h.layer.sync([vessel()], NOW + 4000)
       expect(surface).toHaveBeenCalledTimes(2)
       expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(52 + 3 / 2, 1)
+    })
+
+    /**
+     * The answer is judged, not taken (see water-clamp.ts): the tiles
+     * carry the ships Google photographed at their berths and every
+     * bridge deck, and a pick landing on one is held back.
+     */
+    it('holds a pick on a photographed twin at the coast and rides the known water instead', () => {
+      const surface = vi.fn(() => 58) // a box ship's deck, 20 m over the tide
+      let generation = 1
+      const h = harness({ clamp: { surface, generation: () => generation }, knownWater: 37.75 })
+      h.layer.sync([vessel()], NOW)
+      h.layer.sync([vessel()], NOW + 4000)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(37.75 + 3 / 2, 1)
+      expect(h.layer.clampReport.ships).toEqual([
+        expect.objectContaining({ mmsi: 211222290, pickedM: 58, acceptedM: null, referenceM: 37.8 }),
+      ])
+      expect(h.layer.clampReport.counts).toEqual({ accepted: 0, confirmed: 0, held: 1 })
+      // A held answer waits for the tiles like an accepted one: no re-read
+      // on the same generation, one on the next – and the water within the
+      // tide's band is taken
+      h.layer.sync([vessel()], NOW + 4100)
+      expect(surface).toHaveBeenCalledTimes(1)
+      surface.mockReturnValue(39)
+      generation = 2
+      h.layer.sync([vessel()], NOW + 4200)
+      h.layer.sync([vessel()], NOW + 9000)
+      expect(surface).toHaveBeenCalledTimes(2)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(39 + 3 / 2, 1)
+    })
+
+    it('keeps a ship under way on her water across a bridge deck, in a city without a known level', () => {
+      let answer = 38
+      const surface = vi.fn(() => answer)
+      // The camera 800 m up: her level is read fine and vouches
+      const h = harness({ cameraHeight: 800, clamp: { surface, generation: () => 1 } })
+      h.layer.sync([vessel()], NOW)
+      // The deck, 15 m up, under her next pick: held – she keeps her water
+      answer = 53
+      h.layer.sync([vessel({ lat: 54.0982 + 40 / 111_132 })], NOW + 100)
+      h.layer.sync([vessel({ lat: 54.0982 + 40 / 111_132 })], NOW + 4000)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(38 + 3 / 2, 1)
+      expect(h.layer.clampReport.ships[0]).toMatchObject({ pickedM: 53, acceptedM: 38, heldM: 53, heldPicks: 1 })
+      // The water past it, a shade higher: taken
+      answer = 38.4
+      h.layer.sync([vessel({ lat: 54.0982 + 80 / 111_132 })], NOW + 4100)
+      h.layer.sync([vessel({ lat: 54.0982 + 80 / 111_132 })], NOW + 9000)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(38.4 + 3 / 2, 1)
+      expect(h.layer.clampReport.ships[0]).toMatchObject({ acceptedM: 38.4, heldM: null, heldPicks: 0 })
+    })
+
+    it('sets an inland ship at her berth on her neighbours’ water where her own pick is a twin’s deck', () => {
+      // Two ships 60 m apart, in one cell: the first on the water, the
+      // second on the photographed ship at her berth, 20 m up. The camera
+      // 800 m up: the picks are read fine, and the first is a floor
+      const berth = 54.0982 + 60 / 111_132
+      const surface = vi.fn((_lon: number, lat: number) => (lat > 54.0984 ? 110 : 90))
+      const h = harness({ cameraHeight: 800, clamp: { surface, generation: () => 1 } })
+      const fleet = [vessel(), vessel({ mmsi: 211333330, name: 'TWIN', lat: berth })]
+      h.layer.sync(fleet, NOW)
+      h.layer.sync(fleet, NOW + 4000)
+      expect(positionOf(h.record(211222290)!.matrix).height).toBeCloseTo(90 + 3 / 2, 1)
+      expect(positionOf(h.record(211333330)!.matrix).height).toBeCloseTo(90 + 3 / 2, 1)
+      expect(h.layer.clampReport.ships).toEqual([
+        expect.objectContaining({ mmsi: 211222290, acceptedM: 90, fine: true }),
+        expect.objectContaining({ mmsi: 211333330, pickedM: 110, acceptedM: null, referenceM: 90 }),
+      ])
+      // Alone, with nothing to judge her by, she takes the deck – provisionally
+      const alone = harness({ cameraHeight: 800, clamp: { surface: vi.fn(() => 110), generation: () => 1 } })
+      alone.layer.sync([vessel({ lat: berth })], NOW)
+      alone.layer.sync([vessel({ lat: berth })], NOW + 4000)
+      expect(positionOf(alone.record(211222290)!.matrix).height).toBeCloseTo(110 + 3 / 2, 1)
+      expect(alone.layer.clampReport.ships[0]).toMatchObject({ acceptedM: 110, provisional: true })
+      // The first hull picked stood on the deck; the second, on the water,
+      // becomes the floor that brings the first down at her next re-read
+      let generation = 1
+      const twinFirst = harness({ cameraHeight: 800, clamp: { surface, generation: () => generation } })
+      const reversed = [fleet[1], fleet[0]]
+      twinFirst.layer.sync(reversed, NOW)
+      expect(twinFirst.layer.clampReport.ships).toEqual([
+        expect.objectContaining({ mmsi: 211333330, acceptedM: 110, provisional: true }),
+        expect.objectContaining({ mmsi: 211222290, acceptedM: 90, provisional: false }),
+      ])
+      generation = 2
+      twinFirst.layer.sync(reversed, NOW + 100)
+      twinFirst.layer.sync(reversed, NOW + 5000)
+      expect(positionOf(twinFirst.record(211333330)!.matrix).height).toBeCloseTo(90 + 3 / 2, 1)
+      expect(twinFirst.layer.clampReport.ships[0]).toMatchObject({ acceptedM: null, referenceM: 90 })
+    })
+
+    it('reads no floor and no vouching level off a far ship, or while the tiles load', () => {
+      // The ship on the water 2 km from the camera: her level is not a
+      // floor, and the twin's deck beside her is taken provisionally
+      const far = 54.098 + 2000 / 111_132
+      const surface = vi.fn((_lon: number, lat: number) => (lat > far + 0.0003 ? 110 : 90))
+      const h = harness({ clamp: { surface, generation: () => 1 } })
+      const fleet = [vessel({ lat: far }), vessel({ mmsi: 211333330, name: 'TWIN', lat: far + 60 / 111_132 })]
+      h.layer.sync(fleet, NOW)
+      expect(h.layer.clampReport.ships).toEqual([
+        expect.objectContaining({ mmsi: 211222290, acceptedM: 90, fine: false }),
+        expect.objectContaining({ mmsi: 211333330, acceptedM: 110, provisional: true }),
+      ])
+      // Near, but the tiles still loading: the same
+      const loading = harness({ cameraHeight: 800, clamp: { surface: () => 82, generation: () => 1 }, tilesLoading: true })
+      loading.layer.sync([vessel()], NOW)
+      expect(loading.layer.clampReport.ships[0]).toMatchObject({ acceptedM: 82, fine: false })
+    })
+
+    it('forgets the verdicts with the heights when the ground changes', () => {
+      const surface = vi.fn(() => 58)
+      const h = harness({ clamp: { surface, generation: () => 1 }, knownWater: 37.75 })
+      h.layer.sync([vessel()], NOW)
+      h.layer.resetClamps()
+      expect(h.layer.clampReport.ships).toEqual([])
     })
   })
 

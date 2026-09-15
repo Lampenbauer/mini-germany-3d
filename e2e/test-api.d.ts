@@ -181,6 +181,38 @@ declare global {
       ) => void
       /** The wakes: ribbon segments drawn for the AIS fleet and the ferries; null without the profile's knob. */
       wake: () => { ships: number; ferries: number; supported: boolean } | null
+      /** The picks under the ships and the ferries, judged (see src/map/water-clamp.ts): the rules, the verdicts counted, every hull with an answer. */
+      waterClamp: () => {
+        knownWaterM: number | null
+        ships: {
+          rules: { aboveM: number; belowM: number; riseM: number; confirmPicks: number; cellM: number }
+          counts: { accepted: number; confirmed: number; held: number }
+          ships: {
+            mmsi: number
+            name: string
+            lon: number
+            lat: number
+            pickedM: number
+            acceptedM: number | null
+            provisional: boolean
+            fine: boolean
+            heldM: number | null
+            heldPicks: number
+            referenceM: number | null
+          }[]
+        }
+        ferries: {
+          counts: { accepted: number; confirmed: number; held: number }
+          ferries: {
+            id: string
+            pickedM: number
+            acceptedM: number | null
+            heldM: number | null
+            heldPicks: number
+            profileM: number
+          }[]
+        }
+      }
       /** The ships' exhaust: plumes drawn, support, the plume's clock, the wind; null without the profile's knob. */
       funnelSmoke: () => {
         drawn: number

@@ -810,6 +810,13 @@ when its answer could have changed – the ship moved 25 m, or the tiles
 under it changed (a tile that loaded, at most every two seconds) and the
 ship is near enough for that to matter – with a cap of three picks a
 tick; until a ship is first seen it rides the calibrated sea-level surface.
+The answer is judged before it is taken (`src/map/water-clamp.ts`): the
+tiles carry the ships Google photographed at their berths and every
+bridge deck, and a pick standing too far over the water level known for
+the place – the coast's sea level, the ship's own last level, inland the
+lowest level her neighbours were set on – is held back, so a ship at
+such a berth lies at the water inside her photographed twin rather than
+on its deck, and one passing under a bridge stays on the water.
 
 ### ADS-B (live air traffic)
 

@@ -72,11 +72,27 @@ import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-
 import { FollowCamera } from '@/map/FollowCamera'
 import { SMOKE_MAX_DISTANCE_M, smokeIntensity, type FunnelSmoke } from './FunnelSmoke'
 import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
+import {
+  WATER_CLAMP_RULES,
+  judgeWaterPick,
+  resetWaterClamp,
+  waterCellKey,
+  type WaterClampVerdict,
+  type WaterPick,
+} from './water-clamp'
 
 export interface VesselLayerHost {
   requestRender(): void
   /** Ellipsoid height of the water surface (calibrated like the ferry routes). */
   readonly waterSurfaceHeight: number
+  /**
+   * The water level where the city knows it – NHN 0 over the ellipsoid
+   * at the coast, waterSurfaceHeight less its lift – or null inland,
+   * where the water is a staircase of reaches only the tiles know. A
+   * pick's answer is judged against it (see water-clamp.ts); absent, it
+   * is taken as unknown.
+   */
+  readonly knownWaterHeight?: number | null
   /**
    * Ellipsoid height of the loaded scene geometry under a position – the
    * tiles' own water, whatever level Google's mesh has it at there
@@ -93,6 +109,13 @@ export interface VesselLayerHost {
    * taken to rest.
    */
   readonly cameraAtRest?: boolean
+  /**
+   * Whether tiles are still loading for the view – a pick made now may
+   * be off a coarse tile, and its answer is not trusted to judge later
+   * ones (see water-clamp.ts, `fine`); absent, the tiles are taken as
+   * loaded.
+   */
+  readonly tilesLoading?: boolean
   /**
    * Bumped whenever the loaded tiles changed – a load cycle finished, or
    * the tileset was swapped – so a clamped height that was read off a
@@ -449,12 +472,22 @@ interface VesselRecord {
   renderedBearing: number
   renderedStamp: number
   /**
-   * Height the hull was last clamped to (null: never – the ship rides
-   * the host's water surface until it is), and where and against which
-   * tiles it was read, so the clamp is only repeated when one of the two
-   * changed.
+   * The water level the hull rides – the last pick off the tiles
+   * accepted as water; null until one is, and the ship rides the
+   * reference her pick was held against (heldReference) or the host's
+   * water surface. With it whether that level was taken unjudged and
+   * whether it was read fine, the pick's raw answer, a higher answer
+   * held back and how many picks agreed on it (see water-clamp.ts), and
+   * where and against which tiles the last pick was made, so a pick is
+   * only repeated when one of the two changed.
    */
   clampedHeight: number | null
+  provisional: boolean
+  fine: boolean
+  heldHeight: number | null
+  heldPicks: number
+  pickedHeight: number | null
+  heldReference: number | null
   clampLon: number
   clampLat: number
   clampedGeneration: number
@@ -493,10 +526,29 @@ interface VesselRecord {
  * over Hamburg's harbour with 245 ships on screen: every generation
  * re-clamped them all, three a tick for three seconds, each clamp a full
  * scene update – 22 % (Chrome) to 30 % (Firefox) of a pan's wall time.
+ *
+ * And a pick's answer is not taken as it comes: the tiles carry the
+ * ships Google photographed at their berths and every bridge deck, and
+ * a hull at such a berth or passing under such a bridge was set on top
+ * of them (2026-09-15). The answer is judged against the water level
+ * known for the place – the coast's NHN 0, inland the floor of her
+ * neighbours' accepted levels in the same cell, always her own last
+ * level – and held back where it stands too far over every one of them
+ * (water-clamp.ts, pure; the rules and every verdict are read off
+ * __mg3d.waterClamp()). A held answer costs no pick more: the hull keeps
+ * her level, or rides the reference until she moves on.
  */
 const CLAMP_BUDGET_PER_TICK = 3
 const CLAMP_MOVE_M = 25
 const CLAMP_REFINE_RANGE_AT_REFERENCE = 2_000
+/**
+ * Within this of the camera (at the reference lens), with the tiles
+ * loaded, a pick is read `fine` (water-clamp.ts): the buoys re-clamped
+ * within 1.5 km through five camera moves stayed in a 2.2 m band, the
+ * water mesh's own undulation, while three kilometres out the coarse
+ * tiles put them between 9 m under and 18 m over the water.
+ */
+const CLAMP_FINE_RANGE_AT_REFERENCE = 1_500
 
 /**
  * Meters the fallback water surface (host.waterSurfaceHeight, NHN 0 plus
@@ -568,6 +620,12 @@ const WINDOW_GLOW_MAX = 0.85
 
 export class VesselLayer {
   private vessels = new Map<number, VesselRecord>()
+  /** Ticks synced – the neighbours' floors (neighbourFloor) are built once per tick. */
+  private syncCount = 0
+  private readonly cellFloors = new Map<string, { min: number; minMmsi: number; second: number }>()
+  private cellFloorsTick = -1
+  /** Verdicts on the picks' answers since the layer was built (see clampReport). */
+  private readonly clampCounts: Record<WaterClampVerdict, number> = { accepted: 0, confirmed: 0, held: 0 }
   /**
    * Every primitive of the fleet – hulls, placeholder boxes, lights –
    * under one collection, so the map can take the whole fleet out of a
@@ -672,6 +730,7 @@ export class VesselLayer {
     // One collectionChanged event per tick instead of one per ship – see
     // VehicleLayer.sync for the reasoning.
     const entities = this.viewer.entities
+    this.syncCount++
     entities.suspendEvents()
     try {
       return this.syncBatched(vessels, nowMs)
@@ -760,6 +819,7 @@ export class VesselLayer {
     let clampBudget = CLAMP_BUDGET_PER_TICK
     const surfaceGeneration = this.host.surfaceGeneration?.() ?? 0
     const clampRefineRange = CLAMP_REFINE_RANGE_AT_REFERENCE * cameraFramingScale(camera)
+    const clampFineRange = CLAMP_FINE_RANGE_AT_REFERENCE * cameraFramingScale(camera)
     // No pick while the camera moves, but for the ship she follows (see
     // CesiumMap.cameraAtRest)
     const cameraAtRest = this.host.cameraAtRest !== false
@@ -809,21 +869,27 @@ export class VesselLayer {
           (sample.lon - record.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
           (sample.lat - record.clampLat) * 111_132,
         )
+        const moved = movedM > CLAMP_MOVE_M
+        const cameraDistance = Cartesian3.distance(camera.positionWC, record.displayPosition)
         const stale =
-          movedM > CLAMP_MOVE_M ||
+          moved ||
           (record.clampedGeneration !== surfaceGeneration &&
-            (record.clampedHeight === null ||
-              Cartesian3.distance(camera.positionWC, record.displayPosition) < clampRefineRange))
+            (record.pickedHeight === null || cameraDistance < clampRefineRange))
         if (stale && this.isOnScreen(cullingVolume, record.displayPosition)) {
           clampBudget--
           const h = this.host.clampToSurface(sample.lon, sample.lat)
           record.clampLon = sample.lon
           record.clampLat = sample.lat
           record.clampedGeneration = surfaceGeneration
-          if (h !== undefined) record.clampedHeight = h
+          if (h !== undefined) {
+            const fine = cameraDistance < clampFineRange && !this.host.tilesLoading
+            this.judgePick(vessel.mmsi, record, { height: h, moved, fine }, sample.lon, sample.lat)
+          }
         }
       }
-      const surface = record.clampedHeight ?? this.host.waterSurfaceHeight
+      // Her accepted water; until she has one, what her pick was held
+      // against – the coast's level, the neighbours' floor – or the fallback
+      const surface = record.clampedHeight ?? record.heldReference ?? this.host.waterSurfaceHeight
       const target = Cartesian3.fromDegrees(
         sample.lon,
         sample.lat,
@@ -1125,10 +1191,121 @@ export class VesselLayer {
    */
   resetClamps(): void {
     for (const record of this.vessels.values()) {
-      record.clampedHeight = null
+      resetWaterClamp(record)
+      record.pickedHeight = null
+      record.heldReference = null
       record.clampedGeneration = -1
     }
     this.host.requestRender()
+  }
+
+  /**
+   * Judges what a pick answered under a hull (see water-clamp.ts): the
+   * water level the city knows, or inland the floor of the cell's
+   * neighbours, and her own last level. A held answer leaves her on the
+   * reference it was held against; an accepted one read fine can serve
+   * as a neighbour's reference in turn. Every verdict is counted for
+   * __mg3d.waterClamp().
+   */
+  private judgePick(
+    mmsi: number,
+    record: VesselRecord,
+    pick: WaterPick,
+    lon: number,
+    lat: number,
+  ): void {
+    record.pickedHeight = pick.height
+    const known = this.host.knownWaterHeight ?? null
+    const neighbours = known === null ? this.neighbourFloor(mmsi, lon, lat) : null
+    const verdict = judgeWaterPick(record, pick, { known, neighbours })
+    if (verdict === 'held') {
+      // Held against the known level she rides the fallback surface –
+      // that level with the lift that clears the mesh's waves; held
+      // against the neighbours' floor she rides that, a clamped level
+      // like her own would be
+      record.heldReference = known !== null ? this.host.waterSurfaceHeight : neighbours
+    } else {
+      record.heldReference = null
+      // A level accepted is a floor for the next hull asked, this tick included
+      this.cellFloorsTick = -1
+    }
+    this.clampCounts[verdict]++
+  }
+
+  /**
+   * The lowest level accepted for another hull in the cell the position
+   * falls in, read fine – null with none. The cells are built on the
+   * first ask of a tick and dropped with it; a coastal city, whose level
+   * is known, never asks.
+   */
+  private neighbourFloor(mmsi: number, lon: number, lat: number): number | null {
+    if (this.cellFloorsTick !== this.syncCount) {
+      this.cellFloorsTick = this.syncCount
+      this.cellFloors.clear()
+      for (const [other, record] of this.vessels) {
+        if (record.clampedHeight === null || !record.fine) continue
+        const key = waterCellKey(record.clampLon, record.clampLat)
+        const cell = this.cellFloors.get(key)
+        const height = record.clampedHeight
+        if (!cell) {
+          this.cellFloors.set(key, { min: height, minMmsi: other, second: Infinity })
+        } else if (height < cell.min) {
+          cell.second = cell.min
+          cell.min = height
+          cell.minMmsi = other
+        } else if (height < cell.second) {
+          cell.second = height
+        }
+      }
+    }
+    const cell = this.cellFloors.get(waterCellKey(lon, lat))
+    if (!cell) return null
+    const floor = cell.minMmsi === mmsi ? cell.second : cell.min
+    return Number.isFinite(floor) ? floor : null
+  }
+
+  /**
+   * What the picks under the fleet answered and what was made of it: the
+   * rules, the verdicts counted since the layer was built, and every hull
+   * with an answer – her raw pick, the level she rides, a level held back
+   * and the reference it was held against (see __mg3d.waterClamp).
+   */
+  get clampReport(): {
+    rules: typeof WATER_CLAMP_RULES
+    counts: Record<WaterClampVerdict, number>
+    ships: {
+      mmsi: number
+      name: string
+      lon: number
+      lat: number
+      pickedM: number
+      acceptedM: number | null
+      provisional: boolean
+      fine: boolean
+      heldM: number | null
+      heldPicks: number
+      referenceM: number | null
+    }[]
+  } {
+    const tenth = (value: number | null) => (value === null ? null : Math.round(value * 10) / 10)
+    const ships = []
+    for (const [mmsi, record] of this.vessels) {
+      if (record.pickedHeight === null) continue
+      ships.push({
+        mmsi,
+        name: record.labelText,
+        lon: Math.round(record.clampLon * 1e5) / 1e5,
+        lat: Math.round(record.clampLat * 1e5) / 1e5,
+        pickedM: tenth(record.pickedHeight) as number,
+        acceptedM: tenth(record.clampedHeight),
+        provisional: record.provisional,
+        fine: record.fine,
+        heldM: tenth(record.heldHeight),
+        heldPicks: record.heldPicks,
+        referenceM: tenth(record.heldReference),
+      })
+    }
+    return { rules: WATER_CLAMP_RULES, counts: { ...this.clampCounts }, ships }
   }
 
   setVisible(visible: boolean): void {
@@ -1378,6 +1555,12 @@ export class VesselLayer {
       renderedBearing: sample.bearingDeg,
       renderedStamp: this.renderStamp,
       clampedHeight: null,
+      provisional: false,
+      fine: false,
+      heldHeight: null,
+      heldPicks: 0,
+      pickedHeight: null,
+      heldReference: null,
       clampLon: sample.lon,
       clampLat: sample.lat,
       clampedGeneration: -1,
