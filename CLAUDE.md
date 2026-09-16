@@ -1217,6 +1217,26 @@ boat rails her working decks only), `railing` a `material`; the other
 twelve GLBs came out byte-identical, which is the proof for any change
 to them.
 
+**The navy is two hulls, told apart by length (since 2026-09-17).**
+AIS 35 (warship or naval auxiliary; the card says "Military vessel")
+draws `vessel-frigate` from `WARSHIP_FRIGATE_MIN_LENGTH_M` (80 m: the
+Braunschweig corvettes at 89 m and the Elbe tenders at 100 m wear it,
+the Frankenthal minehunters at 54 m do not) and `vessel-minehunter`
+below, and the minehunter without a length. Both in `navalGrey` with a
+`navalDeck` a shade darker and a black boot top, after the SACHSEN
+class (F221) and the FRANKENTHAL class (M1098): the frigate with the
+gun and the launcher cells on the fo'c'sle, the bridge, the pyramid of
+the phased-array mast (`pyramidFrustum`, flat-shaded on purpose) and
+the long-range radar's antenna on the aft block, two exhaust stacks –
+the forward one carries the plume – and the flight deck aft; the
+minehunter with the gun, the drones' spheres before the bridge, the
+mast with its yards, the radome on its tripod and the crane on the
+working deck. Both hulls rise toward the stem: `bowSheer` on the
+stations (`hullStations`, through `hull` and `deckPlate`), a sheer of
+1 adding nothing to the station objects, so every merchant GLB came
+out byte-identical again. The frigate's triangle budget is the
+passenger ship's (18 000): 140 m of rails and a faceted superstructure.
+
 Since 2026-09-12 all thirteen AIS hulls and both scheduled ferry models
 have smooth rounded bilges, finer bow stations, railings, mooring fittings
 and bevelled enclosures. The larger ships carry individual container tiers
@@ -1463,7 +1483,7 @@ it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse.
 It asks for frames the way the ships and the clouds do – once its own
 motion since the frame last drawn is a visible step at the ship's
 distance – and it counts as a moving ship for the tick rate. Which
-hulls smoke is `VESSEL_MODELS[…].funnel` (five of fourteen; the
+hulls smoke is `VESSEL_MODELS[…].funnel` (six of sixteen; the
 shipyard's `mesh.funnel` is pinned against it in
 `tests/vessel-models.test.ts`), from `SMOKE_MIN_SOG_KN` over the ground,
 within `SMOKE_MAX_DISTANCE_M`. Offline the shader compiles and draws –

@@ -39,7 +39,8 @@ describe('the generated backdrop fleet', () => {
       it('stays within its geometry and file-size budget', () => {
         // Individual containers and cruise decks carry more detail than
         // the small craft; all models remain shared, self-contained GLBs.
-        const budget = name === 'vessel-container' ? 36000 : name === 'vessel-passenger' ? 18000 : 8500
+        const budget =
+          name === 'vessel-container' ? 36000 : name === 'vessel-passenger' || name === 'vessel-frigate' ? 18000 : 8500
         expect(triangleCount(mesh)).toBeLessThan(budget)
         // 60 bytes a triangle, plus the merge's 8 a vertex (see toGlb)
         expect(glb.byteLength).toBeLessThan(budget * 70)
@@ -150,6 +151,24 @@ describe('the generated backdrop fleet', () => {
     expect(archetypeFor(4, 90, 20)).toBe('vessel-cargo') // ice breaker
     expect(archetypeFor(6, 160, 24)).toBe('vessel-cargo') // cable layer
     expect(archetypeFor(14, 20, 8)).toBe('vessel-generic') // small support vessel
+  })
+
+  it('draws a warship as the frigate or the minehunter by its length', () => {
+    // AIS 35 is every grey ship there is; the German navy's own lengths
+    // draw the line at 80 m – corvettes and frigates above, minehunters
+    // and boats below, and a ship of no stated length the smaller one
+    expect(archetypeFor(35, 143, 17)).toBe('vessel-frigate') // SACHSEN class
+    expect(archetypeFor(35, 89, 13)).toBe('vessel-frigate') // BRAUNSCHWEIG class corvette
+    expect(archetypeFor(35, 100, 15)).toBe('vessel-frigate') // ELBE class tender
+    expect(archetypeFor(35, 54, 9)).toBe('vessel-minehunter') // FRANKENTHAL class
+    expect(archetypeFor(35, 79)).toBe('vessel-minehunter')
+    expect(archetypeFor(35)).toBe('vessel-minehunter')
+    // Both wear the navy's grey and nothing of the merchant hulls' red
+    for (const name of ['vessel-frigate', 'vessel-minehunter']) {
+      const mesh = VESSELS[name]()
+      expect(mesh.groups.has('navalGrey')).toBe(true)
+      expect(mesh.groups.has('hullRed')).toBe(false)
+    }
   })
 
   it('paints the pilot boat orange all over, and nothing else in it', () => {

@@ -11,7 +11,7 @@
  * src/map/VesselLayer.ts and the model tests.
  */
 
-import { MATERIALS, box as sharpBox, createMesh, extrude, quad, windowBand } from './vehicle-mesh.mjs'
+import { MATERIALS, box as sharpBox, createMesh, extrude, fan, quad, windowBand } from './vehicle-mesh.mjs'
 
 import { ellipsoid, mergeMesh, rod, roundedBox, smoothSurface } from './model-detail.mjs'
 
@@ -35,6 +35,8 @@ export const VESSEL_DIMS = {
   'vessel-tender': { length: 20, width: 5, height: 6 },
   'vessel-pilot': { length: 20, width: 6, height: 9.5 },
   'vessel-patrol': { length: 20, width: 6, height: 7.5 },
+  'vessel-frigate': { length: 140, width: 17, height: 38 },
+  'vessel-minehunter': { length: 54, width: 9, height: 20 },
   'vessel-tug': { length: 26, width: 9, height: 10 },
   'vessel-fishing': { length: 18, width: 5.5, height: 7.5 },
   'vessel-sail': { length: 12, width: 3.8, height: 14 },
@@ -50,38 +52,47 @@ export const VESSEL_DIMS = {
  * straight lines to a stem a tenth of the beam wide, and a tanker and a
  * box ship came out as pointed as a rowing boat (2026-09-11).
  */
-function hullStations({ length, bow, stern, taper }) {
+function hullStations({ length, bow, stern, taper, bowSheer = 1 }) {
   const taperStart = length / 2 - length * taper
-  const bowAt = (f) => ({ z: taperStart + length * taper * f, sx: bow + (1 - bow) * Math.sqrt(1 - f * f) })
+  // A warship's deck rises toward the stem (`bowSheer`, the stem's
+  // height over the parallel body's); a merchant hull keeps its stem a
+  // little under it, as it always did – the stations come out the same
+  // objects for a sheer of 1, which is what keeps the other GLBs stable
+  const bowAt = (f) => ({
+    z: taperStart + length * taper * f,
+    sx: bow + (1 - bow) * Math.sqrt(1 - f * f),
+    ...(bowSheer !== 1 ? { sy: 1 + (bowSheer - 1) * f } : {}),
+  })
   return [
     { z: -length / 2, sx: stern, sy: 0.88 },
     { z: -length / 2 + length * 0.04, sx: stern + (1 - stern) * 0.7, sy: 0.96 },
     { z: -length / 2 + length * 0.12 },
     { z: taperStart },
     ...[0.2, 0.4, 0.58, 0.72, 0.83, 0.91, 0.96, 0.985].map(bowAt),
-    { z: length / 2, sx: bow, sy: 0.94 },
+    { z: length / 2, sx: bow, sy: bowSheer !== 1 ? bowSheer : 0.94 },
   ]
 }
 
 function hull(
   mesh,
-  { length, width, yBase, depth, material, bow = 0.22, stern = 0.55, taper = 0.2, bootStripe = 'hullRed', rails },
+  { length, width, yBase, depth, material, bow = 0.22, stern = 0.55, taper = 0.2, bowSheer = 1, bootStripe = 'hullRed', rails },
 ) {
   // The mesh remembers its hull's plan, so the model test can hold every
   // part of the ship inside it (hullHalfWidthAt)
   mesh.hull = { length, width, bow, stern, taper }
+  const plan = { bow, stern, taper, bowSheer }
   const x = width / 2
   // A rounded bilge below near-vertical topsides. The sheer and full bow
   // still use the same stations as the deck and its fittings.
   const starboard = [[0.72, 0], [0.83, 0.04], [0.93, 0.16], [0.985, 0.38], [1, 0.7], [1, 0.98], [0.985, 1]]
   const profile = [...starboard.map(([w, h]) => [x * w, yBase + depth * h]), ...starboard.toReversed().map(([w, h]) => [-x * w, yBase + depth * h])]
   const skin = createMesh()
-  extrude(skin, profile, hullStations({ length, bow, stern, taper }), { material, yAnchor: yBase })
+  extrude(skin, profile, hullStations({ length, ...plan }), { material, yAnchor: yBase })
   mergeMesh(mesh, smoothSurface(skin, 50))
   // A narrow boot stripe and deck-edge cap tie the hull to its waterline.
-  deckPlate(mesh, bootStripe, { length, width, yBase, depth: depth * 0.22, bow, stern, taper, inset: 0.947, thickness: Math.min(0.16, depth * 0.08) })
-  deckPlate(mesh, 'steel', { length, width, yBase, depth, bow, stern, taper, inset: 0.985, thickness: 0.055 })
-  deckFittings(mesh, { length, width, yBase, depth, bow, stern, taper, rails })
+  deckPlate(mesh, bootStripe, { length, width, yBase, depth: depth * 0.22, ...plan, inset: 0.947, thickness: Math.min(0.16, depth * 0.08) })
+  deckPlate(mesh, 'steel', { length, width, yBase, depth, ...plan, inset: 0.985, thickness: 0.055 })
+  deckFittings(mesh, { length, width, yBase, depth, ...plan, rails })
 }
 
 /**
@@ -159,12 +170,12 @@ export function hullHalfWidthAt(z, { length, width, bow = 0.22, stern = 0.55, ta
 function deckPlate(
   mesh,
   material,
-  { length, width, yBase, depth, bow = 0.22, stern = 0.55, taper = 0.2, inset = 0.94, thickness = 0.2 },
+  { length, width, yBase, depth, bow = 0.22, stern = 0.55, taper = 0.2, bowSheer = 1, inset = 0.94, thickness = 0.2 },
 ) {
   const x = (width * inset) / 2
   const y0 = yBase + depth
   // The hull's own stations, the two ends pulled a hand inside its caps
-  const stations = hullStations({ length, bow, stern, taper })
+  const stations = hullStations({ length, bow, stern, taper, bowSheer })
   stations[0] = { ...stations[0], z: stations[0].z + 0.3 }
   stations[stations.length - 1] = { ...stations[stations.length - 1], z: length / 2 - 0.3 }
   extrude(
@@ -511,6 +522,188 @@ export function vesselTender() {
   for (const z of [-3, 3]) {
     for (const side of [-1, 1]) roundedBox(mesh, 'deckTeak', side * 1.3, cabTop + 0.34, z, 0.42, 0.35, 2)
   }
+  return mesh
+}
+
+/**
+ * A pyramid frustum standing on its base at y0 – w0 across the beam by
+ * l0 along it – and narrowing to w1 × l1 at y1: the faceted radar mast
+ * of a modern warship, flat-shaded on purpose.
+ */
+function pyramidFrustum(mesh, material, cx, cz, y0, y1, w0, l0, w1, l1) {
+  const ring = (y, w, l) => [[cx + w / 2, y, cz - l / 2], [cx - w / 2, y, cz - l / 2], [cx - w / 2, y, cz + l / 2], [cx + w / 2, y, cz + l / 2]]
+  const base = ring(y0, w0, l0)
+  const top = ring(y1, w1, l1)
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4
+    quad(mesh, material, base[i], base[j], top[j], top[i])
+  }
+  fan(mesh, material, [cx, y1, cz], top)
+}
+
+/**
+ * A superstructure block whose sides lean inward toward the top – the
+ * facets a modern warship carries against radar – extruded along the
+ * length from a trapezoid across the beam; flat-shaded, as the hull's
+ * boxes are.
+ */
+function facetedBlock(mesh, material, { z, l, w, y0, y1, lean = 0.12 }) {
+  const wTop = w * (1 - lean)
+  extrude(mesh, [[w / 2, y0], [wTop / 2, y1], [-wTop / 2, y1], [-w / 2, y0]], [{ z: z - l / 2 }, { z: z + l / 2 }], { material })
+}
+
+/**
+ * Frigate (AIS 35 from 80 m up): the navy's grey, and the silhouette
+ * every German frigate and corvette shares – a fine bow rising to the
+ * stem with the gun on the fo'c'sle and the missile cells behind it, a
+ * long faceted superstructure with the bridge forward and the pyramid
+ * of the phased-array mast over it, the long-range radar's flat
+ * antenna on the aft block, the boxy exhaust stacks, and the flight
+ * deck aft with its hangar. Modelled on the SACHSEN class (F221 HESSEN,
+ * 2026-09-17) at a reference 140 × 17 m; the layer stretches it from a
+ * corvette to a supply ship, and the reference height is the mast's.
+ */
+export function vesselFrigate() {
+  const mesh = createMesh()
+  const { length, width, height } = VESSEL_DIMS['vessel-frigate']
+  const yBase = -height / 2
+  const depth = 8.5
+  const deck = yBase + depth
+  const grey = 'navalGrey'
+  const plan = { bow: 0.08, stern: 0.86, taper: 0.3, bowSheer: 1.14 }
+  hull(mesh, { length, width, yBase, depth, material: grey, ...plan, bootStripe: 'chassis' })
+  deckPlate(mesh, 'navalDeck', { length, width, yBase, depth, ...plan, inset: 0.94, thickness: 0.2 })
+  const deckTop = deck + 0.2
+  // Aft block with the hangar, the flight deck open behind it – a
+  // quarter of the length, as on the SACHSEN
+  const aftZ = -length * 0.22
+  const aftL = length * 0.2
+  const aftW = width * 0.8
+  const aftTop = deckTop + 7
+  facetedBlock(mesh, grey, { z: aftZ, l: aftL, w: aftW, y0: deckTop, y1: aftTop })
+  // The exhaust stacks on it, the forward one the plume's
+  for (const [z, w, h] of [[aftZ + aftL * 0.3, 5, 5.5], [aftZ - aftL * 0.15, 4, 4]]) {
+    sharpBox(mesh, grey, 0, aftTop + h / 2, z, w, h, w * 1.2)
+    sharpBox(mesh, 'chassis', 0, aftTop + h + 0.2, z, w * 0.9, 0.4, w * 1.1)
+  }
+  mesh.funnel = { z: aftZ + aftL * 0.3, top: aftTop + 5.5 + 0.4, width: 5 }
+  // The long-range radar: its flat antenna turning on a pedestal aft
+  sharpBox(mesh, grey, 0, aftTop + 1.2, aftZ - aftL * 0.4, 2.2, 2.4, 2.2)
+  sharpBox(mesh, 'chassis', 0, aftTop + 4.2, aftZ - aftL * 0.4, 7, 3.2, 0.5)
+  // Main block from the aft one to the fo'c'sle, two decks high, its
+  // sides leaning in like the aft block's
+  const mainZ = length * 0.03
+  const mainL = length * 0.3
+  const mainW = width * 0.84
+  const mainTop = deckTop + 8
+  facetedBlock(mesh, grey, { z: mainZ, l: mainL, w: mainW, y0: deckTop, y1: mainTop })
+  // The bridge on its forward half, glazed all round, the missile
+  // launcher on its roof
+  const bridgeZ = mainZ + mainL * 0.28
+  const bridgeL = mainL * 0.36
+  const bridgeW = width * 0.8
+  const bridgeTop = mainTop + 4
+  facetedBlock(mesh, grey, { z: bridgeZ, l: bridgeL, w: bridgeW, y0: mainTop, y1: bridgeTop, lean: 0.06 })
+  windowBand(mesh, bridgeW * 0.97, bridgeTop - 2.4, bridgeTop - 1.0, bridgeZ - bridgeL / 2 + 0.6, bridgeZ + bridgeL / 2 - 0.6, { panes: 4 })
+  bridgeFront(mesh, { w: bridgeW * 0.84, y0: bridgeTop - 2.4, y1: bridgeTop - 1.0, z: bridgeZ + bridgeL / 2 + 0.02 })
+  sharpBox(mesh, 'navalDeck', 0, bridgeTop + 0.1, bridgeZ, bridgeW * 0.92, 0.2, bridgeL * 0.96)
+  rod(mesh, grey, [0, bridgeTop + 0.2, bridgeZ + bridgeL * 0.3], [0, bridgeTop + 1.6, bridgeZ + bridgeL * 0.3], 0.5, 12)
+  ellipsoid(mesh, 'chassis', [0, bridgeTop + 2.2, bridgeZ + bridgeL * 0.3], [1.1, 0.7, 1.1], 16, 8)
+  // The phased-array mast: a pyramid behind the bridge, the pole with
+  // the aerials on its tip, measured down from the model's ceiling
+  const mastZ = mainZ - mainL * 0.12
+  const mastBase = mainTop
+  const mastTop = mastBase + 14
+  pyramidFrustum(mesh, grey, 0, mastZ, mastBase, mastTop, 9, 9, 4, 4)
+  for (const [x, z] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) ellipsoid(mesh, grey, [x, mastTop - 3, mastZ + z], [0.9, 0.9, 0.9], 12, 6)
+  const poleTop = height / 2 - 0.1
+  rod(mesh, grey, [0, mastTop, mastZ], [0, poleTop, mastZ], 0.35, 12, 0.15)
+  rod(mesh, grey, [-3, poleTop - 3, mastZ], [3, poleTop - 3, mastZ], 0.12, 8)
+  for (const x of [-3, -1.5, 1.5, 3]) rod(mesh, 'steel', [x, poleTop - 3, mastZ], [x, poleTop - 0.5, mastZ], 0.04, 6)
+  // Aft mast on the aft block: a lighter pole with a yard
+  const aftMastZ = aftZ + aftL * 0.05
+  rod(mesh, grey, [0, aftTop, aftMastZ], [0, aftTop + 13, aftMastZ - 1.2], 0.3, 12, 0.12)
+  rod(mesh, grey, [-2.5, aftTop + 10, aftMastZ - 0.9], [2.5, aftTop + 10, aftMastZ - 0.9], 0.1, 8)
+  // Fo'c'sle: the vertical launcher's hatch field, the gun in its turret
+  sharpBox(mesh, 'navalDeck', 0, deckTop + 0.4 + 0.15 * depth, length * 0.26, 6.5, 0.8, 8)
+  const gunZ = length * 0.35
+  const gunDeck = deckTop + 0.2 + 0.2 * depth
+  roundedBox(mesh, grey, 0, gunDeck + 1.4, gunZ, 4.2, 2.8, 5.2, 0.5)
+  rod(mesh, grey, [0, gunDeck + 2.2, gunZ + 2.4], [0, gunDeck + 2.9, gunZ + 8.5], 0.16, 8, 0.12)
+  // The boats in their davits either side of the main block
+  for (const side of [-1, 1]) {
+    const x = side * (mainW / 2 + 0.55)
+    roundedBox(mesh, 'chassis', x, mainTop - 2.2, mainZ - mainL * 0.2, 1.4, 1.1, 6, 0.3)
+    for (const dz of [-2.2, 2.2]) rod(mesh, 'steel', [side * mainW * 0.44, mainTop - 1.2, mainZ - mainL * 0.2 + dz], [x, mainTop - 1.5, mainZ - mainL * 0.2 + dz], 0.08, 6)
+  }
+  return mesh
+}
+
+/**
+ * Minehunter (AIS 35 under 80 m): the small grey navy – a boxy hull
+ * rising to the stem, the gun on the fo'c'sle with the mine-disposal
+ * drones' spheres before the bridge, the bridge across the full beam
+ * over a low deckhouse, a heavy mast with its yards and the big radome
+ * on a tripod behind it, and the open working deck aft with the crane
+ * that puts the drones over the side. Modelled on the FRANKENTHAL class
+ * (M1098 SIEGBURG, 2026-09-17) at a reference 54 × 9 m.
+ */
+export function vesselMinehunter() {
+  const mesh = createMesh()
+  const { length, width, height } = VESSEL_DIMS['vessel-minehunter']
+  const yBase = -height / 2
+  const depth = 3.6
+  const deck = yBase + depth
+  const grey = 'navalGrey'
+  const plan = { bow: 0.1, stern: 0.84, taper: 0.3, bowSheer: 1.16 }
+  hull(mesh, { length, width, yBase, depth, material: grey, ...plan, bootStripe: 'chassis' })
+  deckPlate(mesh, 'navalDeck', { length, width, yBase, depth, ...plan, inset: 0.92, thickness: 0.15 })
+  const deckTop = deck + 0.15
+  // The deckhouse, the bridge on its forward half across the full beam
+  const houseZ = length * 0.02
+  const houseL = length * 0.4
+  const houseW = width * 0.84
+  const houseTop = deckTop + 3.0
+  sharpBox(mesh, grey, 0, (deckTop + houseTop) / 2, houseZ, houseW, houseTop - deckTop, houseL)
+  windowBand(mesh, houseW, houseTop - 1.9, houseTop - 1.3, houseZ - houseL * 0.45, houseZ - houseL * 0.1, { panes: 2 })
+  const bridgeZ = houseZ + houseL * 0.2
+  const bridgeL = houseL * 0.45
+  const bridgeW = width * 0.88
+  const bridgeTop = houseTop + 2.7
+  sharpBox(mesh, grey, 0, (houseTop + bridgeTop) / 2, bridgeZ, bridgeW, bridgeTop - houseTop, bridgeL)
+  windowBand(mesh, bridgeW, bridgeTop - 1.9, bridgeTop - 0.7, bridgeZ - bridgeL / 2 + 0.4, bridgeZ + bridgeL / 2 - 0.4, { panes: 3 })
+  bridgeFront(mesh, { w: bridgeW * 0.9, y0: bridgeTop - 1.9, y1: bridgeTop - 0.7, z: bridgeZ + bridgeL / 2 + 0.02 })
+  sharpBox(mesh, 'navalDeck', 0, bridgeTop + 0.08, bridgeZ, bridgeW * 0.96, 0.16, bridgeL * 0.96)
+  // The mast behind the bridge: a pole with two yards and a platform,
+  // the aerials on the yards; the radome on its tripod aft of it
+  const mastZ = houseZ - houseL * 0.08
+  const mastTop = height / 2 - 0.1
+  rod(mesh, grey, [0, houseTop, mastZ], [0, mastTop, mastZ], 0.3, 12, 0.1)
+  sharpBox(mesh, grey, 0, houseTop + 3.2, mastZ, 2.4, 0.2, 1.8)
+  for (const [y, w] of [[houseTop + 5.5, 4.2], [houseTop + 7.6, 3.0]]) {
+    rod(mesh, grey, [-w / 2, y, mastZ], [w / 2, y, mastZ], 0.09, 8)
+    for (const x of [-w / 2, w / 2]) rod(mesh, 'steel', [x, y, mastZ], [x, y + 1.6, mastZ], 0.04, 6)
+  }
+  ellipsoid(mesh, 'hullWhite', [0.6, houseTop + 3.9, mastZ + 0.4], [0.3, 0.3, 0.3], 12, 6)
+  const domeZ = houseZ - houseL * 0.36
+  const domeY = houseTop + 4.6
+  for (const [x, dz] of [[-1.2, -1.0], [1.2, -1.0], [0, 1.3]]) rod(mesh, grey, [x, houseTop, domeZ + dz], [0, domeY - 1.0, domeZ], 0.1, 8)
+  ellipsoid(mesh, grey, [0, domeY, domeZ], [1.4, 1.4, 1.4], 20, 10)
+  // Fo'c'sle: the gun in its turret, the drones' spheres before the bridge
+  const gunZ = length * 0.33
+  const gunDeck = deckTop + 0.15 * depth
+  roundedBox(mesh, grey, 0, gunDeck + 0.8, gunZ, 2.0, 1.6, 2.4, 0.3)
+  rod(mesh, grey, [0, gunDeck + 1.2, gunZ + 1.0], [0, gunDeck + 1.7, gunZ + 4.0], 0.07, 8, 0.05)
+  for (const [x, z] of [[-1.0, houseZ + houseL / 2 + 2.2], [1.0, houseZ + houseL / 2 + 2.2], [0, houseZ + houseL / 2 + 3.9]]) {
+    ellipsoid(mesh, grey, [x, deckTop + 0.9, z], [0.85, 0.85, 0.85], 14, 7)
+  }
+  // Working deck aft: the crane over the side and the boat on its cradle
+  const craneZ = -length * 0.36
+  rod(mesh, grey, [-width * 0.3, deckTop, craneZ], [-width * 0.3, deckTop + 3.6, craneZ], 0.22, 10)
+  rod(mesh, grey, [-width * 0.3, deckTop + 3.6, craneZ], [width * 0.36, deckTop + 4.4, craneZ], 0.14, 8)
+  rod(mesh, 'steel', [width * 0.36, deckTop + 4.4, craneZ], [width * 0.36, deckTop + 1.8, craneZ], 0.02, 6)
+  roundedBox(mesh, 'chassis', 0.6, deckTop + 0.8, -length * 0.26, 1.7, 1.0, 5.2, 0.3)
+  roundedBox(mesh, grey, -1.6, deckTop + 0.5, -length * 0.3, 1.2, 0.9, 1.6, 0.2)
   return mesh
 }
 
@@ -931,6 +1124,8 @@ export const VESSELS = {
   'vessel-tender': vesselTender,
   'vessel-pilot': vesselPilot,
   'vessel-patrol': vesselPatrol,
+  'vessel-frigate': vesselFrigate,
+  'vessel-minehunter': vesselMinehunter,
   'vessel-tanker': vesselTanker,
   'vessel-passenger': vesselPassenger,
   'vessel-tug': vesselTug,

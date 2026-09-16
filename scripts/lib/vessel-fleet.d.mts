@@ -11,6 +11,8 @@ export function vesselDredger(): Mesh
 export function vesselTender(): Mesh
 export function vesselPilot(): Mesh
 export function vesselPatrol(): Mesh
+export function vesselFrigate(): Mesh
+export function vesselMinehunter(): Mesh
 export function vesselTanker(): Mesh
 export function vesselPassenger(): Mesh
 export function vesselTug(): Mesh

@@ -297,6 +297,14 @@ export const VESSEL_MODELS: Record<
   'vessel-tender': { uri: 'models/vessel-tender.glb', length: 20, width: 5, height: 6 },
   'vessel-pilot': { uri: 'models/vessel-pilot.glb', length: 20, width: 6, height: 9.5 },
   'vessel-patrol': { uri: 'models/vessel-patrol.glb', length: 20, width: 6, height: 7.5 },
+  'vessel-frigate': {
+    uri: 'models/vessel-frigate.glb',
+    length: 140,
+    width: 17,
+    height: 38,
+    funnel: { x: -22.4, z: 2.6, width: 5 },
+  },
+  'vessel-minehunter': { uri: 'models/vessel-minehunter.glb', length: 54, width: 9, height: 20 },
   'vessel-tug': { uri: 'models/vessel-tug.glb', length: 26, width: 9, height: 10 },
   'vessel-fishing': { uri: 'models/vessel-fishing.glb', length: 18, width: 5.5, height: 7.5 },
   'vessel-sail': { uri: 'models/vessel-sail.glb', length: 12, width: 3.8, height: 14 },
@@ -314,6 +322,14 @@ export const VESSEL_MODELS: Record<
  * the box stacks too, which is the price of having no better signal.
  */
 const CONTAINER_MIN_LENGTH_M = 150
+
+/**
+ * Length from which a warship (AIS 35) is drawn as the frigate rather
+ * than the minehunter: the German navy's corvettes are 89 m, its
+ * frigates 139 m and up, its minehunters 54 m and its tenders 100 m –
+ * a grey ship of 80 m and more wears the frigate's silhouette.
+ */
+const WARSHIP_FRIGATE_MIN_LENGTH_M = 80
 
 /**
  * Length below which a "passenger ship" is one of the harbour launches
@@ -368,6 +384,9 @@ export function archetypeFor(
   if (typeCode === 67) return 'vessel-tender' // harbour cruise boat: the barkasse
   if (typeCode === 38) return 'vessel-fishing' // trawler
   if (typeCode === 39) return 'vessel-patrol' // patrol vessel
+  // A warship or naval auxiliary: the frigate from 80 m, the minehunter
+  // under it – and without a length the smaller wrong is the lesser one
+  if (typeCode === 35) return length >= WARSHIP_FRIGATE_MIN_LENGTH_M ? 'vessel-frigate' : 'vessel-minehunter'
   // The working craft of a port, each with a code of its own and a
   // silhouette that shares nothing with the tug they all used to be
   if (typeCode === 33) return 'vessel-dredger'
@@ -435,6 +454,7 @@ function vesselStyle(typeCode: number): { color: string; height: number } {
   if (typeCode === 33) return { color: '#8a7a4e', height: 4 } // dredger
   if (typeCode === 36 || typeCode === 37) return { color: '#8a6fb0', height: 3 } // sailing/pleasure
   if (typeCode === 50) return { color: '#c2561c', height: 3 } // pilot boat: the hull's orange
+  if (typeCode === 35) return { color: '#6d7580', height: 4 } // warship: the navy's grey
   if (group === 5) return { color: '#4f9494', height: 3 } // tug/tender/SAR
   return { color: '#7a8494', height: 3 } // unknown
 }

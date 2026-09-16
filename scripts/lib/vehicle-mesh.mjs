@@ -78,6 +78,9 @@ export const MATERIALS = {
    */
   pilotOrange: { color: [0.7, 0.13, 0.018, 1], metallic: 0.05, roughness: 0.55 },
   deckGreen: { color: [0.1, 0.27, 0.15, 1], metallic: 0, roughness: 0.85 },
+  /** The navy's grey (vesselFrigate, vesselMinehunter): hull and house in one flat blue-grey, the decks a shade darker. */
+  navalGrey: { color: [0.3, 0.33, 0.36, 1], metallic: 0.05, roughness: 0.7 },
+  navalDeck: { color: [0.19, 0.21, 0.23, 1], metallic: 0.05, roughness: 0.85 },
   /**
    * The buoys' paint (scripts/lib/buoy-fleet.mjs): the lateral red and
    * green and the special marks' yellow, saturated enough to read as the
