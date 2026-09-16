@@ -2245,6 +2245,22 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   fixed. `e2e/aircraft.spec.ts` checks cruise → approach → climb on the
   actual loaded GLB as well as the navigation lights. Road and rail
   vehicle GLBs must stay byte-identical when changing these helpers.
+  The three small bodies were rebuilt on 2026-09-17 after the user found
+  them "lächerlich" beside the jets: the light single is the Cessna 172
+  (slab-sided cabin on a superellipse profile – `superProfile`, the
+  same thirty-two angles as `roundProfile`, so the glazing's sixteen
+  faces keep their meaning – the windscreen raked from the cowling to
+  the wing on its roof, the rear window round the back, struts, the
+  fixed gear on sprung legs, the propeller clear of the ground: its
+  disc reached six centimetres under the wheels at first), the
+  helicopter is Airbus's H140/H145 (nose glazed over its upper half,
+  the engine deck on the roof with intakes and exhausts, hub and blade
+  roots in the disc's blur, the fenestron in a big fin with the
+  stabiliser across its top, skids), and the turboprop is the ATR
+  72-600 (the jets' forebody and six-pane cockpit, long nacelles with
+  six-bladed propellers on pointed spinners, sponsons, a T-tail with a
+  dorsal fillet). The four jet GLBs came out byte-identical, which is
+  the proof that the shared helpers were not touched.
 - **Lights.** [NavLights](src/map/NavLights.ts) is one
   PointPrimitiveCollection per layer, pooled, fed begin/add/commit per
   tick like the plumes; what is on comes from the clock alone
