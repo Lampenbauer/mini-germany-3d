@@ -126,8 +126,10 @@ describe('the generated backdrop fleet', () => {
     expect(archetypeFor(33)).toBe('vessel-dredger')
     expect(archetypeFor(53)).toBe('vessel-tender') // port tender: the barkasse
     expect(archetypeFor(50)).toBe('vessel-pilot')
-    expect(archetypeFor(51)).toBe('vessel-pilot') // search and rescue
-    expect(archetypeFor(55)).toBe('vessel-pilot') // law enforcement
+    // The same kind of boat, but not the pilots' orange – the colours
+    // are baked, so these two keep the dark patrol boat
+    expect(archetypeFor(51)).toBe('vessel-patrol') // search and rescue
+    expect(archetypeFor(55)).toBe('vessel-patrol') // law enforcement
     // What stays a tug stays a tug
     expect(archetypeFor(52)).toBe('vessel-tug')
     expect(archetypeFor(54)).toBe('vessel-tug') // anti-pollution
@@ -143,11 +145,25 @@ describe('the generated backdrop fleet', () => {
     expect(archetypeFor(78, 40, 10)).toBe('vessel-barge') // landing craft
     expect(archetypeFor(67, 45, 10)).toBe('vessel-tender') // harbour cruise boat
     expect(archetypeFor(38, 25)).toBe('vessel-fishing') // trawler
-    expect(archetypeFor(39, 30)).toBe('vessel-pilot') // patrol vessel
+    expect(archetypeFor(39, 30)).toBe('vessel-patrol') // patrol vessel
     // A big working ship is a ship, but never a box carrier
     expect(archetypeFor(4, 90, 20)).toBe('vessel-cargo') // ice breaker
     expect(archetypeFor(6, 160, 24)).toBe('vessel-cargo') // cable layer
     expect(archetypeFor(14, 20, 8)).toBe('vessel-generic') // small support vessel
+  })
+
+  it('paints the pilot boat orange all over, and nothing else in it', () => {
+    // The German pilot boats' livery (the JASMUND of 2026-09-16): hull
+    // and house in the one orange, the fender black, the deck green –
+    // and the patrol boat the rescue and police craft keep is not orange
+    const pilot = VESSELS['vessel-pilot']()
+    const orange = pilot.groups.get('pilotOrange')!
+    expect(orange).toBeDefined()
+    let largest = 0
+    for (const g of pilot.groups.values()) largest = Math.max(largest, g.indices.length)
+    expect(orange.indices.length).toBe(largest)
+    expect(pilot.groups.has('deckGreen')).toBe(true)
+    expect(VESSELS['vessel-patrol']().groups.has('pilotOrange')).toBe(false)
   })
 
   it('tells a container ship from a coaster by size, having no code for it', () => {

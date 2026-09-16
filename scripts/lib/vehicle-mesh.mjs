@@ -70,6 +70,15 @@ export const MATERIALS = {
   deckTeak: { color: [0.34, 0.27, 0.19, 1], metallic: 0, roughness: 0.87 },
   safetyOrange: { color: [0.68, 0.22, 0.055, 1], metallic: 0, roughness: 0.6 },
   /**
+   * The pilot boats' orange (scripts/lib/vessel-fleet.mjs, vesselPilot):
+   * the German pilot service paints hull and house in it all over, and
+   * it has to read as that from the home view – so it is more saturated
+   * than the muted hulls around it, weathered a little; and the green
+   * deck paint the same boats stand on.
+   */
+  pilotOrange: { color: [0.7, 0.13, 0.018, 1], metallic: 0.05, roughness: 0.55 },
+  deckGreen: { color: [0.1, 0.27, 0.15, 1], metallic: 0, roughness: 0.85 },
+  /**
    * The buoys' paint (scripts/lib/buoy-fleet.mjs): the lateral red and
    * green and the special marks' yellow, saturated enough to read as the
    * mark from a distance yet weathered like the hulls; the antifouling

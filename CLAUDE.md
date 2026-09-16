@@ -1194,6 +1194,29 @@ where the hull is wide enough (`hullHalfWidthAt` says how wide), and
 `tests/vessel-models.test.ts` measures every vertex above the keel
 against the hull's plan and allows a hand's breadth.
 
+**The pilot boat is orange all over, and the rescue and police boats
+are not (since 2026-09-16).** AIS 50 wears `vessel-pilot`, built after
+the JASMUND of the Lotsenbetrieb MV: hull, house, mast and rails in
+`pilotOrange`, a black fender strake and boot top, a green deck
+(`deckGreen`), the wheelhouse front raked forward at the top
+(`sideProfileBlock` in `vessel-fleet.mjs`, an extrusion across the beam
+from a side elevation), the white-and-red diagonal on the bow as a decal
+a finger proud of the topsides. A hull's colours are baked, so 51, 55
+and 39 keep the dark boat it replaced as `vessel-patrol` (the old
+`vesselPilot` renamed) – an orange police boat would be wrong. The
+patrol boat's fender strake ends a hand under its deck plate since the
+same day: at the deck's own height the two upward faces shared a plane
+and the whole deck flickered between grey and black (the ROSENORT, a
+type 55 at her berth in Rostock). Two same-facing faces in one plane
+are what a flicker on a hull always is; a scan for them over every
+model (axis-aligned faces of two materials rasterised per plane) found
+that one exposed pair and nothing else exposed. Two helpers grew options for it,
+defaulted to what they did: `hull` takes `bootStripe` and `rails`
+(material and the `[z0, z1]` spans the sheer rails run over – the pilot
+boat rails her working decks only), `railing` a `material`; the other
+twelve GLBs came out byte-identical, which is the proof for any change
+to them.
+
 Since 2026-09-12 all thirteen AIS hulls and both scheduled ferry models
 have smooth rounded bilges, finer bow stations, railings, mooring fittings
 and bevelled enclosures. The larger ships carry individual container tiers
@@ -1440,7 +1463,7 @@ it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse.
 It asks for frames the way the ships and the clouds do – once its own
 motion since the frame last drawn is a visible step at the ship's
 distance – and it counts as a moving ship for the tick rate. Which
-hulls smoke is `VESSEL_MODELS[…].funnel` (five of thirteen; the
+hulls smoke is `VESSEL_MODELS[…].funnel` (five of fourteen; the
 shipyard's `mesh.funnel` is pinned against it in
 `tests/vessel-models.test.ts`), from `SMOKE_MIN_SOG_KN` over the ground,
 within `SMOKE_MAX_DISTANCE_M`. Offline the shader compiles and draws –

@@ -33,7 +33,8 @@ export const VESSEL_DIMS = {
   'vessel-dredger': { length: 100, width: 20, height: 18 },
   'vessel-passenger': { length: 160, width: 24, height: 34 },
   'vessel-tender': { length: 20, width: 5, height: 6 },
-  'vessel-pilot': { length: 20, width: 6, height: 7.5 },
+  'vessel-pilot': { length: 20, width: 6, height: 9.5 },
+  'vessel-patrol': { length: 20, width: 6, height: 7.5 },
   'vessel-tug': { length: 26, width: 9, height: 10 },
   'vessel-fishing': { length: 18, width: 5.5, height: 7.5 },
   'vessel-sail': { length: 12, width: 3.8, height: 14 },
@@ -62,7 +63,10 @@ function hullStations({ length, bow, stern, taper }) {
   ]
 }
 
-function hull(mesh, { length, width, yBase, depth, material, bow = 0.22, stern = 0.55, taper = 0.2 }) {
+function hull(
+  mesh,
+  { length, width, yBase, depth, material, bow = 0.22, stern = 0.55, taper = 0.2, bootStripe = 'hullRed', rails },
+) {
   // The mesh remembers its hull's plan, so the model test can hold every
   // part of the ship inside it (hullHalfWidthAt)
   mesh.hull = { length, width, bow, stern, taper }
@@ -75,30 +79,48 @@ function hull(mesh, { length, width, yBase, depth, material, bow = 0.22, stern =
   extrude(skin, profile, hullStations({ length, bow, stern, taper }), { material, yAnchor: yBase })
   mergeMesh(mesh, smoothSurface(skin, 50))
   // A narrow boot stripe and deck-edge cap tie the hull to its waterline.
-  deckPlate(mesh, 'hullRed', { length, width, yBase, depth: depth * 0.22, bow, stern, taper, inset: 0.947, thickness: Math.min(0.16, depth * 0.08) })
+  deckPlate(mesh, bootStripe, { length, width, yBase, depth: depth * 0.22, bow, stern, taper, inset: 0.947, thickness: Math.min(0.16, depth * 0.08) })
   deckPlate(mesh, 'steel', { length, width, yBase, depth, bow, stern, taper, inset: 0.985, thickness: 0.055 })
-  deckFittings(mesh, { length, width, yBase, depth, bow, stern, taper })
+  deckFittings(mesh, { length, width, yBase, depth, bow, stern, taper, rails })
 }
 
-/** Railed side decks, mooring bollards and foredeck windlass, fitted to the hull plan. */
+/**
+ * Railed side decks, mooring bollards and foredeck windlass, fitted to
+ * the hull plan. `rails` names the rails' material (steel unless said
+ * otherwise) and the spans of the length they run over, as [z0, z1]
+ * pairs – a pilot boat rails her working decks fore and aft and nothing
+ * beside the house; without spans they run the whole sheer round.
+ */
 function deckFittings(mesh, spec) {
-  const { length, width, depth, yBase } = spec
+  const { length, width, depth, yBase, rails = {} } = spec
+  const railMaterial = rails.material ?? 'steel'
+  const spans = rails.spans ?? [[-length / 2, length / 2]]
   const stations = hullStations(spec)
   const railHeight = Math.min(1.05, width * 0.17)
   const radius = Math.min(0.045, width * 0.006)
+  const lerp = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t)
   // Follow the sheer, including the stern and bow, and stop inside the stem.
   for (const side of [-1, 1]) {
     const points = stations.map((st) => [side * hullHalfWidthAt(st.z, spec) * 0.96, yBase + depth * (st.sy ?? 1) + 0.075, st.z * 0.985])
     for (let i = 0; i + 1 < points.length; i++) {
       const a = points[i]
       const b = points[i + 1]
-      const count = Math.max(1, Math.ceil((b[2] - a[2]) / Math.max(2.5, length / 30)))
-      for (let j = 0; j < count; j++) {
-        const t = j / count
-        const p = a.map((v, k) => v + (b[k] - v) * t)
-        rod(mesh, 'steel', p, [p[0], p[1] + railHeight, p[2]], radius, 8)
+      for (const [z0, z1] of spans) {
+        // The segment clipped to the span – the segment's own ends where
+        // the span reaches past them, so a whole sheer comes out as it
+        // always did, to the byte
+        const t0 = Math.min(1, Math.max(0, (z0 - a[2]) / (b[2] - a[2])))
+        const t1 = Math.min(1, Math.max(0, (z1 - a[2]) / (b[2] - a[2])))
+        if (t1 <= t0) continue
+        const pa = t0 === 0 ? a : lerp(a, b, t0)
+        const pb = t1 === 1 ? b : lerp(a, b, t1)
+        const count = Math.max(1, Math.ceil((pb[2] - pa[2]) / Math.max(2.5, length / 30)))
+        for (let j = 0; j < count; j++) {
+          const p = lerp(pa, pb, j / count)
+          rod(mesh, railMaterial, p, [p[0], p[1] + railHeight, p[2]], radius, 8)
+        }
+        for (const h of [railHeight * 0.5, railHeight]) rod(mesh, railMaterial, [pa[0], pa[1] + h, pa[2]], [pb[0], pb[1] + h, pb[2]], radius * 0.8, 8)
       }
-      for (const h of [railHeight * 0.5, railHeight]) rod(mesh, 'steel', [a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]], radius * 0.8, 8)
     }
     for (const z of [-length * 0.39, length * 0.37]) {
       const x = side * hullHalfWidthAt(z, spec) * 0.67
@@ -192,14 +214,47 @@ function funnel(mesh, { y0, h, z, w = 2.4, l = 3.4 }) {
  * Rail along a deck edge: a thin top rope on short stanchions. Cheap in
  * triangles and it is what turns a slab into a deck someone stands on.
  */
-function railing(mesh, { w, y0, h, z, l, posts = 5 }) {
+function railing(mesh, { w, y0, h, z, l, posts = 5, material = 'steel' }) {
   for (const side of [-1, 1]) {
-    for (const rise of [h * 0.5, h]) rod(mesh, 'steel', [side * w / 2, y0 + rise, z - l / 2], [side * w / 2, y0 + rise, z + l / 2], 0.025, 8)
+    for (const rise of [h * 0.5, h]) rod(mesh, material, [side * w / 2, y0 + rise, z - l / 2], [side * w / 2, y0 + rise, z + l / 2], 0.025, 8)
     for (let i = 0; i < posts; i++) {
       const pz = z - l / 2 + (l * (i + 0.5)) / posts
-      rod(mesh, 'steel', [side * w / 2, y0, pz], [side * w / 2, y0 + h, pz], 0.025, 8)
+      rod(mesh, material, [side * w / 2, y0, pz], [side * w / 2, y0 + h, pz], 0.025, 8)
     }
   }
+}
+
+/**
+ * A block extruded across the beam from its side elevation – the
+ * outline as [z, y] points, from x0 to x1 – for what a box cannot give:
+ * a wheelhouse front raked forward at the top. Built as the helpers'
+ * extrusion along z and turned a quarter round the vertical, so their
+ * winding holds; the outline may come in either order, its signed area
+ * says which.
+ */
+function sideProfileBlock(mesh, material, outline, x0, x1) {
+  // The part's x is -z of the ship, its z the ship's x
+  const profile = outline.map(([z, y]) => [-z, y])
+  let area = 0
+  for (let i = 0; i < profile.length; i++) {
+    const [ax, ay] = profile[i]
+    const [bx, by] = profile[(i + 1) % profile.length]
+    area += ax * by - bx * ay
+  }
+  if (area < 0) profile.reverse()
+  const part = createMesh()
+  extrude(part, profile, [{ z: x0 }, { z: x1 }], { material })
+  for (const g of part.groups.values()) {
+    for (const list of [g.positions, g.normals]) {
+      for (let i = 0; i < list.length; i += 3) {
+        const [x, y, z] = [list[i], list[i + 1], list[i + 2]]
+        list[i] = z
+        list[i + 1] = y
+        list[i + 2] = -x
+      }
+    }
+  }
+  mergeMesh(mesh, part)
 }
 
 /** A container's height, and the width of a stack: two boxes side by side – the finest grain that still reads at map distance. */
@@ -460,20 +515,160 @@ export function vesselTender() {
 }
 
 /**
- * Pilot boat (AIS 50, and the patrol and rescue craft of 51 and 55): a
- * dark, deep-sheered hull built to lie alongside a moving ship – heavy
- * fendering, the wheelhouse well forward, a low working deck aft where
- * the pilot steps across, and a mast that carries more aerials than the
- * boat seems able to.
+ * Pilot boat (AIS 50): the German pilot service's boats are orange all
+ * over, hull and house, with a heavy black fender all round to lie
+ * against a moving ship's side, a green working deck, the wheelhouse
+ * forward of midships with its front glazing raked forward at the top
+ * against the glare, a raked mast with the radar on it, and the white
+ * and red diagonal on the bow. The working decks fore and aft carry
+ * the boarding rails, the crane and the liferafts; the sides beside
+ * the house are bare. Modelled on the JASMUND of the Lotsenbetrieb MV
+ * (2026-09-16); the reference 20 × 6 m is stretched to the reported
+ * boat, and the reference height is the mast's: 9.5 m over the water,
+ * where the other small craft keep 7.5 – capped there the mast was a
+ * stub over the wheelhouse. The rescue and police boats of 51 and 55 wear their own
+ * colours and keep the patrol boat below.
  */
 export function vesselPilot() {
   const mesh = createMesh()
   const { length, width, height } = VESSEL_DIMS['vessel-pilot']
   const yBase = -height / 2
+  const depth = 2.0
+  const deck = yBase + depth
+  const plan = { bow: 0.12, stern: 0.8, taper: 0.24 }
+  const orange = 'pilotOrange'
+  hull(mesh, {
+    length,
+    width,
+    yBase,
+    depth,
+    material: orange,
+    ...plan,
+    bootStripe: 'chassis',
+    rails: { material: orange, spans: [[-length / 2, -length * 0.25], [length * 0.24, length / 2]] },
+  })
+  // The fender: a heavy black strake at the gunwale, a hand proud of the hull
+  deckPlate(mesh, 'bellows', { length, width, yBase, depth: depth - 0.55, ...plan, inset: 1 + 0.08 / width, thickness: 0.6 })
+  deckPlate(mesh, 'deckGreen', { length, width, yBase, depth, ...plan, inset: 0.9, thickness: 0.1 })
+  const deckTop = deck + 0.1
+  // The diagonal on the bow, white aft of red, raked forward at the top
+  // like the wheelhouse: a decal a finger proud of the topsides, laid
+  // along the hull's own profile rows so it hugs the flare
+  const topsides = [[0.93, 0.16], [0.985, 0.38], [1, 0.7], [1, 0.98]]
+  const sxAt = (h) => {
+    let i = 0
+    while (i + 2 < topsides.length && topsides[i + 1][1] < h) i++
+    const [sa, ha] = topsides[i]
+    const [sb, hb] = topsides[i + 1]
+    return sa + (sb - sa) * ((h - ha) / (hb - ha))
+  }
+  const stripeRows = [0.3, 0.38, 0.7, 0.95]
+  const stripeAt = (h) => 1.9 + 1.4 * ((h - 0.3) / 0.65)
+  for (const side of [-1, 1]) {
+    for (const [material, from, to] of [['hullWhite', 0, 0.7], ['buoyRed', 0.7, 1.4]]) {
+      for (let r = 0; r + 1 < stripeRows.length; r++) {
+        const corner = (h, dz) => [side * ((width / 2) * sxAt(h) + 0.02), yBase + depth * h, stripeAt(h) + dz]
+        const [h0, h1] = [stripeRows[r], stripeRows[r + 1]]
+        const aftBottom = corner(h0, from), foreBottom = corner(h0, to)
+        const aftTop = corner(h1, from), foreTop = corner(h1, to)
+        if (side > 0) quad(mesh, material, foreBottom, aftBottom, aftTop, foreTop)
+        else quad(mesh, material, aftBottom, foreBottom, foreTop, aftTop)
+      }
+    }
+  }
+  // The house: long and low, with the crew's windows aft; the pilots'
+  // wheelhouse on its forward half, its front leaning out at the top
+  const houseZ = -length * 0.01
+  const houseL = length * 0.46
+  const houseW = width * 0.74
+  const houseTop = deckTop + 1.85
+  roundedBox(mesh, orange, 0, (deckTop + houseTop) / 2, houseZ, houseW, houseTop - deckTop, houseL, 0.12)
+  windowBand(mesh, houseW, houseTop - 1.25, houseTop - 0.5, houseZ - houseL / 2 + 0.5, houseZ - houseL * 0.1, { panes: 3 })
+  const whW = width * 0.7
+  const whTop = deckTop + 1.85 + 2.0
+  const whAft = houseZ - houseL * 0.15
+  const whFore = houseZ + houseL * 0.42
+  const rake = 0.7
+  sideProfileBlock(mesh, orange, [[whAft, houseTop], [whFore, houseTop], [whFore + rake, whTop], [whAft, whTop]], -whW / 2, whW / 2)
+  // The glazing all round: bands along the sides, panes on the raked front
+  const glassY0 = whTop - 1.1
+  const glassY1 = whTop - 0.25
+  windowBand(mesh, whW, glassY0, glassY1, whAft + 0.3, whFore + rake * ((glassY0 - houseTop) / (whTop - houseTop)) - 0.25, { panes: 3 })
+  const frontZ = (y) => whFore + rake * ((y - houseTop) / (whTop - houseTop))
+  const frontNormal = [whTop - houseTop, -rake].map((v) => v / Math.hypot(whTop - houseTop, rake))
+  const panes = 4
+  const paneGap = 0.08
+  const paneW = (whW * 0.9 - paneGap * (panes - 1)) / panes
+  for (let i = 0; i < panes; i++) {
+    const xa = -whW * 0.45 + i * (paneW + paneGap)
+    const xb = xa + paneW
+    const at = (x, y) => [x, y + 0.02 * frontNormal[1], frontZ(y) + 0.02 * frontNormal[0]]
+    quad(mesh, 'glass', at(xa, glassY0), at(xb, glassY0), at(xb, glassY1), at(xa, glassY1))
+  }
+  // The roof: the house's own orange over a dark rim, which with the
+  // black frames of the glazing is what the photo's dark band is
+  const rimOutline = (y0, y1, out) => [[whAft - out, y0], [whFore + rake + out, y0], [whFore + rake + out, y1], [whAft - out, y1]]
+  sideProfileBlock(mesh, 'chassis', rimOutline(whTop - 0.14, whTop, 0.12), -whW / 2 - 0.08, whW / 2 + 0.08)
+  sideProfileBlock(mesh, orange, rimOutline(whTop, whTop + 0.14, 0.12), -whW / 2 - 0.08, whW / 2 + 0.08)
+  // Mast raked aft from the roof – a tapered pole with the radar on a
+  // platform a third of the way up, a yard with the aerials near the top
+  const roofTop = whTop + 0.14
+  const mastTop = height / 2 - 0.1
+  const mastZ = (y) => whAft + 0.9 - 0.5 * ((y - roofTop) / (mastTop - roofTop))
+  rod(mesh, orange, [0, roofTop, mastZ(roofTop)], [0, mastTop, mastZ(mastTop)], 0.13, 12, 0.06)
+  const radarY = roofTop + 1.1
+  box(mesh, orange, 0, radarY - 0.04, mastZ(radarY), 1.0, 0.08, 0.9)
+  rod(mesh, 'hullWhite', [0, radarY, mastZ(radarY)], [0, radarY + 0.32, mastZ(radarY)], 0.13, 12)
+  rod(mesh, 'hullWhite', [-0.85, radarY + 0.38, mastZ(radarY)], [0.85, radarY + 0.38, mastZ(radarY)], 0.09, 12)
+  const yardY = mastTop - 0.7
+  rod(mesh, orange, [-1.0, yardY, mastZ(yardY)], [1.0, yardY, mastZ(yardY)], 0.045, 8)
+  for (const x of [-1.0, -0.5, 0.5, 1.0]) rod(mesh, 'steel', [x, yardY, mastZ(yardY)], [x, mastTop - 0.05, mastZ(yardY)], 0.015, 6)
+  box(mesh, 'chassis', 0, mastTop - 0.14, mastZ(mastTop - 0.14), 0.32, 0.24, 0.24)
+  for (const side of [-1, 1]) rod(mesh, 'steel', [side * 0.4, roofTop, mastZ(roofTop) - 0.5], [0, roofTop + 1.6, mastZ(roofTop + 1.6)], 0.03, 6)
+  // Satellite dome on a stub to starboard, the searchlight on the brow
+  rod(mesh, 'steel', [0.95, roofTop, whAft + 1.6], [0.95, roofTop + 0.3, whAft + 1.6], 0.05, 8)
+  ellipsoid(mesh, 'hullWhite', [0.95, roofTop + 0.45, whAft + 1.6], [0.26, 0.22, 0.26], 16, 8)
+  ellipsoid(mesh, 'hullWhite', [-0.8, roofTop + 0.18, whFore + rake - 0.2], [0.14, 0.14, 0.18], 12, 6)
+  // The house's roof aft of the wheelhouse: railed, with a liferaft
+  railing(mesh, { w: houseW * 0.94, y0: houseTop, h: 0.85, z: houseZ - houseL * 0.32, l: houseL * 0.3, posts: 3, material: orange })
+  rod(mesh, 'hullWhite', [0.9, houseTop + 0.3, houseZ - houseL * 0.4], [0.9, houseTop + 0.3, houseZ - houseL * 0.2], 0.3, 12)
+  // Aft working deck: the crane's A-frame over the transom, the capstan
+  // and a second liferaft; the boarding frame on the foredeck
+  const aftDeck = deckTop
+  for (const x of [-1.5, 1.5]) rod(mesh, orange, [x, aftDeck, -length * 0.35], [0, aftDeck + 2.3, -length * 0.42], 0.07, 8)
+  rod(mesh, orange, [-1.5, aftDeck + 1.15, -length * 0.385], [1.5, aftDeck + 1.15, -length * 0.385], 0.05, 8)
+  rod(mesh, 'hullWhite', [-1.2, aftDeck, -length * 0.3], [-1.2, aftDeck + 0.55, -length * 0.3], 0.28, 16)
+  rod(mesh, 'hullWhite', [1.3, aftDeck + 0.36, -length * 0.35], [1.3, aftDeck + 0.36, -length * 0.28], 0.34, 12)
+  box(mesh, 'boxGrey', -0.2, aftDeck + 0.3, -length * 0.29, 1.0, 0.6, 0.9)
+  const frameZ = [length * 0.27, length * 0.36]
+  for (const side of [-1, 1]) {
+    const x = side * hullHalfWidthAt(frameZ[1], { length, width, ...plan }) * 0.66
+    for (const z of frameZ) rod(mesh, orange, [x, deckTop, z], [x, deckTop + 1.1, z], 0.045, 8)
+    rod(mesh, orange, [x, deckTop + 1.1, frameZ[0]], [x, deckTop + 1.1, frameZ[1]], 0.04, 8)
+  }
+  const frameX = hullHalfWidthAt(frameZ[1], { length, width, ...plan }) * 0.66
+  rod(mesh, orange, [-frameX, deckTop + 1.1, frameZ[1]], [frameX, deckTop + 1.1, frameZ[1]], 0.04, 8)
+  return mesh
+}
+
+/**
+ * Patrol boat (AIS 39, and the rescue and police craft of 51 and 55): a
+ * dark, deep-sheered hull built to lie alongside a moving ship – heavy
+ * fendering, the wheelhouse well forward, a low working deck aft, and a
+ * mast that carries more aerials than the boat seems able to. It was
+ * the pilot boat until 2026-09-16, when the pilots got their orange.
+ */
+export function vesselPatrol() {
+  const mesh = createMesh()
+  const { length, width, height } = VESSEL_DIMS['vessel-patrol']
+  const yBase = -height / 2
   const deck = yBase + 2.0
   hull(mesh, { length, width, yBase, depth: 2.0, material: 'chassis', bow: 0.14, stern: 0.78 })
-  // The fendering a boat takes ship's-side contact on, all the way round
-  deckPlate(mesh, 'bellows', { length, width, yBase, depth: 2.0 - 0.6, bow: 0.14, stern: 0.78, inset: 1 + 0.06 / width, thickness: 0.7 })
+  // The fendering a boat takes ship's-side contact on, all the way
+  // round – its top a hand under the deck plate's: at the deck's own
+  // height the two faces shared a plane and the whole deck flickered
+  // between grey and black (seen on the ROSENORT, 2026-09-16)
+  deckPlate(mesh, 'bellows', { length, width, yBase, depth: 2.0 - 0.65, bow: 0.14, stern: 0.78, inset: 1 + 0.06 / width, thickness: 0.7 })
   deckPlate(mesh, 'roof', { length, width, yBase, depth: 2.0, bow: 0.14, stern: 0.78, inset: 0.9, thickness: 0.1 })
   // Deckhouse forward of midship, wheelhouse glazed on top of it
   const houseZ = length * 0.14
@@ -735,6 +930,7 @@ export const VESSELS = {
   'vessel-dredger': vesselDredger,
   'vessel-tender': vesselTender,
   'vessel-pilot': vesselPilot,
+  'vessel-patrol': vesselPatrol,
   'vessel-tanker': vesselTanker,
   'vessel-passenger': vesselPassenger,
   'vessel-tug': vesselTug,

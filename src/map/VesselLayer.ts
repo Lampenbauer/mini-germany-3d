@@ -295,7 +295,8 @@ export const VESSEL_MODELS: Record<
     funnel: { x: -44.8, z: 16.9, width: 4.5 },
   },
   'vessel-tender': { uri: 'models/vessel-tender.glb', length: 20, width: 5, height: 6 },
-  'vessel-pilot': { uri: 'models/vessel-pilot.glb', length: 20, width: 6, height: 7.5 },
+  'vessel-pilot': { uri: 'models/vessel-pilot.glb', length: 20, width: 6, height: 9.5 },
+  'vessel-patrol': { uri: 'models/vessel-patrol.glb', length: 20, width: 6, height: 7.5 },
   'vessel-tug': { uri: 'models/vessel-tug.glb', length: 26, width: 9, height: 10 },
   'vessel-fishing': { uri: 'models/vessel-fishing.glb', length: 18, width: 5.5, height: 7.5 },
   'vessel-sail': { uri: 'models/vessel-sail.glb', length: 12, width: 3.8, height: 14 },
@@ -366,14 +367,17 @@ export function archetypeFor(
   if (typeCode === 78) return 'vessel-barge' // landing craft: a flat deck with a ramp
   if (typeCode === 67) return 'vessel-tender' // harbour cruise boat: the barkasse
   if (typeCode === 38) return 'vessel-fishing' // trawler
-  if (typeCode === 39) return 'vessel-pilot' // patrol vessel
+  if (typeCode === 39) return 'vessel-patrol' // patrol vessel
   // The working craft of a port, each with a code of its own and a
   // silhouette that shares nothing with the tug they all used to be
   if (typeCode === 33) return 'vessel-dredger'
   if (typeCode === 53) return 'vessel-tender' // port or fish tender
   // Pilot, search-and-rescue and police all run the same kind of fast,
-  // heavily fendered patrol boat
-  if (typeCode === 50 || typeCode === 51 || typeCode === 55) return 'vessel-pilot'
+  // heavily fendered boat – but the pilots' is orange all over (the
+  // German pilot service's colour), and the colours are baked into the
+  // hulls, so the rescue and police boats keep the dark patrol boat
+  if (typeCode === 50) return 'vessel-pilot'
+  if (typeCode === 51 || typeCode === 55) return 'vessel-patrol'
 
   // --- Groups, with the size deciding what the code leaves open -------
   if (group === 6 || group === 4) {
@@ -430,7 +434,8 @@ function vesselStyle(typeCode: number): { color: string; height: number } {
   if (typeCode === 30) return { color: '#8a7250', height: 3 } // fishing
   if (typeCode === 33) return { color: '#8a7a4e', height: 4 } // dredger
   if (typeCode === 36 || typeCode === 37) return { color: '#8a6fb0', height: 3 } // sailing/pleasure
-  if (group === 5) return { color: '#4f9494', height: 3 } // tug/pilot/tender/SAR
+  if (typeCode === 50) return { color: '#c2561c', height: 3 } // pilot boat: the hull's orange
+  if (group === 5) return { color: '#4f9494', height: 3 } // tug/tender/SAR
   return { color: '#7a8494', height: 3 } // unknown
 }
 
