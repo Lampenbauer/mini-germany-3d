@@ -76,7 +76,7 @@ async function main(city, paths) {
   const lights = selectLighthouses(data.elements ?? [], city.boundingBox)
   const counts = countLighthouses(lights)
   console.log(
-    `${lights.length} lights in the ${city.name} bounding box: ${counts.major} major, ${counts.minor} minor, ${counts.sectored} of them sector lights`,
+    `${lights.length} lights in the ${city.name} bounding box: ${counts.major} major, ${counts.minor} minor, ${counts.sectored} of them sector lights, ${counts.rotating} turning beams`,
   )
   const prevCount = loadPrevious()?.lights?.length ?? 0
   if (prevCount > 0 && lights.length < prevCount / 2) {

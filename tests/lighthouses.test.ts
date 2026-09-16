@@ -26,7 +26,7 @@ function way(id: number, lon: number, lat: number, tags: Record<string, string>)
   return { type: 'way', id, center: { lon, lat }, tags }
 }
 
-/** The Warnemünde lighthouse as OSM has it: a building way, a landmark, one white sector. */
+/** The Warnemünde lighthouse as OSM has it: a building way, a landmark, one white sector flashing every four seconds. */
 const WARNEMUENDE = {
   man_made: 'lighthouse',
   height: '30.13 m',
@@ -34,6 +34,7 @@ const WARNEMUENDE = {
   'seamark:light:character': 'Fl',
   'seamark:light:colour': 'white',
   'seamark:light:height': '34',
+  'seamark:light:period': '4',
   'seamark:light:range': '20',
   'seamark:light:sector_start': '62.6',
   'seamark:light:sector_end': '242.6',
@@ -56,7 +57,9 @@ describe('classifyLighthouse', () => {
       kind: 'major',
       heightM: 34,
       rangeNm: 20,
-      sectors: [{ colour: 'white', start: 62.6, end: 242.6, character: 'Fl', heightM: 34, rangeNm: 20 }],
+      sectors: [
+        { colour: 'white', start: 62.6, end: 242.6, character: 'Fl', periodS: 4, group: null, heightM: 34, rangeNm: 20 },
+      ],
     })
     // The unnumbered set is the mole's floodlight – a work light, no sector;
     // the numbered green one is the mark
@@ -86,6 +89,22 @@ describe('classifyLighthouse', () => {
     expect(classifyLighthouse(undefined)).toBeNull()
   })
 
+  it('carries the period and the group of a flashing light – a rotating optic – and nothing where OSM has none', () => {
+    // Bastorf (Buk): three flashes in 22 seconds, the group as OSM writes it
+    const buk = lightSectors({
+      'seamark:light:character': 'Fl',
+      'seamark:light:colour': 'white',
+      'seamark:light:group': '3',
+      'seamark:light:period': '22',
+    })
+    expect(buk).toMatchObject([{ character: 'Fl', periodS: 22, group: '3' }])
+    // A composite group, a period with a unit – and a period of 0 is none
+    expect(lightSectors({ 'seamark:light:colour': 'red', 'seamark:light:group': '2+1', 'seamark:light:period': '15 s' })).toMatchObject([
+      { periodS: 15, group: '2+1' },
+    ])
+    expect(lightSectors({ 'seamark:light:colour': 'red', 'seamark:light:period': '0' })).toMatchObject([{ periodS: null, group: null }])
+  })
+
   it('reads a value with a unit, a directional light as a narrow sector, and leaves a fog sector out', () => {
     expect(leadingNumber('4 m')).toBe(4)
     expect(leadingNumber('2 M')).toBe(2)
@@ -108,10 +127,11 @@ describe('classifyLighthouse', () => {
       'seamark:light:5:sector_start': '350',
       'seamark:light:5:sector_end': '010',
     })
+    const plain = { periodS: null, group: null, heightM: null, rangeNm: null }
     expect(sectors).toEqual([
-      { colour: 'green', start: 237.5, end: 241.5, character: null, heightM: null, rangeNm: null },
-      { colour: 'yellow', start: null, end: null, character: 'Al.Fl', heightM: null, rangeNm: null },
-      { colour: 'yellow', start: 350, end: 10, character: null, heightM: null, rangeNm: null },
+      { colour: 'green', start: 237.5, end: 241.5, character: null, ...plain },
+      { colour: 'yellow', start: null, end: null, character: 'Al.Fl', ...plain },
+      { colour: 'yellow', start: 350, end: 10, character: null, ...plain },
     ])
     for (const sector of sectors) expect(LIGHT_COLOURS).toContain(sector.colour)
   })
@@ -135,11 +155,12 @@ describe('selectLighthouses', () => {
       BOX,
     )
     expect(lights).toEqual([
-      [12.08582, 54.18142, 'major', 34, 20, [['white', 62.6, 242.6, 'Fl']]],
-      [12.08726, 54.18681, 'minor', 14, 6, [['green', null, null, 'Iso']]],
-      [12.2, 54.2, 'minor', null, null, [['white', null, null, null]]],
+      [12.08582, 54.18142, 'major', 34, 20, [['white', 62.6, 242.6, 'Fl', 4, null]]],
+      [12.08726, 54.18681, 'minor', 14, 6, [['green', null, null, 'Iso', null, null]]],
+      [12.2, 54.2, 'minor', null, null, [['white', null, null, null, null, null]]],
     ])
-    expect(countLighthouses(lights)).toEqual({ major: 1, minor: 2, sectored: 1 })
+    // The Warnemünde light turns – a major light flashing with a known period
+    expect(countLighthouses(lights)).toEqual({ major: 1, minor: 2, sectored: 1, rotating: 1 })
     expect(selectLighthouses([], BOX)).toEqual([])
   })
 })
@@ -158,8 +179,10 @@ describe('the committed lighthouses', () => {
         expect(['major', 'minor'], name).toContain(light[2])
         expect(light[5].length, name).toBeGreaterThan(0)
         for (const sector of light[5]) {
-          expect(sector, name).toHaveLength(4)
+          expect(sector, name).toHaveLength(6)
           expect(LIGHT_COLOURS, name).toContain(sector[0])
+          // A period is seconds, or null – never 0
+          if (sector[4] !== null) expect(sector[4], name).toBeGreaterThan(0)
         }
       }
     }
@@ -170,5 +193,20 @@ describe('the committed lighthouses', () => {
     expect(count('rostock')).toBeGreaterThan(5)
     expect(count('kiel')).toBeGreaterThan(5)
     expect(count('hamburg')).toBeGreaterThan(5)
+  })
+
+  it('turn the beams of the coast’s towers – Warnemünde and Bastorf, Friedrichsort, Travemünde – and no leading light', () => {
+    // The Elbe's and the Weser's lights are leading and fixed lights (Oc,
+    // Iso): nothing turns in Hamburg and Bremen, by the data; nor does
+    // Wilhelmshaven's leading light, whose flashing guide sectors stand
+    // among fixed ones – a flashing lamp, not an optic
+    const rotating = (slug: string) =>
+      countLighthouses((committedDataFiles[`../src/cities/${slug}/lighthouses.json`] as LighthouseData).lights).rotating
+    expect(rotating('rostock')).toBe(2)
+    expect(rotating('kiel')).toBe(1)
+    expect(rotating('lubeck')).toBe(1)
+    expect(rotating('hamburg')).toBe(0)
+    expect(rotating('bremen')).toBe(0)
+    expect(rotating('wilhelmshaven')).toBe(0)
   })
 })

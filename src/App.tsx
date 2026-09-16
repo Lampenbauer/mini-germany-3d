@@ -245,8 +245,20 @@ export interface Mg3dTestApi {
     heightSpanM: number
     heightsOverFallbackM: number[]
   }
-  /** The lighthouses and pier lights: registered, clamped to their towers, shown towards the camera, and the night level. */
-  lighthouses: () => { lights: number; clamped: number; shown: number; alpha: number }
+  /**
+   * The lighthouses and pier lights: registered, clamped to their towers,
+   * shown towards the camera, and the night level; the turning optics
+   * among them, the beams drawn this frame and the optics' clock in seconds.
+   */
+  lighthouses: () => {
+    lights: number
+    clamped: number
+    shown: number
+    alpha: number
+    rotating: number
+    beams: number
+    opticTime: number
+  }
   /** Average render rate over the last 5 seconds (frames/s). */
   renderRate: () => number
   /**
@@ -287,6 +299,8 @@ export interface Mg3dTestApi {
     vesselInView: boolean
     /** An aircraft whose drawn pose is still changing is on screen. */
     aircraftInView: boolean
+    /** A lighthouse's beam turned in view this tick (see LighthousesLayer.sync). */
+    beamInView: boolean
     interacting: boolean
     tilesLoading: boolean
     /** The fallback render interval; motion and camera changes request frames on their own. */
@@ -1848,6 +1862,8 @@ export default function App() {
     // tram in view does.
     let lastMovingVesselInView = false
     let lastMovingAircraftInView = false
+    /** A lighthouse's beam turned in view this tick (see LighthousesLayer.sync). */
+    let lastBeamInView = false
     // Pause freezes the whole picture, ships included: the live AIS input
     // and its clock hold at the moment of pausing, so the playback stands
     // still and later polls cannot move a frozen world. Play unfreezes
@@ -1942,11 +1958,14 @@ export default function App() {
           map.setPaceWholeView(paceWholeView)
           const cloudPxPerSecond =
             paceWholeView && !clock.paused ? map.cloudMotionPxPerSecond(clock.speed) : 0
+          // A lighthouse's turning beam is motion too (its own rate is
+          // capped in the layer, so the ticks it asks for stay tame)
           const fleetMoving =
             !clock.paused &&
             (lastAnyVehicleInView ||
               lastMovingVesselInView ||
               lastMovingAircraftInView ||
+              lastBeamInView ||
               diagramLive ||
               cloudPxPerSecond > 0)
           const tickInterval = !fleetMoving
@@ -2129,6 +2148,7 @@ export default function App() {
             lastMovingVesselInView = !clock.paused && (vesselInfo?.anyMovingVesselInView ?? false)
             lastMovingAircraftInView =
               !clock.paused && (aircraftInfo?.anyMovingAircraftInView ?? false)
+            lastBeamInView = !clock.paused && (viewInfo?.beamInView ?? false)
             // Speed over this tick, not since the last frame: right after a
             // frame the elapsed time is a millisecond and any ratio over
             // it would read as a sprint.
@@ -2527,6 +2547,7 @@ export default function App() {
           vehicleInView: lastAnyVehicleInView,
           vesselInView: lastMovingVesselInView,
           aircraftInView: lastMovingAircraftInView,
+          beamInView: lastBeamInView,
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,

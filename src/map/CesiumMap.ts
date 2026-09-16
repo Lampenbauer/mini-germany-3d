@@ -74,6 +74,7 @@ import type { Webcam } from '@/lib/webcams-extract'
 import { StreetLampsLayer } from './StreetLampsLayer'
 import { AirfieldLightsLayer } from './AirfieldLightsLayer'
 import { BuoysLayer } from './BuoysLayer'
+import { LIGHTHOUSE_BEAM_BLOCK, LIGHTHOUSE_BEAM_GLSL, lighthouseBeamUniforms } from './LighthouseBeams'
 import { LighthousesLayer } from './LighthousesLayer'
 import { FlatBasemap } from './FlatBasemap'
 import { DEFAULT_BASEMAP, type Basemap } from '@/lib/basemap'
@@ -527,14 +528,20 @@ const HOVER_PICK_INTERVAL_MS = 100
  *
  * Night keeps a blue ambient and only mild desaturation so the city stays
  * readable: real night light (lit windows, street lamps) cannot be derived
- * from daylight photogrammetry, this is an ambience grade.
+ * from daylight photogrammetry, this is an ambience grade – with one
+ * exception since 2026-09-16: where a lighthouse's turning beam falls, the
+ * baked daylight colour comes back in the beam's colour (see
+ * LighthouseBeams.ts, whose block and uniforms this shader carries).
  */
 const TIME_OF_DAY_SHADER = `
 ${CLOUD_SHADOW_GLSL}
 ${CLOUD_SHADOW_FUNCTION_GLSL}
+${LIGHTHOUSE_BEAM_GLSL}
 
 void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
 {
+  // The daylight as photographed – what a lighthouse's beam lights up again
+  vec3 baked = material.diffuse;
   // sin of the sun elevation at this fragment (up = away from Earth center)
   float sunUp = dot(czm_sunDirectionWC, normalize(fsInput.attributes.positionWC));
 
@@ -588,6 +595,9 @@ void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material)
   graded *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), overcast);
   material.diffuse = graded;
 
+  // The lighthouses' turning beams on the ground (see LighthouseBeams.ts):
+  // u_beamLight is the night level and 0 by day, when the block is skipped
+${LIGHTHOUSE_BEAM_BLOCK}
   // Underground view: the world recedes to a dark relief at the same 20 %
   // the tunnels are drawn at otherwise. Deliberately NOT via material.alpha:
   // translucent tiles write no depth, and without depth Cesium's camera
@@ -1115,6 +1125,9 @@ export class CesiumMap {
       get visibilityM() {
         return map.visibilityM
       },
+      get pixelRatio() {
+        return map.effectivePixelRatio
+      },
     })
     this.vehicleLayer = new VehicleLayer(this.viewer, {
       requestRender: () => this.requestRender(),
@@ -1582,6 +1595,8 @@ export class CesiumMap {
         [CLOUD_SHADOW_UNIFORMS.drift]: { type: UniformType.VEC2, value: new Cartesian2() },
         [CLOUD_SHADOW_UNIFORMS.threshold]: { type: UniformType.FLOAT, value: 2 },
         [CLOUD_SHADOW_UNIFORMS.strength]: { type: UniformType.FLOAT, value: 0 },
+        // The lighthouses' beams, empty until the layer fills them per frame
+        ...lighthouseBeamUniforms(),
       },
     })
     tileset.customShader = this.tileShader
@@ -1599,6 +1614,7 @@ export class CesiumMap {
       }
       this.weather.attachTileShader(this.tileShader)
       this.clouds.attachTileShader(this.tileShader)
+      this.lighthouses.attachTileShader(this.tileShader)
       this.googleTileset = tileset
       this.viewer.scene.primitives.add(tileset)
       // The globe would render twice underneath the photorealistic tiles
@@ -2542,24 +2558,30 @@ export class CesiumMap {
   syncVehicles(
     snapshots: VehicleSnapshot[],
     visibleLines: ReadonlySet<string>,
-    /** The simulated clock the snapshots stand at (epoch ms); the ferries' wake runs on it (see VehicleLayer). */
+    /** The simulated clock the snapshots stand at (epoch ms); the ferries' wake and the lighthouses' optics run on it. */
     simMs?: number,
   ): {
     anyVehicleInView: boolean
     nearestBodyMeters: number
     maxScreenMotionPx: number
     maxTickMotionPx: number
+    /** A lighthouse's beam turned in view this tick – motion the loop paces for like a fleet's (see LighthousesLayer). */
+    beamInView: boolean
   } {
     this.surfaceGeneration.advance(performance.now())
     this.noteCameraAtRest()
     this.stops.update()
     this.bridgeDecks.update()
     this.buoys.sync()
-    this.lighthouses.sync()
+    const beams = this.lighthouses.sync(simMs)
     const info = this.vehicleLayer.sync(snapshots, visibleLines, simMs)
     this.nearestVehicleMeters = info.nearestBodyMeters
     this.applyShadowState()
-    return info
+    return {
+      ...info,
+      maxTickMotionPx: Math.max(info.maxTickMotionPx, beams.tickMotionPx),
+      beamInView: beams.beamInView,
+    }
   }
 
   /** Once per tick: whether the camera moved since the previous tick (see cameraAtRest). */
@@ -3261,6 +3283,7 @@ export class CesiumMap {
     this.shipWake?.markRendered()
     this.ferryWake?.markRendered()
     this.clouds.markRendered()
+    this.lighthouses.markRendered()
     Matrix4.clone(this.viewer.camera.viewMatrix, this.renderedViewMatrix)
   }
 

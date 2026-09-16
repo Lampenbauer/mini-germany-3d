@@ -542,9 +542,36 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(1)
   await expect.poll(async () => (await lighthouses()).alpha, slowPoll).toBe(1)
   expect((await lighthouses()).shown).toBeGreaterThan(0)
+  // The turning optics (lib/lighthouse-beam.ts): Rostock has two – Warnemünde,
+  // seven kilometres north of here and within the beams' reach, and Bastorf,
+  // out of it. The Warnemünde lens at the clock's zero points north, out to
+  // sea, and its shaft is drawn – its shader compiled offline, which is what
+  // this proves; the light on the tiles is the tileset's shader and needs the
+  // tiles. Paused, the optic stands and is no motion to the loop
+  expect((await lighthouses()).rotating).toBe(2)
+  await expect.poll(async () => (await lighthouses()).beams, slowPoll).toBeGreaterThanOrEqual(1)
+  expect(await page.evaluate(() => window.__mg3d!.renderPacing().beamInView)).toBe(false)
+  // Running, with the tower in the frame – from the Alter Strom looking
+  // north at it – it turns on the simulated clock and the loop paces for
+  // it: ticks at the beams' capped rate, frames with them
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.172&lon=12.09&height=250&heading=0&pitch=-15&routes=0'
+  })
+  const opticTime = async () => (await lighthouses()).opticTime
+  const standing = await opticTime()
+  await page.evaluate(() => window.__mg3d!.setPaused(false))
+  await expect.poll(opticTime, slowPoll).toBeGreaterThan(standing + 0.5)
+  await expect.poll(() => page.evaluate(() => window.__mg3d!.renderPacing().beamInView), slowPoll).toBe(true)
+  // Paced, not the 500 ms of an idle map (the beam's own cap is the unit test's)
+  expect(await page.evaluate(() => window.__mg3d!.renderPacing().tickIntervalMs)).toBeLessThan(500)
+  await page.evaluate(() => window.__mg3d!.setPaused(true))
+  await page.evaluate(() => {
+    window.location.hash = '#lat=54.12&lon=12.09&height=400&heading=0&pitch=-45&routes=0'
+  })
   await page.evaluate(() => window.__mg3d!.setTime('12:00'))
   await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(0)
   await expect.poll(async () => (await lighthouses()).alpha, slowPoll).toBe(0)
+  expect((await lighthouses()).beams).toBe(0)
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
   // The flat map, over the same water: offline it has no pictures (no

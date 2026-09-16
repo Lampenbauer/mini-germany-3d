@@ -30,7 +30,12 @@
  * spotlight – a work light on the pier, not a mark. The light's elevation over
  * the water (seamark:light:height, metres) and its range (nautical
  * miles) come along where given – units in the value ("4 m", "2 M")
- * included. The character (Fl, Oc, Iso …) is kept as OSM has it.
+ * included. The character (Fl, Oc, Iso …) is kept as OSM has it, and
+ * with it the period of the light in seconds (seamark:light:period) and
+ * its group ("2", "2+1" – how many flashes the period holds): a tower
+ * whose every sector flashes with one period is a rotating optic, one
+ * lens per flash, and the map turns its beams (see
+ * src/lib/lighthouse-beam.ts) – without a period nothing turns.
  *
  * Pure (no I/O), so scripts/fetch-lighthouses.mjs stays a thin
  * fetch-and-write wrapper and this part is unit tested
@@ -79,8 +84,8 @@ const bearing = (deg) => Math.round((((deg % 360) + 360) % 360) * 1000) / 1000
  * The lit sectors of a light out of its tags: the unnumbered
  * seamark:light:* set and the numbered seamark:light:N:* sets, each a
  * colour with its arc (null bounds for an all-round light), character,
- * height and range. Sectors without a colour the map has, and sectors
- * exhibited only in fog, are left out.
+ * period, group, height and range. Sectors without a colour the map
+ * has, and sectors exhibited only in fog, are left out.
  */
 export function lightSectors(tags) {
   const sectors = []
@@ -102,11 +107,15 @@ export function lightSectors(tags) {
       end = orientation + DIRECTIONAL_HALF_WIDTH_DEG
     }
     const characterTag = tags[`${prefix}character`]
+    const groupTag = tags[`${prefix}group`]
+    const periodS = leadingNumber(tags[`${prefix}period`])
     sectors.push({
       colour,
       start: start !== null && end !== null ? bearing(start) : null,
       end: start !== null && end !== null ? bearing(end) : null,
       character: typeof characterTag === 'string' && characterTag.trim() ? characterTag.trim() : null,
+      periodS: periodS !== null && periodS > 0 ? periodS : null,
+      group: typeof groupTag === 'string' && groupTag.trim() ? groupTag.trim() : null,
       heightM: leadingNumber(tags[`${prefix}height`]),
       rangeNm: leadingNumber(tags[`${prefix}range`]),
     })
@@ -146,7 +155,7 @@ function metresApart(a, b) {
  * The lights of a box out of an Overpass answer (`out center` – a way's
  * centre stands for the building): every lit tower inside it as
  * [lon, lat, kind, heightM, rangeNm, sectors], the sectors as
- * [colour, start, end, character], one per spot (a second light within
+ * [colour, start, end, character, periodS, group], one per spot (a second light within
  * SAME_LIGHT_M is the same light mapped twice; nodes are taken before
  * ways), in a fixed order so the file is byte-stable across runs – by
  * kind, then longitude, then latitude.
@@ -175,17 +184,34 @@ export function selectLighthouses(elements, box) {
       light.kind,
       light.heightM,
       light.rangeNm,
-      light.sectors.map((s) => [s.colour, s.start, s.end, s.character]),
+      light.sectors.map((s) => [s.colour, s.start, s.end, s.character, s.periodS, s.group]),
     ])
     .sort((a, b) => (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : a[0] - b[0] || a[1] - b[1]))
 }
 
-/** How many lights of each kind, and how many of them sector lights – for the run's log and the tests. */
+/**
+ * How many lights of each kind, how many of them sector lights, and how
+ * many turn their optic – a major light of MAJOR_RANGE_NM and more whose
+ * every sector flashes with one character and one known period, the
+ * app's rule (src/lib/lighthouse-beam.ts; a leading light with a
+ * flashing guide sector among fixed ones is none) – for the run's log
+ * and the tests.
+ */
 export function countLighthouses(lights) {
-  const counts = { major: 0, minor: 0, sectored: 0 }
+  const counts = { major: 0, minor: 0, sectored: 0, rotating: 0 }
   for (const light of lights) {
     counts[light[2]] = (counts[light[2]] ?? 0) + 1
     if (light[5].some((s) => s[1] !== null)) counts.sectored++
+    const tower = light[2] === 'major' && light[4] !== null && light[4] >= MAJOR_RANGE_NM
+    const [first] = light[5]
+    const optic =
+      tower &&
+      first !== undefined &&
+      /^L?Fl$/.test(first[3] ?? '') &&
+      typeof first[4] === 'number' &&
+      first[4] > 0 &&
+      light[5].every((s) => s[3] === first[3] && s[4] === first[4])
+    if (optic) counts.rotating++
   }
   return counts
 }

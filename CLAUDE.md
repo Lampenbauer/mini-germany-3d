@@ -1083,7 +1083,77 @@ pure, tested) – outside every sector the light is obscured, as at sea –
 repainted per frame only where the sector or the night level changed.
 Major (light_major, or a range of ten miles and more): 7 px, fading to
 half by 40 km; minor: 4 px, the lanterns' fade. Steady, for the same
-reason as the buoys. A floodlight or spotlight on a tower is a work
+reason as the buoys – with one exception since 2026-09-16, the user's
+call: **the towers' rotating optics turn.** A major light of ten miles'
+range and more whose EVERY sector flashes (`Fl`, `LFl`) with one period
+from OSM is a rotating optic ([lighthouse-beam.ts](src/lib/lighthouse-beam.ts),
+pure, tested in `tests/seamark-lights.test.ts`): one lens per flash of
+the group (`3+1` → four, spaced evenly – a simplification of optics
+whose panels are not), one turn per period, clockwise – and where the
+period is short, more lenses rather than a faster optic: the fewest
+that make a turn last `MIN_TURN_S` (12 s; Friedrichsort's `Fl 3s` is
+four lenses in twelve seconds, the same flash every three – as one lens
+in three it strobed, the user saw it that day). The range rule keeps
+the Havel's red sector lights out – `light_major` on a four-metre pole,
+`LFl 4s`, no range: an LED, no optic (Berlin, found in the data) – and
+the every-sector rule keeps the leading and sector lights out: an optic
+turns one lamp's light through coloured screens and cannot flash to the
+west and burn steadily to the east, so Wilhelmshaven's leading light
+(`Oc 6s` over the degree of the leading line, `Fl 3s` a degree left,
+`Fl(2) 9s` three degrees right, fixed colours elsewhere – the first rule
+swept a beam through its degree of arc and strobed, the user's find)
+and Bülk (a white `Fl(2)` over one arc among occulting and fixed
+sectors) turn nothing. Four towers turn: Warnemünde and Bastorf,
+Friedrichsort, Travemünde; Hamburg's, Bremen's and Wilhelmshaven's
+lights are leading and fixed lights, none turns. `seamark:light:period` and `:group` ride in
+the sector tuple since (elements five and six, absent in an older
+file), fetched by `data:lighthouses` – run locally once on 2026-09-16 at
+the user's request so the towers turned that day rather than after the
+Sunday run; the exception to "the pipeline runs in CI, never locally",
+made once, not a habit. Two things draw a beam
+([LighthouseBeams.ts](src/map/LighthouseBeams.ts)): a shaft in the air,
+one instanced DrawCommand after the smoke's pattern (a strip along the
+beam turning its face to the camera, additive, render pass only, the
+azimuth per instance – stateless, any frame right by itself), and the
+light on the tiles, a block in `TIME_OF_DAY_SHADER` (`LIGHTHOUSE_BEAM_GLSL`
+and `LIGHTHOUSE_BEAM_BLOCK`, up to `MAX_TILE_BEAMS` = 8 lens slots as
+vec4 uniforms in one east-north-up frame at the city's lights) that
+mixes the *baked daylight colour* back in where the beam falls – so the
+sea's photographed turquoise lights up under a white beam, and a red
+sector reddens the quay. The shader compiles online only (see "Offline
+mode does not compile the tile shader"); checked headed over
+Warnemünde the day it was built: no loop error, the shaft from the
+lantern, the sweep on the water. The optic runs on the simulated clock
+like the smoke (`BEAM_MAX_RATE` = `PLUME_MAX_RATE`; a pause holds it),
+and it is the one animated thing among the seamarks, which is why the
+loop is tamed for it: with a lit beam within `BEAM_MAX_DISTANCE_M`
+(20 km; the beams fade with the camera's distance to the lantern like
+the lanterns' `translucencyByDistance`, full to `BEAM_FULL_DISTANCE_M`
+= 10 km and gone at 20, linear – the user's numbers, in place of the
+hard edge at 15 km the first version had, where a beam popped in as
+the camera came down; `beamDistanceFade` in LighthouseBeams.ts, applied
+to the shaft's intensity and the shader slot's colour alike) in the
+frustum, `LighthousesLayer.sync` asks for a frame the
+fleets' way (`screen-motion.ts`, the far end's sweep since the last
+frame) and reports its tick motion capped so the loop's tick comes out
+at `BEAM_MIN_FRAME_MS` (`beamInView` in the sync result and
+`renderPacing()`; `lastBeamInView` in the app's `fleetMoving`). That
+pace is 33 ms, the loop's fastest tick – the rate the beam turns at
+anyway while the camera moves, so the two look alike (measured headed
+with the tower alone in the frame: 33 ms tick, 29.6 fps). The number was
+arrived at the long way (2026-09-16): a second cap on the requests
+themselves, measured from the last frame's *end*, had halved the rate –
+a tick later less than a tick had passed since the frame finished, and
+every second tick drew nothing, 15 fps at a 33 ms tick, headed – so the
+50 ms the user first saw was really 15 fps; gone, the tick is the only
+cap a request needs. With that fixed the user looked at the true 20
+(50 ms: 18.6–18.8 fps) and at the 30, each twice, and settled on the 30;
+50 is the number to come back to if the frames ever weigh. The taming
+is in the gates, not
+the rate: by day, underground, with the tower out of range or out of
+the frame, or every lens screened, nothing is asked for, and a city
+without a turning tower never notices the feature.
+A floodlight or spotlight on a tower is a work
 light, not a mark, and is left out of the sectors – Warnemünde's mole
 lights carry theirs as the unnumbered set, ahead of the green and the
 red, and showed white until then (2026-09-13). Counted the same day:
@@ -1092,9 +1162,12 @@ Bremen 188 (the Weser's), Hamburg 151 (the Elbe's), Berlin 61, Lübeck
 Cologne, Hanover, Schwerin and Stuttgart. Seen over the real tiles at
 night: the Warnemünde tower's white on its lantern from the sea, dark
 from the town, the mole heads green and red either way.
-`__mg3d.lighthouses()` counts them;
+`__mg3d.lighthouses()` counts them, the turning optics and the beams
+drawn, and reads the optics' clock;
 `tests/cesium-lighthouses-layer.test.ts` pins the towers, the floor,
-the sectors and the night with the buoys' kind of double.
+the sectors, the night, the beams and their pacing with the buoys' kind
+of double, `e2e/app.spec.ts` turns Warnemünde's offline (the shaft's
+shader compiles there) and sees the loop paced for it.
 
 Vehicles at 08:30 (the number each `tests/<slug>.test.ts` pins): Berlin 685,
 Hamburg 458, Rostock/Cologne/Munich ~370, Stuttgart 257, Bremen 223,
@@ -1345,6 +1418,9 @@ Consequences to keep in mind:
   `gl.MAX_SAMPLES` and the multisample path is gated on `> 1`).
 
 ### Animated effects are stateless shaders, not particle systems
+
+(The lighthouses' turning beams of 2026-09-16 follow the same rule – see
+the lighthouses paragraph under "Cities and the data pipeline".)
 
 The ships under way trail exhaust since 2026-09-11
 ([src/map/FunnelSmoke.ts](src/map/FunnelSmoke.ts)): one instanced

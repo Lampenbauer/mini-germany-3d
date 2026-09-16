@@ -3,13 +3,13 @@
     "attribution": "Lighthouses © OpenStreetMap contributors (ODbL)"
   },
   "lights": [
-    [9.84276,54.459529,"major",36,21,[["green",237.5,241.5,"Oc"],["white",241.25,245.25,"Oc"],["red",245.75,249.75,"Oc"],["white",251,268,"Fl"],["white",180,193,"F"],["red",193,208,"F"],["white",208,237,"F"]]],
-    [10.153948,54.369241,"major",22,11,[["green",217,224,"Oc"],["white",224,270,"Oc"],["green",270,12,"Oc"],["white",12,39,"Oc"]]],
-    [10.197283,54.455216,"major",29,14,[["white",127,146,"Fl"],["red",146,213,"Fl"],["green",213,228,"Fl"],["white",228,235.5,"Fl"],["red",235.5,238.5,"Fl"],["white",238.5,262,"Fl"],["green",262,43,"Fl"]]],
-    [9.84245,54.473054,"minor",11,6,[["white",195,251,"Oc"],["white",293,315,"Oc"],["red",315,3,"Oc"],["green",251,293,"Oc"]]],
-    [9.855287,54.474659,"minor",null,null,[["white",null,null,"F"]]],
-    [10.151681,54.363124,"minor",23,9,[["red",159,192,"Oc"],["white",192,214,"Oc"],["red",214,288,"Oc"],["white",288,302,"Oc"],["white",302,3,"Oc"]]],
-    [10.193398,54.390536,"minor",32,7,[["white",196,202,"Iso"],["white",202,209,"F"],["white",224,280,"Iso"],["white",300,32,"Iso"],["red",209,224,"Iso"],["green",171.5,196,"Iso"],["green",280,300,"Iso"],["green",32,90,"Iso"]]],
-    [10.316926,54.434052,"minor",null,6,[["yellow",null,null,"Al.Fl"]]]
+    [9.84276,54.459529,"major",36,21,[["green",237.5,241.5,"Oc",4,null],["white",241.25,245.25,"Oc",4,null],["red",245.75,249.75,"Oc",4,null],["white",251,268,"Fl",9,"2"],["white",180,193,"F",null,null],["red",193,208,"F",null,null],["white",208,237,"F",null,null]]],
+    [10.153948,54.369241,"major",22,11,[["green",217,224,"Oc",4,"3"],["white",224,270,"Oc",4,"3"],["green",270,12,"Oc",4,"3"],["white",12,39,"Oc",4,"3"]]],
+    [10.197283,54.455216,"major",29,14,[["white",127,146,"Fl",3,null],["red",146,213,"Fl",3,null],["green",213,228,"Fl",3,null],["white",228,235.5,"Fl",3,null],["red",235.5,238.5,"Fl",3,null],["white",238.5,262,"Fl",3,null],["green",262,43,"Fl",3,null]]],
+    [9.84245,54.473054,"minor",11,6,[["white",195,251,"Oc",4,null],["white",293,315,"Oc",4,null],["red",315,3,"Oc",4,null],["green",251,293,"Oc",4,null]]],
+    [9.855287,54.474659,"minor",null,null,[["white",null,null,"F",null,null]]],
+    [10.151681,54.363124,"minor",23,9,[["red",159,192,"Oc",9,"2"],["white",192,214,"Oc",9,"2"],["red",214,288,"Oc",9,"2"],["white",288,302,"Oc",9,"2"],["white",302,3,"Oc",9,"2"]]],
+    [10.193398,54.390536,"minor",32,7,[["white",196,202,"Iso",4,null],["white",202,209,"F",null,null],["white",224,280,"Iso",4,null],["white",300,32,"Iso",4,null],["red",209,224,"Iso",4,null],["green",171.5,196,"Iso",4,null],["green",280,300,"Iso",4,null],["green",32,90,"Iso",4,null]]],
+    [10.316926,54.434052,"minor",null,6,[["yellow",null,null,"Al.Fl",5,null]]]
   ]
 }

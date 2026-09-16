@@ -11,13 +11,24 @@ export type LightColour = 'white' | 'red' | 'green' | 'yellow'
 export type LighthouseKind = 'major' | 'minor'
 
 /**
- * One lit sector: [colour, start bearing, end bearing, character]. The
- * bearings are from seaward – from the vessel to the light, clockwise
- * from true north – and null for an all-round light. The character
- * (Fl, Oc, Iso …) is carried as OSM has it; the map shows every light
- * steadily for now (see LighthousesLayer).
+ * One lit sector: [colour, start bearing, end bearing, character,
+ * period, group]. The bearings are from seaward – from the vessel to the
+ * light, clockwise from true north – and null for an all-round light.
+ * The character (Fl, Oc, Iso …) is carried as OSM has it, with the
+ * light's period in seconds and its group ("3", "2+1": the flashes a
+ * period holds), null where OSM has none; the two trailing elements are
+ * absent in a file written before 2026-09-16. A major light flashing
+ * with a known period is a rotating optic, and the map turns its beam
+ * (see lib/lighthouse-beam.ts); every other light shows steadily.
  */
-export type LightSector = [LightColour, number | null, number | null, string | null]
+export type LightSector = [
+  LightColour,
+  number | null,
+  number | null,
+  string | null,
+  (number | null)?,
+  (string | null)?,
+]
 
 /**
  * One light: [longitude, latitude, kind, elevation of the light over the

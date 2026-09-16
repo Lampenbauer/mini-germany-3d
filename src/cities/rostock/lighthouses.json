@@ -3,14 +3,14 @@
     "attribution": "Lighthouses © OpenStreetMap contributors (ODbL)"
   },
   "lights": [
-    [11.693718,54.131899,"major",95,24,[["white",73,265,"LFl"],["red",40,73,"LFl"]]],
-    [12.085822,54.181417,"major",34,20,[["white",62.6,242.6,"Fl"]]],
-    [12.113552,54.144234,"major",24,19,[["red",null,null,"Oc"]]],
-    [12.120959,54.131029,"major",45,21,[["red",null,null,"Oc"]]],
-    [12.384287,54.352442,"major",11,13,[["white",24,204,"Oc"]]],
-    [12.087172,54.183569,"minor",4,2,[["white",null,null,"F"]]],
-    [12.087258,54.186813,"minor",14,6,[["green",null,null,"Iso"]]],
-    [12.091107,54.187065,"minor",14,6,[["red",null,null,"Iso"]]],
-    [12.160433,54.160804,"minor",null,null,[["white",null,null,"Iso"]]]
+    [11.693718,54.131899,"major",95,24,[["white",73,265,"LFl",15,"4"],["red",40,73,"LFl",15,"4"]]],
+    [12.085822,54.181417,"major",34,20,[["white",62.6,242.6,"Fl",24,"3+1"]]],
+    [12.113552,54.144234,"major",24,19,[["red",null,null,"Oc",4,null]]],
+    [12.120959,54.131029,"major",45,21,[["red",null,null,"Oc",4,null]]],
+    [12.384287,54.352442,"major",11,13,[["white",24,204,"Oc",12,"3"]]],
+    [12.087172,54.183569,"minor",4,2,[["white",null,null,"F",null,null]]],
+    [12.087258,54.186813,"minor",14,6,[["green",null,null,"Iso",4,null]]],
+    [12.091107,54.187065,"minor",14,6,[["red",null,null,"Iso",4,null]]],
+    [12.160433,54.160804,"minor",null,null,[["white",null,null,"Iso",4,null]]]
   ]
 }

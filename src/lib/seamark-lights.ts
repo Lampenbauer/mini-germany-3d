@@ -24,21 +24,27 @@ export function bearingInSector(bearingDeg: number, start: number, end: number):
 }
 
 /**
- * The colour a light shows towards a viewer at `bearingDeg` (from the
+ * The sector a light shows towards a viewer at `bearingDeg` (from the
  * viewer to the light): the first sector holding the bearing, an
  * all-round sector where none is bounded – or null, the light obscured
  * from where the viewer stands.
  */
-export function sectorColourTowards(sectors: readonly LightSector[], bearingDeg: number): LightColour | null {
-  let allRound: LightColour | null = null
-  for (const [colour, start, end] of sectors) {
+export function sectorTowards(sectors: readonly LightSector[], bearingDeg: number): LightSector | null {
+  let allRound: LightSector | null = null
+  for (const sector of sectors) {
+    const [, start, end] = sector
     if (start === null || end === null) {
-      allRound ??= colour
+      allRound ??= sector
       continue
     }
-    if (bearingInSector(bearingDeg, start, end)) return colour
+    if (bearingInSector(bearingDeg, start, end)) return sector
   }
   return allRound
+}
+
+/** The colour of that sector, or null where the light is obscured. */
+export function sectorColourTowards(sectors: readonly LightSector[], bearingDeg: number): LightColour | null {
+  return sectorTowards(sectors, bearingDeg)?.[0] ?? null
 }
 
 /**

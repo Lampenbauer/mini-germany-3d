@@ -3,9 +3,9 @@
     "attribution": "Lighthouses © OpenStreetMap contributors (ODbL)"
   },
   "lights": [
-    [11.313625,47.956479,"major",null,null,[["yellow",null,null,"LFl"]]],
-    [11.342936,47.994792,"major",null,null,[["yellow",null,null,"LFl"]]],
-    [11.334159,47.895915,"minor",null,null,[["green",null,null,"LFl"]]],
-    [11.356598,47.998067,"minor",null,null,[["red",null,null,"F"]]]
+    [11.313625,47.956479,"major",null,null,[["yellow",null,null,"LFl",null,null]]],
+    [11.342936,47.994792,"major",null,null,[["yellow",null,null,"LFl",null,null]]],
+    [11.334159,47.895915,"minor",null,null,[["green",null,null,"LFl",null,null]]],
+    [11.356598,47.998067,"minor",null,null,[["red",null,null,"F",null,null]]]
   ]
 }
