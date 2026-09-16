@@ -562,8 +562,20 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   await page.evaluate(() => window.__mg3d!.setPaused(false))
   await expect.poll(opticTime, slowPoll).toBeGreaterThan(standing + 0.5)
   await expect.poll(() => page.evaluate(() => window.__mg3d!.renderPacing().beamInView), slowPoll).toBe(true)
-  // Paced, not the 500 ms of an idle map (the beam's own cap is the unit test's)
-  expect(await page.evaluate(() => window.__mg3d!.renderPacing().tickIntervalMs)).toBeLessThan(500)
+  // Paced, not the 500 ms of an idle map (the beam's own cap is the unit
+  // test's). Polled, and read in one go with the flag: the flight the
+  // hash change starts swings the frustum, and on the CI runner one tick
+  // had the tower out of it between the two reads (2026-09-16, retried)
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const pacing = window.__mg3d!.renderPacing()
+          return pacing.beamInView ? pacing.tickIntervalMs : Number.POSITIVE_INFINITY
+        }),
+      slowPoll,
+    )
+    .toBeLessThan(500)
   await page.evaluate(() => window.__mg3d!.setPaused(true))
   await page.evaluate(() => {
     window.location.hash = '#lat=54.12&lon=12.09&height=400&heading=0&pitch=-45&routes=0'
