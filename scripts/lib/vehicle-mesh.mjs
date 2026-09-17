@@ -95,6 +95,11 @@ export const MATERIALS = {
   /** Road vehicle lamps; luminance stays above the cabin-glow cutoff. */
   vehicleRed: { color: [0.50, 0.035, 0.025, 1], metallic: 0.1, roughness: 0.24 },
   vehicleAmber: { color: [0.80, 0.35, 0.035, 1], metallic: 0.1, roughness: 0.24 },
+  /** Small aircraft: painted trim, window seals and a light blur around visible blades. */
+  aircraftRed: { color: [0.48, 0.018, 0.025, 1], metallic: 0.1, roughness: 0.32 },
+  aircraftBlue: { color: [0.055, 0.075, 0.18, 1], metallic: 0.1, roughness: 0.32 },
+  windowSeal: { color: [0.012, 0.018, 0.022, 1], metallic: 0, roughness: 0.42 },
+  rotorBlur: { color: [0.15, 0.17, 0.19, 0.08], metallic: 0, roughness: 0.9 },
 }
 
 /**

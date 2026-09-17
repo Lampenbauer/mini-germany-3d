@@ -175,6 +175,43 @@ describe('the generated aircraft fleet', () => {
     }
   })
 
+  it('leaves daylight through the Fenestron instead of covering it with the fin', () => {
+    const mesh = AIRCRAFT['aircraft-helicopter']()
+    // Side-on rays through the duct, clear of the hub and the shroud.
+    // The blades may occlude some rays; a solid fin behind them may not.
+    const triangles: number[][][] = []
+    for (const [material, group] of mesh.groups) {
+      if (MATERIALS[material].color[3] < 1) continue
+      for (let i = 0; i < group.indices.length; i += 3) {
+        const points = group.indices.slice(i, i + 3)
+          .map((index) => group.positions.slice(index * 3 + 1, index * 3 + 3))
+        if (points.some(([, z]) => z < -3.6)) triangles.push(points)
+      }
+    }
+    let open = 0
+    for (let k = 0; k < 120; k++) {
+      const angle = (k + 0.37) * Math.PI / 60
+      const y = 0.14 + 0.44 * Math.cos(angle)
+      const z = -4.27 + 0.44 * Math.sin(angle)
+      const blocked = triangles.some(([a, b, c]) => {
+        const cross = (p: number[], q: number[], r: number[]) =>
+          (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        if (Math.abs(cross(a, b, c)) < 1e-10) return false
+        const edges = [cross(a, b, [y, z]), cross(b, c, [y, z]), cross(c, a, [y, z])]
+        return edges.every((v) => v >= -1e-9) || edges.every((v) => v <= 1e-9)
+      })
+      if (!blocked) open++
+    }
+    expect(open / 120).toBeGreaterThan(0.55)
+  })
+
+  it('keeps the Skyhawk propeller clear of the apron', () => {
+    const mesh = AIRCRAFT['aircraft-light']()
+    const blur = mesh.groups.get('rotorBlur')!
+    const bottom = Math.min(...blur.positions.filter((_, i) => i % 3 === 1))
+    expect(bottom + AIRCRAFT_DIMS['aircraft-light'].height / 2).toBeGreaterThan(0.2)
+  })
+
   it('gives the common types a body of their own size', () => {
     expect(aircraftSize('A320', 'A3')).toEqual({
       archetype: 'aircraft-narrowbody',

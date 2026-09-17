@@ -191,25 +191,6 @@ function roundProfile(w, h, yc) {
 }
 
 /**
- * A rounded-rectangle cross-section on the same thirty-two angles as
- * roundProfile – a superellipse of exponent `power` (2 is the ellipse,
- * 4 nearly a box with round corners): the slab-sided cabin of a light
- * aircraft or a helicopter, whose doors are flat and whose roof is flat.
- * The same angular frame, so the glazing's sixteen faces mean the same.
- */
-function superProfile(w, h, yc, power = 4) {
-  const pts = []
-  const k = 2 / power
-  for (let i = 0; i < SIDES; i++) {
-    const a = -Math.PI / 2 + Math.PI / 16 + ((2 * Math.PI) / SIDES) * i
-    const c = Math.cos(a)
-    const s = Math.sin(a)
-    pts.push([(w / 2) * Math.sign(c) * Math.abs(c) ** k, yc + (h / 2) * Math.sign(s) * Math.abs(s) ** k])
-  }
-  return pts
-}
-
-/**
  * A body extruded along Z with round rings, and the means to find its
  * shell again: `ringAt(z)` is the ring the extrusion has at any length,
  * interpolated between the two stations around it exactly as the faces
@@ -361,20 +342,6 @@ function fuselage(mesh, { length, w, h, yc, tailRise = 0.3, noseDroop = 0.26, ta
     undefined,
     jetNose,
   )
-}
-
-/**
- * The cockpit windows: a narrow band of three panes a side – the two
- * windscreens and the side window – from about 20° to 55° above the
- * centre line, where the nose has begun to drop, two to four metres
- * from the tip. Two strips, one on the upper part of the flank face and
- * one on the lower part of the cheek face, meeting at the faces' seam.
- */
-function cockpit(mesh, shell, length) {
-  const zFrom = length * 0.405
-  const zTo = length * 0.455
-  glaze(mesh, shell, [4, 11], zFrom, zTo, { panes: 3, band: [0.55, 1] })
-  glaze(mesh, shell, [5, 10], zFrom, zTo, { panes: 3, band: [0, 0.8] })
 }
 
 /**
@@ -886,364 +853,421 @@ export function aircraftBizjet() {
 }
 
 /**
- * A regional turboprop, modelled on the ATR 72-600 – the type that
- * carries most of Germany's turboprop traffic, and the Dash 8 and the
- * Saab by scaling: a slender round fuselage with the jets' forebody and
- * cockpit under a high straight wing, the long nacelles slung ahead of
- * and under it with six-bladed propellers on pointed spinners, the rear
- * fuselage swept up under a tall swept fin with its dorsal fillet and
- * the stabilisers on top, and the main gear folding into sponsons on
- * the lower fuselage (2026-09-17; before it was a generic high-wing
- * twin with a stub tail).
+ * A shell drawn from measured side elevations. Each station gives
+ * [z, width, belly, crown, superellipse power]; crown and belly are
+ * independent, so a cowling, windscreen and cabin are distinct shapes.
+ * Build one half and mirror its triangles, including their diagonals.
+ */
+function shapedShell(mesh, material, stations, sides = SIDES) {
+  const skin = createMesh()
+  const rings = stations.map(([z, w, bottom, top, power = 2.6]) =>
+    Array.from({ length: sides / 2 + 1 }, (_, i) => {
+      const a = -Math.PI / 2 + i * Math.PI * 2 / sides
+      const s = Math.sin(a)
+      return [i === 0 || i === sides / 2 ? 0 : w / 2 * Math.cos(a) ** (2 / power),
+        (top + bottom) / 2 + (top - bottom) / 2 * Math.sign(s) * Math.abs(s) ** (2 / power), z]
+    }),
+  )
+  const reflect = ([x, y, z]) => [-x, y, z]
+  const triangles = []
+  for (let k = 0; k + 1 < rings.length; k++) {
+    for (let i = 0; i < sides / 2; i++) {
+      const a = rings[k][i], b = rings[k][i + 1]
+      const c = rings[k + 1][i + 1], d = rings[k + 1][i]
+      for (const points of [[a, b, c], [a, c, d]]) {
+        triangles.push(points)
+        tri(skin, material, ...points)
+        tri(skin, material, reflect(points[0]), reflect(points[2]), reflect(points[1]))
+      }
+    }
+  }
+  const centre = centroid(rings.flat())
+  for (const half of [rings[0], rings.at(-1)]) {
+    capRing(skin, material, [...half, ...half.slice(1, -1).toReversed().map(reflect)], centre)
+  }
+  mergeMesh(mesh, smoothSurface(skin))
+  return { triangles }
+}
+
+/**
+ * Clip a convex contour onto the actual shell triangles, in side [z,y]
+ * front [x,y] or top [z,x] elevation. Glazing, seals and paint follow every bend
+ * of the shell instead of floating rectangles or angular glass bands.
+ */
+function shellPanel(mesh, shell, material, outline, { front = false, top = false, offset = 0.009, minZ = -Infinity } = {}) {
+  const axis = front ? 0 : 2
+  const vertical = top ? 0 : 1
+  const depth = top ? 1 : front ? 2 : 0
+  const area = outline.reduce((sum, p, i) => {
+    const q = outline[(i + 1) % outline.length]
+    return sum + p[0] * q[1] - q[0] * p[1]
+  }, 0)
+  const contour = area < 0 ? outline.toReversed() : outline
+  const panel = createMesh()
+  for (const triangle of shell.triangles) {
+    if (triangle.every((p) => p[2] < minZ)) continue
+    const normal = cross(sub(triangle[1], triangle[0]), sub(triangle[2], triangle[0]))
+    if (normal[depth] < 1e-9) continue
+    let polygon = triangle
+    for (let edge = 0; edge < contour.length && polygon.length; edge++) {
+      const a = contour[edge], b = contour[(edge + 1) % contour.length]
+      const distance = (p) => (b[0] - a[0]) * (p[vertical] - a[1]) - (b[1] - a[1]) * (p[axis] - a[0])
+      const clipped = []
+      for (let i = 0; i < polygon.length; i++) {
+        const p = polygon[i], q = polygon[(i + 1) % polygon.length]
+        const dp = distance(p), dq = distance(q)
+        if (dp >= 0) clipped.push(p)
+        if ((dp >= 0) !== (dq >= 0)) clipped.push(lerp(p, q, dp / (dp - dq)))
+      }
+      polygon = clipped
+    }
+    const points = polygon.map((p) => p.map((v, k) => v + (k === depth ? offset : 0)))
+    const reflect = ([x, y, z]) => [-x, y, z]
+    for (let i = 1; i + 1 < points.length; i++) {
+      const a = points[0], b = points[i], c = points[i + 1]
+      if (Math.hypot(...cross(sub(b, a), sub(c, a))) < 1e-9) continue
+      tri(panel, material, a, b, c)
+      tri(panel, material, reflect(a), reflect(c), reflect(b))
+    }
+  }
+  mergeMesh(mesh, smoothSurface(panel))
+}
+
+/** Octagonal rounded corners in an elevation, independent of shell facets. */
+function windowContour(z0, z1, y0, y1, radius = 0.06) {
+  return [[z0 + radius, y0], [z1 - radius, y0], [z1, y0 + radius],
+    [z1, y1 - radius], [z1 - radius, y1], [z0 + radius, y1],
+    [z0, y1 - radius], [z0, y0 + radius]]
+}
+
+/** A thin seal around a pane, or a door seam, projected onto the shell. */
+function panelOutline(mesh, shell, contour, material = 'wingMetal', width = 0.012) {
+  for (let i = 0; i < contour.length; i++) {
+    const a = contour[i], b = contour[(i + 1) % contour.length]
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    const dx = (b[1] - a[1]) / len * width / 2
+    const dy = -(b[0] - a[0]) / len * width / 2
+    shellPanel(mesh, shell, material, [[a[0] + dx, a[1] + dy], [b[0] + dx, b[1] + dy],
+      [b[0] - dx, b[1] - dy], [a[0] - dx, a[1] - dy]], { offset: 0.016 })
+  }
+}
+
+/** A swept, tapered blade, with a thin section instead of a cylindrical spoke. */
+function rotorBlade(mesh, centre, axis, angle, radius, chord, material = 'chassis') {
+  const point = (r, t, lift = 0) => {
+    const u = r * Math.cos(angle) - t * Math.sin(angle)
+    const v = r * Math.sin(angle) + t * Math.cos(angle)
+    return add(centre, axis === 'y' ? [u, lift, v] : axis === 'z' ? [u, v, lift] : [lift, u, v])
+  }
+  const stations = [[0.1, 0.24, 0], [0.40, 1, -0.03], [0.94, 0.7, -0.27], [1, 0.2, -0.4]]
+  for (let i = 0; i + 1 < stations.length; i++) {
+    const [ra, ca, sa] = stations[i], [rb, cb, sb] = stations[i + 1]
+    slab(mesh, material, [point(ra * radius, (sa - ca / 2) * chord),
+      point(rb * radius, (sb - cb / 2) * chord), point(rb * radius, (sb + cb / 2) * chord),
+      point(ra * radius, (sa + ca / 2) * chord)], chord * 0.08)
+  }
+}
+
+/** Metallic exhaust pipe with a dark outlet inside the rim. */
+function exhaust(mesh, a, b, radius) {
+  const direction = unit(sub(b, a))
+  rod(mesh, 'engineMetal', a, b, radius, 16)
+  const end = add(b, scale(direction, 0.006))
+  rod(mesh, 'aircraftGlass', end, add(end, scale(direction, 0.004)), radius * 0.78, 16)
+}
+
+/**
+ * ATR 72-600, proportioned from ATR's side elevation and 27.05 m span:
+ * https://www.atr-aircraft.com/regional-mobility/regional-aircraft/atr-72-600/
+ * https://www.atr-aircraft.com/wp-content/uploads/2023/04/Cam_Left-1-scaled.png
  */
 export function aircraftTurboprop() {
   const mesh = createMesh()
   const { length, width, height } = AIRCRAFT_DIMS['aircraft-turboprop']
   const ground = -height / 2
-  const fuselageW = 2.87
-  const fuselageH = 2.87
-  // The fuselage a metre over the apron: the ATR stands low on short legs
-  const yc = ground + 1.05 + fuselageH / 2
-  const shell = fuselage(mesh, { length, w: fuselageW, h: fuselageH, yc, tailRise: 0.42, taper: 0.32, jetNose: true })
-  jetCockpit(mesh, shell, { length, w: fuselageW, h: fuselageH, yc })
-  cabinDoors(mesh, shell, length, fuselageH, length * 0.3)
-  portholeRow(mesh, shell, -length * 0.2, length * 0.27, { pitch: 0.62, w: 0.34, h: 0.4 })
-  // The wing on the crown, straight, with the fairing it grows out of
-  const wingY = yc + fuselageH / 2 + 0.3
-  const rootChord = 2.75
-  const tipChord = 1.55
+  const shell = shapedShell(mesh, 'airframe', [
+    [-13.6, 0.10, -0.34, 0.12],
+    [-11.1, 1.25, -1.05, 0.13], [-9.2, 2.13, -2.02, 0.06],
+    [-7.4, 2.72, -2.76, -0.01], [-5.6, 2.87, -2.98, -0.11, 2],
+    // Width-based forebody stations: a raked screen above a rounded radome.
+    ...[[1.25, 0.5, 0.498, -0.495], [1.0, 0.485, 0.47, -0.48],
+      [0.78, 0.456, 0.405, -0.455], [0.60, 0.405, 0.28, -0.425],
+      [0.46, 0.36, 0.185, -0.39], [0.32, 0.30, 0.13, -0.365],
+      [0.18, 0.225, 0.07, -0.31], [0.075, 0.15, -0.005, -0.255],
+      [0.02, 0.08, -0.067, -0.20], [0.004, 0.036, -0.101, -0.162],
+      [0, 0.002, -0.128, -0.132]].map(([aft, radius, crown, belly]) =>
+      [length / 2 - 2.87 * aft, 5.74 * radius, -1.545 + 2.87 * belly, -1.545 + 2.87 * crown, 2]),
+  ])
+  shellPanel(mesh, shell, 'aircraftGlass', [[0.04, -0.89], [0.70, -0.95],
+    [0.66, -0.43], [0.04, -0.34]], { front: true, minZ: 10.3, offset: 0.016 })
+  for (const pane of [
+    [[10.66, -0.99], [11.56, -0.99], [10.92, -0.44], [10.66, -0.43]],
+    [[9.91, -0.88], [10.56, -0.97], [10.56, -0.43], [9.91, -0.43]],
+  ]) shellPanel(mesh, shell, 'aircraftGlass', pane, { offset: 0.016 })
+  for (let k = 0; k < 24; k++) {
+    const z = -6.35 + k * 0.575
+    shellPanel(mesh, shell, 'aircraftGlass', windowContour(z, z + 0.285, -1.57, -1.10, 0.075))
+  }
+  for (const [z0, z1] of [[8.65, 9.85], [-7.92, -7.12]]) {
+    panelOutline(mesh, shell, windowContour(z0, z1, -2.76, -0.40, 0.14), 'wingMetal', 0.02)
+    shellPanel(mesh, shell, 'engineMetal', windowContour(z0 + 0.2, z0 + 0.44, -0.70, -0.64, 0.02), { offset: 0.025 })
+  }
+  // A restrained blue belly continues the fin colour around the gear fairings.
+  shellPanel(mesh, shell, 'aircraftBlue', [[-12.6, -0.51], [-4.8, -2.34], [8.0, -2.54],
+    [8.0, -2.87], [-6.8, -2.98]])
+  const wingY = 0.12
   const halfSpan = width / 2
-  const rootZ = 2.9
-  const tipZ = 2.35
-  const tipY = wingY + halfSpan * 0.01
-  roundedBox(mesh, 'airframe', 0, wingY - 0.12, rootZ - rootChord * 0.45, fuselageW * 0.8, 0.55, rootChord * 1.25, 0.16)
+  const tipY = 0.30
+  shapedShell(mesh, 'airframe', [[-2.35, 0.50, -0.2, 0.03], [-1.3, 2.12, -0.2, 0.34],
+    [1.8, 2.27, -0.2, 0.39], [2.72, 1.78, -0.16, 0.18], [3.12, 0.35, -0.10, 0.0]], 16)
   for (const side of [-1, 1]) {
-    wing(mesh, 'wingMetal', side, {
-      rootX: fuselageW * 0.35,
-      rootY: wingY,
-      rootZ,
-      rootChord,
-      tipX: halfSpan,
-      tipY,
-      tipZ,
-      tipChord,
-      thickness: rootChord * 0.15,
-    })
-    // The nacelle: long, slung under the leading edge and reaching well
-    // ahead of it, the intake scoop under the spinner, the exhausts on top
-    const x = side * 4.05
-    const nacelleR = 0.6
-    const nacelleY = wingY - 0.42
-    tube(
-      mesh,
-      'airframe',
-      x,
-      nacelleY,
-      nacelleR,
-      [
-        { z: -1.6, s: 0.55 },
-        { z: 0.2, s: 0.82 },
-        { z: 2.0, s: 1 },
-        { z: 4.6, s: 1 },
-        { z: 5.15, s: 0.78 },
-      ],
-      ['airframe', 'chassis'],
-    )
-    roundedBox(mesh, 'chassis', x, nacelleY - nacelleR * 0.85, 4.55, 0.55, 0.32, 0.8, 0.08)
-    for (const dx of [-0.26, 0.26]) {
-      rod(mesh, 'engineMetal', [x + dx, nacelleY + nacelleR * 0.8, 3.5], [x + dx, nacelleY + nacelleR * 0.98, 2.9], 0.1, 8)
+    wing(mesh, 'airframe', side, { rootX: 0.9, rootY: wingY, rootZ: 2.65,
+      rootChord: 2.85, tipX: 4.35, tipY: 0.17, tipZ: 2.62, tipChord: 2.85, thickness: 0.43 })
+    wing(mesh, 'airframe', side, { rootX: 4.35, rootY: 0.17, rootZ: 2.62,
+      rootChord: 2.85, tipX: halfSpan, tipY, tipZ: 1.88, tipChord: 1.18, thickness: 0.43 })
+    // Shorter streamlined nacelles, narrowing aft of the wing. The propeller
+    // has six broad swept blades, with a proper conical spinner and intake.
+    const x = side * 4.1, y = -0.25, propZ = 4.43
+    tube(mesh, 'airframe', x, y, 0.62, [
+      { z: -1.6, s: 0.15 }, { z: -0.8, s: 0.52 }, { z: 0.5, s: 0.85 },
+      { z: 2.15, s: 1.05 }, { z: 3.55, s: 1 }, { z: 4.28, s: 0.68 },
+    ])
+    ellipsoid(mesh, 'airframe', [x, y - 0.32, 3.45], [0.41, 0.38, 0.78], 16, 6)
+    ellipsoid(mesh, 'windowSeal', [x, y - 0.49, 4.025], [0.27, 0.16, 0.07], 12, 6)
+    exhaust(mesh, [x + side * 0.38, y + 0.23, 1.85], [x + side * 0.61, y + 0.25, 1.34], 0.15)
+    disc(mesh, 'rotorBlur', x, y, propZ, 1.965, 0.015, 'z')
+    for (let k = 0; k < 6; k++) rotorBlade(mesh, [x, y, propZ + 0.015], 'z', 0.18 + k * Math.PI / 3, 1.95, 0.27)
+    tube(mesh, 'engineMetal', x, y, 0.31, [
+      { z: 4.35 }, { z: 4.60, s: 0.85 }, { z: 4.93, s: 0.46 }, { z: 5.14, s: 0.015 },
+    ])
+    // Gear sponsons follow the lower fuselage rather than looking like floats.
+    const sponson = createMesh()
+    shapedShell(sponson, 'airframe', [[-2.30, 0.1, -2.7, -2.58], [-1.35, 1.10, -3.13, -2.31],
+      [1.15, 1.18, -3.20, -2.21], [2.30, 0.84, -2.95, -2.43], [2.85, 0.03, -2.64, -2.61]], 12)
+    for (const g of sponson.groups.values()) {
+      for (let i = 0; i < g.positions.length; i += 3) g.positions[i] += side * 1.18
     }
-    // Six blades in the blur of their disc, on a pointed spinner
-    const propZ = 5.28
-    disc(mesh, 'rotor', x, nacelleY, propZ, 1.96, 0.06, 'z')
-    ellipsoid(mesh, 'engineMetal', [x, nacelleY, 5.45], [0.3, 0.3, 0.55], 12, 6)
-    for (let k = 0; k < 6; k++) {
-      const a = (k * Math.PI) / 3
-      rod(mesh, 'chassis', [x + 0.2 * Math.cos(a), nacelleY + 0.2 * Math.sin(a), propZ], [x + 1.1 * Math.cos(a), nacelleY + 1.1 * Math.sin(a), propZ], 0.06, 6)
-    }
+    mergeMesh(mesh, sponson)
   }
-  // The tail: a tall swept fin with a long dorsal fillet, the
-  // stabilisers across its top
-  const finRootZ = -length / 2 + 6.4
-  const finTop = height / 2 - 0.14
-  const finSweep = 2.6
-  fin(mesh, 'hullBlue', {
-    zRoot: finRootZ,
-    rootChord: 5.4,
-    tipChord: 2.3,
-    yRoot: yc + fuselageH * 0.36,
-    top: finTop,
-    sweep: finSweep,
-  })
-  // The fillet is a convex quad: a fourth corner inside the others' triangle
-  // would wind its second triangle against the slab's normal
-  slab(mesh, 'hullBlue', [[0, yc + 1.4, -3.3], [0, yc + 1.3, finRootZ + 0.2], [0, yc + 2.5, finRootZ - 0.4], [0, yc + 1.75, -3.7]], 0.1)
-  stabilisers(mesh, 'wingMetal', {
-    rootX: 0,
-    y: finTop - 0.02,
-    zRoot: finRootZ - finSweep + 0.3,
-    rootChord: 2.5,
-    tipChord: 1.35,
-    halfSpan: width * 0.14,
-    sweep: 0.6,
-    dihedral: 0,
-  })
-  // Undercarriage: the nose leg under the cockpit, the mains under
-  // their sponsons on the lower fuselage – all in the part the layer
-  // folds away in the air
+  // The dorsal fillet flows into the swept T-tail, with no separate spike.
+  fin(mesh, 'aircraftBlue', { zRoot: -7.85, rootChord: 4.9, tipChord: 2.1,
+    yRoot: -0.06, top: height / 2 - 0.14, sweep: 2.87 })
+  slab(mesh, 'aircraftBlue', [[0, -0.01, -4.7], [0, -0.01, -7.0],
+    [0, 0.35, -7.0], [0, 0.02, -4.8]], 0.09)
+  slab(mesh, 'aircraftBlue', [[0, -0.01, -7.0], [0, -0.01, -8.85],
+    [0, 1.54, -9.05], [0, 0.35, -7.0]], 0.09)
+  stabilisers(mesh, 'airframe', { rootX: 0, y: height / 2 - 0.16,
+    zRoot: -10.40, rootChord: 2.48, tipChord: 1.18, halfSpan: 3.62, sweep: 0.48, dihedral: 0 })
   const gearPart = (mesh.parts.gear = createMesh())
-  gear(gearPart, { x: 0, z: 9.6, yTop: yc - fuselageH * 0.3, yGround: ground, wheel: 0.55 })
-  for (const side of [-1, 1]) {
-    ellipsoid(mesh, 'airframe', [side * 1.35, yc - 1.15, 1.2], [0.75, 0.55, 2.2], 14, 7)
-    gear(gearPart, { x: side * 1.45, z: 1.0, yTop: yc - 1.2, yGround: ground, wheel: 0.86 })
-  }
-  lights(mesh, {
-    halfSpan,
-    tipY,
-    tipZ: tipZ - tipChord * 0.4,
-    tailY: yc + fuselageH * 0.42,
-    tailZ: -length / 2,
-    topY: yc + fuselageH / 2,
-    topZ: -1,
-    bottomY: yc - fuselageH / 2,
-    bottomZ: 3,
-  })
+  gear(gearPart, { x: 0, z: 10.55, yTop: -2.55, yGround: ground, wheel: 0.56 })
+  for (const side of [-1, 1]) gear(gearPart, { x: side * 1.45, z: 0.36, yTop: -2.65, yGround: ground, wheel: 0.86 })
+  // Small dorsal aerials give scale without adding visible draw calls.
+  for (const z of [7.6, -3.3]) slab(mesh, 'airframe', [[0, -0.10, z], [0, -0.10, z - 0.45],
+    [0, 0.27, z - 0.55], [0, 0.27, z - 0.30]], 0.055)
+  lights(mesh, { halfSpan, tipY, tipZ: 1.41, tailY: 0.1, tailZ: -length / 2,
+    topY: -0.10, topZ: -1, bottomY: -2.98, bottomZ: 3 })
   return mesh
 }
 
-/**
- * A light single, modelled on the Cessna 172 Skyhawk – and everything
- * else that flies from the club airfields by scaling: a slab-sided
- * cabin under a strut-braced high wing that lies on its roof, the
- * windscreen raked back from the cowling to the wing's leading edge,
- * the rear window wrapping round the cabin's back, a tapered rear
- * fuselage to a swept fin with its dorsal fillet, the propeller on its
- * spinner, and the fixed tricycle gear on sprung legs (2026-09-17;
- * before it was a round tube with a wing on stilts).
- */
+/** Cessna 172 Skyhawk: short full cowling, upright cabin and a braced high wing. */
 export function aircraftLight() {
   const mesh = createMesh()
   const { length, width, height } = AIRCRAFT_DIMS['aircraft-light']
   const ground = -height / 2
-  const nose = length / 2
   const tail = -length / 2
-  // The cabin: a metre wide, its floor half a metre over the wheels' ground
-  const cabinW = 1.06
-  const cabinH = 1.28
-  const yc = ground + 0.56 + cabinH / 2
-  const shell = body(
-    mesh,
-    'airframe',
-    superProfile(cabinW, cabinH, yc, 3.2),
-    [
-      { z: tail, sx: 0.1, sy: 0.3, yOff: cabinH * 0.16 },
-      { z: tail + 1.2, sx: 0.3, sy: 0.5, yOff: cabinH * 0.12 },
-      { z: tail + 2.6, sx: 0.66, sy: 0.76, yOff: cabinH * 0.05 },
-      { z: -0.75 },
-      { z: 1.25 },
-      // The windscreen: the roof line falls to the cowling over half a
-      // metre, and the belly rises a little toward the nose – the thrust
-      // line stays near the cabin's centre, the propeller clear of the ground
-      { z: 1.75, sx: 0.96, sy: 0.7, yOff: -cabinH * 0.08 },
-      { z: 2.9, sx: 0.9, sy: 0.6, yOff: -cabinH * 0.06 },
-      { z: 3.75, sx: 0.66, sy: 0.5, yOff: -cabinH * 0.05 },
-      { z: 3.9, sx: 0.4, sy: 0.34, yOff: -cabinH * 0.05 },
-    ],
-    yc,
-    ['airframe', 'airframe'],
-  )
-  // Glazing on the shell: the windscreen over the cowling, the door and
-  // rear side windows on the flanks, the rear window round the back
-  glaze(mesh, shell, [5, 6, 7, 8, 9, 10], 1.27, 1.73)
-  glaze(mesh, shell, [4, 11], -0.7, 1.2, { panes: 2, band: [0, 0.9] })
-  glaze(mesh, shell, [3, 12], -0.7, 1.2, { panes: 2, band: [0.6, 1] })
-  glaze(mesh, shell, [5, 6, 7, 8, 9, 10], -1.45, -0.8)
-  // The engine: the spinner and the propeller's disc ahead of the cowling,
-  // the two intakes either side of the spinner, the exhaust under it
-  const cowlY = yc - cabinH * 0.05
-  ellipsoid(mesh, 'engineMetal', [0, cowlY, 3.92], [0.2, 0.2, 0.22], 16, 8)
-  disc(mesh, 'rotor', 0, cowlY, 3.98, 0.95, 0.04, 'z')
-  for (const side of [-1, 1]) roundedBox(mesh, 'chassis', side * 0.28, cowlY - 0.04, 3.88, 0.22, 0.16, 0.08, 0.03)
-  rod(mesh, 'engineMetal', [0.2, cowlY - 0.42, 3.2], [0.2, cowlY - 0.5, 2.7], 0.035, 8)
-  // The wing on the roof: constant chord inboard, tapered outboard,
-  // a little dihedral, no sweep; the struts from the door sills to mid-span
-  const wingY = yc + cabinH / 2 + 0.1
-  const rootChord = 1.65
-  const tipChord = 1.15
+  const shell = shapedShell(mesh, 'airframe', [
+    [tail, 0.08, -0.05, 0.12], [-3.6, 0.21, -0.16, 0.18],
+    [-2.5, 0.44, -0.34, 0.25], [-1.35, 0.75, -0.53, 0.35],
+    [-0.55, 1.00, -0.66, 0.57, 3.2], [0.25, 1.1, -0.72, 0.62, 3.5],
+    [1.75, 1.1, -0.72, 0.62, 3.5], [2.13, 1.08, -0.70, 0.58, 3.5],
+    [2.72, 1.04, -0.66, 0.16, 3.2], [3.35, 1.0, -0.58, 0.12, 2.8],
+    [3.73, 0.89, -0.46, 0.06], [3.83, 0.73, -0.37, 0.015],
+  ])
+  // Windscreen with a narrow centre post; two large door windows and
+  // the smaller swept rear side panes. These are contours, not ring bands.
+  shellPanel(mesh, shell, 'aircraftGlass', [[0.018, 0.18], [0.40, 0.19],
+    [0.45, 0.43], [0.34, 0.565], [0.018, 0.58]], { front: true, minZ: 2.1 })
+  const frontWindow = [[1.98, -0.015], [2.51, -0.01], [2.39, 0.17],
+    [2.06, 0.49], [1.98, 0.49]]
+  const doorWindow = windowContour(0.56, 1.88, -0.025, 0.50, 0.055)
+  const rearWindow = [[-0.43, 0.02], [0.40, -0.025], [0.40, 0.49],
+    [-0.32, 0.43], [-0.59, 0.19]]
+  for (const pane of [frontWindow, doorWindow, rearWindow]) {
+    shellPanel(mesh, shell, 'aircraftGlass', pane)
+    panelOutline(mesh, shell, pane, 'windowSeal', 0.018)
+  }
+  // Project the rear window onto the sloping crown too: no floating pane.
+  shellPanel(mesh, shell, 'aircraftGlass', [[-1.13, 0.02], [-0.60, 0.02],
+    [-0.60, 0.38], [-1.02, 0.30]], { top: true })
+  panelOutline(mesh, shell, [[0.48, -0.56], [2.25, -0.55], [2.55, -0.04],
+    [2.08, 0.53], [0.48, 0.54]], 'wingMetal', 0.009)
+  shellPanel(mesh, shell, 'engineMetal', windowContour(0.71, 0.89, -0.14, -0.10, 0.01), { offset: 0.02 })
+  // The photo's red waist stripes taper into the tail; no fake registration.
+  shellPanel(mesh, shell, 'aircraftRed', [[-3.85, 0.04], [3.62, -0.22], [3.62, -0.18], [-3.85, 0.075]])
+  shellPanel(mesh, shell, 'aircraftRed', [[-3.45, -0.04], [2.92, -0.35], [2.92, -0.31], [-3.45, -0.01]])
+  shellPanel(mesh, shell, 'windowSeal', [[-2.9, -0.11], [0.5, -0.45], [0.5, -0.41], [-2.9, -0.085]])
+  const propY = -0.17
+  disc(mesh, 'rotorBlur', 0, propY, 3.9, 0.94, 0.012, 'z')
+  for (let k = 0; k < 2; k++) rotorBlade(mesh, [0, propY, 3.91], 'z', 0.35 + k * Math.PI, 0.92, 0.12)
+  tube(mesh, 'engineMetal', 0, propY, 0.19, [
+    { z: 3.88 }, { z: 3.95, s: 0.95 }, { z: 4.07, s: 0.58 }, { z: 4.15, s: 0.02 },
+  ])
+  // Inlets sit inside the broad front face, either side of the spinner.
+  for (const side of [-1, 1]) {
+    ellipsoid(mesh, 'windowSeal', [side * 0.27, -0.14, 3.824], [0.105, 0.105, 0.022], 16, 8)
+  }
+  exhaust(mesh, [0.28, -0.51, 3.2], [0.28, -0.70, 2.98], 0.035)
+  const wingY = 0.67
+  const wingZ = 2.2
   const halfSpan = width / 2
-  const wingZ = 1.35
-  const tipY = wingY + halfSpan * 0.03
+  const tipY = 0.82
   for (const side of [-1, 1]) {
-    wing(mesh, 'airframe', side, {
-      rootX: 0,
-      rootY: wingY,
-      rootZ: wingZ,
-      rootChord,
-      tipX: halfSpan,
-      tipY,
-      tipZ: wingZ - 0.12,
-      tipChord,
-      thickness: rootChord * 0.12,
-    })
-    slab(
-      mesh,
-      'wingMetal',
-      [
-        [side * 0.5, yc - 0.45, 1.0],
-        [side * 2.6, wingY - 0.12, 1.05],
-        [side * 2.6, wingY - 0.12, 0.91],
-        [side * 0.5, yc - 0.45, 0.86],
-      ],
-      0.05,
-    )
+    // The Skyhawk keeps a constant inboard chord; only the outer panel tapers.
+    wing(mesh, 'airframe', side, { rootX: 0, rootY: wingY, rootZ: wingZ,
+      rootChord: 1.63, tipX: 3.3, tipY: 0.76, tipZ: wingZ, tipChord: 1.63, thickness: 0.20 })
+    wing(mesh, 'airframe', side, { rootX: 3.3, rootY: 0.76, rootZ: wingZ,
+      rootChord: 1.63, tipX: halfSpan, tipY, tipZ: 2.10, tipChord: 1.08, thickness: 0.20 })
+    slab(mesh, 'airframe', [[side * 0.49, -0.59, 1.27], [side * 3.25, 0.68, 1.5],
+      [side * 3.25, 0.68, 1.34], [side * 0.49, -0.59, 1.11]], 0.045)
+    // Navigation-light housing on each rounded wing tip.
+    ellipsoid(mesh, 'wingMetal', [side * 5.46, tipY, 1.78], [0.035, 0.045, 0.13], 12, 6)
+    rod(mesh, 'airframe', [side * 0.3, 0.77, 0.8], [side * 0.33, 1.25, 0.43], 0.012, 6)
   }
-  // The tail: the swept fin with its dorsal fillet, the stabiliser low
-  const finTop = height / 2
-  fin(mesh, 'airframe', { zRoot: -2.45, rootChord: 1.5, tipChord: 0.62, yRoot: yc + 0.5, top: finTop, sweep: 0.62 })
-  slab(mesh, 'airframe', [[0, yc + 0.6, -1.3], [0, yc + 0.6, -2.5], [0, yc + 1.0, -2.75], [0, yc + 0.72, -1.45]], 0.06)
-  stabilisers(mesh, 'airframe', {
-    rootX: 0.1,
-    y: yc + 0.22,
-    zRoot: -3.05,
-    rootChord: 1.1,
-    tipChord: 0.72,
-    halfSpan: 1.7,
-    sweep: 0.12,
-    dihedral: 0,
-  })
-  // Fixed gear: the nose leg under the cowling, the mains on flat spring
-  // legs out of the belly – part of the body, nothing folds
-  gear(mesh, { x: 0, z: 3.0, yTop: yc - cabinH * 0.5, yGround: ground, wheel: 0.36, twin: false })
+  fin(mesh, 'airframe', { zRoot: -2.5, rootChord: 1.57, tipChord: 0.60,
+    yRoot: 0.18, top: height / 2, sweep: 0.67 })
+  slab(mesh, 'airframe', [[0, 0.24, -1.24], [0, 0.2, -2.6],
+    [0, 0.75, -2.85], [0, 0.39, -1.67]], 0.055)
+  stabilisers(mesh, 'airframe', { rootX: 0, y: 0.02, zRoot: -2.95,
+    rootChord: 1.19, tipChord: 0.68, halfSpan: 1.7, sweep: 0.14, dihedral: 0 })
+  gear(mesh, { x: 0, z: 2.99, yTop: -0.57, yGround: ground, wheel: 0.38, twin: false })
   for (const side of [-1, 1]) {
-    const axle = [side * 1.15, ground + 0.22, 0.45]
-    rod(mesh, 'wingMetal', [side * 0.3, yc - cabinH / 2 + 0.02, 0.35], axle, 0.035, 8)
-    disc(mesh, 'chassis', axle[0], axle[1], axle[2], 0.22, 0.15, 'x')
-    disc(mesh, 'wingMetal', axle[0], axle[1], axle[2], 0.09, 0.19, 'x')
+    const axle = [side * 1.12, ground + 0.23, 0.33]
+    slab(mesh, 'airframe', [[side * 0.39, -0.63, 0.74], [side * 1.1, ground + 0.24, 0.41],
+      [side * 1.1, ground + 0.24, 0.25], [side * 0.39, -0.63, 0.53]], 0.045)
+    disc(mesh, 'chassis', ...axle, 0.23, 0.16, 'x')
+    disc(mesh, 'engineMetal', ...axle, 0.10, 0.175, 'x')
+    disc(mesh, 'wingMetal', ...axle, 0.055, 0.18, 'x')
+    rod(mesh, 'wingMetal', [side * 0.56, -0.54, 1.1], [side * 0.77, -0.59, 1.1], 0.016, 8)
   }
-  lights(mesh, {
-    halfSpan,
-    tipY,
-    tipZ: wingZ - 0.12 - tipChord * 0.4,
-    tailY: yc + 0.35,
-    tailZ: tail,
-    topY: finTop - 0.25,
-    topZ: -3.38,
-    bottomY: yc - cabinH / 2,
-    bottomZ: 0.6,
-  })
+  lights(mesh, { halfSpan, tipY, tipZ: 1.78, tailY: 0.1, tailZ: tail,
+    topY: 1.1, topZ: -3.48, bottomY: -0.72, bottomZ: 0.6 })
   return mesh
 }
 
 /**
- * A light twin-engined helicopter, modelled on Airbus's H140 and H145 –
- * the EC135 of the police and the air ambulances by scaling: a rounded
- * cabin glazed all over its nose, the sliding doors' windows on its
- * flanks, the engine deck on its roof with the intakes and exhausts,
- * the rotor mast and hub with the blades' roots in the blur of the
- * disc, the boom rising to the fenestron in its big swept fin with the
- * stabiliser across the fin's top, and skids. The length is the
- * fuselage's, nose to tail; the disc reaches over the nose and stops
- * short of the tail (2026-09-17; before it was a capsule with a hump).
+ * Airbus H140, after the user's photograph: glazed cabin, sculpted engine
+ * deck, five blades and an open Fenestron below a T-tail.
+ * https://www.airbus.com/en/products-services/helicopters/civil-helicopters/h140
  */
 export function aircraftHelicopter() {
   const mesh = createMesh()
   const { length, width, height } = AIRCRAFT_DIMS['aircraft-helicopter']
   const ground = -height / 2
-  const nose = length / 2
-  const tail = -length / 2
-  const rotorR = width / 2
-  const cabinW = 2.0
-  const cabinH = 1.8
-  // The cabin floor over the skids, the boom growing out of the cabin's
-  // back and rising to the fin – one shell from the nose to the fin
-  const yc = ground + 0.6 + cabinH / 2
-  const shell = body(
-    mesh,
-    'airframe',
-    superProfile(cabinW, cabinH, yc, 3),
-    [
-      { z: tail + 0.75, sx: 0.17, sy: 0.2, yOff: cabinH * 0.36 },
-      { z: -2.6, sx: 0.24, sy: 0.27, yOff: cabinH * 0.3 },
-      { z: -1.3, sx: 0.42, sy: 0.46, yOff: cabinH * 0.2 },
-      { z: -0.3, sx: 0.78, sy: 0.84, yOff: cabinH * 0.07 },
-      { z: 0.5 },
-      { z: 2.9 },
-      { z: 3.55, sx: 0.95, sy: 0.96, yOff: -cabinH * 0.03 },
-      { z: 4.25, sx: 0.74, sy: 0.76, yOff: -cabinH * 0.17 },
-      { z: 4.75, sx: 0.44, sy: 0.46, yOff: -cabinH * 0.33 },
-      { z: nose - 0.03, sx: 0.24, sy: 0.24, yOff: -cabinH * 0.4 },
-    ],
-    yc,
-    ['airframe', 'airframe'],
-  )
-  // The nose glazed over its whole upper half, the chin windows under
-  // it, the doors' windows on the flanks
-  glaze(mesh, shell, [4, 5, 6, 7, 8, 9, 10, 11], 3.6, 4.95, { panes: 2, gap: 0.12 })
-  glaze(mesh, shell, [3, 12], 4.1, 4.85)
-  glaze(mesh, shell, [4, 11], 0.75, 2.85, { panes: 2 })
-  glaze(mesh, shell, [3, 12], 0.75, 2.85, { panes: 2, band: [0.45, 1] })
-  // The engine deck on the roof: the cowling with its intakes forward
-  // and the exhausts aft, the mast and the hub over its front
-  const roofY = yc + cabinH / 2
-  roundedBox(mesh, 'airframe', 0, roofY + 0.3, 0.4, cabinW * 0.78, 0.6, 3.0, 0.14)
-  roundedBox(mesh, 'airframe', 0, roofY + 0.2, -1.4, 1.1, 0.4, 1.0, 0.1)
+  const shell = shapedShell(mesh, 'airframe', [
+    [-3.58, 0.30, 0.05, 0.44], [-2.65, 0.40, -0.02, 0.44],
+    [-1.5, 0.66, -0.14, 0.49], [-0.65, 1.17, -0.48, 0.59],
+    [0.1, 1.73, -0.91, 0.65, 3], [0.7, 1.94, -1.09, 0.70, 3.3],
+    [2.4, 1.98, -1.09, 0.73, 3.3], [3.22, 1.87, -1.01, 0.69, 3],
+    [3.75, 1.69, -0.90, 0.53], [4.25, 1.45, -0.82, 0.21],
+    [4.65, 1.13, -0.75, -0.05], [4.9, 0.81, -0.65, -0.16],
+    [5.04, 0.43, -0.54, -0.25], [5.1, 0.02, -0.41, -0.37],
+  ])
+  // Continuous black framing around individual panes, as on the reference.
+  shellPanel(mesh, shell, 'windowSeal', [[0.30, -0.44], [0.8, -0.64], [4.72, -0.60],
+    [4.95, -0.34], [3.47, 0.69], [1.12, 0.64], [0.35, 0.38]], { offset: 0.006 })
+  shellPanel(mesh, shell, 'windowSeal', [[0, -0.57], [0.87, -0.42], [0.96, 0.15],
+    [0.65, 0.67], [0, 0.69]], { front: true, minZ: 3.2, offset: 0.01 })
+  const windows = [
+    windowContour(0.60, 1.40, -0.44, 0.46, 0.11),
+    windowContour(1.56, 2.73, -0.46, 0.52, 0.1),
+    [[2.90, -0.44], [4.25, -0.40], [4.32, -0.22], [3.42, 0.55], [2.94, 0.55]],
+  ]
+  for (const pane of windows) shellPanel(mesh, shell, 'aircraftGlass', pane, { offset: 0.025 })
+  shellPanel(mesh, shell, 'aircraftGlass', [[0.035, -0.24], [0.55, -0.31], [0.78, -0.12],
+    [0.76, 0.23], [0.52, 0.60], [0.035, 0.63]], { front: true, minZ: 3.3, offset: 0.024 })
+  shellPanel(mesh, shell, 'aircraftGlass', [[0.06, -0.52], [0.47, -0.53], [0.62, -0.41],
+    [0.48, -0.36], [0.06, -0.31]], { front: true, minZ: 4.3, offset: 0.024 })
+  // Lower doors, handles and sliding-door rails stay on the curved shell.
+  for (const contour of [windowContour(1.45, 2.83, -0.94, 0.57, 0.08),
+    [[2.89, -0.86], [3.72, -0.73], [4.31, -0.36], [3.43, 0.60], [2.89, 0.60]]]) {
+    panelOutline(mesh, shell, contour, 'wingMetal', 0.011)
+  }
+  for (const z of [1.68, 3.04]) {
+    shellPanel(mesh, shell, 'windowSeal', windowContour(z, z + 0.13, -0.65, -0.59, 0.025), { offset: 0.02 })
+  }
+  shellPanel(mesh, shell, 'wingMetal', [[0.18, -0.61], [2.77, -0.61], [2.77, -0.58], [0.18, -0.58]], { offset: 0.018 })
+  shellPanel(mesh, shell, 'aircraftBlue', [[-3.6, 0.04], [-0.9, -0.47], [0.26, -0.97],
+    [0.35, -0.65], [-0.6, -0.12], [-3.6, 0.27]])
+  shellPanel(mesh, shell, 'aircraftBlue', [[0.8, -1.08], [3.6, -0.86], [3.62, -0.75], [0.8, -0.92]])
+  // A tapering engine cowling blends into the shoulders, with two exhausts
+  // at the rear. Its crown falls away forward of the gearbox.
+  shapedShell(mesh, 'airframe', [
+    [-1.85, 0.40, 0.31, 0.64], [-1.3, 0.90, 0.38, 0.92],
+    [-0.65, 1.45, 0.44, 1.14], [0.10, 1.60, 0.50, 1.30],
+    [0.70, 1.51, 0.52, 1.22], [1.55, 1.05, 0.61, 0.98], [2.10, 0.26, 0.69, 0.76],
+  ])
   for (const side of [-1, 1]) {
-    roundedBox(mesh, 'chassis', side * 0.5, roofY + 0.5, 1.6, 0.35, 0.16, 0.5, 0.04)
-    rod(mesh, 'engineMetal', [side * 0.42, roofY + 0.35, -1.05], [side * 0.42, roofY + 0.43, -1.55], 0.14, 10)
+    ellipsoid(mesh, 'windowSeal', [side * 0.65, 0.89, 0.88], [0.075, 0.17, 0.33], 16, 8)
+    exhaust(mesh, [side * 0.57, 0.82, -0.74], [side * 0.69, 0.83, -1.25], 0.16)
+    for (let i = 0; i < 6; i++) {
+      rod(mesh, 'wingMetal', [side * 0.742, 0.70, 0.54 - i * 0.075],
+        [side * 0.72, 1.02, 0.54 - i * 0.075], 0.009, 6)
+    }
   }
-  const rotorY = height / 2 - 0.05
-  rod(mesh, 'chassis', [0, roofY + 0.6, 0], [0, rotorY - 0.08, 0], 0.1, 12)
-  ellipsoid(mesh, 'chassis', [0, rotorY - 0.08, 0], [0.3, 0.1, 0.3], 16, 8)
+  const rotorY = height / 2 - 0.07
+  rod(mesh, 'engineMetal', [0, 1.19, 0], [0, rotorY, 0], 0.085, 16)
+  ellipsoid(mesh, 'engineMetal', [0, rotorY - 0.055, 0], [0.28, 0.09, 0.28], 16, 8)
   for (let k = 0; k < 5; k++) {
-    const a = (k * 2 * Math.PI) / 5
-    rod(mesh, 'chassis', [0.25 * Math.cos(a), rotorY - 0.04, 0.25 * Math.sin(a)], [1.3 * Math.cos(a), rotorY - 0.04, 1.3 * Math.sin(a)], 0.045, 6)
+    const a = 0.22 + k * Math.PI * 2 / 5
+    rotorBlade(mesh, [0, rotorY, 0], 'y', a, width / 2 - 0.045, 0.25)
+    rod(mesh, 'engineMetal', [0.18 * Math.cos(a), 1.39, 0.18 * Math.sin(a)],
+      [0.42 * Math.cos(a), rotorY, 0.42 * Math.sin(a)], 0.025, 8)
   }
-  disc(mesh, 'rotor', 0, rotorY, 0, rotorR, 0.04, 'y')
-  // The fin over the boom's end with the fenestron in it: an annular
-  // shroud with its translucent fan, the stabiliser across the fin's top
-  const finRootZ = -3.75
-  fin(mesh, 'hullBlue', { zRoot: finRootZ, rootChord: 1.35, tipChord: 0.85, yRoot: 0.45, top: 1.6, sweep: 0.45 })
-  const fanCentre = [0, 0.8, -4.45]
+  disc(mesh, 'rotorBlur', 0, rotorY - 0.012, 0, width / 2, 0.01, 'y')
+  // The duct is the fin's lower body. No solid fin or boom crosses its
+  // aperture: daylight must be visible between the ten fan blades.
+  const fanY = 0.14, fanZ = -4.27, outerR = 0.83, innerR = 0.60
   const shroud = createMesh()
-  const rings = [[-0.14, 0.55], [0.14, 0.55], [0.14, 0.43], [-0.14, 0.43]].map(([x, r]) => ngon(x, fanCentre[1], fanCentre[2], r, 'x'))
-  for (let k = 0; k < 4; k++) {
+  const rings = [[-0.12, outerR - 0.03], [0, outerR], [0.15, outerR - 0.03],
+    [0.18, innerR + 0.035], [0.12, innerR], [-0.12, innerR],
+    [-0.18, innerR + 0.035]].map(([x, r]) => ngon(x, fanY, fanZ, r, 'x'))
+  for (let k = 0; k < rings.length; k++) {
+    const next = (k + 1) % rings.length
     for (let i = 0; i < SIDES; i++) {
       const j = (i + 1) % SIDES
-      const next = (k + 1) % 4
-      quad(shroud, 'hullBlue', rings[k][i], rings[k][j], rings[next][j], rings[next][i])
+      quad(shroud, k === 4 ? 'engineMetal' : 'airframe', rings[k][i], rings[k][j], rings[next][j], rings[next][i])
     }
   }
-  mergeMesh(mesh, smoothSurface(shroud, 40))
-  disc(mesh, 'rotor', 0, fanCentre[1], fanCentre[2], 0.425, 0.08, 'x')
-  rod(mesh, 'engineMetal', [-0.16, fanCentre[1], fanCentre[2]], [0.16, fanCentre[1], fanCentre[2]], 0.07)
-  rod(mesh, 'hullBlue', [0, 0.35, -4.15], [0, -0.3, -4.6], 0.05, 8)
-  stabilisers(mesh, 'airframe', {
-    rootX: 0,
-    y: 1.5,
-    zRoot: -4.05,
-    rootChord: 0.62,
-    tipChord: 0.42,
-    halfSpan: 1.45,
-    sweep: 0.05,
-    dihedral: 0,
-  })
-  // Skids: two tubes with upturned toes on cross-tube legs, on the ground
+  mergeMesh(mesh, smoothSurface(shroud, 48))
+  for (let k = 0; k < 10; k++) rotorBlade(mesh, [0, fanY, fanZ], 'x', k * Math.PI / 5, innerR * 0.97, 0.075, 'engineMetal')
+  disc(mesh, 'rotorBlur', 0, fanY, fanZ, innerR - 0.01, 0.015, 'x')
+  rod(mesh, 'engineMetal', [-0.15, fanY, fanZ], [0.15, fanY, fanZ], 0.12, 16)
+  // Swept upper fin starts ABOVE the opening. The forward fairing joins
+  // the boom to the outside of the ring without plugging it.
+  fin(mesh, 'aircraftBlue', { zRoot: -3.93, rootChord: 1.08, tipChord: 0.58,
+    yRoot: 0.91, top: 1.65, sweep: 0.48 })
+  slab(mesh, 'airframe', [[0, 0.29, -3.50], [0, 0.81, -3.86],
+    [0, 1.02, -4.07], [0, 0.40, -3.59]], 0.18)
+  stabilisers(mesh, 'airframe', { rootX: 0, y: 1.60, zRoot: -4.22,
+    rootChord: 0.67, tipChord: 0.40, halfSpan: 1.35, sweep: 0.10, dihedral: 0 })
+  // Long skids carry the cabin, with upturned toes and cross tubes.
   for (const side of [-1, 1]) {
-    const x = side * 1.0
-    rod(mesh, 'chassis', [x, ground + 0.06, 2.4], [x, ground + 0.06, -0.9], 0.06)
-    rod(mesh, 'chassis', [x, ground + 0.06, 2.4], [x, ground + 0.4, 3.0], 0.06)
-    for (const z of [1.9, -0.4]) {
-      rod(mesh, 'engineMetal', [x, ground + 0.1, z], [side * 0.55, yc - cabinH / 2 + 0.05, z], 0.045)
+    const x = side * 1.04
+    rod(mesh, 'chassis', [x, ground + 0.055, -0.4], [x, ground + 0.055, 3.35], 0.055)
+    rod(mesh, 'chassis', [x, ground + 0.055, 3.35], [x, ground + 0.28, 3.85], 0.055)
+    for (const z of [0.23, 2.62]) {
+      rod(mesh, 'chassis', [x, ground + 0.08, z], [side * 0.79, -1.03, z - 0.10], 0.045)
+      rod(mesh, 'chassis', [side * 0.79, -1.03, z - 0.10], [0, -1.03, z - 0.10], 0.045)
+    }
+    rod(mesh, 'chassis', [side * 1.05, -1.1, 0.75], [side * 1.05, -1.1, 2.15], 0.035)
+    for (const z of [0.75, 2.15]) {
+      rod(mesh, 'chassis', [side * 1.05, -1.1, z], [side * 0.65, -0.96, z], 0.025, 8)
     }
   }
-  // The position lights on the cabin's sides, the beacon on the engine
-  // deck, the tail light at the fin's trailing edge
   mesh.lights = {
-    port: [cabinW / 2 + 0.2, yc + 0.1, 1.2],
-    starboard: [-cabinW / 2 - 0.2, yc + 0.1, 1.2],
-    tail: [0, 0.9, tail - 0.25],
-    beaconTop: [0, roofY + 0.8, -0.6],
-    beaconBottom: [0, yc - cabinH / 2 - 0.2, 1.5],
+    port: [1.12, -0.1, 1.2], starboard: [-1.12, -0.1, 1.2],
+    tail: [0, 0.3, -length / 2 - 0.25], beaconTop: [0, 1.42, -0.6],
+    beaconBottom: [0, -1.25, 1.5],
   }
   return mesh
 }

@@ -2248,8 +2248,8 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   side's offsets on the other is not a reflection (the first strip
   cockpit had mismatched heights on each side, 2026-09-12).
   `tests/aircraft-models.test.ts` checks the six connected panes, the
-  centre pillar and the mirrored normals. Rotors and propellers remain
-  translucent discs, the helicopter's tail rotor has an open shroud.
+  centre pillar and the mirrored normals. Rotors and propellers have shaped blades in a faint
+  translucent blur; the helicopter's tail rotor has an open shroud.
   Aircraft stay below 12,000
   triangles and 800 kB each (smaller types have a tighter budget; the
   merged primitive's colour and palette coordinate are 8 bytes a vertex,
@@ -2260,22 +2260,29 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   fixed. `e2e/aircraft.spec.ts` checks cruise → approach → climb on the
   actual loaded GLB as well as the navigation lights. Road and rail
   vehicle GLBs must stay byte-identical when changing these helpers.
-  The three small bodies were rebuilt on 2026-09-17 after the user found
-  them "lächerlich" beside the jets: the light single is the Cessna 172
-  (slab-sided cabin on a superellipse profile – `superProfile`, the
-  same thirty-two angles as `roundProfile`, so the glazing's sixteen
-  faces keep their meaning – the windscreen raked from the cowling to
-  the wing on its roof, the rear window round the back, struts, the
-  fixed gear on sprung legs, the propeller clear of the ground: its
-  disc reached six centimetres under the wheels at first), the
-  helicopter is Airbus's H140/H145 (nose glazed over its upper half,
-  the engine deck on the roof with intakes and exhausts, hub and blade
-  roots in the disc's blur, the fenestron in a big fin with the
-  stabiliser across its top, skids), and the turboprop is the ATR
-  72-600 (the jets' forebody and six-pane cockpit, long nacelles with
-  six-bladed propellers on pointed spinners, sponsons, a T-tail with a
-  dorsal fillet). The four jet GLBs came out byte-identical, which is
-  the proof that the shared helpers were not touched.
+  The three small bodies were rebuilt on 2026-09-17 against the user's
+  Cessna 172 and Airbus H140 photographs and ATR's official 72-600 side
+  elevation. `shapedShell` lofts independent crown, belly and width
+  stations; `shellPanel` clips window and paint contours against the
+  actual shell triangles in front, side or top elevation and mirrors
+  both geometry and winding. Do not return to angular glazing bands:
+  they made small windows into strips and the helicopter's nose into a
+  visor. The Cessna has a short full cowling, separate front/door/rear
+  panes, a constant-chord inboard wing, tapered outer panels, flat
+  sprung gear legs and restrained red stripes. The H140 has a sculpted
+  engine cowling, five full main blades, a T-tail and ten blades inside
+  an OPEN Fenestron: neither the boom nor a solid fin crosses its hole.
+  The ATR has a rounded radome, six cockpit panes, rounded rectangular
+  cabin windows, tapered nacelles, six swept propeller blades, integrated
+  gear sponsons and a continuous dorsal fillet. Use convex slabs for the
+  fillet's sections: a concave quad reverses a triangle and turns black.
+  `rotorBlur` is faint around the shaped blades; the jets' original
+  helpers and materials are unchanged. Render the actual GLBs from both
+  quarters, the side and above when revising a body; the dimensions test
+  alone did not catch the old long Cessna cowling or blocked Fenestron.
+  Keep all three below the existing 8,500-triangle/800-kB budgets and
+  mirror changed light anchors in AircraftLayer. Rebuilding the fleet
+  must leave every other GLB byte-identical.
 - **Lights.** [NavLights](src/map/NavLights.ts) is one
   PointPrimitiveCollection per layer, pooled, fed begin/add/commit per
   tick like the plumes; what is on comes from the clock alone
