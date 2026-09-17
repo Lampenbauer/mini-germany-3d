@@ -80,11 +80,16 @@ const TEXTURE_SCALE = 0.8
  */
 
 /**
- * Color grade at full strength. Toy models are painted plastic under a
- * hard light: more saturated and more contrasty than a hazy city seen
- * from a kilometer up. Both stay short of garish on purpose – the photo
- * tiles already carry their own grading (see TIME_OF_DAY_SHADER), and
- * pushing these further turns the night view into neon.
+ * Color grade at full strength, by day. Toy models are painted plastic
+ * under a hard light: more saturated and more contrasty than a hazy city
+ * seen from a kilometer up. Both stay short of garish on purpose – the
+ * photo tiles already carry their own grading (see TIME_OF_DAY_SHADER).
+ * At night the grade steps aside altogether (setNightLevel): the night
+ * has a grade of its own on the whole frame (NIGHT_GRADE in
+ * PhotoGradeEffect, which was arrived at with this one on top of it and
+ * carries it as its product), and this one stacked on that turned the
+ * night into neon. The vignette stays – it is the frame's, not the
+ * colour's.
  */
 const SATURATION = 1.35
 const CONTRAST = 1.15
@@ -440,6 +445,17 @@ export class TiltShiftEffect {
     }
     for (const stage of this.blurStages) stage.uniforms.u_highlightGain = settings.highlightGain
     this.gradeStage.uniforms.u_sharpen = settings.sharpen
+  }
+
+  /**
+   * How far into the night the frame is, 0 … 1: the grade fades to
+   * neutral with it (see SATURATION). Called on the map's sun ramp; the
+   * blur and the vignette are untouched.
+   */
+  setNightLevel(night: number): void {
+    const uniforms = this.gradeStage.uniforms
+    uniforms.u_saturation = SATURATION + (1 - SATURATION) * night
+    uniforms.u_contrast = CONTRAST + (1 - CONTRAST) * night
   }
 
   /**

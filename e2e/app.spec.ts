@@ -542,6 +542,14 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(1)
   await expect.poll(async () => (await lighthouses()).alpha, slowPoll).toBe(1)
   expect((await lighthouses()).shown).toBeGreaterThan(0)
+  // The night's grade on the whole frame (PhotoGradeEffect): its pass runs
+  // from dusk – compiled here, which proves its shader – and not by day
+  const nightGrade = () =>
+    page.evaluate(() => {
+      const stage = window.__cesiumViewer!.scene.postProcessStages.getStageByName('mg3d_photo_grade')
+      return { enabled: stage.enabled, ready: stage.ready }
+    })
+  await expect.poll(nightGrade, slowPoll).toEqual({ enabled: true, ready: true })
   // The turning optics (lib/lighthouse-beam.ts): Rostock has two – Warnemünde,
   // seven kilometres north of here and within the beams' reach, and Bastorf,
   // out of it. The Warnemünde lens at the clock's zero points north, out to
@@ -584,6 +592,7 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   await expect.poll(async () => (await buoys()).lightAlpha, slowPoll).toBe(0)
   await expect.poll(async () => (await lighthouses()).alpha, slowPoll).toBe(0)
   expect((await lighthouses()).beams).toBe(0)
+  expect((await nightGrade()).enabled).toBe(false)
   expect(await page.evaluate(() => window.__mg3d!.lastLoopError())).toBeNull()
 
   // The flat map, over the same water: offline it has no pictures (no

@@ -1,6 +1,6 @@
 import { type Cartesian3, type PostProcessStage, type Viewer } from 'cesium'
 import { describe, expect, it } from 'vitest'
-import { PhotoGradeEffect } from '@/map/PhotoGradeEffect'
+import { NIGHT_GRADE, PhotoGradeEffect } from '@/map/PhotoGradeEffect'
 import { DEFAULT_PHOTO_SETTINGS } from '@/lib/photo-settings'
 
 /**
@@ -56,5 +56,35 @@ describe('PhotoGradeEffect', () => {
     expect(stage.enabled).toBe(true)
     effect.setSettings(DEFAULT_PHOTO_SETTINGS)
     expect(stage.enabled).toBe(false)
+  })
+
+  it('grades the night on its own, with the knobs at neutral', () => {
+    const { effect, stage } = gradeHarness()
+    effect.setSettings(DEFAULT_PHOTO_SETTINGS)
+    effect.setNightLevel(1)
+    expect(effect.enabled).toBe(true)
+    expect(stage.uniforms.u_contrast).toBe(NIGHT_GRADE.contrast)
+    expect(stage.uniforms.u_saturation).toBe(NIGHT_GRADE.saturation)
+    // The rest of the grade stays as rendered
+    expect(stage.uniforms.u_exposure).toBe(1)
+    expect(stage.uniforms.u_vignette).toBe(0)
+    // Halfway along the ramp, halfway there; by day the pass is off again
+    effect.setNightLevel(0.5)
+    expect(stage.uniforms.u_contrast).toBeCloseTo(1 + (NIGHT_GRADE.contrast - 1) / 2)
+    expect(stage.uniforms.u_saturation).toBeCloseTo(1 + (NIGHT_GRADE.saturation - 1) / 2)
+    effect.setNightLevel(0)
+    expect(effect.enabled).toBe(false)
+  })
+
+  it('lays the knobs over the night grade, in whichever order they come', () => {
+    const { effect, stage } = gradeHarness()
+    effect.setNightLevel(1)
+    effect.setSettings({ ...DEFAULT_PHOTO_SETTINGS, contrast: 1.2, saturation: 0.5 })
+    expect(stage.uniforms.u_contrast).toBeCloseTo(1.2 * NIGHT_GRADE.contrast)
+    expect(stage.uniforms.u_saturation).toBeCloseTo(0.5 * NIGHT_GRADE.saturation)
+    // Knobs back at neutral at night: the pass stays on for the night's grade
+    effect.setSettings(DEFAULT_PHOTO_SETTINGS)
+    expect(effect.enabled).toBe(true)
+    expect(stage.uniforms.u_contrast).toBe(NIGHT_GRADE.contrast)
   })
 })

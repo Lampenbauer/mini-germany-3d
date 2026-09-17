@@ -305,6 +305,12 @@ declare global {
         primitives: { length: number; get: (index: number) => { id?: unknown; ready?: boolean } }
         /** The globe under the flat map (see CesiumMap.applyFlatGlobe). */
         globe: { show: boolean; depthTestAgainstTerrain: boolean }
+        /**
+         * The post-process passes by name – `mg3d_photo_grade` is the
+         * photo grade's, which also carries the night's (see
+         * PhotoGradeEffect); a stage is ready once its shader compiled.
+         */
+        postProcessStages: { getStageByName: (name: string) => { enabled: boolean; ready: boolean } }
       }
       entities: {
         values: {

@@ -1,11 +1,12 @@
 /**
  * The photo grade: exposure, white balance, contrast, saturation and a
  * vignette, applied to the finished frame the way a camera's picture
- * settings are applied to what its sensor captured.
+ * settings are applied to what its sensor captured – and the night's own
+ * grade under them (NIGHT_GRADE), which comes up with the sun's ramp.
  *
- * One full-size pass with a handful of multiplies, and none at all at the
- * neutral settings: the stage is disabled then, and a disabled stage
- * frees its texture and skips its draw. It sits in front of the
+ * One full-size pass with a handful of multiplies, and none at all by day
+ * at the neutral settings: the stage is disabled then, and a disabled
+ * stage frees its texture and skips its draw. It sits in front of the
  * miniature effect (see CesiumMap – stages run in the order they are
  * added), so a raised exposure blows its highlights into that effect's
  * bokeh the way a brighter capture would, rather than brightening an
@@ -18,7 +19,31 @@
  */
 
 import { Cartesian3, PostProcessStage, PostProcessStageSampleMode, type Viewer } from 'cesium'
-import { isNeutralGrade, whiteBalanceGain, type PhotoGrade } from '@/lib/photo-settings'
+import {
+  DEFAULT_PHOTO_SETTINGS,
+  isNeutralGrade,
+  whiteBalanceGain,
+  type PhotoGrade,
+} from '@/lib/photo-settings'
+
+/**
+ * The night's grade at full night, multiplied into the knobs' values as
+ * the sun's ramp brings it up: a little more contrast about mid-grey and
+ * a little less colour than the frame is rendered with. The tiles'
+ * time-of-day shader tints and desaturates the photographed daylight into
+ * a blue night, and on its own that night came out pale and flat – the
+ * user found the look (2026-09-17) in the photo popover with the
+ * miniature effect on: its toy-plastic grade (saturation 1.35, contrast
+ * 1.15, see TiltShiftEffect) and −30 saturation and −3 contrast on the
+ * knobs over it. Saturation and contrast in this order commute into one
+ * product, so the two are folded into these numbers, and the miniature's
+ * own grade steps aside at night rather than stacking on them (see
+ * TiltShiftEffect.setNightLevel) – the night looks the same with the
+ * effect on or off. The contrast is what darkens: a night frame lies
+ * almost wholly under mid-grey, and the slope pushes it down while the
+ * lamps and the lit windows over it come up.
+ */
+export const NIGHT_GRADE = { contrast: 1.12, saturation: 0.95 }
 
 const GRADE_SHADER = `
 uniform sampler2D colorTexture;
@@ -57,6 +82,9 @@ void main()
 
 export class PhotoGradeEffect {
   private readonly stage: PostProcessStage
+  private grade: PhotoGrade = DEFAULT_PHOTO_SETTINGS
+  /** The night ramp, 0 = day … 1 = full night (see CesiumMap.updateNightFactor). */
+  private night = 0
 
   constructor(viewer: Viewer) {
     this.stage = new PostProcessStage({
@@ -75,7 +103,7 @@ export class PhotoGradeEffect {
     viewer.scene.postProcessStages.add(this.stage)
   }
 
-  /** Whether the pass runs at all – false at the neutral settings. */
+  /** Whether the pass runs at all – false by day at the neutral settings. */
   get enabled(): boolean {
     return this.stage.enabled
   }
@@ -85,14 +113,31 @@ export class PhotoGradeEffect {
    * grade would leave the frame as it is.
    */
   setSettings(grade: PhotoGrade): void {
-    const active = !isNeutralGrade(grade)
+    this.grade = grade
+    this.apply()
+  }
+
+  /**
+   * How far into the night the frame is, 0 … 1: NIGHT_GRADE comes up
+   * with it under whatever the knobs say. Called on the map's sun ramp,
+   * which moves about once a simulated minute.
+   */
+  setNightLevel(night: number): void {
+    if (night === this.night) return
+    this.night = night
+    this.apply()
+  }
+
+  private apply(): void {
+    const { grade, night } = this
+    const active = night > 0 || !isNeutralGrade(grade)
     this.stage.enabled = active
     if (!active) return
     const uniforms = this.stage.uniforms
     uniforms.u_exposure = Math.pow(2, grade.exposureEv)
     uniforms.u_whiteBalance = Cartesian3.fromArray(whiteBalanceGain(grade.whiteBalanceK))
-    uniforms.u_contrast = grade.contrast
-    uniforms.u_saturation = grade.saturation
+    uniforms.u_contrast = grade.contrast * (1 + (NIGHT_GRADE.contrast - 1) * night)
+    uniforms.u_saturation = grade.saturation * (1 + (NIGHT_GRADE.saturation - 1) * night)
     uniforms.u_vignette = grade.vignette
   }
 }

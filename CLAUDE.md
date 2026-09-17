@@ -423,6 +423,32 @@ one grid cell so its width does not change with the word on it, and the
 timeline beside it stays put. `tests/photo-mode-popover.test.tsx` holds
 the bar's tests beside the popover's – one jsdom file for one feature.
 
+**The night is graded on the whole frame, and the miniature's colour
+steps aside for it (since 2026-09-17).** The tiles' time-of-day shader
+tints and desaturates the photographed daylight into a blue night, and on
+its own that night was pale and flat – the user found the look wanted in
+the photo popover with the miniature effect on: its toy-plastic grade
+(saturation 1.35, contrast 1.15) and −30 saturation and −3 contrast on
+the knobs over it. So `NIGHT_GRADE` in
+[PhotoGradeEffect.ts](src/map/PhotoGradeEffect.ts) (contrast 1.12,
+saturation 0.95 – the two steps folded into one product, which saturation
+followed by contrast about mid-grey allows exactly) is multiplied into
+the knobs' values along the map's sun ramp (`updateNightFactor`, the
+lamps' ramp), and the photo grade's pass runs at night whatever the knobs
+say – one full-size pass of a handful of multiplies, the same the knobs
+cost, off by day at neutral. The miniature's own grade
+(`TiltShiftEffect.setNightLevel`) fades to neutral along the same ramp
+and keeps its blur and vignette, so the night looks the same with the
+effect on or off; stacked, it was the neon the comment there had warned
+of. Measured over Rostock at 23:00 on the real tiles (headed Chrome, a
+rainy night): mean luminance 34 → 23 of 255, spread 16 → 18. The contrast
+is what darkens: a night frame lies almost wholly under mid-grey. A
+night's brightness or colour is tuned in those two numbers, not in the
+tile shader's `nightTint`, which the beams' block reads too.
+`tests/photo-grade.test.ts` and `tests/tilt-shift.test.ts` pin the two
+ramps, `e2e/app.spec.ts` sees the pass compiled and on at 23:00 and off
+at noon.
+
 **The three readings at the foot of the map are a radio group, not
 tabs.** They were Radix `Tabs` until 2026-09-11, for the look and the
 keyboard, but a tab controls a panel and these swap what the whole map

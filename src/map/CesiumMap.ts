@@ -3338,6 +3338,9 @@ export class CesiumMap {
     const night = 1 - t * t * (3 - 2 * t) // smoothstep
     if (Math.abs(night - this.nightFactor) < 0.01 && night !== 0) return
     this.nightFactor = night
+    // The night's grade on the frame comes up, the miniature's steps aside
+    this.grade.setNightLevel(night)
+    this.tiltShift.setNightLevel(night)
     this.vehicleLayer.applyNightFactor(night)
     this.vesselLayer.applyNightFactor(night)
     this.aircraftLayer.applyNightFactor(night)

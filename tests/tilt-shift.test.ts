@@ -191,4 +191,26 @@ describe('TiltShiftEffect settings', () => {
     expect(composite.enabled).toBe(false)
     expect(effect.enabled).toBe(false)
   })
+
+  it('takes its colour grade back at night and keeps the vignette', () => {
+    // The night has a grade of its own on the whole frame (NIGHT_GRADE in
+    // PhotoGradeEffect); this one on top of it turned the night into neon
+    const { effect, passes } = effectHarness()
+    const day = {
+      saturation: passes.grade.uniforms.u_saturation as number,
+      contrast: passes.grade.uniforms.u_contrast as number,
+      vignette: passes.grade.uniforms.u_vignette as number,
+    }
+    expect(day.saturation).toBeGreaterThan(1)
+    expect(day.contrast).toBeGreaterThan(1)
+    effect.setNightLevel(1)
+    expect(passes.grade.uniforms.u_saturation).toBe(1)
+    expect(passes.grade.uniforms.u_contrast).toBe(1)
+    expect(passes.grade.uniforms.u_vignette).toBe(day.vignette)
+    effect.setNightLevel(0.5)
+    expect(passes.grade.uniforms.u_saturation).toBeCloseTo((1 + day.saturation) / 2)
+    effect.setNightLevel(0)
+    expect(passes.grade.uniforms.u_saturation).toBe(day.saturation)
+    expect(passes.grade.uniforms.u_contrast).toBe(day.contrast)
+  })
 })
