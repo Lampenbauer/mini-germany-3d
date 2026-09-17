@@ -92,6 +92,9 @@ export const MATERIALS = {
   buoyYellow: { color: [0.86, 0.66, 0.1, 1], metallic: 0.05, roughness: 0.65 },
   buoyDark: { color: [0.11, 0.11, 0.115, 1], metallic: 0.05, roughness: 0.85 },
   buoyLantern: { color: [0.5, 0.52, 0.53, 1], metallic: 0.35, roughness: 0.45 },
+  /** Road vehicle lamps; luminance stays above the cabin-glow cutoff. */
+  vehicleRed: { color: [0.50, 0.035, 0.025, 1], metallic: 0.1, roughness: 0.24 },
+  vehicleAmber: { color: [0.80, 0.35, 0.035, 1], metallic: 0.1, roughness: 0.24 },
 }
 
 /**

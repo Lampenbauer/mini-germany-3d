@@ -7,7 +7,7 @@
  * The GLBs are committed (like the generated network data), so a normal
  * checkout needs neither this script nor a build step – it exists to
  * regenerate the fleet after editing scripts/lib/vehicle-fleet.mjs,
- * vessel-fleet.mjs, aircraft-fleet.mjs or buoy-fleet.mjs.
+ * bus-model.mjs, vessel-fleet.mjs, aircraft-fleet.mjs or buoy-fleet.mjs.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'

@@ -195,15 +195,16 @@ describe('the generated fleet', () => {
         // (window panes ride 2 cm proud), height centered on the origin
         expect(max[2] - min[2]).toBeGreaterThan(expected.length - 0.1)
         expect(max[2] - min[2]).toBeLessThan(expected.length + 0.3)
-        expect(max[0] - min[0]).toBeLessThan(expected.width + 0.1)
+        // A bus body is 2.55 m wide; its mirrors extend beyond the body.
+        expect(max[0] - min[0]).toBeLessThan(expected.width + (name === 'bus' ? 0.55 : 0.1))
         expect(max[1]).toBeLessThanOrEqual(expected.height / 2 + 1e-6)
         expect(min[1]).toBeCloseTo(-expected.height / 2, 5)
       })
 
       it('stays within its geometry and file-size budget', () => {
         const ferry = name.startsWith('ferry-')
-        expect(triangleCount(mesh)).toBeLessThan(ferry ? 4500 : 800)
-        expect(glb.byteLength).toBeLessThan((ferry ? 240 : 64) * 1024)
+        expect(triangleCount(mesh)).toBeLessThan(ferry || name === 'bus' ? 4500 : 800)
+        expect(glb.byteLength).toBeLessThan((name === 'bus' ? 300 : ferry ? 240 : 64) * 1024)
       })
 
       it('is a well-formed binary glTF', () => {
@@ -343,7 +344,7 @@ describe('the generated fleet', () => {
   it('exports finite unit normals agreeing with the triangle winding across the detailed fleets', () => {
     // Smooth normals and concave engine intakes cannot be checked against
     // the model's centroid. Check against each triangle's own winding.
-    for (const [name, build] of Object.entries({ ...AIRCRAFT, ...VESSELS, 'ferry-fg': FLEET['ferry-fg'], 'ferry-fw': FLEET['ferry-fw'] })) {
+    for (const [name, build] of Object.entries({ ...AIRCRAFT, ...VESSELS, bus: FLEET.bus, 'ferry-fg': FLEET['ferry-fg'], 'ferry-fw': FLEET['ferry-fw'] })) {
       const mesh = build()
       let invalid = 0
       for (const part of [mesh, ...Object.values(mesh.parts)]) for (const g of part.groups.values()) {
@@ -362,6 +363,15 @@ describe('the generated fleet', () => {
         }
       }
       expect(invalid, name).toBe(0)
+    }
+  })
+
+  it('limits the bus night glow to glazing, including after palette quantization', () => {
+    for (const name of FLEET.bus().groups.keys()) {
+      const color = MATERIALS[name as keyof typeof MATERIALS].color
+      const luminance = color.slice(0, 3).reduce((sum, value, i) =>
+        sum + Math.round(value * 255) / 255 * [0.2126, 0.7152, 0.0722][i], 0)
+      expect(luminance < 0.075, name).toBe(name === 'glass')
     }
   })
 

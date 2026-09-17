@@ -27,11 +27,11 @@ import {
   extrude,
   pantograph,
   quad,
-  wheel,
   windowBand,
 } from './vehicle-mesh.mjs'
 
 import { ellipsoid, mergeMesh, rod, roundedBox, smoothSurface } from './model-detail.mjs'
+import { detailedBus } from './bus-model.mjs'
 
 /** Round bilges and a fuller transition to each end of a double-ended ferry. */
 function ferryHull(mesh, { length, width, yBase, deck, taper, end, material }) {
@@ -97,9 +97,7 @@ function carShell(mesh, { length, width, bodyTop, floor, noseFront, noseBack, be
   // For rail vehicles it reaches within 2 cm of the wheel plane (the
   // bogies alone touch the rail – and two chassis faces sharing the
   // exact wheel plane were one of the coplanar double-draws the fleet
-  // test now rejects). A road vehicle passes a real `clearance` instead:
-  // a bus with its skirt at the asphalt reads as a tram, daylight under
-  // the floor and visible wheels are what make it read as a bus.
+  // test now rejects). The bus uses its own shell with open wheel arches.
   const skirtBottom = yBase + clearance
   const skirtHeight = skirtTop + 0.36 - skirtBottom
   box(mesh, 'chassis', 0, skirtBottom + skirtHeight / 2, 0, width - 0.24, skirtHeight, length - 0.1)
@@ -275,65 +273,9 @@ export function sbahnMid() {
   return mesh
 }
 
-/** 12 m rigid city bus. */
+/** Detailed 12 m low-floor city bus; the rail fleet keeps its original helpers. */
 export function bus() {
-  const mesh = createMesh()
-  const H = HEIGHTS.bus
-  const yBase = -H / 2
-  const width = 2.55
-  const length = 12
-  // The cabin sits higher than the rail vehicles' and the skirt stops
-  // well short of the road: ~32 cm of daylight under the floor, wheels
-  // filling it at the axles, is the difference between a bus and a tram
-  // that lost its rails.
-  const floor = yBase + 0.9
-  const bodyTop = yBase + 2.95
-  carShell(mesh, {
-    length,
-    width,
-    bodyTop,
-    floor,
-    yBase,
-    bevel: 0.14,
-    clearance: 0.32,
-    noseFront: { length: 0.7, sx: 0.88, sy: 0.97 },
-    noseBack: { length: 0.5, sx: 0.92, sy: 0.98 },
-  })
-  const winTop = bodyTop - 0.22
-  const winBottom = floor + 0.5
-  // Citaro-style door layout: front door in the front overhang by the
-  // driver, middle door behind the front axle. The old front door stood
-  // exactly OVER the axle – invisible while the wheels were hidden
-  // boxes, absurd once they showed.
-  const frontDoorZ = length / 2 - 1.65
-  const midDoorZ = -length / 2 + 4.2
-  windowBand(mesh, width, winBottom, winTop, -length / 2 + 0.7, length / 2 - 1.5, {
-    panes: 4,
-    holes: [doorHole(frontDoorZ, 1.15, RIGHT), doorHole(midDoorZ, 1.15, RIGHT)],
-  })
-  doors(mesh, width, floor - 0.35, winTop, frontDoorZ, 1.15, RIGHT)
-  doors(mesh, width, floor - 0.35, winTop, midDoorZ, 1.15, RIGHT)
-  // Two axles of visible wheels, tucked into the clearance under the
-  // skirt like into wheel arches. Front axle behind the front door,
-  // rear axle clear of the middle door – a plausible 12 m wheelbase.
-  for (const z of [length / 2 - 2.8, -length / 2 + 2.9]) {
-    for (const side of [-1, 1]) {
-      wheel(mesh, side * (width / 2 - 0.235), yBase + 0.5, z, 0.5, 0.3, side)
-    }
-  }
-  // Roof AC pod – flat enough to stay inside the configured 3.1 m, its
-  // base sunk 1 cm into the roof sheet so the two never share a plane
-  box(mesh, 'roof', 0, bodyTop + 0.075, -0.8, width * 0.68, 0.13, 3.4)
-  // Rear engine tower hint: dark grille panel across the tail
-  quad(
-    mesh,
-    'chassis',
-    [width * 0.35, floor - 0.2, -length / 2 - 0.011],
-    [width * 0.35, bodyTop - 0.75, -length / 2 - 0.011],
-    [-width * 0.35, bodyTop - 0.75, -length / 2 - 0.011],
-    [-width * 0.35, floor - 0.2, -length / 2 - 0.011],
-  )
-  return mesh
+  return detailedBus(HEIGHTS.bus)
 }
 
 /**

@@ -1,8 +1,8 @@
 /**
- * Curved surfaces and small fittings for the ships and the aircraft:
+ * Curved surfaces and small fittings for ships, aircraft and the bus:
  * smooth-shaded shells, pipes, bevelled boxes, ellipsoids. Metres, Y-up,
  * on the same mesh and material model as vehicle-mesh.mjs – and kept
- * apart from it on purpose: the road and rail vehicles are built from
+ * apart from it on purpose: the rail vehicles are built from
  * the flat-shaded helpers there alone, and their GLBs have to come out
  * byte-identical through any change here (tests/vehicle-models.test.ts
  * pins the fleets' bounds, the build is byte-stable – rebuild and cmp).

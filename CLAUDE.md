@@ -1251,6 +1251,21 @@ funnel anchors, navigation lights and waterline origins remain unchanged.
 The geometry tests budget 36,000 triangles for the container ship, 18,000
 for the passenger ship, 8,500 for the other AIS craft and 4,500 for a ferry.
 
+Since 2026-09-17 the scheduled bus is a detailed 12 m low-floor city bus
+inspired by the Mercedes-Benz Citaro (`scripts/lib/bus-model.mjs`). It has
+rounded front/rear shells, glazing clipped to their actual triangles,
+open wheel arches, rounded tyres and rims, two glazed doors on -X (the
+right side with +Z forward), mirrors, wipers, lights, engine grilles and
+a roof air-conditioning pod. Keep the rims plain and concentric, without
+bolts or ventilation holes that would reveal the unanimated wheels.
+The 12 × 2.55 × 3.1 m body reference and
+road contact at -height/2 remain; only the mirrors exceed the body width.
+Keep it below 4,500 triangles and 300 kB, in one opaque primitive. Only
+`glass` may fall below VehicleLayer's 0.075 window-glow luminance cutoff:
+tyres, seals, grilles and the red/amber lamps must stay above it. The
+body still takes the runtime's line-colour tint. Rebuild twice to check
+determinism and compare all other GLBs byte-for-byte when changing it.
+
 **One primitive per part (since 2026-09-13).** A mesh is still built as
 one triangle soup per material, but `toGlb` writes every opaque group
 of a part into ONE glTF primitive: the material's colour becomes a
