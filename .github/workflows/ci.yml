@@ -29,7 +29,7 @@ on:
         type: boolean
         default: false
       refresh_osm:
-        description: 'Also refresh OSM network, terrain heights and street lamps (otherwise Sunday only)'
+        description: 'Also refresh the OSM data: network and terrain heights (otherwise Sunday only), lamps, airfield lights, buoys and lighthouses (otherwise the first Sunday of the month only)'
         type: boolean
         default: false
       deploy_preview:
@@ -42,8 +42,9 @@ on:
         default: false
   schedule:
     # Nightly data refresh: GTFS schedule every night, OSM network and
-    # terrain heights only once a week (see the refresh step), then the
-    # full test/build/deploy pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
+    # terrain heights only once a week, the lights and seamarks once a
+    # month (see the refresh step), then the full test/build/deploy
+    # pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
     - cron: '30 2 * * *'
 
 permissions:
@@ -177,8 +178,27 @@ jobs:
           # (Sunday night) to spare the public Overpass mirrors, or when a
           # manual run asks for it. A failed fetch (mirrors overloaded or
           # unreachable) keeps the previous network data and must not
-          # block the GTFS refresh.
+          # block the GTFS refresh. The lamps, the airfield lights, the
+          # buoys and the lighthouses change slower still – mapped once,
+          # touched rarely – and the lamps step is the one that runs into
+          # Overpass's rate limits, so those four go only on the first
+          # Sunday of the month (or on request). Nothing is lost between:
+          # every file is byte-stable, a run that fetched nothing new
+          # commits nothing, and a month's wait is for a change nobody
+          # would see sooner.
+          refresh_network=false
+          refresh_lights=false
           if [ "$(date +%u)" -eq 7 ] || [ "$FORCE_OSM" = "true" ]; then
+            refresh_network=true
+            # %-d: no leading zero, which [ ] would read but [[ ]] would not
+            if [ "$(date +%-d)" -le 7 ] || [ "$FORCE_OSM" = "true" ]; then refresh_lights=true; fi
+          fi
+          if [ "$refresh_network" = "true" ]; then
+            if [ "$refresh_lights" = "true" ]; then
+              echo "OSM refresh: network, heights, lamps, airfield lights, buoys and lighthouses (first Sunday of the month, or on request)"
+            else
+              echo "OSM refresh: network and heights (the lights and seamarks go on the first Sunday of the month)"
+            fi
             for city in $cities; do
               if npm run data:update -- --city "$city"; then
                 npm run data:simplify -- --city "$city"
@@ -189,6 +209,8 @@ jobs:
                 # the routes onto the 3D tiles – worse GPU load, but correct.
                 git show "HEAD:src/cities/$city/network.json" > "$RUNNER_TEMP/network-prev.json" || true
                 PREV_NETWORK="$RUNNER_TEMP/network-prev.json" npm run data:heights -- --city "$city" || echo "::warning::$city: route height refresh failed – routes fall back to ground clamping."
+                # The monthly tier – the next city otherwise
+                [ "$refresh_lights" = "true" ] || continue
                 # Street lamps along the refreshed routes (OSM + the same
                 # terrain tiles). PREV_LAMPS reuses the committed heights for
                 # lamps that did not move, so tiles are only fetched for new ones.
@@ -214,7 +236,7 @@ jobs:
               fi
             done
           else
-            echo "OSM network refresh skipped – runs Sunday night, or on request via refresh_osm."
+            echo "OSM refresh skipped – runs Sunday night (the lights and seamarks on the first Sunday of the month), or on request via refresh_osm."
           fi
           # The GTFS feed is downloaded once (scripts/.cache – or restored
           # from the cache above) and scanned per city. A city without trips

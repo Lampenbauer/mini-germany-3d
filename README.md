@@ -969,16 +969,20 @@ rsync/SSH to the all-inkl webhosting (Apache + PHP) at
    changed no departure is byte-identical and skips tests, build and
    deploy – the service day each city was cut from goes into the data
    commit's message instead. The rarely changing OSM geometry (`data:update` + `data:simplify` +
-   `data:heights` + `data:lamps` + `data:airfield-lights` + `data:buoys` + `data:lighthouses`, city by city) is
-   only refreshed once a week (Sunday night). Route directions whose geometry
+   `data:heights`, city by city) is only refreshed once a week (Sunday
+   night), and the slower still – the street lamps, the airfield lights,
+   the buoys and the lighthouses (`data:lamps` + `data:airfield-lights` +
+   `data:buoys` + `data:lighthouses`, mapped once and touched rarely; the
+   lamps are the query Overpass rate-limits) – only on the first Sunday of
+   the month. Route directions whose geometry
    is unchanged reuse the committed terrain heights (`PREV_NETWORK`), and
    lamps and airfield lights that did not move reuse theirs (`PREV_LAMPS`,
    `PREV_AIRFIELD_LIGHTS`), so tiles are only fetched for actual changes
    – unless the terrain attribution in `city.json` changed, which samples the
    whole city afresh once.
    The same refresh can be started by hand from the Actions tab (`Run
-   workflow` → `refresh_data` for the schedules, `refresh_osm` for the weekly
-   OSM/height/lamp part). One city's failed fetch (overloaded mirrors, no
+   workflow` → `refresh_data` for the schedules, `refresh_osm` for the whole
+   OSM part, the monthly tier included). One city's failed fetch (overloaded mirrors, no
    trips in the feed) keeps that city's previous data with a workflow warning
    and does not block the others. Only if the full test suite passes on the
    refreshed datasets is the result deployed and the new `src/cities/*/*.json`

@@ -29,9 +29,13 @@ are *not* modelled: Rostock's construction reroutes (line 1) and split routes
 (line 5) during the Werftdreieck works still run on their normal alignment.
 
 **The data pipeline runs in CI, never locally.** The nightly workflow
-([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC; OSM only on
-Sunday nights, GTFS every night) refreshes the committed data files on a free
-hosted runner. Never design a step that needs a local run, a pre-downloaded
+([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC; GTFS
+every night, the OSM network and its heights on Sunday nights, the lamps,
+airfield lights, buoys and lighthouses only on the first Sunday of the
+month – since 2026-09-17, to spare Overpass the lamps query, which is the
+one that hits its rate limits, for data that is mapped once and touched
+rarely; `refresh_osm` by hand does all of it) refreshes the committed
+data files on a free hosted runner. Never design a step that needs a local run, a pre-downloaded
 extract or a cache on disk. Prefer on-demand fetching with in-memory caches,
 keep memory modest (a few hundred MB), and make regenerated files byte-stable
 across reruns so the "anything new?" short-circuit still works. Byte-stable
@@ -959,8 +963,9 @@ ICAO gives the kind unless `light:colour` says otherwise, and the
 apron's floodlight masts (`tower:type=lighting`, inside the
 `aeroway=aerodrome` polygons only, via `map_to_area` – a stadium's
 masts burn on match nights) as the kind `flood`, with a terrain height
-like the lamps', into `airfield-lights.json`; Sunday nights with the
-rest of the OSM data, heights reused through `PREV_AIRFIELD_LIGHTS`.
+like the lamps', into `airfield-lights.json`; the first Sunday of the
+month with the lamps and the seamarks, heights reused through
+`PREV_AIRFIELD_LIGHTS`.
 Counted 2026-09-13, per box – the 15 km boxes of that morning; the
 20 km ones since reach more (all of Laage in Rostock's, Parchim in
 Schwerin's) from the first OSM run after: Frankfurt ~10 200, Berlin
@@ -1018,8 +1023,8 @@ preferred-channel marks, the white bathing spheres and the beacons
 stay out, and `classifyBuoy` is where to widen it – with their shape
 (`seamark:<type>:shape`; no model for it → the pillar buoy when lit,
 the spar otherwise) and light (colour, character, period, kept for a
-flashing rule one day) into `buoys.json`, Sunday nights with the rest,
-no heights (`PREV_BUOYS` only guards against a half-synced mirror).
+flashing rule one day) into `buoys.json`, the first Sunday of the month
+with the lamps and the lights, no heights (`PREV_BUOYS` only guards against a half-synced mirror).
 The models are the buoy fleet in `scripts/lib/buoy-fleet.mjs` – six
 shapes in three colours, 18 GLBs of 3–22 kB, baked colours rather than
 a runtime tint so a lantern stays grey – with the origin ON THE
