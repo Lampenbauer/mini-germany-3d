@@ -28,17 +28,23 @@ suspended for track works. Known gaps that follow from the same principle and
 are *not* modelled: Rostock's construction reroutes (line 1) and split routes
 (line 5) during the Werftdreieck works still run on their normal alignment.
 
-**The data pipeline runs in CI, never locally.** The nightly workflow
+**The data pipeline is built for the CI runner, and may be run locally
+when a result is wanted now.** The nightly workflow
 ([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC; GTFS
 every night, the OSM network and its heights on Sunday nights, the lamps,
 airfield lights, buoys and lighthouses only on the first Sunday of the
 month – since 2026-09-17, to spare Overpass the lamps query, which is the
 one that hits its rate limits, for data that is mapped once and touched
 rarely; `refresh_osm` by hand does all of it) refreshes the committed
-data files on a free hosted runner. Never design a step that needs a local run, a pre-downloaded
-extract or a cache on disk. Prefer on-demand fetching with in-memory caches,
-keep memory modest (a few hundred MB), and make regenerated files byte-stable
-across reruns so the "anything new?" short-circuit still works. Byte-stable
+data files on a free hosted runner, and that runner is what every step
+is designed for: never a step that needs a pre-downloaded extract or a
+cache on disk – prefer on-demand fetching with in-memory caches, keep
+memory modest (a few hundred MB), and make regenerated files byte-stable
+across reruns so the "anything new?" short-circuit still works. A local
+run of a step (`npm run data:<step> -- --city <slug>`, with the `PREV_*`
+file from HEAD as ci.yml passes it) is fine when the user asks for it –
+the lighthouses on 2026-09-16, the whole monthly tier on 2026-09-17 –
+and its files are committed like the nightly run's. Byte-stable
 means no date of any shape in the file: the schedule's chosen service day
 (`meta.serviceDate`, GTFS's dashless `20260910`) slipped past the
 meta-date test and set the full pipeline going nearly every night for four
@@ -1138,10 +1144,9 @@ sectors) turn nothing. Four towers turn: Warnemünde and Bastorf,
 Friedrichsort, Travemünde; Hamburg's, Bremen's and Wilhelmshaven's
 lights are leading and fixed lights, none turns. `seamark:light:period` and `:group` ride in
 the sector tuple since (elements five and six, absent in an older
-file), fetched by `data:lighthouses` – run locally once on 2026-09-16 at
+file), fetched by `data:lighthouses` – run locally on 2026-09-16 at
 the user's request so the towers turned that day rather than after the
-Sunday run; the exception to "the pipeline runs in CI, never locally",
-made once, not a habit. Two things draw a beam
+Sunday run. Two things draw a beam
 ([LighthouseBeams.ts](src/map/LighthouseBeams.ts)): a shaft in the air,
 one instanced DrawCommand after the smoke's pattern (a strip along the
 beam turning its face to the camera, additive, render pass only, the
