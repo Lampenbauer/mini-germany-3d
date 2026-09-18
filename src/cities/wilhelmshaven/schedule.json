@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "gtfs",
-    "serviceCount": 3,
+    "serviceCount": 4,
     "attribution": "Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.",
     "note": "Feed without direction_id – directions assigned via terminal stop coordinates/headsigns."
   },
@@ -974,18 +974,18 @@
           22920
         ],
         "tripIds": [
-          "140431",
-          "396945"
+          "392972",
+          "1369407"
         ]
       },
       "1": {
         "departures": [
-          56220,
-          59820
+          44220,
+          47820
         ],
         "tripIds": [
-          "869821",
-          "562028"
+          "139950",
+          "938183"
         ]
       }
     },
