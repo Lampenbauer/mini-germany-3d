@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import berlinScheduleJson from '@/cities/berlin/schedule.json'
 
 /**
@@ -80,9 +80,9 @@ describe('the Berlin dataset', () => {
     // BVG bus network would add.
     expect(snapshots.length).toBeGreaterThan(400)
     expect(snapshots.length).toBeLessThan(2000)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['U1', 'U5', 'S41', 'S42', 'M4', 'M10', '100']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

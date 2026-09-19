@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/schwerin/schedule.json'
 import lampsJson from '@/cities/schwerin/street-lamps.json'
 
@@ -99,9 +99,9 @@ describe('the Schwerin dataset', () => {
     // a city of 100 000 with four tram lines.
     expect(snapshots.length).toBeGreaterThan(20)
     expect(snapshots.length).toBeLessThan(150)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '2', '3', '4']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

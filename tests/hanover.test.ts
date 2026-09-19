@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/hanover/schedule.json'
 import lampsJson from '@/cities/hanover/street-lamps.json'
 
@@ -99,9 +99,9 @@ describe('the Hanover dataset', () => {
     // Measured 184 at 08:30, half of them Stadtbahn.
     expect(snapshots.length).toBeGreaterThan(120)
     expect(snapshots.length).toBeLessThan(500)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '3', '4', '7', '9', '10']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

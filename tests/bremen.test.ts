@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import bremenScheduleJson from '@/cities/bremen/schedule.json'
 import bremenLampsJson from '@/cities/bremen/street-lamps.json'
 
@@ -107,9 +107,9 @@ describe('the Bremen dataset', () => {
     // Measured 223 at 08:30 – two thirds of Rostock, a third of it trams.
     expect(snapshots.length).toBeGreaterThan(150)
     expect(snapshots.length).toBeLessThan(600)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '2', '4', '6', '10', 'RS1', '26', '90']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
     // The night lines run in the weekend nights only – the feed's Friday
     // carries them as its small hours – so they are out at a quarter past

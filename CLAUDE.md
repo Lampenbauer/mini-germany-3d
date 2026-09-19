@@ -64,6 +64,20 @@ the runner, ten minutes a night for a minute's work (found
 2026-09-19). A city that fails keeps its schedule with a warning
 annotation; the step fails only when every city did.
 
+**A city test pins a line as running that day, not as on the road at
+one second.** The twelve `tests/<slug>.test.ts` read their line set
+from `linesOutInTheMorning` in [tests/cities.ts](tests/cities.ts) – the
+hour from 08:00 sampled every five minutes – and keep the 08:30
+snapshot for the fleet size alone. The nightly run of 2026-09-19 failed
+on Berlin's 100 at 08:30:00: the feed's busiest day of the three weeks
+ahead was the Friday of the Marathon weekend, on which the 100 is a
+3 km shuttle Zoo ↔ Nordische Botschaften (the trips carry `spans`), 11
+minutes on a 15-minute headway, and both directions were between trips
+at that second – the data was right, the pin was too sharp. A new
+city's test uses the helper; a line absent from it on the chosen day is
+a fact to look at in the feed's calendar, not a reason to widen the
+window.
+
 **Typecheck with `npm run typecheck`** (= `tsc -b`), never `npx tsc --noEmit`.
 The root tsconfig is solution-style with project references; the `--noEmit`
 shortcut skips [tsconfig.app.json](tsconfig.app.json), which is what includes

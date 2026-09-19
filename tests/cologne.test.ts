@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import cologneScheduleJson from '@/cities/cologne/schedule.json'
 import cologneLampsJson from '@/cities/cologne/street-lamps.json'
 
@@ -112,9 +112,9 @@ describe('the Cologne dataset', () => {
     // Measured 372 at 08:30 – Rostock's size, a third of it Stadtbahn.
     expect(snapshots.length).toBeGreaterThan(250)
     expect(snapshots.length).toBeLessThan(800)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '4', '9', '16', '18', 'S11', 'S12', '127', '133']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/stuttgart/schedule.json'
 import lampsJson from '@/cities/stuttgart/street-lamps.json'
 
@@ -105,9 +105,9 @@ describe('the Stuttgart dataset', () => {
     // Measured 257 at 08:30, 104 of them Stadtbahn.
     expect(snapshots.length).toBeGreaterThan(150)
     expect(snapshots.length).toBeLessThan(700)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['U1', 'U6', 'U7', 'U14', 'S1', 'S4']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
     // The night buses are out at half past two and in by day
     const night = new Set(sim.snapshotsAt(2.5 * 3600).map((s) => s.lineId))

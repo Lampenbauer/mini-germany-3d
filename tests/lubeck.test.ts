@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/lubeck/schedule.json'
 import lampsJson from '@/cities/lubeck/street-lamps.json'
 
@@ -98,9 +98,9 @@ describe('the Lübeck dataset', () => {
     // Measured 93 at 08:30 – a bus city the size of Kiel's daytime fleet.
     expect(snapshots.length).toBeGreaterThan(50)
     expect(snapshots.length).toBeLessThan(300)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '4', '11', '30']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

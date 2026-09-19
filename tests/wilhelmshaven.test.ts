@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/wilhelmshaven/schedule.json'
 import lampsJson from '@/cities/wilhelmshaven/street-lamps.json'
 
@@ -89,9 +89,9 @@ describe('the Wilhelmshaven dataset', () => {
     // Measured 17 at 08:30 – a city of 76 000 with a bus every 20 minutes.
     expect(snapshots.length).toBeGreaterThan(8)
     expect(snapshots.length).toBeLessThan(80)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['1', '2', '3', '4']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

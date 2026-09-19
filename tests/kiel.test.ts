@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import kielScheduleJson from '@/cities/kiel/schedule.json'
 
 /**
@@ -91,9 +91,9 @@ describe('the Kiel dataset', () => {
     // similar size.
     expect(snapshots.length).toBeGreaterThan(100)
     expect(snapshots.length).toBeLessThan(900)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['2', '11', '22', '61']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

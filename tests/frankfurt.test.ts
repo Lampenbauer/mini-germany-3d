@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import scheduleJson from '@/cities/frankfurt/schedule.json'
 import lampsJson from '@/cities/frankfurt/street-lamps.json'
 
@@ -110,9 +110,9 @@ describe('the Frankfurt dataset', () => {
     // of four modes, because the bus lines are the MetroBus ones alone.
     expect(snapshots.length).toBeGreaterThan(150)
     expect(snapshots.length).toBeLessThan(600)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['U1', 'U4', 'U7', '11', '16', 'S1', 'M34']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })

@@ -4,7 +4,7 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks } from './cities'
+import { cityNetworks, linesOutInTheMorning } from './cities'
 import hamburgScheduleJson from '@/cities/hamburg/schedule.json'
 import hamburgLampsJson from '@/cities/hamburg/street-lamps.json'
 
@@ -86,9 +86,9 @@ describe('the Hamburg dataset', () => {
     // Between Rostock's ~350 and Berlin's ~700 vehicles at 08:30.
     expect(snapshots.length).toBeGreaterThan(300)
     expect(snapshots.length).toBeLessThan(1000)
-    const activeLines = new Set(snapshots.map((s) => s.lineId))
+    const activeLines = linesOutInTheMorning(sim)
     for (const id of ['U1', 'U3', 'S1', '5', '62']) {
-      expect(activeLines, `${id} out at 08:30`).toContain(id)
+      expect(activeLines, `${id} out in the morning`).toContain(id)
     }
   })
 })
