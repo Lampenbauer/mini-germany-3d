@@ -62,7 +62,17 @@ rows (`prepareCity` → `scanStopTimes` → `finishCity` in
 at a time was thirteen scans of the same 38 million rows, 47 s each on
 the runner, ten minutes a night for a minute's work (found
 2026-09-19). A city that fails keeps its schedule with a warning
-annotation; the step fails only when every city did.
+annotation; the step fails only when every city did. **The nightly run
+skips the E2E suite** (since 2026-09-19, the user's call, to save
+Actions minutes – every-second-night was weighed and dropped for it):
+the suite is fifteen of the run's twenty minutes and tests the code,
+which the night does not change and whose push run already had it; of
+the data it sees Rostock alone, offline, and what it reads there the
+unit tests pin for every city. Counted before the change: one E2E
+failure in 34 nightly runs, a runner timing flake. A manual
+`refresh_data` run keeps the full suite. The accepted risk: the night
+deploys `main` on the unit tests alone, so a push whose own E2E run was
+left red goes out with the next data commit – keep push runs green.
 
 **A city test pins a line as running that day, not as on the road at
 one second.** The twelve `tests/<slug>.test.ts` read their line set

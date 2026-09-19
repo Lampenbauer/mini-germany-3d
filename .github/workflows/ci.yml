@@ -43,8 +43,9 @@ on:
   schedule:
     # Nightly data refresh: GTFS schedule every night, OSM network and
     # terrain heights only once a week, the lights and seamarks once a
-    # month (see the refresh step), then the full test/build/deploy
-    # pipeline (02:30 UTC ≈ 03:30/04:30 Berlin time).
+    # month (see the refresh step), then typecheck, unit tests, build
+    # and deploy – without the E2E suite, see that step (02:30 UTC ≈
+    # 03:30/04:30 Berlin time).
     - cron: '30 2 * * *'
 
 permissions:
@@ -80,11 +81,12 @@ jobs:
     #
     # A run that refreshes data has the pipeline in front of all that: two
     # Overpass queries and a Mapterhorn pass per city on the Sunday OSM
-    # refresh, seven cities one after the other, each of them minutes when
-    # the mirrors are slow – 10 to 25 minutes before the first test runs.
-    # Those runs get 75, so that a slow Overpass night does not cancel the
-    # week's refresh just before it is committed. A cancelled run loses no
-    # data, but the week.
+    # refresh, thirteen cities one after the other, each of them minutes
+    # when the mirrors are slow – 10 to 25 minutes before the first test
+    # runs. Those runs get 75, so that a slow Overpass night does not
+    # cancel the week's refresh just before it is committed (the nightly
+    # run skips the E2E suite, see below, but the Overpass part alone can
+    # take that long). A cancelled run loses no data, but the week.
     timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm) && 75 || 45 }}
     permissions:
       # The nightly run pushes the refreshed src/cities data files back to main
@@ -352,16 +354,28 @@ jobs:
           export VITE_MAPBOX_TOKEN="$MAPBOX_TOKEN_DEPLOY"
           npm run build
 
+      # Not on the nightly run (since 2026-09-19): the suite is what the
+      # run's twenty minutes went into – fifteen of them, under
+      # SwiftShader – and it tests the code, which the night does not
+      # change and whose push run already had the suite. Of the data
+      # it sees Rostock alone, offline, and what it reads there (the
+      # night lines after midnight, the tram tunnel, vehicles out) the
+      # unit tests pin per city, for every city. In 34 nightly runs it
+      # failed once, on a runner timing flake. A manual refresh_data run
+      # keeps the full suite: it is started to look at something. The
+      # remaining risk is deliberate: the night deploys main on the
+      # unit tests alone, so a push whose own E2E run was left red would
+      # go out with the next data commit.
       - name: Install Playwright Chromium
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          steps.reuse.outputs.run_id == ''
+          steps.reuse.outputs.run_id == '' && github.event_name != 'schedule'
         run: npx playwright install --with-deps chromium
 
       - name: E2E tests (Playwright, offline mode)
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
-          steps.reuse.outputs.run_id == ''
+          steps.reuse.outputs.run_id == '' && github.event_name != 'schedule'
         run: npm run test:e2e
 
       - name: Upload Playwright report (on failure)
