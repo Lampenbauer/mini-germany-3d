@@ -719,8 +719,10 @@ Every script takes `-- --city <slug>` and runs for every city without it.
   Tempelhof have none).
 - `data:gtfs` downloads the free Germany-wide public transport feed from
   [gtfs.de](https://gtfs.de) (DELFI-based) by default – once per run, however
-  many cities follow. With `GTFS_URL`/`GTFS_FILE` a transport association's
-  own feed can be used instead. The script looks up timetables for all lines
+  many cities follow, and its 2.2 GB `stop_times.txt` is streamed once for
+  all of them (every city's trips are picked out of the same pass: 13 cities
+  in a minute where a city at a time took ten). With `GTFS_URL`/`GTFS_FILE` a
+  transport association's own feed can be used instead. The script looks up timetables for all lines
   in `network.json` (tram `route_type` 0, subway 1, S-Bahn 2/106/109, bus 3,
   ferry 4; ferries are matched via the pier names in `route_long_name` or the
   pier coordinates). Departure times and direction detection use each trip's

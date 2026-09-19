@@ -239,19 +239,14 @@ jobs:
             echo "OSM refresh skipped – runs Sunday night (the lights and seamarks on the first Sunday of the month), or on request via refresh_osm."
           fi
           # The GTFS feed is downloaded once (scripts/.cache – or restored
-          # from the cache above) and scanned per city. A city without trips
-          # keeps yesterday's schedule; a feed that serves no city at all
-          # fails the run, as it always did.
-          failed=0
-          total=0
-          for city in $cities; do
-            total=$((total + 1))
-            npm run data:gtfs -- --city "$city" || { failed=$((failed + 1)); echo "::warning::$city: GTFS refresh failed – keeping the previous schedule."; }
-          done
-          if [ "$failed" -eq "$total" ]; then
-            echo "::error::GTFS refresh failed for every city."
-            exit 1
-          fi
+          # from the cache above), unpacked once and scanned ONCE for every
+          # city – the script picks each city's trips out of the same pass
+          # (a city at a time was thirteen scans of the 2.2 GB
+          # stop_times.txt, ten minutes a night). A city without trips
+          # keeps its previous schedule, with a warning annotation from the
+          # script; a feed that serves no city at all fails the run, as it
+          # always did.
+          npm run data:gtfs
 
       # What the build is made OF, not which commit asked for it: the
       # deployable output is a pure function of the source tree, so two

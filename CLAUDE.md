@@ -39,19 +39,30 @@ rarely; `refresh_osm` by hand does all of it) refreshes the committed
 data files on a free hosted runner, and that runner is what every step
 is designed for: never a step that needs a pre-downloaded extract or a
 cache on disk – prefer on-demand fetching with in-memory caches, keep
-memory modest (a few hundred MB), and make regenerated files byte-stable
-across reruns so the "anything new?" short-circuit still works. A local
-run of a step (`npm run data:<step> -- --city <slug>`, with the `PREV_*`
-file from HEAD as ci.yml passes it) is fine when the user asks for it –
-the lighthouses on 2026-09-16, the whole monthly tier on 2026-09-17 –
-and its files are committed like the nightly run's. Byte-stable
-means no date of any shape in the file: the schedule's chosen service day
+memory modest (a few hundred MB; the GTFS step is the exception, it
+holds the feed's 2.2 GB `stop_times.txt` unpacked), and make
+regenerated files byte-stable across reruns so the "anything new?"
+short-circuit still works. A local run of a step
+(`npm run data:<step> -- --city <slug>`, with the `PREV_*` file from
+HEAD as ci.yml passes it) is fine when the user asks for it – the
+lighthouses on 2026-09-16, the whole monthly tier on 2026-09-17 – and
+its files are committed like the nightly run's. Byte-stable means no
+date of any shape in the file: the schedule's chosen service day
 (`meta.serviceDate`, GTFS's dashless `20260910`) slipped past the
-meta-date test and set the full pipeline going nearly every night for four
-weeks – found 2026-09-11 with four cities whose nightly diff was that one
-line. A date belongs in the run's log and the data commit's message, where
-it now is. The feed download is cached under the feed's `Last-Modified`
-for the same reason: the feed changes weekly, the refresh runs nightly.
+meta-date test and set the full pipeline going nearly every night for
+four weeks – found 2026-09-11 with four cities whose nightly diff was
+that one line. A date belongs in the run's log and the data commit's
+message, where it now is. The feed download is cached under the feed's
+`Last-Modified` for the same reason: the feed changes weekly, the
+refresh runs nightly. The GTFS step runs ONCE for every city
+(`npm run data:gtfs`, no `--city`): the feed is unpacked once and
+`stop_times.txt` streamed once, each city's trips picked out of the same
+rows (`prepareCity` → `scanStopTimes` → `finishCity` in
+[fetch-gtfs-schedule.mjs](scripts/fetch-gtfs-schedule.mjs)); a city
+at a time was thirteen scans of the same 38 million rows, 47 s each on
+the runner, ten minutes a night for a minute's work (found
+2026-09-19). A city that fails keeps its schedule with a warning
+annotation; the step fails only when every city did.
 
 **Typecheck with `npm run typecheck`** (= `tsc -b`), never `npx tsc --noEmit`.
 The root tsconfig is solution-style with project references; the `--noEmit`

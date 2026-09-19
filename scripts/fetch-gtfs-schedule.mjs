@@ -33,7 +33,9 @@
  *
  * Implementation note: stop_times.txt of the Germany feed is several
  * gigabytes uncompressed – the file is therefore streamed line by line over
- * the byte buffer instead of being decoded as a single string.
+ * the byte buffer instead of being decoded as a single string, and ONCE
+ * for every requested city (see main): the scan is the cost of a run,
+ * a city more is a few seconds.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -41,7 +43,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
 import { TRANSIT_MODES } from '../src/lib/transit-mode.ts'
-import { cityInsidePredicate, forEachRequestedCity, networkInsidePredicate } from './lib/city.mjs'
+import {
+  cityInsidePredicate,
+  cityPaths,
+  loadCity,
+  networkInsidePredicate,
+  requestedCitySlugs,
+} from './lib/city.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, '.cache')
@@ -173,6 +181,18 @@ function splitCsvLine(line) {
   return fields
 }
 
+/**
+ * A field that stands on its own. V8 hands a substring of thirteen
+ * characters and more out as a slice of the string it was cut from –
+ * here the decoded 8 MB chunk of the file – and a stored slice keeps
+ * that whole chunk alive: every stop id of a city held 40 MB of
+ * stops.txt for the run, thirteen cities half a gigabyte. Concatenating
+ * and slicing again lands on a fresh flat copy of the field alone.
+ */
+function own(field) {
+  return field.length < 13 ? field : (' ' + field).slice(1)
+}
+
 function stripBom(text) {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
 }
@@ -227,14 +247,8 @@ const makeNormalizeName = (strip) => {
   }
 }
 
-/** The feed, read once per run however many cities follow. */
-let zipBufferPromise = null
-function loadZip() {
-  zipBufferPromise ??= loadZipOnce()
-  return zipBufferPromise
-}
-
-async function loadZipOnce() {
+/** The feed's zip, read once per run however many cities follow. */
+async function loadZip() {
   if (process.env.GTFS_FILE) {
     console.log(`Reading local GTFS file ${process.env.GTFS_FILE}`)
     return readFileSync(process.env.GTFS_FILE)
@@ -254,7 +268,91 @@ async function loadZipOnce() {
   return buffer
 }
 
-async function main(city, paths) {
+/** A warning the run's log shows – as an annotation under GitHub Actions. */
+function warn(message) {
+  console.warn(process.env.GITHUB_ACTIONS ? `::warning::${message}` : `⚠ ${message}`)
+}
+
+/**
+ * One run for every requested city over ONE pass of the feed. The feed
+ * is unpacked once and stop_times.txt – 2.2 GB, 38 million rows, the
+ * whole of Germany – is streamed once, with every city's trips picked
+ * out of the same rows: each city prepares its candidate trips first
+ * (prepareCity), the scan hands each row to the cities that have its
+ * trip, and the schedule is written per city afterwards (finishCity).
+ * Until 2026-09-19 the script ran per city from the top, thirteen
+ * unpackings and thirteen scans of the same file – 47 seconds a city on
+ * the CI runner, ten minutes a night for one minute's work.
+ *
+ * A city that fails (no trips in the feed, a network.json missing)
+ * keeps its previous schedule and is reported; the run fails only when
+ * every city did – a feed that serves nobody.
+ */
+async function main() {
+  const cities = requestedCitySlugs().map((slug) => ({
+    slug,
+    city: loadCity(slug),
+    paths: cityPaths(slug),
+  }))
+  let zipBuffer = await loadZip()
+  console.log('Extracting required GTFS files …')
+  const files = unzipSync(new Uint8Array(zipBuffer), {
+    filter: (file) => NEEDED_FILES.has(file.name),
+  })
+  zipBuffer = null // 280 MB the scan has no use for
+  for (const name of NEEDED_FILES) {
+    if (!files[name] && !OPTIONAL_FILES.has(name)) {
+      throw new Error(`${name} is missing from the GTFS feed`)
+    }
+  }
+
+  const calendar = readCalendar(files)
+
+  const failed = []
+  const collectors = []
+  for (const { slug, city, paths } of cities) {
+    if (cities.length > 1) console.log(`\n══════ ${city.name} (${slug}) ══════`)
+    try {
+      collectors.push(prepareCity(city, paths, files))
+    } catch (err) {
+      failed.push(slug)
+      warn(`${slug}: GTFS refresh failed – keeping the previous schedule. ${err.message}`)
+    }
+  }
+
+  let tripRecords = null
+  if (collectors.length > 0) {
+    console.log('\nScanning trips.txt …')
+    tripRecords = scanTrips(files['trips.txt'], collectors)
+    console.log('\nStreaming stop_times.txt … (largest file, please wait)')
+    scanStopTimes(files['stop_times.txt'], collectors)
+  }
+  // The scan is what the file was held for – let it go before the
+  // cities' own work, which allocates plenty of its own
+  delete files['stop_times.txt']
+
+  for (const collector of collectors) {
+    const { slug, city } = collector
+    if (cities.length > 1) console.log(`\n══════ ${city.name} (${slug}) ══════`)
+    try {
+      finishCity(collector, calendar, tripRecords)
+    } catch (err) {
+      failed.push(slug)
+      warn(`${slug}: GTFS refresh failed – keeping the previous schedule. ${err.message}`)
+    }
+  }
+
+  if (failed.length === cities.length) {
+    throw new Error(`GTFS refresh failed for every city (${failed.join(', ')})`)
+  }
+}
+
+/**
+ * Everything a city needs before the feed's trips are scanned: its lines
+ * from network.json, its stops, the feed's candidate routes for those
+ * lines, and the empty maps the two scans fill.
+ */
+function prepareCity(city, paths, files) {
   const OUT = process.env.SCHEDULE_OUT ? resolve(process.env.SCHEDULE_OUT) : paths.schedule
   const NETWORK_JSON = process.env.NETWORK_OUT ? resolve(process.env.NETWORK_OUT) : paths.network
   // Two areas: a trip belongs to the city when it serves a stop inside the
@@ -291,17 +389,6 @@ async function main(city, paths) {
       ')',
   )
 
-  const zipBuffer = await loadZip()
-  console.log('Extracting required GTFS files …')
-  const files = unzipSync(new Uint8Array(zipBuffer), {
-    filter: (file) => NEEDED_FILES.has(file.name),
-  })
-  for (const name of NEEDED_FILES) {
-    if (!files[name] && !OPTIONAL_FILES.has(name)) {
-      throw new Error(`${name} is missing from the GTFS feed`)
-    }
-  }
-
   // ---- stops.txt: stops within the network area -----------------------------
   const cityStopCoords = new Map() // stop_id → [lon, lat], every stop in the area
   const cityStopNames = new Map() // stop_id → name (for diagnostics)
@@ -310,14 +397,15 @@ async function main(city, paths) {
   scanCsv(files['stops.txt'], (get) => {
     const name = get('stop_name')
     for (const probe of trainBranchProbes) {
-      if (probe.pattern.test(name)) trainProbeStops.set(get('stop_id'), probe.lineId)
+      if (probe.pattern.test(name)) trainProbeStops.set(own(get('stop_id')), probe.lineId)
     }
     const lon = Number(get('stop_lon'))
     const lat = Number(get('stop_lat'))
     if (insideArea(lon, lat)) {
-      cityStopCoords.set(get('stop_id'), [lon, lat])
-      cityStopNames.set(get('stop_id'), name)
-      if (insideCity(lon, lat)) limitsStops.add(get('stop_id'))
+      const stopId = own(get('stop_id'))
+      cityStopCoords.set(stopId, [lon, lat])
+      cityStopNames.set(stopId, own(name))
+      if (insideCity(lon, lat)) limitsStops.add(stopId)
     }
   })
   const stopsInCity = cityStopCoords
@@ -408,33 +496,6 @@ async function main(city, paths) {
     `${routeLine.size} candidate routes (Germany-wide – the city filter follows via the stops)`,
   )
 
-  // ---- trips.txt: only trips of the candidate routes ------------------------
-  const tripInfo = new Map() // trip_id → {lineId, rawDir, serviceId, headsign}
-  let tripsWithDirectionId = 0
-  scanCsv(files['trips.txt'], (get) => {
-    const lineId = routeLine.get(get('route_id'))
-    if (!lineId) return
-    const rawDir = get('direction_id')
-    if (rawDir === '0' || rawDir === '1') tripsWithDirectionId++
-    tripInfo.set(get('trip_id'), {
-      lineId,
-      routeId: get('route_id'),
-      rawDir,
-      serviceId: get('service_id'),
-      headsign: get('trip_headsign'),
-    })
-  })
-  console.log(`${tripInfo.size} candidate trips (${tripsWithDirectionId} with direction_id)`)
-
-  // ---- stop_times.txt: first/last stop WITHIN the city bbox ---------------
-  // Departure times and geometry anchors deliberately use the in-box
-  // portion of a trip, not its true origin: lines cut at the city limits
-  // (a regional train that really starts in the next town, ~40 minutes
-  // earlier) must depart the network at their LOCAL time. For trips fully
-  // inside the box (every city line) both are identical.
-  console.log('Streaming stop_times.txt … (largest file, please wait)')
-  const firstCityStop = new Map() // trip_id → {seq, dep, stopId}
-  const lastCityStop = new Map() // trip_id → {seq, stopId}
   // Trips of loop-prone lines keep every stop: a ferry loop (Kiel's F2
   // sails Reventlou → Dietrichsdorf → Wellingdorf → Reventlou) is split
   // at its turning point into the two directions the map has, a ring
@@ -447,41 +508,214 @@ async function main(city, paths) {
   }
   const loopProne = (lineId) =>
     lineId === FERRY_PENDING || networkLines.get(lineId) === 'ferry' || ringLines.has(lineId)
-  const loopTripStops = new Map() // trip_id → [{seq, stopId, dep}]
-  const tripTouchesCity = new Set()
-  const tripBranchLine = new Map() // trip_id → lineId (pending S-Bahn trips)
-  let rows = 0
-  scanCsv(files['stop_times.txt'], (get) => {
-    rows++
-    if (rows % 10_000_000 === 0) console.log(`  … ${rows / 1e6} million rows`)
-    const tripId = get('trip_id')
-    const info = tripInfo.get(tripId)
-    if (!info) return
-    const stopId = get('stop_id')
-    // Branch classification for pending S-Bahn trips – their probe
-    // stations lie OUTSIDE the bbox, so check before the city filter.
-    if (info.lineId === TRAIN_PENDING) {
-      const branchLine = trainProbeStops.get(stopId)
-      if (branchLine) tripBranchLine.set(tripId, branchLine)
-    }
-    if (!stopsInCity.has(stopId)) return
-    if (limitsStops.has(stopId)) tripTouchesCity.add(tripId)
-    const seq = Number(get('stop_sequence'))
-    if (loopProne(info.lineId)) {
-      let list = loopTripStops.get(tripId)
-      if (!list) loopTripStops.set(tripId, (list = []))
-      list.push({ seq, stopId, dep: get('departure_time') })
-    }
-    const cur = firstCityStop.get(tripId)
-    if (!cur || seq < cur.seq) {
-      firstCityStop.set(tripId, { seq, dep: get('departure_time'), stopId })
-    }
-    const last = lastCityStop.get(tripId)
-    if (!last || seq > last.seq) {
-      lastCityStop.set(tripId, { seq, stopId })
+
+  return {
+    slug: city.slug,
+    city,
+    OUT,
+    networkJson,
+    networkLines,
+    normalizeName,
+    cityStopCoords,
+    cityStopNames,
+    limitsStops,
+    trainProbeStops,
+    agencyNames,
+    routeAgency,
+    routeLine,
+    ringLines,
+    loopProne,
+    // Filled by the trips scan
+    tripLine: new Map(), // trip_id → lineId, the candidate trips
+    tripsWithDirectionId: 0,
+    // Filled by the stop_times scan
+    firstCityStop: new Map(), // trip_id → {seq, dep, stopId}
+    lastCityStop: new Map(), // trip_id → {seq, stopId}
+    loopTripStops: new Map(), // trip_id → [{seq, stopId, dep}]
+    tripTouchesCity: new Set(),
+    tripBranchLine: new Map(), // trip_id → lineId (pending S-Bahn trips)
+  }
+}
+
+/**
+ * ---- trips.txt: the trips of every city's candidate routes ---------------
+ * One pass, one record per trip whatever the number of cities that hold
+ * it as a candidate (a line number is matched Germany-wide, so most of a
+ * city's candidates are other cities' lines): the record is shared, the
+ * city keeps only which of its lines the trip is. A city's own copy of
+ * the records was 90 MB a city, 1.2 GB for the thirteen.
+ */
+function scanTrips(trips, collectors) {
+  const records = new Map() // trip_id → {routeId, rawDir, serviceId, headsign}
+  scanCsv(trips, (get) => {
+    const routeId = get('route_id')
+    let tripId = null
+    let record = null
+    for (const collector of collectors) {
+      const lineId = collector.routeLine.get(routeId)
+      if (!lineId) continue
+      if (!record) {
+        tripId = own(get('trip_id'))
+        record = {
+          routeId: own(routeId),
+          rawDir: get('direction_id'),
+          serviceId: own(get('service_id')),
+          headsign: own(get('trip_headsign')),
+        }
+        records.set(tripId, record)
+      }
+      collector.tripLine.set(tripId, lineId)
+      if (record.rawDir === '0' || record.rawDir === '1') collector.tripsWithDirectionId++
     }
   })
-  console.log(`Processed ${rows} stop_times rows, ${tripTouchesCity.size} ${city.name} trips`)
+  for (const { city, tripLine, tripsWithDirectionId } of collectors) {
+    console.log(
+      `  ${city.name}: ${tripLine.size} candidate trips (${tripsWithDirectionId} with direction_id)`,
+    )
+  }
+  return records
+}
+
+/** The feed's calendar, read once: which service runs on which day. */
+function readCalendar(files) {
+  const calendarServices = new Map() // service_id → {days:[sun..sat], start, end}
+  if (files['calendar.txt']) {
+    scanCsv(files['calendar.txt'], (get) => {
+      calendarServices.set(get('service_id'), {
+        days: [
+          get('sunday') === '1',
+          get('monday') === '1',
+          get('tuesday') === '1',
+          get('wednesday') === '1',
+          get('thursday') === '1',
+          get('friday') === '1',
+          get('saturday') === '1',
+        ],
+        start: get('start_date'),
+        end: get('end_date'),
+      })
+    })
+  }
+  const calendarExceptions = new Map() // `${service_id}|${date}` → '1' | '2'
+  if (files['calendar_dates.txt']) {
+    scanCsv(files['calendar_dates.txt'], (get) => {
+      calendarExceptions.set(`${get('service_id')}|${get('date')}`, get('exception_type'))
+    })
+  }
+  return { calendarServices, calendarExceptions }
+}
+
+/**
+ * ---- stop_times.txt: first/last stop WITHIN each city's bbox ------------
+ * Departure times and geometry anchors deliberately use the in-box
+ * portion of a trip, not its true origin: lines cut at the city limits
+ * (a regional train that really starts in the next town, ~40 minutes
+ * earlier) must depart the network at their LOCAL time. For trips fully
+ * inside the box (every city line) both are identical.
+ *
+ * One pass for every city: a row is looked up once, in an index of
+ * every city's candidate trips, and handed to the cities that hold its
+ * trip – a line number is matched Germany-wide, so a trip of "line 5" is
+ * a candidate of several cities until their stops tell it apart.
+ */
+function scanStopTimes(stopTimes, collectors) {
+  const owners = new Map() // trip_id → collector, or the collectors sharing it
+  for (const collector of collectors) {
+    for (const tripId of collector.tripLine.keys()) {
+      const held = owners.get(tripId)
+      if (!held) owners.set(tripId, collector)
+      else if (Array.isArray(held)) held.push(collector)
+      else owners.set(tripId, [held, collector])
+    }
+  }
+  let rows = 0
+  scanCsv(stopTimes, (get) => {
+    rows++
+    if (rows % 10_000_000 === 0) console.log(`  … ${rows / 1e6} million rows`)
+    const held = owners.get(get('trip_id'))
+    if (!held) return
+    const tripId = own(get('trip_id'))
+    if (Array.isArray(held)) {
+      for (const collector of held) noteStopTime(collector, tripId, get)
+    } else {
+      noteStopTime(held, tripId, get)
+    }
+  })
+  console.log(`Processed ${rows} stop_times rows`)
+  for (const { city, tripTouchesCity } of collectors) {
+    console.log(`  ${tripTouchesCity.size} ${city.name} trips`)
+  }
+}
+
+/** One stop_times row of one of the city's candidate trips. */
+function noteStopTime(collector, tripId, get) {
+  const {
+    tripLine,
+    trainProbeStops,
+    tripBranchLine,
+    cityStopCoords: stopsInCity,
+    limitsStops,
+    tripTouchesCity,
+    loopProne,
+    loopTripStops,
+    firstCityStop,
+    lastCityStop,
+  } = collector
+  const lineId = tripLine.get(tripId)
+  const stopId = own(get('stop_id'))
+  // Branch classification for pending S-Bahn trips – their probe
+  // stations lie OUTSIDE the bbox, so check before the city filter.
+  if (lineId === TRAIN_PENDING) {
+    const branchLine = trainProbeStops.get(stopId)
+    if (branchLine) tripBranchLine.set(tripId, branchLine)
+  }
+  if (!stopsInCity.has(stopId)) return
+  if (limitsStops.has(stopId)) tripTouchesCity.add(tripId)
+  const seq = Number(get('stop_sequence'))
+  if (loopProne(lineId)) {
+    let list = loopTripStops.get(tripId)
+    if (!list) loopTripStops.set(tripId, (list = []))
+    list.push({ seq, stopId, dep: get('departure_time') })
+  }
+  const cur = firstCityStop.get(tripId)
+  if (!cur || seq < cur.seq) {
+    firstCityStop.set(tripId, { seq, dep: get('departure_time'), stopId })
+  }
+  const last = lastCityStop.get(tripId)
+  if (!last || seq > last.seq) {
+    lastCityStop.set(tripId, { seq, stopId })
+  }
+}
+
+/** The schedule of one city, from what the scan collected for it. */
+function finishCity(collector, calendar, tripRecords) {
+  const {
+    city,
+    OUT,
+    networkJson,
+    networkLines,
+    normalizeName,
+    cityStopCoords,
+    cityStopNames,
+    agencyNames,
+    routeAgency,
+    tripLine,
+    tripsWithDirectionId,
+    ringLines,
+    loopProne,
+    firstCityStop,
+    lastCityStop,
+    loopTripStops,
+    tripTouchesCity,
+    tripBranchLine,
+  } = collector
+
+  // The city's trips with everything known about them – only the ones
+  // that touch the city, which is all the code below ever asks for
+  const tripInfo = new Map() // trip_id → {lineId, routeId, rawDir, serviceId, headsign}
+  for (const tripId of tripTouchesCity) {
+    tripInfo.set(tripId, { lineId: tripLine.get(tripId), ...tripRecords.get(tripId) })
+  }
 
   // ---- Resolve pending ferry routes via terminal coordinates ---------------
   // A ferry trip belongs to a network ferry line when its first and last
@@ -568,30 +802,7 @@ async function main(city, paths) {
   // across multiple service_ids. Picking a single service_id therefore loses
   // trips – instead a concrete service day is chosen and every service_id
   // active on that date counts.
-  const calendarServices = new Map() // service_id → {days:[sun..sat], start, end}
-  if (files['calendar.txt']) {
-    scanCsv(files['calendar.txt'], (get) => {
-      calendarServices.set(get('service_id'), {
-        days: [
-          get('sunday') === '1',
-          get('monday') === '1',
-          get('tuesday') === '1',
-          get('wednesday') === '1',
-          get('thursday') === '1',
-          get('friday') === '1',
-          get('saturday') === '1',
-        ],
-        start: get('start_date'),
-        end: get('end_date'),
-      })
-    })
-  }
-  const calendarExceptions = new Map() // `${service_id}|${date}` → '1' | '2'
-  if (files['calendar_dates.txt']) {
-    scanCsv(files['calendar_dates.txt'], (get) => {
-      calendarExceptions.set(`${get('service_id')}|${get('date')}`, get('exception_type'))
-    })
-  }
+  const { calendarServices, calendarExceptions } = calendar
 
   const isServiceActiveOn = (serviceId, dateStr, weekday) => {
     const exception = calendarExceptions.get(`${serviceId}|${dateStr}`)
@@ -1010,7 +1221,7 @@ async function main(city, paths) {
 // a 280 MB feed over the wire.
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isMain) {
-  forEachRequestedCity(main).catch((err) => {
+  main().catch((err) => {
     console.error('❌ Error:', err.message)
     process.exit(1)
   })
