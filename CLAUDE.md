@@ -529,6 +529,51 @@ rest. `tests/clock.test.ts` pins the rule, `tests/app.test.tsx` the toast
 `motionThresholdCssPx`: without it the tick interval was NaN and the
 simulation had never ticked in jsdom.
 
+**The time-lapse runs both ways (since 2026-09-22).** The user wanted to
+drag the slider left to rewind. The clock needed nothing for it –
+`SimClock` is an anchor plus the real time elapsed times the factor, so
+`setSpeed` merely keeps the sign now (magnitude 0.1 at least) – and
+neither did most of what the map shows, each a function of the moment:
+the timetable positions, the recordings of the harbour and the sky
+(`vesselsAt`/`aircraftAt`), the sun, the lamps, the weather. The
+slider rests on detents ([clock.ts](src/lib/clock.ts): its scale is the
+index into `SPEED_STEPS`, the sixteen factors the keyboard's `+`/`-`
+walk – ×−120 to ×−1 and ×1 to ×120, mirrored – spaced evenly along the
+track, `sliderFromSpeed`/`speedFromSlider`), real pace in the middle and
+no ×0 – the step left of ×1 is ×−1, both real pace – its fill running
+from the middle (the `origin` prop of
+[ui/slider.tsx](src/components/ui/slider.tsx) – a hairline at the middle
+was tried and dropped, the thumb or the fill always covered it), the
+value written `×30` either way (`formatSpeed`) – the row's label and
+icon switch to "Rewind"/"Rücklauf" with lucide's `Rewind` while the
+clock runs backward, and the slider's `aria-valuetext` says "×30
+backward" (`sim.speedBackward`); it read `×−30` for a day and the user
+found the two signs before the number ugly, so the sign is not the
+number's to show; a factor
+off the steps (a link's `?speed=50`) runs as asked and rests the thumb
+on the nearest detent until the next drag. The first version was a
+linear scale from ×−120 to ×120 and slid without a stop: ×1 to ×10 lay
+on eleven pixels of it, and the user asked for detents the same day –
+do not give the slider a free scale back. `?speed=` takes a negative
+factor (`clampUrlSpeed`), and "Now" puts ×1 back as before. What did assume a forward clock, each changed the same day: the
+archive client's prefetch lead reaches behind the moment instead of
+ahead while the pace read off consecutive calls is negative
+(`HourArchiveClient.follow`), the clouds' drift is carried back with the
+clock (`CloudLayer.advance`, a jump over a day still re-seeds), the
+whole-view pacing and the clouds' screen motion read `Math.abs` of the
+factor, and the three stateless effect clocks – the smoke, the wake's
+churn, the lighthouse optics – run backward under the same 3× cap: the
+rewind is the film played backward, so the plume draws back into the
+funnel and the optics turn the other way, which is what a rewound
+picture should do; the wakes are laid from the sim past and needed
+nothing, a ship backs along her own wake. Not changed, on purpose: the
+live ships still render on the real clock until the replay edge (a
+minute back), where the recording takes over as it does for a time
+typed in; the future toast reacts to forward crossings alone. Pinned in
+`tests/clock.test.ts` (the scale, the clamp, the clock), the keyboard
+test in `tests/app.test.tsx`, and the effect, cloud and archive tests
+named above.
+
 **The map's controls live on the rail, not in the panel.** The control panel is
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the rail at the lower right: the layers popover (routes, stops, names,
@@ -1474,8 +1519,8 @@ drawn out to 35 km, so a label between the two moves only when
 something else earns a frame: at real pace that is the deliberate
 economy, under the time-lapse it was stop-motion, and so were the
 clouds, whose drift was carried forward in the 250 ms UI block. So the
-loop sets `CesiumMap.setPaceWholeView(clock.speed > 1 ||
-cameraPathPlaying)`, and with it: both layers count a vehicle or ship as
+loop sets `CesiumMap.setPaceWholeView(Math.abs(clock.speed) > 1 ||
+cameraPathPlaying)` (the rewind is a time-lapse too), and with it: both layers count a vehicle or ship as
 in view wherever its label is drawn (`host.paceWholeView`), the clouds'
 drift is carried per tick and paces the ticks like a fleet does
 (`CloudLayer.screenMotionPxPerSecond`), and the tick interval follows
@@ -1565,7 +1610,11 @@ worth at once. A stateless plume is right in any frame whatever the
 last one was; the same argument applies to any animated effect added
 here. Its clock is the ships' (`VesselLayer.sync`'s `nowMs` – the wall
 clock live, the simulated one in a replay), so a pause holds it, and
-it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse.
+it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse –
+either way: under the rewind it runs back into the funnel at the same
+cap, the film played backward (since 2026-09-22; the wake's churn and
+the lighthouse optics follow the same rule, see the rewind paragraph
+under "Interface and styling").
 It asks for frames the way the ships and the clouds do – once its own
 motion since the frame last drawn is a visible step at the ship's
 distance – and it counts as a moving ship for the tick rate. Which

@@ -435,6 +435,33 @@ describe('AisArchiveClient', () => {
     expect(fast.status().map((h) => h.key)).toEqual(['2027-01-15T10', '2027-01-15T11'])
   })
 
+  it('prefetches the hour behind instead while the clock runs backward', async () => {
+    const api = endpoint({})
+    // Five minutes into the hour, at real pace forward: the hour alone –
+    // the sampling's four minutes back and the ten ahead stay inside it
+    const at = NOW + 2 * AIS_ARCHIVE_HOUR_MS + 5 * 60_000
+    const forward = new AisArchiveClient('/api/ais?city=rostock', { fetch: api.fetchImpl })
+    forward.follow(at - 60_000, NOW)
+    forward.follow(at, NOW + 60_000)
+    await settle(forward)
+    expect(forward.status().map((h) => h.key)).toEqual(['2027-01-15T10'])
+    // The same moment reached backward (the rewind at real pace): the lead
+    // goes the other way and reaches into the hour before
+    const back = new AisArchiveClient('/api/ais?city=rostock', { fetch: api.fetchImpl })
+    back.follow(at + 60_000, NOW)
+    back.follow(at, NOW + 60_000)
+    await settle(back)
+    expect(back.status().map((h) => h.key)).toEqual(['2027-01-15T09', '2027-01-15T10'])
+    // …and nothing ahead: five minutes before the boundary, rewinding,
+    // the next hour is not wanted, where forward it would be
+    const late = NOW + 2 * AIS_ARCHIVE_HOUR_MS + 55 * 60_000
+    const backLate = new AisArchiveClient('/api/ais?city=rostock', { fetch: api.fetchImpl })
+    backLate.follow(late + 60_000, NOW)
+    backLate.follow(late, NOW + 60_000)
+    await settle(backLate)
+    expect(backLate.status().map((h) => h.key)).toEqual(['2027-01-15T10'])
+  })
+
   it('polls the tail of the hour still being written, from where it stopped', async () => {
     const files = { '2027-01-15T08': hourLine(1, NOW + 10_000) }
     const api = endpoint(files)

@@ -219,9 +219,9 @@ describe('Wake', () => {
     // A minute of the clock in a second of real time: the smoke's cap
     wake.begin(61_000, 6000)
     expect(wake.state.churnS).toBeCloseTo(1 + PLUME_MAX_RATE, 6)
-    // A clock set back leaves it standing
+    // A clock running backward – the rewind – churns it back, under the same cap
     wake.begin(1000, 7000)
-    expect(wake.state.churnS).toBeCloseTo(1 + PLUME_MAX_RATE, 6)
+    expect(wake.state.churnS).toBeCloseTo(1, 6)
   })
 
   it('starts each tick afresh, and asks for a frame while foam fades unseen', () => {

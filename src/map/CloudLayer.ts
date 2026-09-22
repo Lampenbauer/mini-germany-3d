@@ -637,9 +637,10 @@ export class CloudLayer {
   advance(simEpochMs: number): void {
     if (this.lastSimMs !== null) {
       const dt = (simEpochMs - this.lastSimMs) / 1000
-      // A jump back (time input) re-seeds; a jump forward moves the sky
-      // as a time-lapse would, up to a day's worth
-      if (Number.isFinite(dt) && dt > 0 && dt <= 86_400) {
+      // The sky moves with the clock either way – forward under the
+      // time-lapse, back under the rewind – up to a day's worth; a
+      // longer jump (the calendar) re-seeds
+      if (Number.isFinite(dt) && dt !== 0 && Math.abs(dt) <= 86_400) {
         this.driftEast += this.driftEastMps * dt
         this.driftNorth += this.driftNorthMps * dt
       }
@@ -665,7 +666,8 @@ export class CloudLayer {
 
   /**
    * How fast the drift moves on screen, in CSS px per second of real
-   * time, for a clock running `simSpeed` times real time – zero for
+   * time, for a clock running `simSpeed` times real time (backward for a
+   * negative factor – the motion is the same either way) – zero for
    * clouds nobody can see. What the app's tick pacing reads under the
    * time-lapse, when the sky is the thing that moves (see App.tsx).
    */
@@ -674,7 +676,7 @@ export class CloudLayer {
     const driftMps = Math.hypot(this.driftEastMps, this.driftNorthMps)
     if (driftMps === 0) return 0
     const pxPerMeter = cssPixelsPerMeterAtUnitDistance(this.viewer) / Math.max(1, this.distanceToSlab())
-    return driftMps * Math.max(0, simSpeed) * pxPerMeter
+    return driftMps * Math.abs(simSpeed) * pxPerMeter
   }
 
   /** Debug and tests. */

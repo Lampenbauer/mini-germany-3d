@@ -4,7 +4,81 @@
  * The clock runs on epoch milliseconds and can provide seconds-of-day in the
  * Europe/Berlin time zone – the timetable is computed in local time,
  * regardless of which time zone the browser runs in.
+ *
+ * The time-lapse factor is signed (since 2026-09-22): ×30 runs the clock
+ * thirty times as fast, ×−30 runs it backward at the same pace – the
+ * panel's slider spans both, real pace in the middle. The clock itself
+ * needs nothing for it, it is an anchor plus the real time elapsed times
+ * the factor; what runs backward with it is the fleets and the sky, each
+ * a function of the moment.
  */
+
+/** The farthest the panel's slider goes, either way. */
+export const TIME_LAPSE_MAX = 120
+/** The farthest `?speed=` goes, either way. */
+export const URL_SPEED_MAX = 600
+
+/**
+ * The time-lapse factor a URL asks for, kept within reach: the magnitude
+ * between 1 and URL_SPEED_MAX, the sign as given, ×1 for anything that
+ * is no number.
+ */
+export function clampUrlSpeed(raw: number): number {
+  if (!Number.isFinite(raw)) return 1
+  const magnitude = Math.min(URL_SPEED_MAX, Math.max(1, Math.abs(raw)))
+  return raw < 0 ? -magnitude : magnitude
+}
+
+/**
+ * The time-lapse factors worth stopping at – what the keyboard's `+`/`-`
+ * walk and the panel's slider rests on: the same steps either way, real
+ * pace in the middle, and no ×0 – the step down from ×1 is ×−1, the
+ * clock running backward at real pace.
+ */
+export const SPEED_STEPS = [
+  -TIME_LAPSE_MAX, -60, -30, -20, -10, -5, -2, -1, 1, 2, 5, 10, 20, 30, 60, TIME_LAPSE_MAX,
+] as const
+
+/**
+ * The slider's own scale is the index into SPEED_STEPS, one detent per
+ * step spaced evenly along the track – so a drag rests on ×2, ×5, ×10
+ * rather than gliding through ×7, and the middle of the track has room
+ * for the paces that matter. A linear scale was tried first (2026-09-22):
+ * ×1 to ×10 lay on eleven pixels of it and the thumb slid without a
+ * stop; the user asked for detents.
+ */
+export const SLIDER_MIN = 0
+export const SLIDER_MAX = SPEED_STEPS.length - 1
+/**
+ * The middle of the track, between ×−1 and ×1 – where the slider's fill
+ * starts from, so that real pace either way shows as half a step of fill
+ * on its side.
+ */
+export const SLIDER_ORIGIN = SPEED_STEPS.indexOf(1) - 0.5
+
+/** The detent nearest a factor – a factor off the steps (a URL's ×50) rests on the closest. */
+export function sliderFromSpeed(speed: number): number {
+  let best = 0
+  for (let i = 1; i < SPEED_STEPS.length; i++) {
+    if (Math.abs(SPEED_STEPS[i] - speed) < Math.abs(SPEED_STEPS[best] - speed)) best = i
+  }
+  return best
+}
+
+export function speedFromSlider(position: number): number {
+  const index = Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, Math.round(position)))
+  return SPEED_STEPS[index]
+}
+
+/**
+ * The factor as the panel writes it: ×30 either way. The direction is
+ * the row's to say, not the number's – it read ×−30 for a day, and the
+ * user found the two signs before the number ugly; the row's label and
+ * icon switch to "Rewind" instead (ControlPanel), the number stays.
+ */
+export function formatSpeed(speed: number): string {
+  return `×${Math.abs(speed)}`
+}
 
 const BERLIN_FORMATTER = new Intl.DateTimeFormat('de-DE', {
   timeZone: 'Europe/Berlin',
@@ -111,11 +185,13 @@ export class SimClock {
     return this._paused
   }
 
+  /** The time-lapse factor: a magnitude of at least 0.1, negative to run backward. */
   setSpeed(speed: number): void {
     const now = this.now()
     this.anchorSim = now
     this.anchorReal = Date.now()
-    this._speed = Math.max(0.1, speed)
+    const magnitude = Math.max(0.1, Math.abs(speed))
+    this._speed = speed < 0 ? -magnitude : magnitude
   }
 
   setPaused(paused: boolean): void {

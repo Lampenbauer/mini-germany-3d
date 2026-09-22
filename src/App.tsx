@@ -85,7 +85,14 @@ import { formatSitePath, parseSitePath, type LegalKind } from '@/lib/site-path'
 import { narrowViewport } from '@/lib/viewport'
 import { hoverUnavailable, watchPointerIdle } from '@/lib/pointer-idle'
 import { cityApiUrl } from '@/lib/city-api'
-import { berlinDateKey, berlinSecondsOfDay, parseTimeOfDay, SimClock } from '@/lib/clock'
+import {
+  berlinDateKey,
+  berlinSecondsOfDay,
+  clampUrlSpeed,
+  parseTimeOfDay,
+  SimClock,
+  SPEED_STEPS,
+} from '@/lib/clock'
 import { FUTURE_NOTICE_DURATION_MS, FutureNotice } from '@/lib/future-notice'
 import { isInTunnel } from '@/lib/tunnels'
 import {
@@ -504,9 +511,6 @@ const KEY_SHORTCUTS = new Set([
  */
 const SHIFTED_SHORTCUTS = new Set(['?', '+', '_'])
 
-/** The time-lapse speeds the keyboard steps through (the slider is free). */
-const SPEED_STEPS = [1, 2, 5, 10, 20, 30, 60, 120] as const
-
 /** No line at all – what the map's vehicles are filtered by while the diagram has them. */
 const NO_LINES: ReadonlySet<string> = new Set()
 
@@ -593,7 +597,7 @@ function readUrlOptions(): UrlOptions {
   const drops = dropsRaw === null ? NaN : Number(dropsRaw)
   return {
     offline: params.get('offline') === '1',
-    speed: Number.isFinite(speed) ? Math.min(600, Math.max(1, speed)) : 1,
+    speed: clampUrlSpeed(speed),
     paused: params.get('paused') === '1',
     timeSec: params.get('time') ? parseTimeOfDay(params.get('time')!) : null,
     groundHeight:
@@ -1954,7 +1958,7 @@ export default function App() {
           // are drawn (see CesiumMap.setPaceWholeView), and the clouds'
           // drift paces the ticks like a fleet does, so neither a label
           // far out nor the sky steps along at the heartbeat's pace.
-          const paceWholeView = clock.speed > 1 || cameraPathPlayingRef.current
+          const paceWholeView = Math.abs(clock.speed) > 1 || cameraPathPlayingRef.current
           map.setPaceWholeView(paceWholeView)
           const cloudPxPerSecond =
             paceWholeView && !clock.paused ? map.cloudMotionPxPerSecond(clock.speed) : 0
@@ -3960,10 +3964,10 @@ export default function App() {
   }, [handlePhotoChange])
 
   /**
-   * The time-lapse a step up or down. The slider is continuous (1–120),
-   * the keyboard walks the speeds worth stopping at: from where it stands
-   * to the next one in that direction, so a slider left at ×7 still moves
-   * to ×10 rather than snapping somewhere behind it.
+   * The time-lapse a step up or down: the keyboard walks SPEED_STEPS, the
+   * slider's own detents, from where the clock stands to the next one in
+   * that direction – so a clock a link left at ×50 moves to ×60, not
+   * somewhere behind it – and down past ×1 into the rewind.
    */
   const handleStepSpeed = useCallback(
     (direction: 1 | -1) => {

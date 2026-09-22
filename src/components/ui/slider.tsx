@@ -14,12 +14,31 @@ function Slider({
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   'aria-valuetext': ariaValueText,
+  origin,
   ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
+}: React.ComponentProps<typeof SliderPrimitive.Root> & {
+  /**
+   * Where the fill starts from, in the slider's own units – the middle
+   * of a slider that goes both ways (the time-lapse: rewind to the left
+   * of real pace, faster to the right). Radix fills from `min`; given an
+   * origin the fill runs from it to the value instead – the fill's near
+   * end is what marks the origin, whichever side the thumb stands on.
+   * For one thumb only.
+   */
+  origin?: number
+}) {
   const _values = React.useMemo(
     () => (Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : [min]),
     [value, defaultValue, min],
   )
+  const percent = (v: number) => ((v - min) / (max - min)) * 100
+  const fill =
+    origin === undefined
+      ? null
+      : {
+          left: `${Math.min(percent(origin), percent(_values[0]))}%`,
+          right: `${100 - Math.max(percent(origin), percent(_values[0]))}%`,
+        }
 
   return (
     <SliderPrimitive.Root
@@ -38,10 +57,14 @@ function Slider({
         data-slot="slider-track"
         className="bg-accent relative grow overflow-hidden rounded-full h-1.5 w-full"
       >
-        <SliderPrimitive.Range
-          data-slot="slider-range"
-          className="bg-primary absolute h-full"
-        />
+        {fill ? (
+          <span data-slot="slider-range" className="bg-primary absolute h-full" style={fill} />
+        ) : (
+          <SliderPrimitive.Range
+            data-slot="slider-range"
+            className="bg-primary absolute h-full"
+          />
+        )}
       </SliderPrimitive.Track>
       {Array.from({ length: _values.length }, (_, index) => (
         <SliderPrimitive.Thumb

@@ -356,18 +356,19 @@ export class LighthousesLayer {
   }
 
   /**
-   * Carries the optics forward on the simulated clock: by its own
-   * elapsed time, paused with it, and no faster than BEAM_MAX_RATE times
-   * the real time that passed – the smoke's rule (FunnelSmoke.advance).
-   * Returns the seconds the optics turned this tick.
+   * Carries the optics on the simulated clock: by its own elapsed time,
+   * paused with it, backward under the rewind, and no faster than
+   * BEAM_MAX_RATE times the real time that passed either way – the
+   * smoke's rule (FunnelSmoke.advance). Returns the seconds the optics
+   * turned this tick, negative for a turn back.
    */
   private advanceOptics(simMs: number, realNowMs: number): number {
     let advanced = 0
     if (this.lastAdvanceMs !== null && this.lastAdvanceReal !== null) {
       const dt = (simMs - this.lastAdvanceMs) / 1000
       const realDt = Math.max(0, (realNowMs - this.lastAdvanceReal) / 1000)
-      if (dt > 0) {
-        advanced = Math.min(dt, realDt * BEAM_MAX_RATE)
+      if (dt !== 0) {
+        advanced = Math.sign(dt) * Math.min(Math.abs(dt), realDt * BEAM_MAX_RATE)
         this.opticTime += advanced
       }
     }
@@ -419,7 +420,7 @@ export class LighthousesLayer {
     let tickMotionPx = 0
     let sinceRenderedPx = 0
     for (const record of this.records) {
-      if (record.optic && turned > 0 && level >= ALPHA_STEP) {
+      if (record.optic && turned !== 0 && level >= ALPHA_STEP) {
         const distance = Cartesian3.distance(camera, record.position)
         const fade = beamDistanceFade(distance)
         if (fade > 0) {
@@ -433,8 +434,11 @@ export class LighthousesLayer {
             const sweepMetersPerSecond = ((2 * Math.PI) / record.optic.turnS) * BEAM_LENGTH_M
             const pxPerMeter = Number.isFinite(pxPerMeterAtUnit) ? pxPerMeterAtUnit / Math.max(1, distance) : 1
             const pxPerSecond = sweepMetersPerSecond * pxPerMeter * fade
-            tickMotionPx = Math.max(tickMotionPx, turned * pxPerSecond)
-            sinceRenderedPx = Math.max(sinceRenderedPx, (this.opticTime - this.renderedOpticTime) * pxPerSecond)
+            tickMotionPx = Math.max(tickMotionPx, Math.abs(turned) * pxPerSecond)
+            sinceRenderedPx = Math.max(
+              sinceRenderedPx,
+              Math.abs(this.opticTime - this.renderedOpticTime) * pxPerSecond,
+            )
           }
         }
       }

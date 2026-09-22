@@ -8,6 +8,7 @@ import {
   Pause,
   Play,
   Plane,
+  Rewind,
   Ship,
   TimerReset,
   TramFront,
@@ -27,7 +28,15 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { berlinDateKey } from '@/lib/clock'
+import {
+  berlinDateKey,
+  formatSpeed,
+  SLIDER_MAX,
+  SLIDER_MIN,
+  SLIDER_ORIGIN,
+  sliderFromSpeed,
+  speedFromSlider,
+} from '@/lib/clock'
 import type { TransitMode } from '@/data/network-types'
 import type { CityActivity } from '@/lib/city-profile'
 import { MODE_KEY, getLanguage, localizeCityName, sortCitiesByName, t, type MessageKey } from '@/lib/i18n'
@@ -613,22 +622,39 @@ export function ControlPanel(props: ControlPanelProps) {
             </div>
 
             <div className="flex flex-col gap-2">
+              {/* The row says the direction: "Rewind" with its own icon
+                  while the clock runs backward, the number reads ×10 either
+                  way – a sign before it (×−10) was tried and found ugly */}
               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Gauge className="size-4" aria-hidden />
-                  {t('sim.timeLapse')}
+                <span className="flex items-center gap-1.5" data-testid="speed-label">
+                  {props.speed < 0 ? (
+                    <Rewind className="size-4" aria-hidden />
+                  ) : (
+                    <Gauge className="size-4" aria-hidden />
+                  )}
+                  {t(props.speed < 0 ? 'sim.rewind' : 'sim.timeLapse')}
                 </span>
                 <span className="font-mono tabular-nums" data-testid="speed-value">
-                  ×{props.speed}
+                  {formatSpeed(props.speed)}
                 </span>
               </div>
+              {/* Both ways: real pace in the middle, faster to the right,
+                  backward to the left, resting on the keyboard's steps (the
+                  scale is the clock's, sliderFromSpeed) – the fill runs
+                  from the middle */}
               <Slider
                 aria-label={t('sim.timeLapse')}
-                min={1}
-                max={120}
+                aria-valuetext={
+                  props.speed < 0
+                    ? t('sim.speedBackward', { speed: formatSpeed(props.speed) })
+                    : formatSpeed(props.speed)
+                }
+                min={SLIDER_MIN}
+                max={SLIDER_MAX}
                 step={1}
-                value={[props.speed]}
-                onValueChange={([v]) => props.onSpeedChange(v)}
+                origin={SLIDER_ORIGIN}
+                value={[sliderFromSpeed(props.speed)]}
+                onValueChange={([v]) => props.onSpeedChange(speedFromSlider(v))}
               />
             </div>
 

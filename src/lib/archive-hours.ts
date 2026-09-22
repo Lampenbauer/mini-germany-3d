@@ -41,7 +41,9 @@ const ARCHIVE_RETRY_MS = 30_000
  * in a minute; a file fetched a second before it is needed is late). The
  * pace is read off consecutive calls and capped at the fastest time-lapse
  * the app offers (?speed=600), so a clock scrubbed hours ahead in one
- * move reads as a fast clock, not as an absurd one.
+ * move reads as a fast clock, not as an absurd one. A clock running
+ * backward (the rewind, a negative factor) has the same lead behind the
+ * moment instead, and nothing ahead of it beyond the moment's own hour.
  */
 const ARCHIVE_PREFETCH_MS = 10 * 60_000
 const ARCHIVE_PREFETCH_LEAD_MS = 10_000
@@ -230,21 +232,28 @@ export class HourArchiveClient<L> {
   follow(simMs: number, nowMs = Date.now()): void {
     if (this.stopped) return
     // The clock's pace, from the last two calls: what the prefetch lead
-    // is measured in. A clock standing still or scrubbed back counts as
-    // real pace.
+    // is measured in, and which way it reaches. A clock standing still
+    // counts as real pace; one running backward – the rewind – as its
+    // pace back, so the lead goes behind the moment.
     let pace = 1
     if (this.lastFollow && nowMs > this.lastFollow.nowMs) {
       pace = (simMs - this.lastFollow.simMs) / (nowMs - this.lastFollow.nowMs)
-      pace = Math.min(ARCHIVE_MAX_PACE, Math.max(1, pace))
+      pace =
+        pace < 0
+          ? Math.max(-ARCHIVE_MAX_PACE, Math.min(-1, pace))
+          : Math.min(ARCHIVE_MAX_PACE, Math.max(1, pace))
     }
     this.lastFollow = { simMs, nowMs }
-    const lead = Math.max(ARCHIVE_PREFETCH_MS, pace * ARCHIVE_PREFETCH_LEAD_MS)
+    const lead = Math.max(ARCHIVE_PREFETCH_MS, Math.abs(pace) * ARCHIVE_PREFETCH_LEAD_MS)
     // Every hour from the one the sampling reaches back into to the one
     // the lead reaches ahead – two in the usual case, three around a
-    // boundary or under a fast time-lapse
+    // boundary or under a fast time-lapse; rewinding, from the one the
+    // lead reaches back into to the moment's own
     const wanted = new Set<string>()
-    const firstHour = Math.floor((simMs - this.playbackDelayMs) / ARCHIVE_HOUR_MS)
-    const lastHour = Math.floor((simMs + lead) / ARCHIVE_HOUR_MS)
+    const firstHour = Math.floor(
+      (simMs - this.playbackDelayMs - (pace < 0 ? lead : 0)) / ARCHIVE_HOUR_MS,
+    )
+    const lastHour = Math.floor((simMs + (pace < 0 ? 0 : lead)) / ARCHIVE_HOUR_MS)
     for (let hour = firstHour; hour <= lastHour; hour++) {
       wanted.add(archiveHourKey(hour * ARCHIVE_HOUR_MS))
     }

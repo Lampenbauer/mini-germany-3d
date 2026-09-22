@@ -267,13 +267,19 @@ describe('CloudLayer', () => {
     layer.advance(1_010_000)
     expect(layer.state.driftMeters.east).toBeCloseTo(90, 6)
     expect(layer.state.driftMeters.north).toBeCloseTo(0, 6)
-    // Time standing still or running backwards moves nothing
+    // Time standing still moves nothing
     layer.advance(1_010_000)
-    layer.advance(900_000)
     expect(layer.state.driftMeters.east).toBeCloseTo(90, 6)
-    // …and the clock picks up again from where it was set to
-    layer.advance(901_000)
-    expect(layer.state.driftMeters.east).toBeCloseTo(99, 6)
+    // …and running backward – the rewind – takes the drift back with it
+    layer.advance(1_005_000)
+    expect(layer.state.driftMeters.east).toBeCloseTo(45, 6)
+    // A jump of more than a day (the calendar) re-seeds, either way
+    layer.advance(1_005_000 + 2 * 86_400_000)
+    expect(layer.state.driftMeters.east).toBeCloseTo(45, 6)
+    layer.advance(1_006_000 + 2 * 86_400_000)
+    expect(layer.state.driftMeters.east).toBeCloseTo(54, 6)
+    layer.advance(1_006_000)
+    expect(layer.state.driftMeters.east).toBeCloseTo(54, 6)
   })
 
   it('asks for a frame once the drift adds up to a visible step on screen', () => {

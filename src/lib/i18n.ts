@@ -21,6 +21,8 @@ const en = {
   'sim.setDate': 'Set simulation date (four days back to a week ahead)',
   'sim.now': 'Now',
   'sim.timeLapse': 'Time-lapse',
+  'sim.rewind': 'Rewind',
+  'sim.speedBackward': '{speed} backward',
   // The notice (a toast) when the clock is moved past the present – see
   // lib/future-notice.ts
   'sim.aheadNotice': 'Ships and aircraft stay in real time',
@@ -404,7 +406,7 @@ const en = {
   'keys.compass': 'Turn to the next quarter',
   'keys.miniature': 'Miniature effect on and off',
   'keys.pitch': 'Look from above, look across',
-  'keys.speed': 'Time-lapse faster, slower',
+  'keys.speed': 'Time-lapse faster, slower – below ×1 the clock runs backward',
   'keys.dismiss': 'Close the card, stop following',
   'keys.help': 'This dialog',
   // The static pages under the map (lib/site-pages.ts): what a crawler
@@ -447,6 +449,8 @@ const de: Record<MessageKey, string> = {
   'sim.setDate': 'Simulationsdatum wählen (vier Tage zurück bis in einer Woche)',
   'sim.now': 'Jetzt',
   'sim.timeLapse': 'Zeitraffer',
+  'sim.rewind': 'Rücklauf',
+  'sim.speedBackward': '{speed} rückwärts',
   'sim.aheadNotice': 'Schiffe und Flugzeuge bleiben in Echtzeit',
   'sim.aheadNoticeDetail':
     'Schiffe und Flugzeuge lassen sich nicht in die Zukunft versetzen, sie bewegen sich weiter wie in echt.',
@@ -791,7 +795,7 @@ const de: Record<MessageKey, string> = {
   'keys.compass': 'Zur nächsten Himmelsrichtung drehen',
   'keys.miniature': 'Miniatureffekt an und aus',
   'keys.pitch': 'Von oben schauen, quer schauen',
-  'keys.speed': 'Zeitraffer schneller, langsamer',
+  'keys.speed': 'Zeitraffer schneller, langsamer – unter ×1 läuft die Uhr rückwärts',
   'keys.dismiss': 'Karte schließen, Verfolgung beenden',
   'keys.help': 'Dieses Fenster',
   'page.description':

@@ -61,7 +61,7 @@ pipeline (see [Cities](#cities)).
 | Flat map | A street map instead of the 3D city, switched with the globe on the dial and carried in the hash as `basemap=flat`: Google's tiles go, the bare globe comes up with Mapbox raster tiles on it – two styles, one drawn by day and one at night, the night one laid over the day's along the sun's ramp (`src/map/FlatBasemap.ts`, the styles in `src/config.ts`) – and, there being no terrain, everything the city carries is flattened to 0 m: the routes' profile, the stops, the lamps, the water the ships ride, the apron the aircraft stand on; the air traffic comes down by the city's ground height so an approach 300 m over the airport is 300 m over the map. The camera comes down with the ground and back up with it, so the picture stands; a follow needs neither. The switch is a swap, not a reload (`CesiumMap.setBasemap`): the layers keep their records and forget every height they measured on the tiles. Nothing is asked of Mapbox until the switch is thrown, and nothing without a token (`VITE_MAPBOX_TOKEN`) – the flat map is then the bare dark globe |
 | shadcn(-style) interface | Tailwind v4 + Radix primitives, shadcn component styling (Card, Button, Badge, Switch, Slider, Popover, Tabs, a segmented control on ToggleGroup, Sonner for the notices) |
 | About the map | The question mark at the foot of the dial (or `?`) opens a dialog that says what this is: where it comes from – [mini-tokyo-3d](https://minitokyo3d.com) put Tokyo's trains on a 3D map, [legible-cities](https://github.com/richc117/legible-cities) draws timetable animations out of open GTFS – and, above all, what it is not: not live vehicle tracking. The feeds carry the timetable and the delay, not the position, so every vehicle drives its scheduled trip with the GTFS-RT delay shifting it; only the AIS ships and the ADS-B aircraft are where they really are. The dialog opens with Mario’s project story and inspirations; map details and keyboard shortcuts have their own tabs |
-| Keyboard | Bare keys, no modifiers: `Space` pauses and plays, `+`/`−` step the time-lapse, `N` returns to the real time, `S`/`U`/`L` pick the surface, the underground and the line diagram, `R` puts the camera on the city's home view, `C` turns it to the next quarter, `2`/`3` flatten and tip it, `M` is the miniature lens, `F` is full screen, `H` hides the interface, `Esc` closes whichever card is open, and `?` opens the About dialog, which lists them in its Keyboard tab. Space gives way to the control the keyboard stands on – there it is the click – and every key stays out of the time field |
+| Keyboard | Bare keys, no modifiers: `Space` pauses and plays, `+`/`−` step the time-lapse (down past ×1 into the rewind), `N` returns to the real time, `S`/`U`/`L` pick the surface, the underground and the line diagram, `R` puts the camera on the city's home view, `C` turns it to the next quarter, `2`/`3` flatten and tip it, `M` is the miniature lens, `F` is full screen, `H` hides the interface, `Esc` closes whichever card is open, and `?` opens the About dialog, which lists them in its Keyboard tab. Space gives way to the control the keyboard stands on – there it is the click – and every key stays out of the time field |
 | Interface out of the way | `H` hides the whole interface – panel, cards, map controls – and brings it back, for a clean look at the city; a dialog does it on its own while it is open. What the map itself draws (stop names, vehicle numbers, ship names, callsigns, routes) is untouched; the layers popover's switches are what turn those off, and Cesium's credit line stays either way; its "Data attribution" opens in the app's own dialog rather than in Cesium's lightbox. Not shared in the URL: a reload always brings the interface back. The rail at the lower right – layers, the camera's block, the About button – also steps aside on its own: ten seconds without a pointer movement and it fades out, the first movement (or press, wheel, key) brings it back at once; never on a phone, where a finger between touches is always at rest (`src/lib/pointer-idle.ts`) |
 | Full screen | A button on the dial's right puts the page full screen and takes it back out; it follows Escape and F11 too, and is left out where the browser has no Fullscreen API (iOS Safari) |
 | Automated tests | Unit tests (Vitest) and functional E2E tests (Playwright), fully offline and deterministic |
@@ -114,7 +114,8 @@ Static Tiles API as empty tiles.
   only shifts them by their delay), what it is built from, and the
   keyboard shortcuts in a separate tab.
 - **Keyboard:** the same dialog lists the keys; it reads
-  `Space` pause and play, `+`/`−` time-lapse a step faster or slower, `N`
+  `Space` pause and play, `+`/`−` time-lapse a step faster or slower – down
+  past ×1 the clock runs backward, `N`
   back to the real time, `S`/`U`/`L` the three readings of the network
   (surface, underground, line diagram), `R` the camera back on the city,
   `C` a quarter turn of the view, `2`/`3` flat and tilted, `M` the
@@ -129,9 +130,14 @@ Static Tiles API as empty tiles.
   calendar from four days back to a week ahead – the day changes the sun, and a
   day in the past replays the recorded ships and aircraft under the weather of
   that day (see "Live harbour traffic", "Live air traffic" and "Weather"); the
-  timetable is the same service day throughout. Time-lapse 1–120× and pause work at any
-  time – play carries on from the simulated moment, a time set by hand survives
-  a pause – and the collapsed panel keeps showing the clock and the pause button.
+  timetable is the same service day throughout. The time-lapse runs both
+  ways – real pace in the middle of its slider, which rests on the same
+  steps the keyboard walks (×2, ×5, ×10 … ×120), up to 120× to the right,
+  and to the left the clock runs backward at the same paces: the vehicles back
+  along their trips, the ships and the aircraft back through their
+  recordings, the sky with them – and it and the pause work at any time:
+  play carries on from the simulated moment, a time set by hand survives
+  a pause, and the collapsed panel keeps showing the clock and the pause button.
   A clock moved past the present – by the time field, the calendar or a
   time-lapse that runs on – leaves the ships and the aircraft in real time,
   and a notice at the top of the map says so the first time it happens, then
@@ -290,7 +296,7 @@ Static Tiles API as empty tiles.
 | Parameter | Effect |
 |-----------|--------|
 | `?offline=1` | No ion/Google access, wireframe globe (basis of the tests) |
-| `?speed=60` | Initial time-lapse factor (1–600) |
+| `?speed=60` | Initial time-lapse factor (1–600; negative – `?speed=-30` – runs the clock backward at that pace) |
 | `?time=08:30` | Set the simulation time at start (Europe/Berlin) – a boot flag, kept in the search string; what is typed into the panel goes into the hash instead (`time=` below) and wins over it |
 | `?paused=1` | Start with the simulation frozen |
 | `?rt=1` / `?rt=0` | Force GTFS-Realtime on/off (default: on, except in offline mode) |

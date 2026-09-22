@@ -197,7 +197,7 @@ describe('the rotating optics turn their beams', () => {
     return { shader, uniforms, vec4 }
   }
 
-  it('recognise the flashing major lights and turn them on the simulated clock, held by a pause and capped under the time-lapse', () => {
+  it('recognise the flashing major lights and turn them on the simulated clock, held by a pause, capped under the time-lapse and back under the rewind', () => {
     const h = harness({ camera: [12.0858, 54.19, 300], night: 1 })
     h.layer.add(data([TOWER, BUK, MOLE]))
     expect(h.layer.info.rotating).toBe(2)
@@ -213,7 +213,7 @@ describe('the rotating optics turn their beams', () => {
     // The time-lapse: a simulated minute in a real tenth of a second turns
     // the optic by no more than BEAM_MAX_RATE times the tenth
     nowSpy.mockReturnValue(base + 1_100)
-    h.layer.sync(1_060_500)
+    const forward = h.layer.sync(1_060_500)
     expect(h.layer.info.opticTime).toBeCloseTo(0.5 + 0.1 * BEAM_MAX_RATE, 9)
     // Paused: the same simulated instant again turns nothing
     const before = h.layer.info.opticTime
@@ -221,6 +221,13 @@ describe('the rotating optics turn their beams', () => {
     h.layer.sync(1_060_500)
     expect(h.layer.info.opticTime).toBe(before)
     expect(h.layer.sync(1_060_500).beamInView).toBe(false)
+    // The rewind: a simulated second back in a real tenth turns the optic
+    // back, capped the same way, and the beam in view is paced as before
+    nowSpy.mockReturnValue(base + 1_300)
+    const back = h.layer.sync(1_059_500)
+    expect(h.layer.info.opticTime).toBeCloseTo(before - 0.1 * BEAM_MAX_RATE, 9)
+    expect(back.beamInView).toBe(forward.beamInView)
+    expect(back.tickMotionPx).toBeCloseTo(forward.tickMotionPx, 6)
     // A test without a clock turns nothing either
     expect(h.layer.sync()).toEqual({ beamInView: false, tickMotionPx: 0 })
     nowSpy.mockRestore()

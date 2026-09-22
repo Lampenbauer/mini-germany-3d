@@ -826,6 +826,15 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
   })
 
+  it('boots into the rewind from a negative ?speed=', () => {
+    window.history.replaceState(null, '', '/?welcome=0&speed=-30')
+    render(<App />)
+    expect(window.__mg3d!.speed()).toBe(-30)
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×30')
+    expect(screen.getByTestId('speed-label')).toHaveTextContent('Rewind')
+    expect(screen.getByRole('slider', { name: 'Time-lapse' })).toHaveAttribute('aria-valuenow', '2')
+  })
+
   it('scrolls only the line list, not the whole panel', () => {
     render(<App />)
     // The panel itself must not scroll – the clock and the layer switches
@@ -1029,7 +1038,7 @@ describe('App (UI shell)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('steps the time-lapse on + and −', () => {
+  it('steps the time-lapse on + and −, down past real pace into the rewind', () => {
     render(<App />)
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
     fireEvent.keyDown(window, { key: '+', code: 'Equal', shiftKey: true })
@@ -1038,11 +1047,29 @@ describe('App (UI shell)', () => {
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×5')
     fireEvent.keyDown(window, { key: '-', code: 'Minus' })
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×2')
-    // The bottom and the top are where it stops
-    for (let i = 0; i < 4; i++) fireEvent.keyDown(window, { key: '-', code: 'Minus' })
+    // Down from ×1 the clock runs backward at real pace – ×1 the other
+    // way, no ×0: the number keeps its face, the row's label says which way
+    fireEvent.keyDown(window, { key: '-', code: 'Minus' })
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
-    for (let i = 0; i < 12; i++) fireEvent.keyDown(window, { key: '=', code: 'Equal' })
+    expect(screen.getByTestId('speed-label')).toHaveTextContent('Time-lapse')
+    fireEvent.keyDown(window, { key: '-', code: 'Minus' })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×1')
+    expect(screen.getByTestId('speed-label')).toHaveTextContent('Rewind')
+    expect(window.__mg3d!.speed()).toBe(-1)
+    // The slider rests on the detent left of its middle, and says so
+    const slider = screen.getByRole('slider', { name: 'Time-lapse' })
+    expect(slider).toHaveAttribute('aria-valuenow', '7')
+    expect(slider).toHaveAttribute('aria-valuetext', '×1 backward')
+    // The bottom and the top are where it stops
+    for (let i = 0; i < 9; i++) fireEvent.keyDown(window, { key: '-', code: 'Minus' })
     expect(screen.getByTestId('speed-value')).toHaveTextContent('×120')
+    expect(screen.getByTestId('speed-label')).toHaveTextContent('Rewind')
+    expect(window.__mg3d!.speed()).toBe(-120)
+    for (let i = 0; i < 20; i++) fireEvent.keyDown(window, { key: '=', code: 'Equal' })
+    expect(screen.getByTestId('speed-value')).toHaveTextContent('×120')
+    expect(screen.getByTestId('speed-label')).toHaveTextContent('Time-lapse')
+    expect(slider).toHaveAttribute('aria-valuenow', '15')
+    expect(slider).toHaveAttribute('aria-valuetext', '×120')
   })
 
   it('flattens the view on 2 and tips it back on 3', async () => {

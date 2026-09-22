@@ -78,7 +78,7 @@ describe('FunnelSmoke', () => {
     expect(smoke.drawn).toBe(0)
   })
 
-  it('runs on the clock it is given, no faster than three times real time, and not at all backwards', () => {
+  it('runs on the clock it is given, no faster than three times real time, and backward under the same cap', () => {
     const smoke = new FunnelSmoke(host)
     smoke.advance(1_000, 0)
     expect(smoke.plumeTime).toBe(0)
@@ -88,12 +88,15 @@ describe('FunnelSmoke', () => {
     // The time-lapse: two minutes in a second run as three seconds
     smoke.advance(122_000, 2_000)
     expect(smoke.plumeTime).toBeCloseTo(1 + PLUME_MAX_RATE, 5)
-    // A clock standing still (the pause) and one set back move nothing
+    // A clock standing still (the pause) moves nothing
     smoke.advance(122_000, 3_000)
-    smoke.advance(60_000, 4_000)
     expect(smoke.plumeTime).toBeCloseTo(1 + PLUME_MAX_RATE, 5)
+    // One running backward – the rewind, or a time set back – runs the
+    // plume back into the funnel, no faster than the same cap
+    smoke.advance(60_000, 4_000)
+    expect(smoke.plumeTime).toBeCloseTo(1, 5)
     smoke.advance(60_500, 4_500)
-    expect(smoke.plumeTime).toBeCloseTo(1.5 + PLUME_MAX_RATE, 5)
+    expect(smoke.plumeTime).toBeCloseTo(1.5, 5)
   })
 
   it('measures the puffs’ motion since the frame last drawn, across the clock wrapping round', () => {

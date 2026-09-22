@@ -379,7 +379,10 @@ export class Wake {
     if (!Number.isNaN(this.clockMs) && this.lastRealMs !== null) {
       const dt = (nowMs - this.clockMs) / 1000
       const realDt = Math.max(0, (realNowMs - this.lastRealMs) / 1000)
-      if (dt > 0) this.churnS += Math.min(dt, realDt * PLUME_MAX_RATE)
+      // Either way: the rewind churns the foam back, under the same cap
+      const step = Math.min(Math.abs(dt), realDt * PLUME_MAX_RATE)
+      if (dt > 0) this.churnS += step
+      else if (dt < 0) this.churnS -= step
     }
     this.clockMs = nowMs
     this.lastRealMs = realNowMs

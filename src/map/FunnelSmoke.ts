@@ -292,17 +292,24 @@ export class FunnelSmoke {
     if (this.lastAdvanceMs !== null && this.lastAdvanceReal !== null) {
       const dt = (nowMs - this.lastAdvanceMs) / 1000
       const realDt = Math.max(0, (realNowMs - this.lastAdvanceReal) / 1000)
-      if (dt > 0) this.time += Math.min(dt, realDt * PLUME_MAX_RATE)
+      // Either way: the rewind runs the plume back into the funnel, the
+      // film played backward, under the same cap
+      const step = Math.min(Math.abs(dt), realDt * PLUME_MAX_RATE)
+      if (dt > 0) this.time += step
+      else if (dt < 0) this.time -= step
     }
     this.lastAdvanceMs = nowMs
     this.lastAdvanceReal = realNowMs
     // The plume is periodic in its life: wrapping the clock at a multiple
     // of it changes nothing on screen and keeps the shader's float exact
-    // through a long session
+    // through a long session – either way round
     const period = PLUME_LIFE_S * 1024
     if (this.time >= period) {
       this.time -= period
       this.renderedTime -= period
+    } else if (this.time <= -period) {
+      this.time += period
+      this.renderedTime += period
     }
   }
 
