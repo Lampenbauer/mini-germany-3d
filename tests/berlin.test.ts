@@ -19,6 +19,15 @@ const berlin = cityNetworks.find((entry) => entry.city.slug === 'berlin')!
 const network = berlin.network
 const schedule = berlinScheduleJson as ScheduleJson
 
+/**
+ * The ferries that do not sail every day of the week: the F21 and the F23
+ * from Tuesday to Sunday, the F24 at weekends alone (the feeds of
+ * 2026-09-05 and 2026-09-26 agree), so a Monday's service day has none of
+ * the three and any weekday's no F24. Which weekday the service day is
+ * moves with the calendar – see WEEKEND_NIGHT_LINES in cologne.test.ts.
+ */
+const PART_WEEK_FERRIES = ['F21', 'F23', 'F24']
+
 describe('the Berlin dataset', () => {
   it('has the U-Bahn, the S-Bahn, the trams, the Metrobus lines and the ferries', () => {
     const ids = new Set(network.lines.map((l) => l.id))
@@ -66,7 +75,12 @@ describe('the Berlin dataset', () => {
 
   it('has real departures for nearly every line, rounds on the ring, and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 3)
+    // The ferries that do not sail every day are not counted, the chosen
+    // day may be one they do not sail on
+    const idle = network.lines
+      .filter((line) => !PART_WEEK_FERRIES.includes(line.id) && !withDepartures.includes(line.id))
+      .map((line) => line.id)
+    expect(idle.length, `without departures: ${idle.join(', ')}`).toBeLessThanOrEqual(3)
     for (const id of ['S41', 'S42']) {
       const rounds = Object.values(schedule.lines?.[id] ?? {}).reduce((n, d) => n + d.departures.length, 0)
       expect(rounds, `${id} rounds a day`).toBeGreaterThan(150)
