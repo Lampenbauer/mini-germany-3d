@@ -765,55 +765,69 @@ describe('App (UI shell)', () => {
   })
 
   it('sets the simulated day from the calendar, four days back to a week ahead, and Now brings it back', async () => {
+    // Today is a day whose week ahead runs into the next month, so the
+    // range lies on two sheets of the calendar. On the real date the test
+    // read one sheet and failed around the turn of every month – the
+    // nightly run of 2026-09-29, whose 5 and 6 Oct were on October's sheet.
+    // The Date alone is faked, so the loop and the UI tick run as they do
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-29T12:00:00+02:00'))
     render(<App />)
     const trigger = screen.getByRole('button', {
       name: 'Set simulation date (four days back to a week ahead)',
     })
     // The button opens on the day the simulation stands on – today, until
-    // one is picked – in the one shape every language gets: "8. Sep 2026"
-    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const shortDay = (key: string) =>
-      `${parseInt(key.slice(8), 10)}. ${MONTHS[parseInt(key.slice(5, 7), 10) - 1]} ${key.slice(0, 4)}`
-    expect(trigger).toHaveTextContent(shortDay(berlinDateKey(Date.now())))
+    // one is picked – in the one shape every language gets
+    expect(trigger).toHaveTextContent('29. Sep 2026')
     fireEvent.click(trigger)
-    // react-day-picker's month is a grid; its day buttons carry data-day
-    const calendar = await screen.findByRole('grid')
-    // The calendar's days: the four days before today – the ones the AIS
-    // archive still holds – and a week from today can be picked, the rest
-    // is disabled
-    const today = berlinDateKey(Date.now())
-    const tomorrow = berlinDateKey(Date.now() + 86_400_000)
-    const fourDaysAgo = berlinDateKey(Date.now() - 4 * 86_400_000)
-    const dayButtons = [...calendar.querySelectorAll<HTMLButtonElement>('button[data-day]')]
-    const enabled = dayButtons.filter((b) => !b.disabled)
-    expect(enabled).toHaveLength(12)
-    const dayNumber = String(parseInt(tomorrow.slice(8), 10))
-    const tomorrowButton = enabled.find((b) => b.textContent === dayNumber)!
+    // react-day-picker's month is a grid named after it, with a cell per
+    // day that carries the day as data-day around the day's button
+    const pickable = async (month: string) => {
+      const grid = await screen.findByRole('grid', { name: month })
+      return [...grid.querySelectorAll<HTMLElement>('[role="gridcell"]')].filter(
+        (cell) => cell.querySelector('button')?.disabled === false,
+      )
+    }
+    // The four days before today – the ones the AIS archive still holds –
+    // and a week from today can be picked, the rest is disabled: the
+    // calendar opens on today's month, whose sheet ends on Sunday 4 Oct,
+    // and the next sheet holds the rest
+    const september = await pickable('September 2026')
+    fireEvent.click(screen.getByRole('button', { name: 'Go to the Next Month' }))
+    const october = await pickable('October 2026')
+    const offered = new Set([...september, ...october].map((cell) => cell.dataset.day))
+    expect([...offered].sort()).toEqual([
+      ...['25', '26', '27', '28', '29', '30'].map((day) => `2026-09-${day}`),
+      ...['01', '02', '03', '04', '05', '06'].map((day) => `2026-10-${day}`),
+    ])
+    // A week ahead, the last day offered
+    const latest = october.at(-1)!
+    expect(latest.dataset.day).toBe('2026-10-06')
     const secondsBefore = window.__mg3d!.secondsOfDay()
-    fireEvent.click(tomorrowButton)
-    expect(window.__mg3d!.dateKey()).toBe(tomorrow)
+    fireEvent.click(latest.querySelector('button')!)
+    expect(window.__mg3d!.dateKey()).toBe('2026-10-06')
     // The time of day stays: only the day moved – and the day picked is
     // in the URL, the time (not typed) is not
     expect(Math.abs(window.__mg3d!.secondsOfDay() - secondsBefore)).toBeLessThan(2)
-    expect(window.location.hash).toContain(`&date=${tomorrow}`)
+    expect(window.location.hash).toContain('&date=2026-10-06')
     expect(window.location.hash).not.toContain('time=')
     // The trigger now names the day picked, and the calendar closed itself
-    expect(trigger).toHaveTextContent(shortDay(tomorrow))
+    expect(trigger).toHaveTextContent('6. Oct 2026')
     expect(screen.queryByRole('grid')).not.toBeInTheDocument()
-    // Back into the past: the day before yesterday is the earliest offered
+    // Back into the past: the calendar opens on the day picked, and four
+    // days back, a sheet before it, is the earliest offered
     fireEvent.click(trigger)
-    const reopened = await screen.findByRole('grid')
-    const earliest = [...reopened.querySelectorAll<HTMLButtonElement>('button[data-day]')].filter(
-      (b) => !b.disabled,
-    )[0]
-    expect(earliest.textContent).toBe(String(parseInt(fourDaysAgo.slice(8), 10)))
-    fireEvent.click(earliest)
-    expect(window.__mg3d!.dateKey()).toBe(fourDaysAgo)
-    expect(trigger).toHaveTextContent(shortDay(fourDaysAgo))
+    await screen.findByRole('grid', { name: 'October 2026' })
+    fireEvent.click(screen.getByRole('button', { name: 'Go to the Previous Month' }))
+    const earliest = (await pickable('September 2026'))[0]
+    expect(earliest.dataset.day).toBe('2026-09-25')
+    fireEvent.click(earliest.querySelector('button')!)
+    expect(window.__mg3d!.dateKey()).toBe('2026-09-25')
+    expect(trigger).toHaveTextContent('25. Sep 2026')
     fireEvent.click(screen.getByRole('button', { name: 'Now' }))
-    expect(window.__mg3d!.dateKey()).toBe(today)
+    expect(window.__mg3d!.dateKey()).toBe('2026-09-29')
     // … and gives the day up again with the clock, back to today, off the URL
-    expect(trigger).toHaveTextContent(shortDay(today))
+    expect(trigger).toHaveTextContent('29. Sep 2026')
     expect(window.location.hash).not.toContain('date=')
   })
 
