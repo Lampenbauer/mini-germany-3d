@@ -94,6 +94,9 @@ vi.mock('@/map/CesiumMap', () => {
     hasAircraft() {
       return false
     }
+    aircraftAsDrawn() {
+      return null
+    }
     addRoutes() {}
     addStops() {}
     addStreetLamps() {}

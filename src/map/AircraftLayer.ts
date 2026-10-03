@@ -379,6 +379,10 @@ interface AircraftRecord {
   clampLon: number
   clampLat: number
   clampedGeneration: number
+  /** The playback as last drawn, its pressure lift, and whether it stood on the apron (see asDrawn). */
+  sample: AircraftPlaybackSample | null
+  liftM: number
+  grounded: boolean
   /** The per-aircraft offset of its flashes (see lightPhaseMs). */
   lightPhaseMs: number
   /** Beacon and strobe as last drawn – a change on screen is worth a frame. */
@@ -634,6 +638,10 @@ export class AircraftLayer {
         height = ground
         grounded = true
       }
+      // What the card shows, the picture's instant rather than the last fix (see asDrawn)
+      record.sample = sample
+      record.liftM = liftM
+      record.grounded = grounded
       const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
       Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
       if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {
@@ -941,6 +949,46 @@ export class AircraftLayer {
   }
 
   /**
+   * The aircraft as the picture shows it, for its card: the record with
+   * the kinematics of the instant drawn – the playback's, twelve seconds
+   * behind the feed – in place of its last fix's: the altitude as the
+   * transponder reports it, the ground speed, the climb, and the ground
+   * once the body stands on it. The card showed the last fix until
+   * 2026-10-03, and said "on the ground" while the body was still twelve
+   * seconds out on its final approach. The pressure altitude beside a
+   * geometric one (the flight level) is the aircraft's own difference
+   * between the two where its record reports both, the sky's otherwise
+   * (see pressureLift). null for an aircraft not drawn yet.
+   */
+  asDrawn(aircraft: Aircraft): Aircraft | null {
+    const record = this.aircraft.get(aircraft.hex)
+    const sample = record?.sample
+    if (!record || !sample) return null
+    if (record.grounded || sample.altM === null) {
+      return {
+        ...aircraft,
+        onGround: true,
+        altGeomM: null,
+        altBaroM: null,
+        gsKn: sample.gsKn,
+        verticalRateMps: null,
+      }
+    }
+    const geomOverBaroM =
+      sample.altGeometric && aircraft.altGeomM !== null && aircraft.altBaroM !== null
+        ? aircraft.altGeomM - aircraft.altBaroM
+        : record.liftM
+    return {
+      ...aircraft,
+      onGround: false,
+      altGeomM: sample.altGeometric ? sample.altM : null,
+      altBaroM: sample.altM - geomOverBaroM,
+      gsKn: sample.gsKn,
+      verticalRateMps: sample.verticalRateMps,
+    }
+  }
+
+  /**
    * The picked aircraft lights up, the one before it goes dark (null =
    * none) – the two marks every picked thing on this map wears (see
    * VesselLayer.setSelected). Kept by address, so a link restored before
@@ -1130,6 +1178,9 @@ export class AircraftLayer {
       clampLon: sample.lon,
       clampLat: sample.lat,
       clampedGeneration: -1,
+      sample: null,
+      liftM,
+      grounded: false,
       lightPhaseMs: lightPhaseMs(aircraft.hex),
       lastBeacon: false,
       lastStrobe: false,

@@ -4342,7 +4342,10 @@ export default function App() {
         {aircraftCard && selectedAircraft && (
           <div className={CARD_SLOT}>
             <AircraftCard
-              aircraft={selectedAircraft}
+              // As the map draws it, twelve seconds behind the feed – the
+              // last fix said "on the ground" while the body was still on
+              // its final approach. Read each render, like the clock below
+              aircraft={mapRef.current?.aircraftAsDrawn(selectedAircraft) ?? selectedAircraft}
               // A replayed aircraft's fix is as old as the simulated clock says
               nowMs={aircraftReplay ? (clockRef.current?.now() ?? Date.now()) : Date.now()}
               recorded={aircraftReplay}

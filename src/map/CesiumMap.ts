@@ -2767,6 +2767,11 @@ export class CesiumMap {
     return this.aircraftLayer.hasAircraft(hex)
   }
 
+  /** The aircraft as the map draws it, for its card – null until it is drawn (see AircraftLayer.asDrawn). */
+  aircraftAsDrawn(aircraft: Aircraft): Aircraft | null {
+    return this.aircraftLayer.asDrawn(aircraft)
+  }
+
   hasVehicle(id: string): boolean {
     return this.vehicleLayer.hasVehicle(id)
   }

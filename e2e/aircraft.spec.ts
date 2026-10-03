@@ -44,10 +44,15 @@ async function boot(url: string) {
   await page.waitForFunction(() => window.__mg3d?.ready === true, undefined, { timeout: 120_000 })
 }
 
-/** Two aircraft as the feed would report them a few seconds ago, level, moving east. */
-const putAircraft = (airlinerAltitude = 10_800) =>
+/**
+ * Two aircraft as the feed would report them a few seconds ago, level,
+ * moving east. `airlinerLanded`: the airliner's record says it is on the
+ * ground already, while its track around the rendered instant is still
+ * in the air – the record runs a dozen seconds ahead of the picture.
+ */
+const putAircraft = (airlinerAltitude = 10_800, airlinerLanded = false) =>
   page.evaluate(
-    ({ AIRLINER, LIGHT, airlinerAltitude }) => {
+    ({ AIRLINER, LIGHT, airlinerAltitude, airlinerLanded }) => {
       const now = Date.now()
       const rendered = now - 12_000
       const one = (
@@ -56,6 +61,7 @@ const putAircraft = (airlinerAltitude = 10_800) =>
         gsKn: number,
         typeCode: string,
         category: string,
+        landed = false,
       ) => ({
         hex: a.hex,
         callsign: a.callsign,
@@ -65,9 +71,9 @@ const putAircraft = (airlinerAltitude = 10_800) =>
         category,
         lat: a.lat,
         lon: a.lon,
-        altGeomM: altM,
-        altBaroM: altM - 40,
-        onGround: false,
+        altGeomM: landed ? null : altM,
+        altBaroM: landed ? null : altM - 40,
+        onGround: landed,
         gsKn,
         trackDeg: 90,
         headingDeg: 90,
@@ -84,9 +90,12 @@ const putAircraft = (airlinerAltitude = 10_800) =>
           [rendered + 300_000, a.lat, a.lon + 0.02, altM, gsKn, 90, 0],
         ] as [number, number, number, number | null, number | null, number | null, number | null][],
       })
-      window.__mg3d!.setAircraft([one(AIRLINER, airlinerAltitude, 450, 'A388', 'A5'), one(LIGHT, 400, 90, 'C172', 'A1')])
+      window.__mg3d!.setAircraft([
+        one(AIRLINER, airlinerAltitude, 450, 'A388', 'A5', airlinerLanded),
+        one(LIGHT, 400, 90, 'C172', 'A1'),
+      ])
     },
-    { AIRLINER, LIGHT, airlinerAltitude },
+    { AIRLINER, LIGHT, airlinerAltitude, airlinerLanded },
   )
 
 /** Whether the aircraft's glTF body is in and ready to draw. */
@@ -209,6 +218,14 @@ test('a click-worthy aircraft is selectable and shared by its address', async ()
   await expect(page.getByTestId('aircraft-card')).toBeVisible()
   await expect(page.getByTestId('aircraft-name')).toHaveText(LIGHT.callsign)
   expect(await page.evaluate(() => window.__mg3d!.selectedAircraftHex())).toBe(LIGHT.hex)
+
+  // The card shows the aircraft as drawn: a record that says "on the
+  // ground" while the body is still in the air reads as the body does
+  await putAircraft(10_800, true)
+  await page.evaluate((hex) => window.__mg3d!.selectAircraft(hex), AIRLINER.hex)
+  await expect(page.getByTestId('aircraft-name')).toHaveText(AIRLINER.callsign)
+  await expect(page.getByTestId('aircraft-altitude')).toContainText('10 800 m')
+  await expect(page.getByTestId('aircraft-climb')).not.toContainText('on the ground')
 })
 
 test('?aircraft=0 opens with the traffic switched off', async () => {

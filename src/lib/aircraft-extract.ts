@@ -388,6 +388,13 @@ export interface AircraftPlaybackSample {
    */
   altM: number | null
   /**
+   * Whether altM comes from fixes that report the geometric altitude –
+   * the nearer of the two where their kinds differ, the airborne one
+   * between the air and the ground; false on the ground. The card shows
+   * the altitude as the transponder reports it, and needs to know which.
+   */
+  altGeometric: boolean
+  /**
    * How much of the ground is in the height drawn: 0 in the air, 1 on
    * the ground, and across the segment from the last fix in the air to
    * the first on the ground the share of it played (lifting off, the
@@ -454,22 +461,28 @@ function knownDirections(track: readonly AircraftTrackPoint[], i: number): { bea
   return { bearingDeg, noseDeg: headingDeg ?? bearingDeg }
 }
 
-/** A fix's altitude on the geometric scale, null on the ground (see aircraftPlaybackSample). */
-type AltitudeReader = (p: AircraftTrackPoint) => number | null
+/** How the fixes' altitudes are read (see aircraftPlaybackSample). */
+interface AltitudeScale {
+  /** A fix's altitude on the geometric scale, null on the ground. */
+  of(p: AircraftTrackPoint): number | null
+  /** Whether a fix reports its altitude as the geometric one. */
+  geometric(p: AircraftTrackPoint): boolean
+}
 
 function pointSample(
   track: readonly AircraftTrackPoint[],
   i: number,
-  altitude: AltitudeReader,
+  scale: AltitudeScale,
   moving: boolean,
   reckoned: boolean,
 ): AircraftPlaybackSample {
   const p = track[i]
-  const altM = altitude(p)
+  const altM = scale.of(p)
   return {
     lon: p[2],
     lat: p[1],
     altM,
+    altGeometric: altM !== null && scale.geometric(p),
     groundShare: altM === null ? 1 : 0,
     ...knownDirections(track, i),
     gsKn: p[4],
@@ -533,12 +546,15 @@ export function aircraftPlaybackSample(
   // none at all, on the ground, because nearly every aircraft that
   // reports the ground reported a geometric altitude in the air
   const recordGeometric = aircraft.altGeomM !== null || aircraft.altBaroM === null
-  const altitude: AltitudeReader = (p) =>
-    p[3] === null ? null : (p[8] ?? recordGeometric) ? p[3] : p[3] + pressureLiftM
+  const geometric = (p: AircraftTrackPoint) => p[8] ?? recordGeometric
+  const scale: AltitudeScale = {
+    of: (p) => (p[3] === null ? null : geometric(p) ? p[3] : p[3] + pressureLiftM),
+    geometric,
+  }
   const last = track[track.length - 1]
-  if (renderMs <= track[0][0]) return pointSample(track, 0, altitude, false, false)
+  if (renderMs <= track[0][0]) return pointSample(track, 0, scale, false, false)
   if (renderMs >= last[0]) {
-    return reckon(track, altitude, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
+    return reckon(track, scale, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
   }
 
   let i = 0
@@ -549,21 +565,25 @@ export function aircraftPlaybackSample(
   const u = dtMs > 0 ? (renderMs - p0[0]) / dtMs : 1
   const lat = p0[1] + (p1[1] - p0[1]) * u
   const lon = p0[2] + (p1[2] - p0[2]) * u
-  const a0 = altitude(p0)
-  const a1 = altitude(p1)
+  const a0 = scale.of(p0)
+  const a1 = scale.of(p1)
   let altM: number | null = null
+  let altGeometric = false
   let groundShare = 1
   if (a0 !== null && a1 !== null) {
     altM = a0 + (a1 - a0) * u
+    altGeometric = geometric(u < 0.5 ? p0 : p1)
     groundShare = 0
   } else if (a0 !== null) {
     // Touching down: on down from the last fix in the air at its rate
     // (a climb is no descent – held), onto the ground by the next fix
     altM = a0 + Math.min(0, p0[6] ?? 0) * ((renderMs - p0[0]) / 1000)
+    altGeometric = geometric(p0)
     groundShare = u
   } else if (a1 !== null) {
     // Lifting off: the first fix in the air, its climb run backwards
     altM = a1 - Math.max(0, p1[6] ?? 0) * ((p1[0] - renderMs) / 1000)
+    altGeometric = geometric(p1)
     groundShare = 1 - u
   }
 
@@ -603,6 +623,7 @@ export function aircraftPlaybackSample(
     lon,
     lat,
     altM,
+    altGeometric,
     groundShare,
     bearingDeg,
     noseDeg,
@@ -622,14 +643,14 @@ export function aircraftPlaybackSample(
  */
 function reckon(
   track: readonly AircraftTrackPoint[],
-  altitude: AltitudeReader,
+  scale: AltitudeScale,
   aheadMs: number,
 ): AircraftPlaybackSample {
   const last = track[track.length - 1]
   const gsKn = last[4]
   const trackDeg = last[5]
   if (gsKn === null || trackDeg === null || gsKn < 1 || aheadMs <= 0) {
-    return pointSample(track, track.length - 1, altitude, false, aheadMs > 0)
+    return pointSample(track, track.length - 1, scale, false, aheadMs > 0)
   }
   const seconds = aheadMs / 1000
   const meters = gsKn * KNOT_MPS * seconds
@@ -638,12 +659,13 @@ function reckon(
   const lon =
     last[2] +
     (Math.sin(rad) * meters) / (METERS_PER_DEGREE_LATITUDE * Math.cos((last[1] * Math.PI) / 180))
-  const lastAltM = altitude(last)
+  const lastAltM = scale.of(last)
   const altM = lastAltM === null ? null : lastAltM + (last[6] ?? 0) * seconds
   return {
     lon,
     lat,
     altM,
+    altGeometric: altM !== null && scale.geometric(last),
     groundShare: altM === null ? 1 : 0,
     bearingDeg: trackDeg,
     noseDeg: lastKnown(track, track.length - 1, 7) ?? trackDeg,

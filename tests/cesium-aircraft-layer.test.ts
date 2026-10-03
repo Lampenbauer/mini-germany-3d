@@ -156,10 +156,11 @@ describe('AircraftLayer heights', () => {
     // again on the ground a minute on (Frankfurt, 2026-10-03): past that
     // fix the reckoning flies it on down at its rate – until 2026-10-03
     // through the runway and 77 m under it
-    const { heightAt, picks } = harness()
+    const { layer, heightAt, picks } = harness()
     expect(heightAt(approach, NOW + 12_000)).toBeCloseTo(72 - 3.6 * 2, 1)
     expect(picks.length).toBeGreaterThan(0)
     expect(heightAt(approach, NOW + 25_000)).toBeCloseTo(ON_RUNWAY, 3)
+    expect(layer.asDrawn(dlh3pk(approach))).toMatchObject({ onGround: true, altGeomM: null })
     // On the flat map no pick answers, and none is needed: the ground is 0 m
     const flat = harness({ flat: true })
     expect(flat.heightAt(approach, NOW + 12_000)).toBeCloseTo(72 - 3.6 * 2 - 50, 1)
@@ -181,5 +182,26 @@ describe('AircraftLayer heights', () => {
     })
     tick([dlh3pk(pressure), level('3c0001', 0.02, 350), level('3c0002', 0.03, 430), level('3c0003', 0.04, 500)], NOW + 2_500)
     expect(heightOf(HEX)).toBeCloseTo(410 + 200, 1)
+  })
+
+  it('shows the card the picture: the approach while the record reports the ground, then the runway', () => {
+    const { layer, heightAt } = harness()
+    // Still on the approach: the altitude drawn, the record's own difference
+    // between its geometric and pressure altitude under it for the flight level
+    heightAt(approach, NOW + 3_000)
+    expect(layer.asDrawn(dlh3pk(approach))).toMatchObject({ onGround: false, verticalRateMps: -3.6 })
+    expect(layer.asDrawn(dlh3pk(approach))!.altGeomM).toBeCloseTo(86, 6)
+    expect(layer.asDrawn(dlh3pk(approach))!.altBaroM).toBeCloseTo(86 - GEOID - 20, 6)
+    // The record has landed, the picture has not: the card follows the picture
+    heightAt(landed, NOW + 6_000)
+    expect(dlh3pk(landed).onGround).toBe(true)
+    const shown = layer.asDrawn(dlh3pk(landed))!
+    expect(shown.onGround).toBe(false)
+    expect(shown.altGeomM).toBeCloseTo(80, 6)
+    // …and says "on the ground" when the body stands on the runway
+    heightAt(landed, NOW + 13_000)
+    expect(layer.asDrawn(dlh3pk(landed))).toMatchObject({ onGround: true, altGeomM: null, altBaroM: null })
+    // An aircraft not drawn has no picture to show
+    expect(layer.asDrawn({ ...dlh3pk(landed), hex: '3c0009' })).toBeNull()
   })
 })

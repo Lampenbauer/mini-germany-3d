@@ -20,6 +20,12 @@ import { formatFixAge } from '@/lib/vessel-info'
  * and like each of those it says which kind of thing was picked before
  * a word is read.
  *
+ * The kinematics are the ones the map draws, twelve seconds behind the
+ * feed (the app hands the card AircraftLayer.asDrawn): the altitude, the
+ * speed and the climb of the body on screen, and "on the ground" when it
+ * stands on the runway – not twelve seconds before. The age in the head
+ * is the feed's.
+ *
  * Every field can be missing: a light aircraft broadcasts no callsign,
  * an older transponder no geometric altitude, a multilaterated position
  * comes without speed or track – so the card says "not reported" rather

@@ -391,7 +391,7 @@ describe('aircraftPlaybackSample', () => {
     expect(s.groundShare).toBe(0)
   })
 
-  it('lifts a pressure altitude by the lift given, fix by fix', () => {
+  it('lifts a pressure altitude by the lift given, fix by fix, and says which kind it draws', () => {
     const a = aircraft({
       altGeomM: 1000,
       track: [point(NOW, 0, 0, { alt: 900, geom: false }), point(NOW + 10_000, 0, 0.01, { alt: 1000, geom: true })],
@@ -399,6 +399,9 @@ describe('aircraftPlaybackSample', () => {
     expect(aircraftPlaybackSample(a, NOW + 5000, GEOID).altM).toBeCloseTo(969.5, 6)
     // Without a lift every altitude stays as reported
     expect(aircraftPlaybackSample(a, NOW + 5000).altM).toBeCloseTo(950, 6)
+    // The kind is the nearer fix's
+    expect(aircraftPlaybackSample(a, NOW + 2500, GEOID).altGeometric).toBe(false)
+    expect(aircraftPlaybackSample(a, NOW + 7500, GEOID).altGeometric).toBe(true)
   })
 
   it('reads a fix written before the kind existed by the record', () => {
@@ -428,6 +431,7 @@ describe('aircraftPlaybackSample', () => {
     })
     const early = aircraftPlaybackSample(landing, NOW + 2000, GEOID)
     expect(early.altM).toBeCloseTo(153, 6)
+    expect(early.altGeometric).toBe(true)
     expect(early.groundShare).toBeCloseTo(0.04, 6)
     // The altitude carried on that long is below any runway: the share is
     // what the layer stops it with (AircraftLayer.drawnHeight)

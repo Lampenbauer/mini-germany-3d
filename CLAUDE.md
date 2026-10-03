@@ -2388,6 +2388,20 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   hanging in the sky is the lesser wrong, flying into a building the
   greater – and a descent near the ground stops on the runway (see
   Heights). An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
+- **The card shows the aircraft as drawn (since 2026-10-03).** The
+  record is the last fix, twelve seconds ahead of the body; the card
+  read it and said "on the ground" while the body was still twelve
+  seconds out on its approach, which read as the body hovering over the
+  runway. `AircraftLayer.asDrawn` hands it the record with the drawn
+  instant's altitude, ground speed, climb and ground (the layer's
+  `grounded`, the blind descent's stop included); the flight level is
+  the drawn altitude less the aircraft's own geometric-minus-pressure
+  difference, or the sky's lift where its record lacks one. The app
+  reads it while rendering, like the clock beside it, so it is as fresh
+  as the last render – a second at real pace. The age in the head stays
+  the feed's. `e2e/aircraft.spec.ts` opens the card on a record that
+  has landed ahead of its body (passed the record through, the card
+  read "on the ground" – checked by breaking the wiring once).
 - **Pose.** The nose follows `true_heading` where reported, the pitch
   is `atan2(vertical rate, ground speed)` capped at 12°, the bank is the
   reported `roll` or the coordinated turn the track rate implies, capped
