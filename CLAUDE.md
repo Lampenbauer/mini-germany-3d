@@ -2344,30 +2344,41 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   fix on the ground at the latest; lifting off is the same backwards,
   along the first climb. It held the last altitude reported until
   then, and fell onto the runway at the first fix on the ground.
-  `tests/cesium-aircraft-layer.test.ts` flies a landing through the
-  layer (the old code drew 120 m where 80 were reported),
-  `tests/aircraft-extract.test.ts` pins the sampler's scale and shares.
-  Nothing else is clamped – the feed's number is the truth. Measured
-  that morning on Frankfurt's answers, recorded and replayed through
-  the layer (scratch script, not kept): over the runway after the
-  record's ground flag 6–10 s per landing before, 0–0.8 s after. Two
-  things the same recording showed and nobody has built for: the
-  feeders lose a Frankfurt landing 0–35 m over the runway and hear it
-  again on the ground 50–160 s on (one landing in six within ten
-  seconds), and in that gap the reckoning flies it on down at its
-  descent rate for 20 s and freezes it – 40–50 s up to 77 m under the
-  runway, gone past `AIRCRAFT_EXPIRE_MS` – which wants a floor under a
-  reckoned descent, i.e. a pick, against "nothing else is clamped";
-  and the pressure error is the day's QNH, not "a few tens of metres":
-  at about 1032 hPa a pressure-only aircraft on final there was drawn
-  some 150 m under the runway (`alt_baro` −150 ft against `alt_geom`
-  525 ft at the threshold) – the geometric-minus-pressure difference of
-  the aircraft reporting both would correct it.
+  And so is one the reckoning carries down blind (`sinkingBlind`):
+  past its last fix, descending, within `GEAR_DOWN_AGL_M` of the
+  city's ground, it is picked like one on the ground and stopped on the
+  apron, by a pick no more than 250 m back (`CLAMP_FLOOR_RANGE_M`) –
+  offline and on the flat map, where no pick answers, on the plane the
+  ground is there (`host.flatGround`) – and rolls on there for what is
+  left of the reckoning. The feeders lose a Frankfurt landing 0–35 m
+  over the runway and hear it again on the ground 50–160 s on – one
+  landing in six within ten seconds – and the reckoning ran it on down
+  40–50 s up to 77 m under the runway. Two things it does not do: a
+  blind descent while the camera moves, unfollowed, still sinks (no
+  pick then, as for every clamp), and an aircraft unheard past
+  `AIRCRAFT_EXPIRE_MS` still leaves the map, to come back with its
+  first fix on the ground. Nothing else is clamped – the feed's number
+  is the truth, and a reckoned descent is not the feed's number.
+  Measured on Frankfurt's answers of 2026-10-03, recorded and replayed
+  through the layer (scratch script, not kept), per landing: over the
+  runway after the record's ground flag 6–10 s before, 0–0.8 s after;
+  under it 37–50 s (down to 77 m) before, 0–2 s (down to 7 m, the
+  feed's own altitude a little low on the approach) after.
+  `tests/cesium-aircraft-layer.test.ts` flies a landing and a blind
+  descent through the layer (the old code drew 120 m where 80 were
+  reported), `tests/aircraft-extract.test.ts` pins the sampler's scale
+  and shares. Open, from the same recording: the pressure error is the
+  day's QNH, not "a few tens of metres": at about 1032 hPa a
+  pressure-only aircraft on final there was drawn some 150 m under the
+  runway (`alt_baro` −150 ft against `alt_geom` 525 ft at the
+  threshold) – the geometric-minus-pressure difference of the aircraft
+  reporting both would correct it.
 - **Playback 12 s behind, reckoned 20 s ahead.** The ships wait at their
   last fix when data dries up; an aircraft flies on from its last speed,
   track and climb rate for `AIRCRAFT_RECKON_MAX_MS`, then freezes –
   hanging in the sky is the lesser wrong, flying into a building the
-  greater. An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
+  greater – and a descent near the ground stops on the runway (see
+  Heights). An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
 - **Pose.** The nose follows `true_heading` where reported, the pitch
   is `atan2(vertical rate, ground speed)` capped at 12°, the bank is the
   reported `roll` or the coordinated turn the track rate implies, capped

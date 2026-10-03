@@ -21,7 +21,8 @@
  *   the tiles, the way the ships are, so a taxiing airliner rolls on
  *   Google's apron – and one landing from its last fix in the air on,
  *   so it comes down onto the runway rather than dropping onto it (see
- *   drawnHeight).
+ *   drawnHeight), and one the reckoning carries down blind, so it stops
+ *   on the runway rather than sinking through it (see sinkingBlind).
  * - Its plate is blue (NAME_PLATE) – the fourth kind of name on the map
  *   after the vehicles' line badges, the stops' bare text and the
  *   ships' slate, and it must not converge with any of them (see
@@ -125,6 +126,12 @@ export interface AircraftLayerHost {
    */
   readonly flattenedGroundM?: number
   /**
+   * The ground is a plane at defaultGroundHeight, known without a pick:
+   * offline and on the flat map (see CesiumMap.flatGround), where no
+   * pick answers. Absent, the ground is the tiles'.
+   */
+  readonly flatGround?: boolean
+  /**
    * Ellipsoid height of the loaded scene geometry under a position –
    * the tiles' own apron (scene.clampToHeight: an offscreen pick per
    * call, of the tiles alone). undefined where nothing is loaded yet or
@@ -209,14 +216,21 @@ const HIGHLIGHT_BLEND = 0.25
 const HIGHLIGHT_SILHOUETTE_PX = 2.5
 const HIGHLIGHT_BOX_MIX = 0.45
 /**
- * Only an aircraft on the ground, or coming down onto it, is clamped –
- * to the apron, at most this many picks a tick, again after this much
- * motion, and after a load cycle only within the refine range of the
- * camera (the ships' rule, see VesselLayer).
+ * Only an aircraft on the ground, or coming down onto it – from its last
+ * fix in the air, or blind – is clamped: to the apron, at most this
+ * many picks a tick, again after this much motion, and after a load
+ * cycle only within the refine range of the camera (the ships' rule,
+ * see VesselLayer).
  */
 const CLAMP_BUDGET_PER_TICK = 3
 const CLAMP_MOVE_M = 25
 const CLAMP_REFINE_RANGE_AT_REFERENCE = 2_000
+/**
+ * A blind descent (see sinkingBlind in sync) stops on an apron picked no
+ * further back than this – the same stretch of runway; a pick left
+ * further behind, the camera moving since, may be another airfield's.
+ */
+const CLAMP_FLOOR_RANGE_M = 250
 const KNOT_MPS = 0.514444
 const GRAVITY_MPS2 = 9.81
 /**
@@ -549,21 +563,36 @@ export class AircraftLayer {
       const spanScale = size.spanM / spec.spanM
       const heightScale = size.heightM / spec.heightM
 
+      // Flown on blind and sinking near the ground: the feed has gone quiet
+      // on short final – Frankfurt's feeders lose most landings a few
+      // metres over the runway and hear them again on the ground up to a
+      // couple of minutes on (2026-10-03) – and the reckoning carries the
+      // aircraft on down at its rate, which ended 77 m under the runway.
+      // It is clamped like one on the ground, and stopped on the apron
+      const sinkingBlind =
+        sample.reckoned &&
+        sample.altM !== null &&
+        (sample.verticalRateMps ?? 0) < 0 &&
+        sample.altM - (this.host.flattenedGroundM ?? 0) - this.host.defaultGroundHeight <
+          GEAR_DOWN_AGL_M
+      const fromLastPickM = (r: AircraftRecord) =>
+        Math.hypot(
+          (sample.lon - r.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
+          (sample.lat - r.clampLat) * 111_132,
+        )
+
       // Height: the feed's own number in the air; on the ground the tiles'
       // apron, clamped the way the ships are – only when the answer could
       // have changed, only on screen, a few a tick (see VesselLayer) – and
       // from the last fix in the air on, so the apron a landing comes down
       // onto is known before it gets there (see drawnHeight)
-      if (sample.groundShare > 0) {
+      if (sample.groundShare > 0 || sinkingBlind) {
         if (
           this.host.clampToSurface &&
           clampBudget > 0 &&
           (this.host.cameraAtRest !== false || aircraft.hex === this.followHex)
         ) {
-          const movedM = Math.hypot(
-            (sample.lon - record.clampLon) * 111_320 * Math.cos((sample.lat * Math.PI) / 180),
-            (sample.lat - record.clampLat) * 111_132,
-          )
+          const movedM = fromLastPickM(record)
           const stale =
             movedM > CLAMP_MOVE_M ||
             (record.clampedGeneration !== surfaceGeneration &&
@@ -581,9 +610,22 @@ export class AircraftLayer {
         }
       }
       const ground = (record.clampedHeight ?? this.host.defaultGroundHeight) + size.heightM / 2
-      const height = this.drawnHeight(sample, ground)
+      let height = this.drawnHeight(sample, ground)
       // Standing or rolling on the apron – level, the gear out, the strobes off
-      const grounded = sample.groundShare > 0 && height <= ground
+      let grounded = sample.groundShare > 0 && height <= ground
+      // The blind descent ends on the apron picked under the aircraft – a
+      // pick near where it is, never one left behind elsewhere; on a flat
+      // ground, on that – and rolls on there for what is left of the
+      // reckoning
+      if (
+        sinkingBlind &&
+        height <= ground &&
+        (this.host.flatGround === true ||
+          (record.clampedHeight !== null && fromLastPickM(record) <= CLAMP_FLOOR_RANGE_M))
+      ) {
+        height = ground
+        grounded = true
+      }
       const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
       Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
       if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {

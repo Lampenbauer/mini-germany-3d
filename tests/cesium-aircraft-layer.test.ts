@@ -56,7 +56,12 @@ function dlh3pk(track: AircraftTrackPoint[]): Aircraft {
   }
 }
 
-function harness() {
+/**
+ * The layer over a scene double. `flat`: the flat map – the ground a plane
+ * at 0 m, the city's own ground height taken off every altitude, and no
+ * pick answering.
+ */
+function harness({ flat = false }: { flat?: boolean } = {}) {
   // The glTF body never arrives: the box stands in, and nothing is fetched
   vi.spyOn(Model, 'fromGltfAsync').mockReturnValue(new Promise<Model>(() => {}))
   const viewer = {
@@ -84,26 +89,30 @@ function harness() {
   const picks: [number, number][] = []
   const layer = new AircraftLayer(viewer, {
     requestRender: () => {},
-    defaultGroundHeight: 50,
+    defaultGroundHeight: flat ? 0 : 50,
     geoidHeight: GEOID,
+    ...(flat ? { flatGround: true, flattenedGroundM: 50 } : {}),
     clampToSurface: (lon, lat) => {
       picks.push([lon, lat])
-      return RUNWAY
+      return flat ? undefined : RUNWAY
     },
     surfaceGeneration: () => 1,
     noteCameraFlight: () => {},
   })
   const records = (layer as unknown as { aircraft: Map<string, { displayPosition: Cartesian3 }> }).aircraft
   /**
-   * The height drawn after a tick at `renderMs` – the instant the
-   * playback shows. Ticks two seconds and more apart, so the display ease
-   * has caught up with the target (see SMOOTH_TAU_MS).
+   * A tick drawing `renderMs` – the instant the playback shows. Ticks two
+   * seconds and more apart, so the display ease has caught up with the
+   * target (see SMOOTH_TAU_MS).
    */
+  const tick = (list: Aircraft[], renderMs: number) => layer.sync(list, renderMs + AIRCRAFT_PLAYBACK_DELAY_MS)
+  const heightOf = (hex: string) => Cartographic.fromCartesian(records.get(hex)!.displayPosition).height
+  /** The height drawn for DLH3PK with the track so far, after a tick at `renderMs`. */
   const heightAt = (track: AircraftTrackPoint[], renderMs: number): number => {
-    layer.sync([dlh3pk(track)], renderMs + AIRCRAFT_PLAYBACK_DELAY_MS)
-    return Cartographic.fromCartesian(records.get(HEX)!.displayPosition).height
+    tick([dlh3pk(track)], renderMs)
+    return heightOf(HEX)
   }
-  return { heightAt, picks }
+  return { layer, tick, heightOf, heightAt, picks }
 }
 
 describe('AircraftLayer heights', () => {
@@ -140,6 +149,21 @@ describe('AircraftLayer heights', () => {
     expect(heightAt(landed, NOW + 13_000)).toBeCloseTo(ON_RUNWAY, 3)
     // …and rolls on after the first fix on the ground
     expect(heightAt(rolling, NOW + 17_000)).toBeCloseTo(ON_RUNWAY, 3)
+  })
+
+  it('stops a blind descent on the runway', () => {
+    // The feeders lose the landing at its last fix in the air and hear it
+    // again on the ground a minute on (Frankfurt, 2026-10-03): past that
+    // fix the reckoning flies it on down at its rate – until 2026-10-03
+    // through the runway and 77 m under it
+    const { heightAt, picks } = harness()
+    expect(heightAt(approach, NOW + 12_000)).toBeCloseTo(72 - 3.6 * 2, 1)
+    expect(picks.length).toBeGreaterThan(0)
+    expect(heightAt(approach, NOW + 25_000)).toBeCloseTo(ON_RUNWAY, 3)
+    // On the flat map no pick answers, and none is needed: the ground is 0 m
+    const flat = harness({ flat: true })
+    expect(flat.heightAt(approach, NOW + 12_000)).toBeCloseTo(72 - 3.6 * 2 - 50, 1)
+    expect(flat.heightAt(approach, NOW + 25_000)).toBeCloseTo(SIZE.heightM / 2, 3)
   })
 
   it('lifts a pressure altitude by the geoid height', () => {

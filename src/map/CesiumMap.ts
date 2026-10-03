@@ -1265,6 +1265,9 @@ export class CesiumMap {
       get flattenedGroundM() {
         return map.basemap === 'flat' ? map.groundReference : 0
       },
+      get flatGround() {
+        return map.flatGround
+      },
       surfaceGeneration: () => this.surfaceGeneration.current,
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       get pixelRatio() {
