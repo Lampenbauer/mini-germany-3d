@@ -82,9 +82,10 @@ export interface Aircraft {
    * Pressure altitude in metres (the 1013.25 hPa reference every
    * transponder reports) – the flight level's own number, and what
    * stands in for the geometric altitude where that is missing: the
-   * layer adds the geoid height then, and lives with the pressure
-   * error, a few tens of metres on approach and invisible at cruise.
-   * null on the ground.
+   * layer lifts it by what the aircraft reporting both measure at that
+   * height (see pressureLift) – the geoid height and the day's pressure,
+   * 200 m at Frankfurt's runway at about 1032 hPa – or by the geoid
+   * height alone where too few do. null on the ground.
    */
   altBaroM: number | null
   /** The transponder says the aircraft is on the ground (alt_baro "ground"). */
@@ -378,12 +379,12 @@ export interface AircraftPlaybackSample {
   lat: number
   /**
    * Altitude on the geometric altitude's scale: a fix's geometric
-   * altitude as it is, a pressure altitude lifted by the geoid height the
-   * caller gives (see aircraftPlaybackSample); null on the ground.
-   * Between the last fix in the air and the first on the ground it is
-   * the airborne fix's, carried on down at its vertical rate – and back
-   * from the first fix in the air at its rate, lifting off – which may
-   * well reach below the ground: see groundShare for where it stops.
+   * altitude as it is, a pressure altitude lifted by what the caller
+   * gives (see aircraftPlaybackSample); null on the ground. Between the
+   * last fix in the air and the first on the ground it is the airborne
+   * fix's, carried on down at its vertical rate – and back from the
+   * first fix in the air at its rate, lifting off – which may well reach
+   * below the ground: see groundShare for where it stops.
    */
   altM: number | null
   /**
@@ -500,16 +501,16 @@ function easeArc(a: number | null, b: number | null, u: number): number | null {
  *
  * Every altitude is put on one scale before it is interpolated, fix by
  * fix: a geometric altitude is a height above the ellipsoid, a pressure
- * altitude is lifted by `geoidHeightM` to stand on it (and keeps the
- * day's pressure error – see Aircraft.altBaroM); 0 leaves every altitude
- * as reported. Between the air and the ground the altitude is carried
- * on at the airborne fix's vertical rate and groundShare says how far
- * the segment has come.
+ * altitude is lifted by `pressureLiftM` to stand on it – the geoid
+ * height plus the day's pressure, as the sky around measures it (see
+ * pressureLift); 0 leaves every altitude as reported. Between the air
+ * and the ground the altitude is carried on at the airborne fix's
+ * vertical rate and groundShare says how far the segment has come.
  */
 export function aircraftPlaybackSample(
   aircraft: Aircraft,
   renderMs: number,
-  geoidHeightM = 0,
+  pressureLiftM = 0,
 ): AircraftPlaybackSample {
   const track: AircraftTrackPoint[] =
     aircraft.track.length > 0
@@ -533,7 +534,7 @@ export function aircraftPlaybackSample(
   // reports the ground reported a geometric altitude in the air
   const recordGeometric = aircraft.altGeomM !== null || aircraft.altBaroM === null
   const altitude: AltitudeReader = (p) =>
-    p[3] === null ? null : (p[8] ?? recordGeometric) ? p[3] : p[3] + geoidHeightM
+    p[3] === null ? null : (p[8] ?? recordGeometric) ? p[3] : p[3] + pressureLiftM
   const last = track[track.length - 1]
   if (renderMs <= track[0][0]) return pointSample(track, 0, altitude, false, false)
   if (renderMs >= last[0]) {
@@ -653,4 +654,69 @@ function reckon(
     moving: aheadMs < AIRCRAFT_RECKON_MAX_MS,
     reckoned: true,
   }
+}
+
+/**
+ * The pressure lift is the median over this many aircraft reporting both
+ * altitudes – the nearest in pressure altitude, no further from it than
+ * AIRCRAFT_LIFT_BAND_M – and wants this many at the least.
+ */
+export const AIRCRAFT_LIFT_NEIGHBOURS = 5
+export const AIRCRAFT_LIFT_MIN_AIRCRAFT = 3
+export const AIRCRAFT_LIFT_BAND_M = 1500
+
+/**
+ * What lifts a pressure altitude onto the geometric scale, measured on
+ * the sky itself: the geometric minus the pressure altitude of the
+ * aircraft that report both. That is the geoid height plus the day's
+ * pressure – at Frankfurt 120 m near the ground on 2026-09-11 and 200 m
+ * on 2026-10-03, at about 1032 hPa, against a geoid height of 47 – and
+ * it grows with the height through air warmer than the standard (the
+ * same 2026-09-11: 300 m at cruise), so the lift is the median of the
+ * AIRCRAFT_LIFT_NEIGHBOURS aircraft nearest in pressure altitude to the
+ * one asked about, within AIRCRAFT_LIFT_BAND_M of it – a transponder
+ * that reports something odd outvoted. Where fewer than
+ * AIRCRAFT_LIFT_MIN_AIRCRAFT report both there – a quiet sky, an
+ * altitude nobody else flies – and for an aircraft with no pressure
+ * altitude to lift, `fallbackM`: the geoid height, and the pressure
+ * error with it, which was the rule for every pressure altitude until
+ * 2026-10-03 and drew a pressure-only aircraft on Frankfurt's runway
+ * 150 m under it that morning.
+ */
+export function pressureLift(
+  list: readonly Aircraft[],
+  fallbackM: number,
+): (pressureAltM: number | null) => number {
+  const pairs: [number, number][] = []
+  for (const aircraft of list) {
+    if (aircraft.onGround || aircraft.altGeomM === null || aircraft.altBaroM === null) continue
+    pairs.push([aircraft.altBaroM, aircraft.altGeomM - aircraft.altBaroM])
+  }
+  return (pressureAltM) => {
+    if (pressureAltM === null || pairs.length < AIRCRAFT_LIFT_MIN_AIRCRAFT) return fallbackM
+    const lifts = pairs
+      .filter(([altM]) => Math.abs(altM - pressureAltM) <= AIRCRAFT_LIFT_BAND_M)
+      .sort((a, b) => Math.abs(a[0] - pressureAltM) - Math.abs(b[0] - pressureAltM))
+      .slice(0, AIRCRAFT_LIFT_NEIGHBOURS)
+      .map(([, liftM]) => liftM)
+      .sort((a, b) => a - b)
+    if (lifts.length < AIRCRAFT_LIFT_MIN_AIRCRAFT) return fallbackM
+    const mid = lifts.length >> 1
+    return lifts.length % 2 === 1 ? lifts[mid] : (lifts[mid - 1] + lifts[mid]) / 2
+  }
+}
+
+/**
+ * The pressure altitude an aircraft's lift is taken at: its own where it
+ * reports one, else that of the last fix in its track that carries one
+ * – an aircraft that has just reported the ground is still played on its
+ * approach – and null where no fix does, which leaves nothing to lift.
+ */
+export function pressureReference(aircraft: Aircraft): number | null {
+  if (aircraft.altBaroM !== null) return aircraft.altBaroM
+  for (let i = aircraft.track.length - 1; i >= 0; i--) {
+    const p = aircraft.track[i]
+    if (p[3] !== null && p[8] === false) return p[3]
+  }
+  return null
 }

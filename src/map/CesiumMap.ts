@@ -1249,8 +1249,9 @@ export class CesiumMap {
     })
     // The air traffic over the city: the same host as the ships', minus
     // the water – an aircraft on the ground is clamped to the apron, one
-    // in the air is placed by the altitude it reports over the geoid the
-    // routes are calibrated against (see AircraftLayer).
+    // in the air is placed by the altitude it reports, a pressure altitude
+    // lifted by what the aircraft around measure, or by the geoid the
+    // routes are calibrated against where none do (see AircraftLayer).
     this.aircraftLayer = new AircraftLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       obstacles: () => map.webcamsLayer.screenRects,

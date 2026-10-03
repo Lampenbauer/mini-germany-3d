@@ -15,8 +15,9 @@
  * - Its height is a number the feed sends, not a surface to clamp to:
  *   the geometric altitude is a height above the WGS84 ellipsoid and
  *   goes straight into Cesium; where only the pressure altitude is
- *   reported the geoid height is added and the pressure error lived
- *   with – fix by fix, by the kind each fix carries (see
+ *   reported it is lifted by what the aircraft reporting both measure
+ *   at that height – the geoid height and the day's pressure (see
+ *   pressureLift) – fix by fix, by the kind each fix carries (see
  *   AircraftTrackPoint). Only an aircraft on the ground is clamped to
  *   the tiles, the way the ships are, so a taxiing airliner rolls on
  *   Google's apron – and one landing from its last fix in the air on,
@@ -78,6 +79,8 @@ import {
   AIRCRAFT_EXPIRE_MS,
   AIRCRAFT_PLAYBACK_DELAY_MS,
   aircraftPlaybackSample,
+  pressureLift,
+  pressureReference,
   type Aircraft,
   type AircraftPlaybackSample,
 } from '@/lib/aircraft-extract'
@@ -111,9 +114,10 @@ export interface AircraftLayerHost {
   /** Ellipsoid height of the city's ground – where an aircraft on the ground stands until it is clamped. */
   readonly defaultGroundHeight: number
   /**
-   * Ellipsoid height of sea level here – what a pressure altitude is
-   * lifted by to become a height Cesium can place (the calibrated
-   * offset the routes carry, see RoutesLayer.heightOffset).
+   * Ellipsoid height of sea level here (the calibrated offset the routes
+   * carry, see RoutesLayer.heightOffset) – what a pressure altitude is
+   * lifted by to become a height Cesium can place where too few aircraft
+   * around report both altitudes to measure the lift (see pressureLift).
    */
   readonly geoidHeight: number
   /**
@@ -538,11 +542,15 @@ export class AircraftLayer {
     const lights = this.lights
     lights.begin()
     const lightIntensity = LIGHTS_DAY_INTENSITY + (1 - LIGHTS_DAY_INTENSITY) * this.night
+    // What lifts a pressure altitude onto the geometric scale today, from
+    // the aircraft that report both (see pressureLift)
+    const liftAt = pressureLift(list, this.host.geoidHeight)
 
     for (const aircraft of list) {
       if (nowMs - aircraft.positionAt > AIRCRAFT_EXPIRE_MS) continue
       alive.add(aircraft.hex)
 
+      const liftM = liftAt(pressureReference(aircraft))
       let record = this.aircraft.get(aircraft.hex)
       // A type learnt after the first position picks a different body
       const size = aircraftSize(aircraft.typeCode, aircraft.category, aircraft.callsign)
@@ -551,13 +559,13 @@ export class AircraftLayer {
         record = undefined
       }
       if (!record) {
-        record = this.createAircraft(aircraft, size, nowMs)
+        record = this.createAircraft(aircraft, size, nowMs, liftM)
         this.aircraft.set(aircraft.hex, record)
         this.repaintIfOnScreen(cullingVolume, record.lastPosition)
       }
       record.size = size
 
-      const sample = aircraftPlaybackSample(aircraft, renderMs, this.host.geoidHeight)
+      const sample = aircraftPlaybackSample(aircraft, renderMs, liftM)
       const spec = AIRCRAFT_MODELS[size.archetype]
       const lengthScale = size.lengthM / spec.lengthM
       const spanScale = size.spanM / spec.spanM
@@ -1044,12 +1052,13 @@ export class AircraftLayer {
     return Math.max(ground, air + (ground - air) * sample.groundShare)
   }
 
-  private createAircraft(aircraft: Aircraft, size: AircraftSize, nowMs: number): AircraftRecord {
-    const sample = aircraftPlaybackSample(
-      aircraft,
-      nowMs - AIRCRAFT_PLAYBACK_DELAY_MS,
-      this.host.geoidHeight,
-    )
+  private createAircraft(
+    aircraft: Aircraft,
+    size: AircraftSize,
+    nowMs: number,
+    liftM: number,
+  ): AircraftRecord {
+    const sample = aircraftPlaybackSample(aircraft, nowMs - AIRCRAFT_PLAYBACK_DELAY_MS, liftM)
     const height = this.drawnHeight(sample, this.host.defaultGroundHeight + size.heightM / 2)
     const position = Cartesian3.fromDegrees(sample.lon, sample.lat, height)
     const matrix = Transforms.headingPitchRollToFixedFrame(

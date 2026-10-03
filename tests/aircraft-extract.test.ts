@@ -13,6 +13,8 @@ import {
   aircraftStateList,
   mergeAdsbAircraft,
   mergeAdsbResponse,
+  pressureLift,
+  pressureReference,
   withinQuery,
   type AdsbRawResponse,
   type Aircraft,
@@ -31,7 +33,7 @@ import { aircraftTitle, formatAltitude, formatGroundSpeed, formatVerticalRate } 
 const fixture = rawFixture as AdsbRawResponse
 
 const NOW = 1_800_000_000_000
-/** The geoid height the samples below put a pressure altitude on the geometric scale with. */
+/** The geoid height a pressure altitude is lifted by where nothing better is known (see pressureLift). */
 const GEOID = 39
 
 function aircraft(overrides: Partial<Aircraft> = {}): Aircraft {
@@ -389,13 +391,13 @@ describe('aircraftPlaybackSample', () => {
     expect(s.groundShare).toBe(0)
   })
 
-  it('lifts a pressure altitude by the geoid height, fix by fix', () => {
+  it('lifts a pressure altitude by the lift given, fix by fix', () => {
     const a = aircraft({
       altGeomM: 1000,
       track: [point(NOW, 0, 0, { alt: 900, geom: false }), point(NOW + 10_000, 0, 0.01, { alt: 1000, geom: true })],
     })
     expect(aircraftPlaybackSample(a, NOW + 5000, GEOID).altM).toBeCloseTo(969.5, 6)
-    // Without a geoid height every altitude stays as reported
+    // Without a lift every altitude stays as reported
     expect(aircraftPlaybackSample(a, NOW + 5000).altM).toBeCloseTo(950, 6)
   })
 
@@ -454,6 +456,71 @@ describe('aircraftPlaybackSample', () => {
     expect(climbing.altM).toBeCloseTo(138, 6)
     expect(climbing.groundShare).toBeCloseTo(0.1, 6)
     expect(aircraftPlaybackSample(takeoff, NOW + 30_000, GEOID)).toMatchObject({ altM: 168, groundShare: 0 })
+  })
+})
+
+describe('pressureLift', () => {
+  /** An aircraft in the air reporting a pressure altitude and, where given, a geometric one. */
+  const flying = (hex: string, altBaroM: number, altGeomM: number | null) =>
+    aircraft({ hex, altBaroM, altGeomM, onGround: false })
+
+  it('measures the lift on the sky: the median of the aircraft nearest in pressure altitude', () => {
+    const sky = [
+      // Low, on the approaches: the geoid and the day's pressure, 120 m
+      flying('a1', 230, 350),
+      flying('a2', 275, 397),
+      flying('a3', 335, 455),
+      flying('a4', 350, 464),
+      // One transponder off by the geoid height: outvoted
+      flying('a5', 410, 484),
+      // At cruise the warm air has added 190 m more
+      flying('c1', 10_550, 10_860),
+      flying('c2', 10_670, 10_980),
+      flying('c3', 10_970, 11_290),
+      // On the ground and pressure-only: nothing to measure
+      aircraft({ hex: 'g1', onGround: true, altBaroM: null, altGeomM: null }),
+      flying('p1', 500, null),
+    ]
+    const liftAt = pressureLift(sky, GEOID)
+    expect(liftAt(150)).toBe(120)
+    expect(liftAt(10_700)).toBe(310)
+  })
+
+  it('falls back to the geoid height where too few report both near the altitude asked about', () => {
+    const two = [flying('a1', 230, 350), flying('a2', 275, 397)]
+    expect(pressureLift(two, GEOID)(250)).toBe(GEOID)
+    // Enough aircraft, but every one of them at cruise: none near 300 m
+    const cruise = [flying('c1', 10_550, 10_860), flying('c2', 10_670, 10_980), flying('c3', 10_970, 11_290)]
+    expect(pressureLift(cruise, GEOID)(300)).toBe(GEOID)
+    expect(pressureLift(cruise, GEOID)(null)).toBe(GEOID)
+  })
+
+  it('lifts the Frankfurt answer’s low pressure-only aircraft by what the others measure', () => {
+    // 2026-09-11 over Frankfurt: geometric 375–450 ft over the pressure
+    // altitude down low, against a geoid height of 47 m – the multilaterated
+    // aircraft at 500 ft took 47 until 2026-10-03, and 114 is the truth
+    const state: AircraftState = new Map()
+    mergeAdsbResponse(state, fixture, NOW)
+    const list = aircraftStateList(state, NOW)
+    const low = list.find((a) => a.altGeomM === null && a.altBaroM === 152.4)!
+    expect(low.source).toBe('mlat')
+    expect(pressureLift(list, 47)(pressureReference(low))).toBeCloseTo(114.3, 1)
+  })
+})
+
+describe('pressureReference', () => {
+  it("takes the aircraft's own pressure altitude, else its last fix's, else none", () => {
+    expect(pressureReference(aircraft({ altBaroM: 762 }))).toBe(762)
+    // Just landed: the approach still being played carries pressure altitudes
+    const landed = aircraft({
+      onGround: true,
+      altGeomM: null,
+      altBaroM: null,
+      track: [point(NOW, 0, 0, { alt: 120, geom: false }), point(NOW + 5000, 0, 0.01, { alt: 90, geom: false }), point(NOW + 10_000, 0, 0.02, { alt: null })],
+    })
+    expect(pressureReference(landed)).toBe(90)
+    // Geometric fixes alone leave nothing to lift
+    expect(pressureReference(aircraft({ onGround: true, altGeomM: null, altBaroM: null, track: [point(NOW, 0, 0, { alt: 120 })] }))).toBeNull()
   })
 })
 

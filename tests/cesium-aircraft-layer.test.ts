@@ -166,9 +166,20 @@ describe('AircraftLayer heights', () => {
     expect(flat.heightAt(approach, NOW + 25_000)).toBeCloseTo(SIZE.heightM / 2, 3)
   })
 
-  it('lifts a pressure altitude by the geoid height', () => {
-    const { heightAt } = harness()
+  it('lifts a pressure altitude by what the aircraft reporting both measure', () => {
+    // Alone in the sky, by the geoid height – and the day's pressure error with it
+    const alone = harness()
     const pressure = [fix(NOW, 0, 400, false), fix(NOW + 5_000, 0.005, 420, false)]
-    expect(heightAt(pressure, NOW + 2_500)).toBeCloseTo(410 + GEOID, 1)
+    expect(alone.heightAt(pressure, NOW + 2_500)).toBeCloseTo(410 + GEOID, 1)
+    // Among aircraft at its height that report both and measure 200 m on
+    // this day, by those 200 m
+    const { tick, heightOf } = harness()
+    const level = (hex: string, lonOff: number, baroM: number): Aircraft => ({
+      ...dlh3pk([fix(NOW, lonOff, baroM + 200), fix(NOW + 5_000, lonOff + 0.005, baroM + 200)]),
+      hex,
+      altBaroM: baroM,
+    })
+    tick([dlh3pk(pressure), level('3c0001', 0.02, 350), level('3c0002', 0.03, 430), level('3c0003', 0.04, 500)], NOW + 2_500)
+    expect(heightOf(HEX)).toBeCloseTo(410 + 200, 1)
   })
 })

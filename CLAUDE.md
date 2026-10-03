@@ -2318,61 +2318,70 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   Offline, with no archive client, a clock in the past keeps the
   injected list rather than emptying the sky.
 - **Heights.** `alt_geom` is a height above the WGS84 ellipsoid and goes
-  into Cesium as it is; where an aircraft reports only `alt_baro` the
-  layer adds `routes.heightOffset` (the geoid height the routes are
-  calibrated against) and lives with the pressure error. Which of the
-  two a fix carries rides with the fix (the track point's ninth
-  element, `true` for geometric – since 2026-10-03), never with the
-  record: the record is twelve seconds ahead of the picture, and once
-  it reports the ground it reports no altitude at all, so the approach
-  still being played took the geoid height on top, and every landing
-  hovered some forty metres over the runway until the playback reached
-  the ground and dropped onto it (the user's GIFs over Fuhlsbüttel and
-  BER). `aircraftPlaybackSample(…, geoidHeight)` puts every fix on the
-  geometric scale before it interpolates; a fix without the element (a
-  state written before it, three minutes' worth) takes the record's
-  kind, geometric where the record reports none. An aircraft on the
-  ground is clamped to the tiles like a ship (three picks a tick, again
-  after 25 m or a `surfaceGeneration` bump, under the ships' rules –
-  camera at rest, refine range, a failed pick waits), and so is one
-  coming down onto it: across the segment from the last fix in the air
-  to the first on the ground the playback carries the altitude on at
-  the last fix's vertical rate and `groundShare` says how far the
-  segment has come, and the layer blends toward the clamped apron and
-  never draws the aircraft below it (`drawnHeight`) – it touches down
-  where its rate meets the runway and rolls there, on it by the first
-  fix on the ground at the latest; lifting off is the same backwards,
-  along the first climb. It held the last altitude reported until
-  then, and fell onto the runway at the first fix on the ground.
-  And so is one the reckoning carries down blind (`sinkingBlind`):
-  past its last fix, descending, within `GEAR_DOWN_AGL_M` of the
-  city's ground, it is picked like one on the ground and stopped on the
-  apron, by a pick no more than 250 m back (`CLAMP_FLOOR_RANGE_M`) –
-  offline and on the flat map, where no pick answers, on the plane the
-  ground is there (`host.flatGround`) – and rolls on there for what is
-  left of the reckoning. The feeders lose a Frankfurt landing 0–35 m
-  over the runway and hear it again on the ground 50–160 s on – one
-  landing in six within ten seconds – and the reckoning ran it on down
-  40–50 s up to 77 m under the runway. Two things it does not do: a
-  blind descent while the camera moves, unfollowed, still sinks (no
+  into Cesium as it is. A pressure altitude – `alt_baro` from an
+  aircraft that reports nothing else: multilaterated ones, older
+  transponders, a fifth of the sky – is lifted onto that scale by what
+  the sky measures (`pressureLift`, since 2026-10-03): the median
+  geometric-minus-pressure difference of the five aircraft nearest in
+  pressure altitude, within 1500 m of it, that report both. That
+  difference is the geoid height plus the day's pressure and grows with
+  the height through air off the standard's temperature (Frankfurt,
+  2026-09-11: 120 m down low, 310 m at cruise; 2026-10-03, about
+  1032 hPa: 200 m down low); where fewer than three report both there,
+  `routes.heightOffset` (the geoid height the routes are calibrated
+  against) alone. Until then that was the rule everywhere and "the
+  pressure error lived with", which drew a pressure-only aircraft on
+  Frankfurt's runway 150 m under it that morning, and SWR41D up to
+  151 m under it for its first seconds after lift-off, until its own
+  geometric altitude came in. Which of the two a fix carries rides with
+  the fix (the track point's ninth element, `true` for geometric, since
+  the same day), never with the record: the record is twelve seconds
+  ahead of the picture, and once it reports the ground it reports no
+  altitude at all, so the approach still being played took the geoid
+  height on top, and every landing hovered some forty metres over the
+  runway until the playback reached the ground and dropped onto it (the
+  user's GIFs over Fuhlsbüttel and BER). `aircraftPlaybackSample(…,
+  pressureLiftM)` puts every fix on the geometric scale before it
+  interpolates; a fix without the element (a state written before it,
+  three minutes' worth) takes the record's kind, geometric where the
+  record reports none. An aircraft on the ground is clamped to the
+  tiles like a ship (three picks a tick, again after 25 m or a
+  `surfaceGeneration` bump, under the ships' rules – camera at rest,
+  refine range, a failed pick waits), and so is one coming down onto
+  it: across the segment from the last fix in the air to the first on
+  the ground the playback carries the altitude on at the last fix's
+  vertical rate and `groundShare` says how far the segment has come,
+  and the layer blends toward the clamped apron and never draws the
+  aircraft below it (`drawnHeight`) – it touches down where its rate
+  meets the runway and rolls there, on it by the first fix on the
+  ground at the latest; lifting off is the same backwards, along the
+  first climb. It held the last altitude reported until then, and fell
+  onto the runway at the first fix on the ground. And so is one the
+  reckoning carries down blind (`sinkingBlind`): past its last fix,
+  descending, within `GEAR_DOWN_AGL_M` of the city's ground, it is
+  picked like one on the ground and stopped on the apron, by a pick no
+  more than 250 m back (`CLAMP_FLOOR_RANGE_M`) – offline and on the
+  flat map, where no pick answers, on the plane the ground is there
+  (`host.flatGround`) – and rolls on there for what is left of the
+  reckoning. The feeders lose a Frankfurt landing
+  0–35 m over the runway and hear it again on the ground 50–160 s on –
+  one landing in six within ten seconds – and the reckoning ran it on
+  down 40–50 s up to 77 m under the runway. Two things it does not do:
+  a blind descent while the camera moves, unfollowed, still sinks (no
   pick then, as for every clamp), and an aircraft unheard past
   `AIRCRAFT_EXPIRE_MS` still leaves the map, to come back with its
-  first fix on the ground. Nothing else is clamped – the feed's number
-  is the truth, and a reckoned descent is not the feed's number.
-  Measured on Frankfurt's answers of 2026-10-03, recorded and replayed
-  through the layer (scratch script, not kept), per landing: over the
-  runway after the record's ground flag 6–10 s before, 0–0.8 s after;
-  under it 37–50 s (down to 77 m) before, 0–2 s (down to 7 m, the
-  feed's own altitude a little low on the approach) after.
-  `tests/cesium-aircraft-layer.test.ts` flies a landing and a blind
-  descent through the layer (the old code drew 120 m where 80 were
-  reported), `tests/aircraft-extract.test.ts` pins the sampler's scale
-  and shares. Open, from the same recording: the pressure error is the
-  day's QNH, not "a few tens of metres": at about 1032 hPa a
-  pressure-only aircraft on final there was drawn some 150 m under the
-  runway (`alt_baro` −150 ft against `alt_geom` 525 ft at the
-  threshold) – the geometric-minus-pressure difference of the aircraft
-  reporting both would correct it.
+  first fix on the ground. Nothing else is
+  clamped – the feed's number is the truth, and a reckoned descent is
+  not the feed's number. Measured on Frankfurt's answers of
+  2026-10-03, recorded and replayed through the layer (scratch script,
+  not kept), per landing: over the runway after the record's ground
+  flag 6–10 s before, 0–0.8 s after; under it 37–50 s (down to 77 m)
+  before, 0–2 s (down to 7 m, the feed's own altitude a little low on
+  the approach) after. `tests/cesium-aircraft-layer.test.ts` flies a
+  landing, a blind descent and a pressure-only aircraft among others
+  through the layer (the old code drew 120 m where 80 were reported),
+  `tests/aircraft-extract.test.ts` pins the sampler's scale and shares
+  and the lift, on the 2026-09-11 Frankfurt answer among others.
 - **Playback 12 s behind, reckoned 20 s ahead.** The ships wait at their
   last fix when data dries up; an aircraft flies on from its last speed,
   track and climb rate for `AIRCRAFT_RECKON_MAX_MS`, then freezes –
