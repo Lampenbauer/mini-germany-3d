@@ -104,7 +104,7 @@ describe('bundled schedule data', () => {
 /**
  * The nightly CI regenerates these files and commits them only when they
  * actually differ (see .github/workflows/ci.yml). A field carrying the
- * generation date defeats that guard: the file would differ every night,
+ * generation date defeats that guard: the file would differ on every run,
  * so an unchanged timetable would still produce a commit, a push to main
  * and a deploy. Provenance is not lost by leaving it out – the commit
  * date records when the data was fetched, and more reliably. The

@@ -29,7 +29,7 @@ on:
         type: boolean
         default: false
       refresh_osm:
-        description: 'Also refresh the OSM data: network and terrain heights (otherwise Sunday only), lamps, airfield lights, buoys and lighthouses (otherwise the first Sunday of the month only)'
+        description: 'Also refresh the OSM data: network and terrain heights (otherwise once a week, at the weekend), lamps, airfield lights, buoys and lighthouses (otherwise the first weekend of the month only)'
         type: boolean
         default: false
       deploy_preview:
@@ -41,12 +41,17 @@ on:
         type: boolean
         default: false
   schedule:
-    # Nightly data refresh: GTFS schedule every night, OSM network and
-    # terrain heights only once a week, the lights and seamarks once a
-    # month (see the refresh step), then typecheck, unit tests, build
-    # and deploy – without the E2E suite, see that step (02:30 UTC ≈
-    # 03:30/04:30 Berlin time).
-    - cron: '30 2 * * *'
+    # Nightly data refresh, every second night (since 2026-10-03, to
+    # spare Actions minutes): on the odd days of the month, which puts two
+    # nights in a row where a 31st meets the 1st – a strict alternation
+    # cannot be written in cron, and a run that started every night only
+    # to stop on the even ones would bill a minute for each. GTFS schedule
+    # on every run, OSM network and terrain heights once a week, the
+    # lights and seamarks once a month (the weekend's run and the
+    # month's first of those, see the refresh step), then typecheck, unit
+    # tests, build and deploy – without the E2E suite, see that step
+    # (02:30 UTC ≈ 03:30/04:30 Berlin time).
+    - cron: '30 2 */2 * *'
 
 permissions:
   contents: read
@@ -80,7 +85,7 @@ jobs:
     # for, instead of turning one flake into a cancelled run.
     #
     # A run that refreshes data has the pipeline in front of all that: two
-    # Overpass queries and a Mapterhorn pass per city on the Sunday OSM
+    # Overpass queries and a Mapterhorn pass per city on the weekly OSM
     # refresh, thirteen cities one after the other, each of them minutes
     # when the mirrors are slow – 10 to 25 minutes before the first test
     # runs. Those runs get 75, so that a slow Overpass night does not
@@ -145,8 +150,9 @@ jobs:
       # dataset before anything is committed or deployed. One city's
       # failure does not cost the others their refresh.
       # The feed is 280 MB and changes about weekly, while the refresh
-      # runs nightly: its Last-Modified is the cache key, so an unchanged
-      # feed is restored from the cache and only a new one is downloaded.
+      # runs every second night: its Last-Modified is the cache key, so an
+      # unchanged feed is restored from the cache and only a new one is
+      # downloaded.
       # No restore-keys – an older feed must never stand in for a newer
       # one. Without an answer from the server the key is today's date:
       # one download, kept for nothing, exactly what happened before.
@@ -177,29 +183,46 @@ jobs:
           cities="$(node --input-type=module -e "import { allCitySlugs } from './scripts/lib/city.mjs'; console.log(allCitySlugs().join(' '))")"
           echo "Cities: $cities"
           # The OSM network changes rarely – fetch it only once a week
-          # (Sunday night) to spare the public Overpass mirrors, or when a
-          # manual run asks for it. A failed fetch (mirrors overloaded or
-          # unreachable) keeps the previous network data and must not
-          # block the GTFS refresh. The lamps, the airfield lights, the
-          # buoys and the lighthouses change slower still – mapped once,
-          # touched rarely – and the lamps step is the one that runs into
-          # Overpass's rate limits, so those four go only on the first
-          # Sunday of the month (or on request). Nothing is lost between:
-          # every file is byte-stable, a run that fetched nothing new
-          # commits nothing, and a month's wait is for a change nobody
-          # would see sooner.
+          # (the weekend's run) to spare the public Overpass mirrors, or
+          # when a manual run asks for it. A failed fetch (mirrors
+          # overloaded or unreachable) keeps the previous network data and
+          # must not block the GTFS refresh. The lamps, the airfield
+          # lights, the buoys and the lighthouses change slower still –
+          # mapped once, touched rarely – and the lamps step is the one
+          # that runs into Overpass's rate limits, so those four go only
+          # on the month's first weekend run (or on request). Nothing is
+          # lost between: every file is byte-stable, a run that fetched
+          # nothing new commits nothing, and a month's wait is for a
+          # change nobody would see sooner.
+          #
+          # The weekend's run: the schedule runs on the odd days of the
+          # month, so of a Saturday and the Sunday after it exactly one is
+          # a run – but a Saturday that ends a month with an odd day (the
+          # 29th, the 31st) leaves it to the Sunday the 1st, which runs as
+          # well. The month's first of those lies within its first seven
+          # days, but for a Saturday the 7th: then the 1st was the Sunday
+          # that went first. Until 2026-10-03, with a run every night, it
+          # was Sunday and the first Sunday.
+          # %-d: no leading zero, which [ ] would read but [[ ]] would not
+          dow="$(date +%u)"
+          dom="$(date +%-d)"
+          weekend_run=false
+          if [ "$dow" -eq 7 ] || { [ "$dow" -eq 6 ] && [ "$(date -d tomorrow +%-d)" -ne 1 ]; }; then
+            weekend_run=true
+          fi
           refresh_network=false
           refresh_lights=false
-          if [ "$(date +%u)" -eq 7 ] || [ "$FORCE_OSM" = "true" ]; then
+          if [ "$weekend_run" = "true" ] || [ "$FORCE_OSM" = "true" ]; then
             refresh_network=true
-            # %-d: no leading zero, which [ ] would read but [[ ]] would not
-            if [ "$(date +%-d)" -le 7 ] || [ "$FORCE_OSM" = "true" ]; then refresh_lights=true; fi
+            if { [ "$dom" -le 7 ] && ! { [ "$dow" -eq 6 ] && [ "$dom" -eq 7 ]; }; } || [ "$FORCE_OSM" = "true" ]; then
+              refresh_lights=true
+            fi
           fi
           if [ "$refresh_network" = "true" ]; then
             if [ "$refresh_lights" = "true" ]; then
-              echo "OSM refresh: network, heights, lamps, airfield lights, buoys and lighthouses (first Sunday of the month, or on request)"
+              echo "OSM refresh: network, heights, lamps, airfield lights, buoys and lighthouses (the month's first weekend run, or on request)"
             else
-              echo "OSM refresh: network and heights (the lights and seamarks go on the first Sunday of the month)"
+              echo "OSM refresh: network and heights (the lights and seamarks go on the month's first weekend run)"
             fi
             for city in $cities; do
               if npm run data:update -- --city "$city"; then
@@ -238,7 +261,7 @@ jobs:
               fi
             done
           else
-            echo "OSM refresh skipped – runs Sunday night (the lights and seamarks on the first Sunday of the month), or on request via refresh_osm."
+            echo "OSM refresh skipped – runs on the weekend's run (the lights and seamarks on the month's first), or on request via refresh_osm."
           fi
           # The GTFS feed is downloaded once (scripts/.cache – or restored
           # from the cache above), unpacked once and scanned ONCE for every

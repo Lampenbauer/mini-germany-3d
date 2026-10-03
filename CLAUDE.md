@@ -30,12 +30,19 @@ are *not* modelled: Rostock's construction reroutes (line 1) and split routes
 
 **The data pipeline is built for the CI runner, and may be run locally
 when a result is wanted now.** The nightly workflow
-([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC; GTFS
-every night, the OSM network and its heights on Sunday nights, the lamps,
-airfield lights, buoys and lighthouses only on the first Sunday of the
-month – since 2026-09-17, to spare Overpass the lamps query, which is the
-one that hits its rate limits, for data that is mapped once and touched
-rarely; `refresh_osm` by hand does all of it) refreshes the committed
+([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC every
+second night – on the odd days of the month since 2026-10-03, the
+user's call, to spare Actions minutes; cron cannot alternate strictly,
+so a 31st and the 1st after it both run, and a run that started every
+night to stop on the even ones would bill a minute each time; GTFS on
+every run, the OSM network and its heights on the weekend's run – the
+Saturday or the Sunday, whichever is odd, a Saturday that ends a month
+leaving it to the Sunday the 1st – the lamps, airfield lights, buoys
+and lighthouses only on the month's first weekend run, since 2026-09-17,
+to spare Overpass the lamps query, which is the one that hits its rate
+limits, for data that is mapped once and touched rarely; the two were
+Sunday and the first Sunday while every night ran; `refresh_osm` by hand
+does all of it) refreshes the committed
 data files on a free hosted runner, and that runner is what every step
 is designed for: never a step that needs a pre-downloaded extract or a
 cache on disk – prefer on-demand fetching with in-memory caches, keep
@@ -54,7 +61,7 @@ four weeks – found 2026-09-11 with four cities whose nightly diff was
 that one line. A date belongs in the run's log and the data commit's
 message, where it now is. The feed download is cached under the feed's
 `Last-Modified` for the same reason: the feed changes weekly, the
-refresh runs nightly. The GTFS step runs ONCE for every city
+refresh runs every second night. The GTFS step runs ONCE for every city
 (`npm run data:gtfs`, no `--city`): the feed is unpacked once and
 `stop_times.txt` streamed once, each city's trips picked out of the same
 rows (`prepareCity` → `scanStopTimes` → `finishCity` in
@@ -64,7 +71,8 @@ the runner, ten minutes a night for a minute's work (found
 2026-09-19). A city that fails keeps its schedule with a warning
 annotation; the step fails only when every city did. **The nightly run
 skips the E2E suite** (since 2026-09-19, the user's call, to save
-Actions minutes – every-second-night was weighed and dropped for it):
+Actions minutes – every second night was weighed and dropped for it
+then, and taken up as well on 2026-10-03):
 the suite is fifteen of the run's twenty minutes and tests the code,
 which the night does not change and whose push run already had it; of
 the data it sees Rostock alone, offline, and what it reads there the
@@ -1060,8 +1068,8 @@ ICAO gives the kind unless `light:colour` says otherwise, and the
 apron's floodlight masts (`tower:type=lighting`, inside the
 `aeroway=aerodrome` polygons only, via `map_to_area` – a stadium's
 masts burn on match nights) as the kind `flood`, with a terrain height
-like the lamps', into `airfield-lights.json`; the first Sunday of the
-month with the lamps and the seamarks, heights reused through
+like the lamps', into `airfield-lights.json`; the month's first weekend
+run with the lamps and the seamarks, heights reused through
 `PREV_AIRFIELD_LIGHTS`.
 Counted 2026-09-13, per box – the 15 km boxes of that morning; the
 20 km ones since reach more (all of Laage in Rostock's, Parchim in
@@ -1120,7 +1128,7 @@ preferred-channel marks, the white bathing spheres and the beacons
 stay out, and `classifyBuoy` is where to widen it – with their shape
 (`seamark:<type>:shape`; no model for it → the pillar buoy when lit,
 the spar otherwise) and light (colour, character, period, kept for a
-flashing rule one day) into `buoys.json`, the first Sunday of the month
+flashing rule one day) into `buoys.json`, the month's first weekend run
 with the lamps and the lights, no heights (`PREV_BUOYS` only guards against a half-synced mirror).
 The models are the buoy fleet in `scripts/lib/buoy-fleet.mjs` – six
 shapes in three colours, 18 GLBs of 3–22 kB, baked colours rather than
@@ -1984,7 +1992,7 @@ courses) – a static line per fix would double the recording. What it
 cannot do: a ship never heard moving keeps today's guess, and a ship
 that turned to moor bow-out lies the wrong way round. The real fix for
 both is the quay: the nearest shoreline segment from OSM's water
-polygons as a Sunday pipeline product, with the last course only to
+polygons as a product of the weekly OSM run, with the last course only to
 pick which end is the bow – agreed with the user as the second step,
 not built yet.
 
@@ -2147,7 +2155,7 @@ all measured (the Firefox investigation below is where they come from):
   inland ship at rest on her twin – nothing is there to judge her first
   pick by – and a lone one whose fine first pick was still a little low;
   a water-level grid from the terrain model, sampled inside OSM's water
-  polygons in the Sunday run, would be the reference that closes both
+  polygons in the weekly OSM run, would be the reference that closes both
   and the better fallback before the first pick (Frankfurt's fleet rides
   87 m under the Main until then). The buoys and the lighthouses are not
   judged: a buoy never moves and a lighthouse wants the top.
