@@ -25,16 +25,24 @@
 
 /**
  * One recorded fix: [unix ms, lat, lon, altitude m, ground speed kn,
- * track °, vertical rate m/s, true heading °] – kinematics as of that
- * moment, nulls as in the record. The altitude is the geometric one
- * where the aircraft reports it and the pressure altitude otherwise
- * (see Aircraft.altGeomM for what the layer does about the difference);
- * null on the ground. The heading is where the nose points and is
+ * track °, vertical rate m/s, true heading °, geometric] – kinematics as
+ * of that moment, nulls as in the record. The altitude is the geometric
+ * one where the aircraft reports it and the pressure altitude otherwise
+ * (see Aircraft.altGeomM for what the layer does about the difference),
+ * and the last element says which: true for the geometric one. Null on
+ * the ground. The kind rides with the fix because the record cannot
+ * tell it: an aircraft that reports the ground reports no altitude of
+ * either kind, while the playback, a few seconds behind, is still on
+ * its approach – read off the record, those fixes were taken for
+ * pressure altitudes and lifted by the geoid height, and every landing
+ * hovered some forty metres over the runway until the playback reached
+ * the ground (2026-10-03). The heading is where the nose points and is
  * played back on its own arc (aircraftPlaybackSample): on the apron it
  * is the only direction most aircraft report – the surface position
  * message carries it and no track – and the one that stands while a
- * pushback moves the aircraft backwards. Absent on points a state file
- * wrote before it existed, which reads as null.
+ * pushback moves the aircraft backwards. Both are absent on points a
+ * state file wrote before they existed: the heading reads as null, the
+ * kind as the record's (see aircraftPlaybackSample).
  */
 export type AircraftTrackPoint = [
   number,
@@ -45,6 +53,7 @@ export type AircraftTrackPoint = [
   number | null,
   number | null,
   (number | null)?,
+  (boolean | null)?,
 ]
 
 /** One tracked aircraft, as the feed last reported it. */
@@ -320,6 +329,7 @@ export function mergeAdsbAircraft(state: AircraftState, raw: AdsbRawAircraft, po
     aircraft.trackDeg,
     aircraft.verticalRateMps,
     aircraft.headingDeg,
+    aircraft.altGeomM !== null,
   ])
   aircraft.track = aircraft.track
     .filter((p) => positionAt - p[0] <= AIRCRAFT_TRACK_KEEP_MS)
@@ -366,8 +376,30 @@ export function aircraftStateList(state: AircraftState, nowMs: number): Aircraft
 export interface AircraftPlaybackSample {
   lon: number
   lat: number
-  /** Altitude as the track carries it (see AircraftTrackPoint); null on the ground. */
+  /**
+   * Altitude on the geometric altitude's scale: a fix's geometric
+   * altitude as it is, a pressure altitude lifted by the geoid height the
+   * caller gives (see aircraftPlaybackSample); null on the ground.
+   * Between the last fix in the air and the first on the ground it is
+   * the airborne fix's, carried on down at its vertical rate – and back
+   * from the first fix in the air at its rate, lifting off – which may
+   * well reach below the ground: see groundShare for where it stops.
+   */
   altM: number | null
+  /**
+   * How much of the ground is in the height drawn: 0 in the air, 1 on
+   * the ground, and across the segment from the last fix in the air to
+   * the first on the ground the share of it played (lifting off, the
+   * share still to come). The layer blends from altM toward the apron
+   * by this share and never draws the aircraft below the apron, so a
+   * landing comes down onto the runway at its own rate and rolls there,
+   * and arrives on it by the first fix on the ground at the latest –
+   * where until 2026-10-03 it held the last altitude reported in the
+   * air and dropped onto the runway at the first fix on the ground, the
+   * length of the segment later (seconds live, a minute where the
+   * feeders lose an aircraft at the runway's height).
+   */
+  groundShare: number
   /** Direction of motion in degrees – what the chase camera looks along. */
   bearingDeg: number
   /**
@@ -421,17 +453,23 @@ function knownDirections(track: readonly AircraftTrackPoint[], i: number): { bea
   return { bearingDeg, noseDeg: headingDeg ?? bearingDeg }
 }
 
+/** A fix's altitude on the geometric scale, null on the ground (see aircraftPlaybackSample). */
+type AltitudeReader = (p: AircraftTrackPoint) => number | null
+
 function pointSample(
   track: readonly AircraftTrackPoint[],
   i: number,
+  altitude: AltitudeReader,
   moving: boolean,
   reckoned: boolean,
 ): AircraftPlaybackSample {
   const p = track[i]
+  const altM = altitude(p)
   return {
     lon: p[2],
     lat: p[1],
-    altM: p[3],
+    altM,
+    groundShare: altM === null ? 1 : 0,
     ...knownDirections(track, i),
     gsKn: p[4],
     verticalRateMps: p[6],
@@ -459,8 +497,20 @@ function easeArc(a: number | null, b: number | null, u: number): number | null {
  * first fix the aircraft stands on it. Past the last fix it is flown on
  * from that fix's speed, track and climb rate for at most
  * AIRCRAFT_RECKON_MAX_MS, then held where the reckoning ended.
+ *
+ * Every altitude is put on one scale before it is interpolated, fix by
+ * fix: a geometric altitude is a height above the ellipsoid, a pressure
+ * altitude is lifted by `geoidHeightM` to stand on it (and keeps the
+ * day's pressure error – see Aircraft.altBaroM); 0 leaves every altitude
+ * as reported. Between the air and the ground the altitude is carried
+ * on at the airborne fix's vertical rate and groundShare says how far
+ * the segment has come.
  */
-export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): AircraftPlaybackSample {
+export function aircraftPlaybackSample(
+  aircraft: Aircraft,
+  renderMs: number,
+  geoidHeightM = 0,
+): AircraftPlaybackSample {
   const track: AircraftTrackPoint[] =
     aircraft.track.length > 0
       ? aircraft.track
@@ -474,11 +524,21 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
             aircraft.trackDeg,
             aircraft.verticalRateMps,
             aircraft.headingDeg,
+            aircraft.altGeomM !== null,
           ],
         ]
+  // A fix written before the kind existed takes the record's: geometric
+  // where the record reports a geometric altitude – and where it reports
+  // none at all, on the ground, because nearly every aircraft that
+  // reports the ground reported a geometric altitude in the air
+  const recordGeometric = aircraft.altGeomM !== null || aircraft.altBaroM === null
+  const altitude: AltitudeReader = (p) =>
+    p[3] === null ? null : (p[8] ?? recordGeometric) ? p[3] : p[3] + geoidHeightM
   const last = track[track.length - 1]
-  if (renderMs <= track[0][0]) return pointSample(track, 0, false, false)
-  if (renderMs >= last[0]) return reckon(track, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
+  if (renderMs <= track[0][0]) return pointSample(track, 0, altitude, false, false)
+  if (renderMs >= last[0]) {
+    return reckon(track, altitude, Math.min(renderMs - last[0], AIRCRAFT_RECKON_MAX_MS))
+  }
 
   let i = 0
   while (i + 1 < track.length && track[i + 1][0] <= renderMs) i++
@@ -488,8 +548,23 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
   const u = dtMs > 0 ? (renderMs - p0[0]) / dtMs : 1
   const lat = p0[1] + (p1[1] - p0[1]) * u
   const lon = p0[2] + (p1[2] - p0[2]) * u
-  const altM =
-    p0[3] !== null && p1[3] !== null ? p0[3] + (p1[3] - p0[3]) * u : (p1[3] ?? p0[3])
+  const a0 = altitude(p0)
+  const a1 = altitude(p1)
+  let altM: number | null = null
+  let groundShare = 1
+  if (a0 !== null && a1 !== null) {
+    altM = a0 + (a1 - a0) * u
+    groundShare = 0
+  } else if (a0 !== null) {
+    // Touching down: on down from the last fix in the air at its rate
+    // (a climb is no descent – held), onto the ground by the next fix
+    altM = a0 + Math.min(0, p0[6] ?? 0) * ((renderMs - p0[0]) / 1000)
+    groundShare = u
+  } else if (a1 !== null) {
+    // Lifting off: the first fix in the air, its climb run backwards
+    altM = a1 - Math.max(0, p1[6] ?? 0) * ((p1[0] - renderMs) / 1000)
+    groundShare = 1 - u
+  }
 
   const northM = (p1[1] - p0[1]) * METERS_PER_DEGREE_LATITUDE
   const eastM = (p1[2] - p0[2]) * METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
@@ -527,6 +602,7 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
     lon,
     lat,
     altM,
+    groundShare,
     bearingDeg,
     noseDeg,
     gsKn: lerpNullable(p0[4], p1[4]),
@@ -543,12 +619,16 @@ export function aircraftPlaybackSample(aircraft: Aircraft, renderMs: number): Ai
  * Without a speed or a track there is nothing to fly on with, and the
  * aircraft stands on the fix.
  */
-function reckon(track: readonly AircraftTrackPoint[], aheadMs: number): AircraftPlaybackSample {
+function reckon(
+  track: readonly AircraftTrackPoint[],
+  altitude: AltitudeReader,
+  aheadMs: number,
+): AircraftPlaybackSample {
   const last = track[track.length - 1]
   const gsKn = last[4]
   const trackDeg = last[5]
   if (gsKn === null || trackDeg === null || gsKn < 1 || aheadMs <= 0) {
-    return pointSample(track, track.length - 1, false, aheadMs > 0)
+    return pointSample(track, track.length - 1, altitude, false, aheadMs > 0)
   }
   const seconds = aheadMs / 1000
   const meters = gsKn * KNOT_MPS * seconds
@@ -557,11 +637,13 @@ function reckon(track: readonly AircraftTrackPoint[], aheadMs: number): Aircraft
   const lon =
     last[2] +
     (Math.sin(rad) * meters) / (METERS_PER_DEGREE_LATITUDE * Math.cos((last[1] * Math.PI) / 180))
-  const altM = last[3] === null ? null : last[3] + (last[6] ?? 0) * seconds
+  const lastAltM = altitude(last)
+  const altM = lastAltM === null ? null : lastAltM + (last[6] ?? 0) * seconds
   return {
     lon,
     lat,
     altM,
+    groundShare: altM === null ? 1 : 0,
     bearingDeg: trackDeg,
     noseDeg: lastKnown(track, track.length - 1, 7) ?? trackDeg,
     gsKn,

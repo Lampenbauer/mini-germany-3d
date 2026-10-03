@@ -31,6 +31,8 @@ import { aircraftTitle, formatAltitude, formatGroundSpeed, formatVerticalRate } 
 const fixture = rawFixture as AdsbRawResponse
 
 const NOW = 1_800_000_000_000
+/** The geoid height the samples below put a pressure altitude on the geometric scale with. */
+const GEOID = 39
 
 function aircraft(overrides: Partial<Aircraft> = {}): Aircraft {
   return {
@@ -58,22 +60,35 @@ function aircraft(overrides: Partial<Aircraft> = {}): Aircraft {
   }
 }
 
-/** A track point near the helper aircraft, offsets in degrees. */
+/**
+ * A track point near the helper aircraft, offsets in degrees; its
+ * altitude geometric unless `geom` says otherwise, as the extraction
+ * marks it (none on the ground).
+ */
 function point(
   t: number,
   latOff = 0,
   lonOff = 0,
-  k: { alt?: number | null; gs?: number | null; track?: number | null; rate?: number | null; hdg?: number | null } = {},
+  k: {
+    alt?: number | null
+    gs?: number | null
+    track?: number | null
+    rate?: number | null
+    hdg?: number | null
+    geom?: boolean
+  } = {},
 ): AircraftTrackPoint {
+  const alt = k.alt !== undefined ? k.alt : 3000
   return [
     t,
     50.2 + latOff,
     8.1 + lonOff,
-    k.alt !== undefined ? k.alt : 3000,
+    alt,
     k.gs !== undefined ? k.gs : 250,
     k.track !== undefined ? k.track : 90,
     k.rate !== undefined ? k.rate : 0,
     k.hdg !== undefined ? k.hdg : null,
+    k.geom !== undefined ? k.geom : alt !== null,
   ]
 }
 
@@ -124,7 +139,19 @@ describe('mergeAdsbAircraft', () => {
       source: 'adsb',
       positionAt: NOW,
     })
-    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5, 297.68]])
+    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5, 297.68, true]])
+  })
+
+  it('marks every fix with the kind of altitude it carries', () => {
+    const state: AircraftState = new Map()
+    // An older transponder: the pressure altitude alone, and the fix says so
+    mergeAdsbAircraft(state, { hex: '4b1803', alt_baro: 2500, gs: 140, lat: 50.05, lon: 8.4 }, NOW)
+    const fix = state.get('4b1803')!.track[0]
+    expect(fix[3]).toBe(762)
+    expect(fix[8]).toBe(false)
+    // The same aircraft once it reports the geometric altitude too
+    mergeAdsbAircraft(state, { hex: '4b1803', alt_baro: 2400, alt_geom: 3050, gs: 140, lat: 50.05, lon: 8.41 }, NOW + 4000)
+    expect(state.get('4b1803')!.track[1].slice(3)).toEqual([929.6, 140, null, null, null, true])
   })
 
   it('reads the ground, the missing fields and the multilaterated source', () => {
@@ -144,6 +171,7 @@ describe('mergeAdsbAircraft', () => {
     expect(a.callsign).toBe('')
     expect(a.source).toBe('mlat')
     expect(a.track[0][3]).toBeNull()
+    expect(a.track[0][8]).toBe(false)
   })
 
   it('ignores entries without an address or a position, and the surface vehicles', () => {
@@ -337,7 +365,95 @@ describe('aircraftPlaybackSample', () => {
 
   it('carries a null altitude for an aircraft on the ground', () => {
     const a = aircraft({ onGround: true, track: [point(NOW, 0, 0, { alt: null, gs: 12 }), point(NOW + 10_000, 0, 0.001, { alt: null, gs: 12 })] })
-    expect(aircraftPlaybackSample(a, NOW + 5000).altM).toBeNull()
+    expect(aircraftPlaybackSample(a, NOW + 5000)).toMatchObject({ altM: null, groundShare: 1 })
+  })
+
+  it('keeps an approach on the geometric scale once the record reports the ground', () => {
+    // The record is a few seconds ahead of the playback: it has landed and
+    // reports no altitude of either kind, while the playback is still on
+    // its final approach. Those fixes carry geometric altitudes, and stay
+    // them – read off the record, they were lifted by the geoid height,
+    // and the landing hovered forty metres over the runway (2026-10-03)
+    const landed = aircraft({
+      onGround: true,
+      altGeomM: null,
+      altBaroM: null,
+      track: [
+        point(NOW, 0, 0, { alt: 92, gs: 130, rate: -3.6 }),
+        point(NOW + 5000, 0, 0.005, { alt: 74, gs: 130, rate: -3.6 }),
+        point(NOW + 10_000, 0, 0.01, { alt: null, gs: 99, rate: null }),
+      ],
+    })
+    const s = aircraftPlaybackSample(landed, NOW + 2500, GEOID)
+    expect(s.altM).toBeCloseTo(83, 6)
+    expect(s.groundShare).toBe(0)
+  })
+
+  it('lifts a pressure altitude by the geoid height, fix by fix', () => {
+    const a = aircraft({
+      altGeomM: 1000,
+      track: [point(NOW, 0, 0, { alt: 900, geom: false }), point(NOW + 10_000, 0, 0.01, { alt: 1000, geom: true })],
+    })
+    expect(aircraftPlaybackSample(a, NOW + 5000, GEOID).altM).toBeCloseTo(969.5, 6)
+    // Without a geoid height every altitude stays as reported
+    expect(aircraftPlaybackSample(a, NOW + 5000).altM).toBeCloseTo(950, 6)
+  })
+
+  it('reads a fix written before the kind existed by the record', () => {
+    const fix: AircraftTrackPoint = [NOW, 50.2, 8.1, 500, 140, 90, -3, null]
+    const geometric = aircraft({ altGeomM: 520, altBaroM: 480, track: [fix] })
+    expect(aircraftPlaybackSample(geometric, NOW - 1000, GEOID).altM).toBe(500)
+    const pressure = aircraft({ altGeomM: null, altBaroM: 480, track: [fix] })
+    expect(aircraftPlaybackSample(pressure, NOW - 1000, GEOID).altM).toBe(539)
+    // On the ground the record reports neither – and nearly every aircraft
+    // that reports the ground reported a geometric altitude in the air
+    const landed = aircraft({ onGround: true, altGeomM: null, altBaroM: null, track: [fix] })
+    expect(aircraftPlaybackSample(landed, NOW - 1000, GEOID).altM).toBe(500)
+  })
+
+  it('comes down from the last fix in the air at its own rate, onto the ground by the first fix on it', () => {
+    // Frankfurt, 2026-10-03: the feeders lose a landing a few metres over
+    // the runway and hear it again on the ground a minute on – holding
+    // the last altitude, the aircraft hovered over the runway that long
+    const landing = aircraft({
+      onGround: true,
+      altGeomM: null,
+      altBaroM: null,
+      track: [
+        point(NOW, 0, 0, { alt: 160, gs: 120, rate: -3.5 }),
+        point(NOW + 50_000, 0, 0.02, { alt: null, gs: 35, rate: null }),
+      ],
+    })
+    const early = aircraftPlaybackSample(landing, NOW + 2000, GEOID)
+    expect(early.altM).toBeCloseTo(153, 6)
+    expect(early.groundShare).toBeCloseTo(0.04, 6)
+    // The altitude carried on that long is below any runway: the share is
+    // what the layer stops it with (AircraftLayer.drawnHeight)
+    const late = aircraftPlaybackSample(landing, NOW + 40_000, GEOID)
+    expect(late.altM).toBeCloseTo(20, 6)
+    expect(late.groundShare).toBeCloseTo(0.8, 6)
+    expect(aircraftPlaybackSample(landing, NOW + 50_000, GEOID)).toMatchObject({ altM: null, groundShare: 1 })
+    // A last fix that climbs is held, not flown on upwards
+    const level = aircraft({
+      track: [point(NOW, 0, 0, { alt: 160, rate: 1 }), point(NOW + 10_000, 0, 0.01, { alt: null })],
+    })
+    expect(aircraftPlaybackSample(level, NOW + 5000, GEOID).altM).toBe(160)
+  })
+
+  it('lifts off along the climb of the first fix in the air, run backwards', () => {
+    const takeoff = aircraft({
+      track: [
+        point(NOW, 0, 0, { alt: null, gs: 30, rate: null }),
+        point(NOW + 30_000, 0, 0.02, { alt: 168, gs: 159, rate: 10 }),
+      ],
+    })
+    const rolling = aircraftPlaybackSample(takeoff, NOW + 15_000, GEOID)
+    expect(rolling.altM).toBeCloseTo(18, 6)
+    expect(rolling.groundShare).toBeCloseTo(0.5, 6)
+    const climbing = aircraftPlaybackSample(takeoff, NOW + 27_000, GEOID)
+    expect(climbing.altM).toBeCloseTo(138, 6)
+    expect(climbing.groundShare).toBeCloseTo(0.1, 6)
+    expect(aircraftPlaybackSample(takeoff, NOW + 30_000, GEOID)).toMatchObject({ altM: 168, groundShare: 0 })
   })
 })
 

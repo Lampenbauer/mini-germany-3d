@@ -383,7 +383,7 @@ export class AircraftReplay {
       const track: AircraftTrackPoint[] = []
       for (let i = from; i <= to; i++) {
         const fix = fixes[i]
-        track.push([fix[1], fix[2], fix[3], fix[4] ?? fix[5], fix[6], fix[7], fix[9], fix[8]])
+        track.push([fix[1], fix[2], fix[3], fix[4] ?? fix[5], fix[6], fix[7], fix[9], fix[8], fix[4] !== null])
       }
       const fix = fixes[at]
       const statics = entry.static

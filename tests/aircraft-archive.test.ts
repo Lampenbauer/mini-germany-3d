@@ -308,11 +308,14 @@ describe('AircraftReplay', () => {
     // after the last fix before the moment (40 s), so the sampler always
     // finds the fix after its instant
     expect(aircraft.track.map((p) => p[0])).toEqual([NOW + 20_000, NOW + 30_000, NOW + 40_000])
-    expect(aircraft.track[0]).toEqual([NOW + 20_000, 54.22, 12.1, 10000, 450, 0, 5, 2])
-    // A fix carrying no geometric altitude hands the sampler the pressure one
+    expect(aircraft.track[0]).toEqual([NOW + 20_000, 54.22, 12.1, 10000, 450, 0, 5, 2, true])
+    // A fix carrying no geometric altitude hands the sampler the pressure
+    // one, and says so – the record's own fields are a moment ahead of the
+    // fixes the sampler is between (see AircraftTrackPoint)
     replay.add([fix('3d2f0c', NOW + 30_000, 54.1, null), ['3d2f0c', NOW + 40_000, 54.1, 12.1, null, 200, 90, 0, null, null, null, false]])
     const light = replay.aircraftAt(NOW + 45_000).find((a) => a.hex === '3d2f0c')!
     expect(light.track.map((p) => p[3])).toEqual([null, 200])
+    expect(light.track.map((p) => p[8])).toEqual([false, false])
     expect(light.onGround).toBe(false)
     expect(light.callsign).toBe('')
     expect(light.source).toBe('other')

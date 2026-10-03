@@ -16,8 +16,12 @@
  *   the geometric altitude is a height above the WGS84 ellipsoid and
  *   goes straight into Cesium; where only the pressure altitude is
  *   reported the geoid height is added and the pressure error lived
- *   with. Only an aircraft on the ground is clamped to the tiles, the
- *   way the ships are, so a taxiing airliner rolls on Google's apron.
+ *   with – fix by fix, by the kind each fix carries (see
+ *   AircraftTrackPoint). Only an aircraft on the ground is clamped to
+ *   the tiles, the way the ships are, so a taxiing airliner rolls on
+ *   Google's apron – and one landing from its last fix in the air on,
+ *   so it comes down onto the runway rather than dropping onto it (see
+ *   drawnHeight).
  * - Its plate is blue (NAME_PLATE) – the fourth kind of name on the map
  *   after the vehicles' line badges, the stops' bare text and the
  *   ships' slate, and it must not converge with any of them (see
@@ -74,6 +78,7 @@ import {
   AIRCRAFT_PLAYBACK_DELAY_MS,
   aircraftPlaybackSample,
   type Aircraft,
+  type AircraftPlaybackSample,
 } from '@/lib/aircraft-extract'
 import {
   ARCHETYPE_SIZE,
@@ -204,10 +209,10 @@ const HIGHLIGHT_BLEND = 0.25
 const HIGHLIGHT_SILHOUETTE_PX = 2.5
 const HIGHLIGHT_BOX_MIX = 0.45
 /**
- * Only an aircraft on the ground is clamped – to the apron, at most this
- * many picks a tick, again after this much motion, and after a load
- * cycle only within the refine range of the camera (the ships' rule, see
- * VesselLayer).
+ * Only an aircraft on the ground, or coming down onto it, is clamped –
+ * to the apron, at most this many picks a tick, again after this much
+ * motion, and after a load cycle only within the refine range of the
+ * camera (the ships' rule, see VesselLayer).
  */
 const CLAMP_BUDGET_PER_TICK = 3
 const CLAMP_MOVE_M = 25
@@ -538,7 +543,7 @@ export class AircraftLayer {
       }
       record.size = size
 
-      const sample = aircraftPlaybackSample(aircraft, renderMs)
+      const sample = aircraftPlaybackSample(aircraft, renderMs, this.host.geoidHeight)
       const spec = AIRCRAFT_MODELS[size.archetype]
       const lengthScale = size.lengthM / spec.lengthM
       const spanScale = size.spanM / spec.spanM
@@ -546,9 +551,10 @@ export class AircraftLayer {
 
       // Height: the feed's own number in the air; on the ground the tiles'
       // apron, clamped the way the ships are – only when the answer could
-      // have changed, only on screen, a few a tick (see VesselLayer)
-      let height: number
-      if (sample.altM === null) {
+      // have changed, only on screen, a few a tick (see VesselLayer) – and
+      // from the last fix in the air on, so the apron a landing comes down
+      // onto is known before it gets there (see drawnHeight)
+      if (sample.groundShare > 0) {
         if (
           this.host.clampToSurface &&
           clampBudget > 0 &&
@@ -573,15 +579,11 @@ export class AircraftLayer {
             if (h !== undefined) record.clampedHeight = h
           }
         }
-        height = (record.clampedHeight ?? this.host.defaultGroundHeight) + size.heightM / 2
-      } else {
-        // The track carries the geometric altitude where the aircraft
-        // reports one, the pressure altitude otherwise (see Aircraft) –
-        // over a ground the flat map may have lowered
-        height =
-          (aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight) -
-          (this.host.flattenedGroundM ?? 0)
       }
+      const ground = (record.clampedHeight ?? this.host.defaultGroundHeight) + size.heightM / 2
+      const height = this.drawnHeight(sample, ground)
+      // Standing or rolling on the apron – level, the gear out, the strobes off
+      const grounded = sample.groundShare > 0 && height <= ground
       const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
       Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
       if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {
@@ -603,7 +605,7 @@ export class AircraftLayer {
       // Climb angle out of the vertical rate and the ground speed
       const gsMps = (sample.gsKn ?? 0) * KNOT_MPS
       const targetPitch =
-        sample.altM === null || gsMps < 5
+        grounded || gsMps < 5
           ? 0
           : CesiumMath.clamp(
               CesiumMath.toDegrees(Math.atan2(sample.verticalRateMps ?? 0, gsMps)),
@@ -613,7 +615,7 @@ export class AircraftLayer {
       record.displayPitch += (targetPitch - record.displayPitch) * alpha
       // Bank: the reported roll, or the coordinated turn the turn rate implies
       const targetRoll =
-        sample.altM === null
+        grounded
           ? 0
           : aircraft.rollDeg !== null
             ? CesiumMath.clamp(aircraft.rollDeg, -MAX_BANK_DEG, MAX_BANK_DEG)
@@ -681,8 +683,7 @@ export class AircraftLayer {
       // The gear: out near the ground, folded away above it – set on the
       // glTF node once the model is in, and again only when it changes
       if (record.model?.ready) {
-        const gearDown =
-          sample.altM === null || height - this.host.defaultGroundHeight < GEAR_DOWN_AGL_M
+        const gearDown = grounded || height - this.host.defaultGroundHeight < GEAR_DOWN_AGL_M
         if (record.gearShown !== gearDown) {
           const node = record.model.getNode(GEAR_NODE)
           if (node) node.show = gearDown
@@ -693,11 +694,11 @@ export class AircraftLayer {
       // The lights, from the clock: steady position lights, the beacons
       // and strobes flashing on the aircraft's own phase. A flash that
       // changed since the last tick on an aircraft on screen is a frame.
-      const mode = aircraftLightsMode(sample.altM === null, sample.moving || (sample.gsKn ?? 0) >= 1)
+      const mode = aircraftLightsMode(grounded, sample.moving || (sample.gsKn ?? 0) >= 1)
       let beacon = false
       let strobe = false
       if (showBody && mode !== 'off') {
-        const inAir = sample.altM !== null
+        const inAir = !grounded
         const at = (point: LightPoint) => {
           lightScratch.x = point.x * lengthScale
           lightScratch.y = point.y * spanScale
@@ -983,13 +984,31 @@ export class AircraftLayer {
     return this.followHex
   }
 
+  /**
+   * The height the body's centre is drawn at: the playback's altitude in
+   * the air, over a ground the flat map may have lowered; `ground` – the
+   * apron plus half the body – on the ground; and across the segment
+   * from the last fix in the air to the first on the ground (or back,
+   * lifting off) blended between the two by the ground's share and never
+   * below the apron. Landing, the playback carries the altitude on down
+   * at the aircraft's own rate (see AircraftPlaybackSample.groundShare):
+   * it touches down when that meets the apron and rolls there, or by the
+   * first fix on the ground at the latest where it sinks more slowly.
+   */
+  private drawnHeight(sample: AircraftPlaybackSample, ground: number): number {
+    if (sample.altM === null) return ground
+    const air = sample.altM - (this.host.flattenedGroundM ?? 0)
+    if (sample.groundShare <= 0) return air
+    return Math.max(ground, air + (ground - air) * sample.groundShare)
+  }
+
   private createAircraft(aircraft: Aircraft, size: AircraftSize, nowMs: number): AircraftRecord {
-    const sample = aircraftPlaybackSample(aircraft, nowMs - AIRCRAFT_PLAYBACK_DELAY_MS)
-    const height =
-      sample.altM === null
-        ? this.host.defaultGroundHeight + size.heightM / 2
-        : (aircraft.altGeomM !== null ? sample.altM : sample.altM + this.host.geoidHeight) -
-          (this.host.flattenedGroundM ?? 0)
+    const sample = aircraftPlaybackSample(
+      aircraft,
+      nowMs - AIRCRAFT_PLAYBACK_DELAY_MS,
+      this.host.geoidHeight,
+    )
+    const height = this.drawnHeight(sample, this.host.defaultGroundHeight + size.heightM / 2)
     const position = Cartesian3.fromDegrees(sample.lon, sample.lat, height)
     const matrix = Transforms.headingPitchRollToFixedFrame(
       position,

@@ -2320,11 +2320,49 @@ ships. Decisions, taken with the user, that should not be re-litigated:
 - **Heights.** `alt_geom` is a height above the WGS84 ellipsoid and goes
   into Cesium as it is; where an aircraft reports only `alt_baro` the
   layer adds `routes.heightOffset` (the geoid height the routes are
-  calibrated against) and lives with the pressure error. An aircraft on
-  the ground is clamped to the tiles like a ship (three picks a tick,
-  again after 25 m or a `surfaceGeneration` bump, under the ships' rules
-  – camera at rest, refine range, a failed pick waits); nothing else is
-  clamped – the feed's number is the truth.
+  calibrated against) and lives with the pressure error. Which of the
+  two a fix carries rides with the fix (the track point's ninth
+  element, `true` for geometric – since 2026-10-03), never with the
+  record: the record is twelve seconds ahead of the picture, and once
+  it reports the ground it reports no altitude at all, so the approach
+  still being played took the geoid height on top, and every landing
+  hovered some forty metres over the runway until the playback reached
+  the ground and dropped onto it (the user's GIFs over Fuhlsbüttel and
+  BER). `aircraftPlaybackSample(…, geoidHeight)` puts every fix on the
+  geometric scale before it interpolates; a fix without the element (a
+  state written before it, three minutes' worth) takes the record's
+  kind, geometric where the record reports none. An aircraft on the
+  ground is clamped to the tiles like a ship (three picks a tick, again
+  after 25 m or a `surfaceGeneration` bump, under the ships' rules –
+  camera at rest, refine range, a failed pick waits), and so is one
+  coming down onto it: across the segment from the last fix in the air
+  to the first on the ground the playback carries the altitude on at
+  the last fix's vertical rate and `groundShare` says how far the
+  segment has come, and the layer blends toward the clamped apron and
+  never draws the aircraft below it (`drawnHeight`) – it touches down
+  where its rate meets the runway and rolls there, on it by the first
+  fix on the ground at the latest; lifting off is the same backwards,
+  along the first climb. It held the last altitude reported until
+  then, and fell onto the runway at the first fix on the ground.
+  `tests/cesium-aircraft-layer.test.ts` flies a landing through the
+  layer (the old code drew 120 m where 80 were reported),
+  `tests/aircraft-extract.test.ts` pins the sampler's scale and shares.
+  Nothing else is clamped – the feed's number is the truth. Measured
+  that morning on Frankfurt's answers, recorded and replayed through
+  the layer (scratch script, not kept): over the runway after the
+  record's ground flag 6–10 s per landing before, 0–0.8 s after. Two
+  things the same recording showed and nobody has built for: the
+  feeders lose a Frankfurt landing 0–35 m over the runway and hear it
+  again on the ground 50–160 s on (one landing in six within ten
+  seconds), and in that gap the reckoning flies it on down at its
+  descent rate for 20 s and freezes it – 40–50 s up to 77 m under the
+  runway, gone past `AIRCRAFT_EXPIRE_MS` – which wants a floor under a
+  reckoned descent, i.e. a pick, against "nothing else is clamped";
+  and the pressure error is the day's QNH, not "a few tens of metres":
+  at about 1032 hPa a pressure-only aircraft on final there was drawn
+  some 150 m under the runway (`alt_baro` −150 ft against `alt_geom`
+  525 ft at the threshold) – the geometric-minus-pressure difference of
+  the aircraft reporting both would correct it.
 - **Playback 12 s behind, reckoned 20 s ahead.** The ships wait at their
   last fix when data dries up; an aircraft flies on from its last speed,
   track and climb rate for `AIRCRAFT_RECKON_MAX_MS`, then freezes –
