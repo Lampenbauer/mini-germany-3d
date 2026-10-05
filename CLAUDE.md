@@ -24,9 +24,9 @@ Saturday-only and correctly sits still on a weekday; do not "fix" it. Synthetic
 headways are acceptable only where no real data exists at all (a city without
 `schedule.json`). When data fidelity and a livelier map conflict, fidelity wins.
 This was decided after a synthetic fallback ran a line that was
-suspended for track works. Known gaps that follow from the same principle and
-are *not* modelled: Rostock's construction reroutes (line 1) and split routes
-(line 5) during the Werftdreieck works still run on their normal alignment.
+suspended for track works. A known gap that follows from the same principle
+and is *not* modelled: construction reroutes and temporarily split routes
+still run on their normal alignment.
 
 **The data pipeline is built for the CI runner, and may be run locally
 when a result is wanted now.** The nightly workflow
@@ -40,9 +40,8 @@ Saturday or the Sunday, whichever is odd, a Saturday that ends a month
 leaving it to the Sunday the 1st – the lamps, airfield lights, buoys
 and lighthouses only on the month's first weekend run,
 to spare Overpass the lamps query, which is the one that hits its rate
-limits, for data that is mapped once and touched rarely; the two were
-Sunday and the first Sunday while every night ran; `refresh_osm` by hand
-does all of it) refreshes the committed
+limits, for data that is mapped once and touched rarely; `refresh_osm`
+by hand does all of it) refreshes the committed
 data files on a free hosted runner, and that runner is what every step
 is designed for: never a step that needs a pre-downloaded extract or a
 cache on disk – prefer on-demand fetching with in-memory caches, keep
@@ -75,8 +74,8 @@ dropped for it at first, and taken up as well later): the suite is
 fifteen of the run's twenty minutes and tests the code, which the night
 does not change and whose push run already had it; of
 the data it sees Rostock alone, offline, and what it reads there the
-unit tests pin for every city. Counted before the change: one E2E
-failure in 34 nightly runs, a runner timing flake. A manual
+unit tests pin for every city. The nightly E2E failures before the
+change were runner timing flakes. A manual
 `refresh_data` run keeps the full suite. The accepted risk: the night
 deploys `main` on the unit tests alone, so a push whose own E2E run was
 left red goes out with the next data commit – keep push runs green.
@@ -124,10 +123,10 @@ once: four component files were restored from HEAD with
 not run it; match the surrounding code instead.
 
 **Unit tests run in Node; a DOM is opted into per file.** The `test` block in
-[vite.config.ts](vite.config.ts) sets `environment: 'node'`, and the 18 files
+[vite.config.ts](vite.config.ts) sets `environment: 'node'`, and the files
 that render or touch `window`/`document` open with
 `// @vitest-environment jsdom` on their first line. jsdom cost ~0.7 s per
-file on the CI runner – 62 s of a 217 s run when all 85 files got one. A new
+file on the CI runner – 62 s of a 217 s run when every file got one. A new
 component test without the line fails loudly (`document is not defined`), so
 the miss is cheap; the trap is the other way round: do not put jsdom back as
 the default. The same block pins `maxWorkers: 2` under `CI`: GitHub's
@@ -143,7 +142,7 @@ points, 15 s) is counted instead.
 **Playwright specs are written and run as cheaply as they can be.** The
 e2e suite is the long pole of CI: one worker, software-rendered WebGL
 (SwiftShader) on GitHub's 2-vCPU runner, about three times slower than
-the development machine – 53 tests take 5 minutes on that machine and
+the development machine – the suite takes 5 minutes on that machine and
 ~15 of the ~18-minute run on the runner. Every boot of the page costs
 10–20 s on the runner before a test can start, and every second of
 real time a test waits for is a second of CI. So: one page per spec,
@@ -164,7 +163,7 @@ costs milliseconds. Measure before restructuring, though: a boot is not
 always the dear part – `linear-view.spec.ts` boots seven times because
 a second pass through the morph on one scene cost 56 s more on CI than
 the boot it replaced. Measured (the development machine, headless
-SwiftShader): 53 tests in 4.3 minutes, the two newest specs the
+SwiftShader): the suite in 4.3 minutes, the two newest specs the
 outliers at 44 s and 31 s until their fixed waits and second boots went
 – a negative is proved by a simulated second going by (`secondsOfDay`,
 `loopTicks`), a moving subject by its known position on the wall clock,
@@ -179,18 +178,13 @@ moved, and follow it into:
   the "What you see" section, the cities table, the URL-parameter table, the
   `city.json` field list, the live-data table, the architecture tree, the
   attribution list. A new URL parameter, script, `city.json` field or terrain
-  source that is not in there is only half-added. It was rewritten short
-  (deliberately: 1 235 lines had grown past what a reader
-  wants) – the detail it carried lives here now, so a decision belongs in
-  this file and the README gets the one sentence a visitor needs. Its nine
-  screenshots are `docs/screenshots/*.jpg`, taken by
-  `scripts/build-readme-screenshots.mjs` from the live site in a headed
-  Chromium on the real GPU (1440×900 at DPR 2, a second of playback and then
-  the pause – by design, as is the interface in every picture: the
-  panel and the cards are part of what is shown – the tileset settled;
-  2400 px JPEGs by hand with `sips`) – the views are hand-picked links,
-  kept in the script, and the aircraft one has to be re-aimed at
-  an aircraft that is over Frankfurt at the time (`name=url`).
+  source that is not in there is only half-added. It is deliberately
+  short: a decision and its reasons belong in this file, the README gets
+  the one sentence a visitor needs. Its screenshots are
+  `docs/screenshots/*.jpg`, made by `scripts/build-readme-screenshots.mjs`
+  from the live site (the method and the views are in its header; the
+  aircraft one has to be re-aimed at an aircraft that is over Frankfurt
+  at the time).
 - **The app's own prose** — [src/lib/i18n.ts](src/lib/i18n.ts) carries strings
   that repeat facts about the project, and it carries them **twice**, in the
   `en` and `de` tables. The About dialog lists what the map is built from
@@ -226,21 +220,11 @@ it — seven places, two of which compile fine while being wrong (the
 pictures are what a test catches: `tests/site-pages.test.ts` wants one
 per page, `tests/globe-illustration.test.tsx` three per city).
 
-**Commits land on `main`.** `git checkout -b`, `git switch -c` and
-`git checkout -- .` are denied by the permission policy here, so the working
-tree can never be reset to replay edits topic by topic. To split finished work
-into commits, build them **through the index** and leave the working tree at
-its final, tested state: diff HEAD against the final files, assign each opcode
-to a commit, rebuild each intermediate file state, then
-`git hash-object -w --path <f> <state>` + `git update-index --add --cacheinfo
-100644,<sha>,<f>` and `git commit -F -` per commit. Assert the last state is
-byte-identical to the tested tree — a clean `git status` at the end proves it.
-Verify intermediate commits without touching the tree:
-`git archive HEAD~n | tar -x -C <tmp>`, symlink `node_modules`, run `npx tsc -b`
-and `npx vitest run` in there.
-
-Commit messages: imperative subject, prose body explaining the *why*, ending
-with the `Co-Authored-By` trailer. See `git log` for the register.
+**Commits land on `main`.** Commit messages: imperative subject, prose body
+explaining the *why*, ending with the `Co-Authored-By` trailer. See `git log`
+for the register. A commit can be verified without touching the working
+tree: `git archive <rev> | tar -x -C <tmp>`, symlink `node_modules`, run
+`npx tsc -b` and `npx vitest run` in there.
 
 ---
 
@@ -1065,10 +1049,10 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 | **Rostock** | The default city and the byte-stability canary — its output stayed identical through every pipeline change above |
 | **Kiel** | `clip: "box"` so Laboe/Strande stay on the map; ~1800 community-mapped lamps (2/km vs Rostock's 16/km) — lamps are always on, there is no per-city switch |
 | **Hamburg** | Rebuilt from scratch via `add-city 62782` — **do not restore files from git history before 3e57f1c**. Terrain patch above. Open: the "St. Pauli" AIS twin (the only AIS "ST. PAULI" is a 19×6 m launch, not the 30 m ferry) |
-| **Berlin** | Buses limited to `^(M[0-9]+\|100\|200\|300)$` for load — 685 vehicles at 08:30, twice Rostock; measure the 08:30 snapshot in [tests/berlin.test.ts](tests/berlin.test.ts) before adding more. `waterLevelNhn: null` because the Berlin DGM carries the lakes. The ferries F21 and F23 sail Tuesday to Sunday, the F24 at weekends – idle, correctly, on a Monday's service day, the F24 on every weekday's |
-| **Cologne** | KVB 181 excluded — its OSM relation is a four-stop stub (53 ways with gaps) that placed 18 of 216 GTFS trips; re-admit once the relation is whole. Line 197 has no GTFS departures. The night rings 123, 156, 165, 166 and 167 run Friday to Sunday only and are idle, correctly, on a service day from Monday to Thursday |
+| **Berlin** | Buses limited to `^(M[0-9]+\|100\|200\|300)$` for load — some 700 vehicles at 08:30, twice Rostock; measure the 08:30 snapshot in [tests/berlin.test.ts](tests/berlin.test.ts) before adding more. `waterLevelNhn: null` because the Berlin DGM carries the lakes. The ferries F21 and F23 sail Tuesday to Sunday, the F24 at weekends – idle, correctly, on a Monday's service day, the F24 on every weekday's |
+| **Cologne** | KVB 181 is not on the map: its OSM relation came back as a four-stop stub (53 ways with gaps) that placed 18 of 216 GTFS trips – check the relation before expecting it. Line 197 has no GTFS departures. The night rings 123, 156, 165, 166 and 167 run Friday to Sunday only and are idle, correctly, on a service day from Monday to Thursday |
 | **Munich** | U8 is Saturday-only in reality and correctly idle on weekdays. Bus limited to MetroBus/ExpressBus; the 80 StadtBus lines would double the fleet |
-| **Bremen** | RS30 has no valid direction, RS3/RS4 are 2-stop stubs, RS4 got no GTFS match — open. Lines 66 and N94 have no GTFS trips |
+| **Bremen** | RS3/RS4 are 2-stop stubs (both leave the city one stop after the station). Lines 66 and N94 have no GTFS trips |
 | **Lübeck / Schwerin** | Priwall and Pfaffenteich ferries have no GTFS and are left off |
 | **Frankfurt** | X express lines are regional (X95 has 450 m inside the city) and excluded; tram 11 has no operator tag, so trams come by network RMV |
 
@@ -1086,16 +1070,9 @@ masts burn on match nights) as the kind `flood`, with a terrain height
 like the lamps', into `airfield-lights.json`; the month's first weekend
 run with the lamps and the seamarks, heights reused through
 `PREV_AIRFIELD_LIGHTS`.
-Counted per box – with the 15 km boxes; the 20 km ones reach more
-(all of Laage in Rostock's, Parchim in Schwerin's) from the first OSM
-run after the widening: Frankfurt ~10 200, Berlin
-~6 400 (BER, Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and
-Finkenwerder), Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich
-~1 700 (edge and taxiway lights not mapped yet), Bremen ~1 000, Lübeck
-~1 000, Wilhelmshaven ~300, Rostock 21 (Laage's, the rest of them south
-of the 15 km box), Kiel 2 – sparse light is real light, as with the
-lamps; Schwerin's 15 km box held no airfield (Parchim lay outside) and
-got an empty list, so every city has the file. Closed airfields
+The count per box runs from Frankfurt's ten thousand to Kiel's two –
+sparse light is real light, as with the lamps – and a box without an
+airfield gets an empty list, so every city has the file. Closed airfields
 need no rule: the mappers took Tegel's and Tempelhof's lights down with
 the airports. [AirfieldLightsLayer](src/map/AirfieldLightsLayer.ts)
 draws them as one PointPrimitiveCollection per city – points, not the
@@ -1159,7 +1136,7 @@ dozens at once; a pick is made once per surface generation
 never moves, so nothing else can change the answer (that is every
 layer's rule, see the AIS section); and no plausibility
 band against the
-fallback surface, because inland (Berlin's Havel, 1058 marks) the
+fallback surface, because inland (Berlin's Havel, about a thousand marks) the
 fallback lies thirty metres under the river – the fallback is the
 ships' (`routes.heightOffset` + `WATER_SURFACE_FALLBACK_LIFT`), which
 is also the offline height. Models are built per 0.02° cell the first
@@ -1196,12 +1173,9 @@ camera (`translucencyByDistance`: full within 1.5 km, 30 % from
 12 km out – the far end and the rim's width chosen by eye) – without
 it they burned as bright from 30 km up as from the quay; the
 airfield's lights keep their strength
-on purpose, a runway is read from the home view. Counted per
-box (lit in brackets): Berlin 1058 (11 – the Havel lakes), Hamburg 399
-(83), Wilhelmshaven 290 (83), Rostock 228 (96), Frankfurt 141 (0 – the
-Main's), Lübeck 131 (24), Schwerin 127 (3), Kiel 126 (49), Bremen 112
-(38), Cologne 103 (0 – the Rhine's), Stuttgart 97 (0), Munich 50 (2),
-Hanover 22 (0). Over the real tiles the marks were seen floating on
+on purpose, a runway is read from the home view. The count per box runs from Berlin's thousand (the Havel lakes, a
+dozen of them lit) to Hanover's two dozen; the Main's and the Rhine's
+carry no lights. Over the real tiles the marks were seen floating on
 the Breitling's water by day and lit at night (headed Chromium).
 `?seamarks=0` leaves them out
 with the lighthouses; `ship-effects`, `clouds`, `rain-gate` and
@@ -1306,10 +1280,8 @@ without a turning tower never notices the feature.
 A floodlight or spotlight on a tower is a work
 light, not a mark, and is left out of the sectors – Warnemünde's mole
 lights carry theirs as the unnumbered set, ahead of the green and the
-red, and showed white before the rule. Counted per box:
-Bremen 188 (the Weser's), Hamburg 151 (the Elbe's), Berlin 61, Lübeck
-54, Wilhelmshaven 35, Rostock 9, Kiel 8, Munich 4, Frankfurt 1, none in
-Cologne, Hanover, Schwerin and Stuttgart. Seen over the real tiles at
+red, and showed white before the rule. The count per box runs from the Weser's and the Elbe's lights by the
+hundred to none in Cologne, Hanover, Schwerin and Stuttgart. Seen over the real tiles at
 night: the Warnemünde tower's white on its lantern from the sea, dark
 from the town, the mole heads green and red either way.
 `__mg3d.lighthouses()` counts them, the turning optics and the beams
@@ -1319,9 +1291,8 @@ the sectors, the night, the beams and their pacing with the buoys' kind
 of double, `e2e/app.spec.ts` turns Warnemünde's offline (the shaft's
 shader compiles there) and sees the loop paced for it.
 
-Vehicles at 08:30 (the number each `tests/<slug>.test.ts` pins): Berlin 685,
-Hamburg 458, Rostock/Cologne/Munich ~370, Stuttgart 257, Bremen 223,
-Frankfurt 219, Hanover 184, Lübeck 93, Schwerin 38, Wilhelmshaven 17.
+The fleet at 08:30 is what each `tests/<slug>.test.ts` pins, from Berlin's
+some 700 vehicles down to Wilhelmshaven's under twenty.
 
 Consists are composed from existing meshes wherever possible — see
 `VEHICLE_CONSISTS` in [src/map/VehicleLayer.ts](src/map/VehicleLayer.ts).
@@ -1847,40 +1818,18 @@ runner half a minute per frame.
 
 ### Firefox: WebGL runs in another process, and every frame waits for it
 
-Investigated after Firefox 155 stuttered badly over Hamburg where Chrome
-did not, and `?offline=1` smooth. The tools, cheap to rebuild:
-Playwright 1.62 drives the stock Firefox (`channel: 'moz-firefox'`,
-WebDriver BiDi – from a sandboxed shell only through a wrapper that
-launches it with `open -a` and tails its stdio for the "WebDriver BiDi
-listening" line) and the stock Chrome (`channel: 'chrome'`), headed, on
-the real GPU, at 1600×1000 CSS and DPR 2, through the reported scenario
-(home view → flight to 1175 m over the harbour → a pan); a Gecko profile
-of the run (`MOZ_PROFILER_STARTUP=1`, `MOZ_PROFILER_SHUTDOWN=<file>`,
-passed through `open --env`), read with a small script that sums self
-time per function and, for samples in `libsystem_kernel`, the nearest
-named ancestor – which is how the blocked time got its names; and a
-wrapper on every `WebGL2RenderingContext.prototype` method counting
-calls and JS time per phase.
-
-What it found: Firefox's WebGL is out-of-process (`PWebGL::Msg_*`
-IPC). The calls themselves are cheaper JS-side than Chrome's – they go
-into a command buffer – but at the end of every frame the content
-thread waits in `Msg_GetFrontBuffer` until the host has executed the
-whole stream, and every synchronous call (`readPixels`,
-`getBufferSubData`, the first `getProgramParameter` after a link) is a
-round trip that drains it. Chrome overlaps the GPU process with the
-next frame; Firefox cannot, so a frame there is JS **plus** the host's
-execution **plus** the stalls, in series. During the flight the main
-thread was blocked 32 % of the time (GetFrontBuffer 14.5 %,
-GetLinkResult 10 %, ReadPixels 6 %, GetBufferSubData 1.5 %). The "drain"
-after `viewer.render()` – a `getError()` timed – was 4–6 ms at the
-median in Firefox against 0.3–0.7 in Chrome. Nothing else differed:
-JS per draw command is ~3 µs in both engines, the window size was not
-it (a 14" display is smaller than the test viewport), MSAA and
-shadows were off in every scene, Playwright's profile sets no gfx
-prefs. Firefox also has no persistent shader cache, so every visit
-links its ~40 programs and the derived variants again, 16–25 ms each,
-blocking – Chrome caches the binaries on disk.
+Firefox's WebGL is out-of-process (`PWebGL::Msg_*` IPC): the calls go
+into a command buffer, but at the end of every frame the content thread
+waits in `Msg_GetFrontBuffer` until the host has executed the whole
+stream, and every synchronous call (`readPixels`, `getBufferSubData`,
+the first `getProgramParameter` after a link) is a round trip that
+drains it. Chrome overlaps the GPU process with the next frame; Firefox
+cannot, so a frame there is JS **plus** the host's execution **plus**
+the stalls, in series – over Hamburg it stuttered badly where Chrome did
+not, and `?offline=1` was smooth. Firefox also has no persistent shader
+cache, so every visit links its ~40 programs and the derived variants
+again, 16–25 ms each, blocking. JS per draw command is ~3 µs in both
+engines.
 
 So the levers are the number of GL calls a frame and the synchronous
 readbacks, and both turned out to be mostly this app's own: ~27 600 GL
@@ -1889,25 +1838,21 @@ the fleets' (six to thirteen primitives a model – "One primitive per
 part" under the ships), and hundreds of synchronous readbacks a second
 (the surface picks' `readPixels`, `tileset.getHeight`'s
 `getBufferSubData` – the rules under "Ships are clamped to the tiles"
-and the cache below). Measured before and after, same harness, dev
-build, live fleet (so ±):
-
-| | Chrome before | after | Firefox before | after | Firefox `offline=1` |
-|---|---|---|---|---|---|
-| flight A→B, rAF gap p50 / p90 / p99 | 9–25 / 58 / 75–142 ms | 8.3 / 16.7 / 25 | 25–33 / 67–75 / 133–158 | 25 / 33 / 58 | 8.3 / 17 / 83 |
-| pan over the harbour, p50 / p90 / max | 17 / 50 / 83 | 8.4 / 16.7 / 33 | 25–33 / 58–67 / 108–142 | 17–25 / 25–33 / 33–42 | 16.7 / 18 / 33 |
-| commands per frame at 1175 m | ~3 900 | ~950 | ~3 900 | ~950 | ~1 050 |
-
-The rAF gap is quantised to the 8.3 ms of the 120 Hz display. Firefox's
-median in motion sits at the 2–3 vsync boundary now, its hitches are
-gone; what remains is the serial frame (JS ~10 ms + host ~5 ms + tick),
-which only fewer commands or less JS per tick can shorten further. Not
-done, and why: `KHR_parallel_shader_compile` (Cesium queries the link
-result at once); pre-warming the shader variants in the idle seconds
-after load (one-time 100–450 ms per fly-in in Firefox; worth it if the
-first flight into a city is still felt); `navigator.deviceMemory` is
-Chrome-only, so Firefox gets the 1 GB tile cache – no ratchet seen at
-these views, but a tilted city view is near it.
+and the cache below). With those cut, the commands per frame at 1175 m
+over the harbour went from ~3 900 to ~950 and Firefox's hitches are
+gone; its median in motion sits at the 2–3 vsync boundary, and what
+remains is the serial frame (JS ~10 ms + host ~5 ms + tick), which only
+fewer commands or less JS per tick can shorten further. Measured headed
+on the real GPU with Playwright driving the stock Firefox
+(`channel: 'moz-firefox'`) and Chrome through one scenario (home view →
+flight to 1175 m over the harbour → a pan), a Gecko profile naming the
+blocked time. Not done, and why: `KHR_parallel_shader_compile` (Cesium
+queries the link result at once); pre-warming the shader variants in
+the idle seconds after load (one-time 100–450 ms per fly-in in Firefox;
+worth it if the first flight into a city is still felt);
+`navigator.deviceMemory` is Chrome-only, so Firefox gets the 1 GB tile
+cache – no ratchet seen at these views, but a tilted city view is near
+it.
 
 **The GPU readback cache** ([buffer-readback-cache.ts](src/map/buffer-readback-cache.ts),
 installed on Cesium's `Buffer.prototype` by CesiumMap): `tileset.getHeight`
@@ -1943,8 +1888,6 @@ no poll runs (offline, the tests); `basemap()`/`setBasemap()` and
 
 ## AIS (live harbour traffic)
 
-Fully live on `main` (PR #10).
-
 **Operationally critical:** the production cron must call
 `/api/ais?listen=45` every minute. The bare URL gives 12 s windows, which
 stutters moving ships and almost never catches the 6-minute `ShipStaticData`
@@ -1967,11 +1910,7 @@ from the folder above the docroot – two levels up from the scripts in
 `api/`, which is how they look for it (see the header comments in
 [server/api/ais.php](server/api/ais.php) and
 [server/api/webcams.php](server/api/webcams.php); the README's Deployment
-section draws the layout). Keys are never `VITE_`-prefixed. The webspace
-moved from `apps/mini-germany-3d/` (docroot, key beside it in `apps/`)
-to `websites/mini-germany-3d/website/` (docroot) with the key and the
-archive in `websites/mini-germany-3d/` – nothing in the code changed for
-it, only `KAS_TARGET_DIR` and the domain's path in KAS.
+section draws the layout). Keys are never `VITE_`-prefixed.
 
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
@@ -2064,7 +2003,8 @@ new generation re-reads it. The **scheduled ferries** (VehicleLayer, mode
 3 picks a tick, again after 25 m or a `surfaceGeneration` bump, the route
 profile until the first answer; `FERRY_FLOAT_LIFT` stays on top for the
 mesh's crests. The rules that keep the picks rare, all measured (the
-Firefox investigation below is where they come from):
+Firefox investigation under "Rendering and performance" is where they
+come from):
 
 - **A generation is a tile that loaded, at most every 2 s.** It followed
   `allTilesLoaded` until then, which Cesium raises on every load-progress
@@ -2477,7 +2417,7 @@ ships. Decisions that should not be re-litigated:
   Aircraft stay below 12,000
   triangles and 800 kB each (smaller types have a tighter budget; the
   merged primitive's colour and palette coordinate are 8 bytes a vertex,
-  see "One primitive per part" below).
+  see "One primitive per part" under "Cities and the data pipeline").
   The retractable gear remains its own `mesh.parts.gear` / glTF `gear`
   node, which `AircraftLayer` shows only within `GEAR_DOWN_AGL_M` (600 m)
   of the city's ground. The light single's gear and helicopter skids are
