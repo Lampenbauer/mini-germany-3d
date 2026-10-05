@@ -11,7 +11,7 @@ Live at **[minigermany3d.com](https://minigermany3d.com)**. Inspired by
 [CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
 
-[![Hamburg in the evening rush hour – the panel lists the lines, the map carries their vehicles, the harbour its ships](docs/screenshots/hamburg-harbour.jpg)](https://minigermany3d.com/en/hamburg/#lat=53.467681&lon=10.019491&height=6648&heading=339&pitch=-35&clouds=1)
+[![Hamburg in the evening rush hour – the panel lists the lines, the map carries their vehicles, the harbour its ships](docs/screenshots/hamburg-harbour.jpg)](docs/screenshots/hamburg-harbour.jpg)
 
 Nothing on the map is invented: what runs here runs in reality too, on the same
 route at the same time. A line that pauses for the weekend pauses here as well.
@@ -32,8 +32,8 @@ a chase camera; clicking a stop opens its departure board.
 
 | | |
 |---|---|
-| [![Two trams at Doberaner Platz before dawn](docs/screenshots/rostock-dawn-trams.jpg)](https://minigermany3d.com/en/rostock/#lat=54.086873&lon=12.120724&height=227&heading=44&pitch=-37&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=06:04&paused=1) | [![An S-Bahn train on the Warnemünde line](docs/screenshots/rostock-dawn-sbahn.jpg)](https://minigermany3d.com/en/rostock/#lat=54.080148&lon=12.118532&height=182&heading=51&pitch=-29&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=06:04&paused=1) |
-| *Rostock's trams 1 and 5 at Doberaner Platz, 06:04 – the cabin glow and the street lamps follow the simulated clock* | *A Talent 2 on the S1 to Warnemünde, the same morning* |
+| [![Two trams at Doberaner Platz before dawn](docs/screenshots/rostock-dawn-trams.jpg)](docs/screenshots/rostock-dawn-trams.jpg) | [![An S-Bahn train on the Warnemünde line](docs/screenshots/rostock-dawn-sbahn.jpg)](docs/screenshots/rostock-dawn-sbahn.jpg) |
+| *Rostock's trams 1 and 5 at Doberaner Platz – the cabin glow and the street lamps follow the simulated clock* | *A Talent 2 on the S1 to Warnemünde* |
 
 **The harbour and the sky, live.** AIS positions from aisstream.io put every
 ship in the city's box on the water, as one of sixteen procedural hulls
@@ -45,10 +45,10 @@ clock set back replays the last five days.
 
 | | |
 |---|---|
-| [![Container ships at the Waltershof terminals in Hamburg](docs/screenshots/hamburg-ships.jpg)](https://minigermany3d.com/en/hamburg/#lat=53.533011&lon=9.889844&height=810&heading=98&pitch=-22&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=10:04) | [![A Lufthansa 747-8 on final into Frankfurt, followed by the chase camera](docs/screenshots/frankfurt-aircraft.jpg)](https://minigermany3d.com/en/frankfurt/#clouds=1&tiltshift=1&fov=38&blur=0.008&band=0.28) |
+| [![Container ships at the Waltershof terminals in Hamburg](docs/screenshots/hamburg-ships.jpg)](docs/screenshots/hamburg-ships.jpg) | [![A Lufthansa 747-8 on final into Frankfurt, followed by the chase camera](docs/screenshots/frankfurt-aircraft.jpg)](docs/screenshots/frankfurt-aircraft.jpg) |
 | *Hamburg, Waltershof: the box ships at their berths, each the size AIS reports* | *Frankfurt: following a 747-8 on final, with its ADS-B card* |
-| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](https://minigermany3d.com/en/kiel/#lat=54.364243&lon=10.128145&height=227&heading=75&pitch=-11&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=17:23) | [![Warnemünde at night, the lighthouse beam sweeping the sea](docs/screenshots/rostock-night.jpg)](https://minigermany3d.com/en/rostock/#lat=54.167983&lon=12.112000&height=1039&heading=314&pitch=-27&tiltshift=1&fov=31&blur=0.008&band=0.28&time=19:55) |
-| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *Warnemünde, yesterday evening replayed from the AIS archive: the ferry leaving, the mole lights, the buoys' lanterns and the lighthouse's turning beam* |
+| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](docs/screenshots/kiel-ferry.jpg) | [![Warnemünde at night, the lighthouse beam sweeping the sea](docs/screenshots/rostock-night.jpg)](docs/screenshots/rostock-night.jpg) |
+| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *Warnemünde, replayed from the AIS archive: the ferry leaving, the mole lights, the buoys' lanterns and the lighthouse's turning beam* |
 
 **A clock, not a feed.** The time field and the calendar set the simulated
 moment, the time-lapse runs it at up to ×120 forward or backward, and
@@ -64,7 +64,7 @@ flat street map.
 
 | | |
 |---|---|
-| [![Rostock's lines pulled straight into a diagram](docs/screenshots/rostock-diagram.jpg)](https://minigermany3d.com/en/rostock/#lat=54.129500&lon=12.127400&height=28849&heading=0&pitch=-90&view=linear&clouds=1) | [![Cologne on the flat map with its webcams](docs/screenshots/cologne-flat.jpg)](https://minigermany3d.com/en/cologne/#lat=50.915323&lon=6.951634&height=3627&heading=1&pitch=-53&basemap=flat&time=16:00) |
+| [![Rostock's lines pulled straight into a diagram](docs/screenshots/rostock-diagram.jpg)](docs/screenshots/rostock-diagram.jpg) | [![Cologne on the flat map with its webcams](docs/screenshots/cologne-flat.jpg)](docs/screenshots/cologne-flat.jpg) |
 | *The line diagram: every line a row, every stop at its distance* | *Cologne on the flat map, with Windy's webcams floating over their spots* |
 
 **And the rest, briefly:**
