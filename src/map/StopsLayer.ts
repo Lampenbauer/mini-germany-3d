@@ -139,8 +139,7 @@ interface StopEntityRecord {
    * handful of unreachable stops right in front of the camera cannot
    * monopolize the per-pass budget – they used to be asked again every
    * 1.5 s, eight rays a second for good at a resting camera over water
-   * (found 2026-09-13; each ray reads the tile geometry back from the
-   * GPU).
+   * (each ray reads the tile geometry back from the GPU).
    */
   failedAtGeneration: number
   /**
@@ -165,7 +164,7 @@ const STOP_HEIGHT_BUDGET = 4
  * drawn all at once when the city went up – Berlin's 2682 of them cost
  * ~300 ms of canvas work and one texture atlas upload, and that landed in
  * the single frame of the city handover, halfway through the flight, where
- * it was the whole of the freeze (measured 2026-09-10: 398 ms with the
+ * it was the whole of the freeze (measured at 398 ms with the
  * names, 74 ms without). None of them can be seen at that moment: the
  * camera is some 85 km up and a name is drawn within STOP_LABEL_RANGE, so
  * the work was not merely badly timed but pointless. A name is drawn now

@@ -29,7 +29,7 @@ test('the interface makes room for the map on a phone', async ({ page }) => {
 
   // The panel: a sheet at the foot, as wide as the screen less its gutters,
   // folded – and clear of the Cesium credit line under it by a good
-  // margin (the user found 13 px too close; CARD_SLOT in App.tsx)
+  // margin (13 px was too close; CARD_SLOT in App.tsx)
   const creditTop = await page.evaluate(
     () => document.querySelector('.cesium-viewer-bottom')!.getBoundingClientRect().top,
   )

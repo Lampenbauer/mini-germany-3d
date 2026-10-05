@@ -54,8 +54,8 @@ export const cityNetworks: { city: City; json: NetworkJson; network: PreparedNet
  * road at one particular second: a short working on a 15-minute headway
  * is between trips for four minutes of every fifteen, and Berlin's 100,
  * cut to a 3 km shuttle for the Marathon weekend the feed had chosen as
- * its service day, was exactly that at 08:30:00 (the nightly run of
- * 2026-09-19 failed on it). Five minutes is fine enough for any
+ * its service day, was exactly that at 08:30:00 (a nightly run failed
+ * on it). Five minutes is fine enough for any
  * headway a pinned line runs at by day.
  */
 export function linesOutInTheMorning(sim: Simulation): Set<string> {

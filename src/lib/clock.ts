@@ -5,7 +5,7 @@
  * Europe/Berlin time zone – the timetable is computed in local time,
  * regardless of which time zone the browser runs in.
  *
- * The time-lapse factor is signed (since 2026-09-22): ×30 runs the clock
+ * The time-lapse factor is signed: ×30 runs the clock
  * thirty times as fast, ×−30 runs it backward at the same pace – the
  * panel's slider spans both, real pace in the middle. The clock itself
  * needs nothing for it, it is an anchor plus the real time elapsed times
@@ -43,9 +43,9 @@ export const SPEED_STEPS = [
  * The slider's own scale is the index into SPEED_STEPS, one detent per
  * step spaced evenly along the track – so a drag rests on ×2, ×5, ×10
  * rather than gliding through ×7, and the middle of the track has room
- * for the paces that matter. A linear scale was tried first (2026-09-22):
- * ×1 to ×10 lay on eleven pixels of it and the thumb slid without a
- * stop; the user asked for detents.
+ * for the paces that matter. A linear scale was tried first: ×1 to ×10
+ * lay on eleven pixels of it and the thumb slid without a stop, so the
+ * slider rests on detents.
  */
 export const SLIDER_MIN = 0
 export const SLIDER_MAX = SPEED_STEPS.length - 1

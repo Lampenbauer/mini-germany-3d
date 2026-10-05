@@ -53,10 +53,10 @@ export const BEAM_CORE_M = 2
 /**
  * The beams fade with the camera's distance to the lantern, the way the
  * lanterns do (translucencyByDistance): full within BEAM_FULL_DISTANCE_M,
- * gone at BEAM_MAX_DISTANCE_M, linear between – the user's numbers
- * (2026-09-16), in place of a hard edge at 15 km where a beam popped in
- * as the camera came down. Both the shaft and the light on the tiles
- * take the same fade (beamDistanceFade), computed per light on the CPU.
+ * gone at BEAM_MAX_DISTANCE_M, linear between – numbers chosen by eye,
+ * in place of a hard edge at 15 km where a beam popped in as the camera
+ * came down. Both the shaft and the light on the tiles take the same
+ * fade (beamDistanceFade), computed per light on the CPU.
  */
 export const BEAM_FULL_DISTANCE_M = 10_000
 export const BEAM_MAX_DISTANCE_M = 20_000

@@ -8,8 +8,8 @@
  * ray hits it reads the positions and the indices back from the GPU
  * (Buffer.getBufferData → gl.getBufferSubData): Google's tiles keep no
  * copy of their vertex data in memory. Every read is a synchronous
- * round trip that drains the GPU pipeline – measured 2026-09-13 in
- * Chrome on this Mac at 2.2 ms for a tile's positions, nine to fifteen
+ * round trip that drains the GPU pipeline – measured in Chrome on the
+ * development machine at 2.2 ms for a tile's positions, nine to fifteen
  * of them a frame during a camera flight, a quarter of the flight's
  * wall time; in Firefox a round trip to the process that runs WebGL.
  * And the same tiles are read again on the next frame, and the next.

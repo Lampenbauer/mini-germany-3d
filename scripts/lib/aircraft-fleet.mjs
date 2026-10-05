@@ -1155,7 +1155,7 @@ export function aircraftLight() {
 }
 
 /**
- * Airbus H140, after the user's photograph: glazed cabin, sculpted engine
+ * Airbus H140, after a photograph of the type: glazed cabin, sculpted engine
  * deck, five blades and an open Fenestron below a T-tail.
  * https://www.airbus.com/en/products-services/helicopters/civil-helicopters/h140
  */

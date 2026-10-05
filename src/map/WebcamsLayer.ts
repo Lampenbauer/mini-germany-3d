@@ -11,7 +11,7 @@
  * The ground under a camera is measured on the photo tiles like the
  * stops' is; until the tiles are in, the city's ground first guess holds
  * the picture and update() measures again whenever the tiles changed
- * (host.surfaceGeneration) – every thirty frames until 2026-09-13, which
+ * (host.surfaceGeneration) – every thirty frames before, which
  * for a camera whose tiles never load (out of view) was a GPU readback
  * per ray for good.
  *

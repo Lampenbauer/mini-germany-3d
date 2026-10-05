@@ -770,8 +770,8 @@ describe('App (UI shell)', () => {
   it('sets the simulated day from the calendar, four days back to a week ahead, and Now brings it back', async () => {
     // Today is a day whose week ahead runs into the next month, so the
     // range lies on two sheets of the calendar. On the real date the test
-    // read one sheet and failed around the turn of every month – the
-    // nightly run of 2026-09-29, whose 5 and 6 Oct were on October's sheet.
+    // read one sheet and failed around the turn of every month – a
+    // nightly run whose 5 and 6 Oct were on October's sheet.
     // The Date alone is faked, so the loop and the UI tick run as they do
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-29T12:00:00+02:00'))

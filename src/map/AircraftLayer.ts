@@ -578,7 +578,7 @@ export class AircraftLayer {
       // Flown on blind and sinking near the ground: the feed has gone quiet
       // on short final – Frankfurt's feeders lose most landings a few
       // metres over the runway and hear them again on the ground up to a
-      // couple of minutes on (2026-10-03) – and the reckoning carries the
+      // couple of minutes on – and the reckoning carries the
       // aircraft on down at its rate, which ended 77 m under the runway.
       // It is clamped like one on the ground, and stopped on the apron
       const sinkingBlind =
@@ -649,7 +649,7 @@ export class AircraftLayer {
       }
 
       // The nose: the playback's, eased along the heading's own arc –
-      // until 2026-09-15 it was the motion bearing plus the crab of the
+      // before, it was the motion bearing plus the crab of the
       // record's LATEST heading against its latest track, and a track
       // that flipped between two fixes (a parked transponder's, or the
       // stale one a taxiing aircraft keeps) swung the nose through 180°
@@ -953,8 +953,8 @@ export class AircraftLayer {
    * the kinematics of the instant drawn – the playback's, twelve seconds
    * behind the feed – in place of its last fix's: the altitude as the
    * transponder reports it, the ground speed, the climb, and the ground
-   * once the body stands on it. The card showed the last fix until
-   * 2026-10-03, and said "on the ground" while the body was still twelve
+   * once the body stands on it. The card showed the last fix
+   * before, and said "on the ground" while the body was still twelve
    * seconds out on its final approach. The pressure altitude beside a
    * geometric one (the flight level) is the aircraft's own difference
    * between the two where its record reports both, the sky's otherwise
@@ -1239,7 +1239,7 @@ export class AircraftLayer {
    * aircraft is on the map. In the credits dialog only (the lightbox
    * behind the map's "Data attribution" link), not on screen: Windy's
    * terms want their courtesy in the corner of the map, adsb.fi's do
-   * not, and one line at the foot of the map is enough (2026-09-13).
+   * not, and one line at the foot of the map is enough.
    */
   private applyCredit(): void {
     const display = this.viewer.creditDisplay

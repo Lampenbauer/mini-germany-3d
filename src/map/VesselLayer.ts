@@ -528,7 +528,7 @@ interface VesselRecord {
  * The ships are clamped to the tiles rather than set on a fixed water
  * surface: inland the water is a staircase of lock reaches and Google's
  * mesh is the only thing that says where each step lies. A clamp is an
- * offscreen pick (~1.4 ms measured 2026-09-08 – a scene update and a
+ * offscreen pick (~1.4 ms measured – a scene update and a
  * synchronous readPixels, which stalls the GPU pipeline and, in Firefox,
  * round-trips to the process that runs WebGL), so it is made only when
  * its answer could have changed – the ship moved CLAMP_MOVE_M since the
@@ -537,7 +537,7 @@ interface VesselRecord {
  * clamped the tick they come into view. A pick that found no tile is not
  * asked again until the tiles change either: nothing else can change its
  * answer, and asking every tick was what kept a long view over the Elbe
- * at its full budget for good (found 2026-09-13). CLAMP_BUDGET_PER_TICK
+ * at its full budget for good. CLAMP_BUDGET_PER_TICK
  * caps the work of a tick when many ships qualify at once (a city switch,
  * a load cycle over a busy harbour) – the rest follow next tick. A fleet
  * at rest under a resting camera costs nothing.
@@ -547,7 +547,7 @@ interface VesselRecord {
  * under a ship two kilometres off is a fraction of a pixel, so a ship
  * whose clamp has answered is read again at a new generation only within
  * CLAMP_REFINE_RANGE_AT_REFERENCE (at the reference lens, scaled like the
- * render range), or once she has moved. Measured 2026-09-13 at 1175 m
+ * render range), or once she has moved. Measured at 1175 m
  * over Hamburg's harbour with 245 ships on screen: every generation
  * re-clamped them all, three a tick for three seconds, each clamp a full
  * scene update – 22 % (Chrome) to 30 % (Firefox) of a pan's wall time.
@@ -555,7 +555,7 @@ interface VesselRecord {
  * And a pick's answer is not taken as it comes: the tiles carry the
  * ships Google photographed at their berths and every bridge deck, and
  * a hull at such a berth or passing under such a bridge was set on top
- * of them (2026-09-15). The answer is judged against the water level
+ * of them. The answer is judged against the water level
  * known for the place – the coast's NHN 0, inland the floor of her
  * neighbours' accepted levels in the same cell, always her own last
  * level – and held back where it stands too far over every one of them

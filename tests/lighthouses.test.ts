@@ -14,7 +14,7 @@ import { committedDataFiles } from './cities'
  * The lighthouses and pier lights the pipeline takes from OpenStreetMap's
  * seamark tagging: which objects become lights, with which sectors, and
  * in what order they land in the file – on the tags as they really are
- * (surveyed 2026-09-13 in Rostock and Kiel).
+ * (surveyed in Rostock and Kiel).
  */
 
 const BOX = { west: 11.6, south: 53.8, east: 12.7, north: 54.5 }

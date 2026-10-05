@@ -28,8 +28,8 @@
  * calendar while the departures do not, and the nightly refresh only
  * tests, builds and deploys when a city's data changed (ci.yml's
  * "Anything new?"). Written into the file, the date alone set the whole
- * pipeline going almost every night (found 2026-09-11: for four cities
- * the night's diff was that one line).
+ * pipeline going almost every night (found when the night's diff for
+ * four cities was that one line).
  *
  * Implementation note: stop_times.txt of the Germany feed is several
  * gigabytes uncompressed – the file is therefore streamed line by line over
@@ -280,7 +280,7 @@ function warn(message) {
  * out of the same rows: each city prepares its candidate trips first
  * (prepareCity), the scan hands each row to the cities that have its
  * trip, and the schedule is written per city afterwards (finishCity).
- * Until 2026-09-19 the script ran per city from the top, thirteen
+ * Before that the script ran per city from the top, thirteen
  * unpackings and thirteen scans of the same file – 47 seconds a city on
  * the CI runner, ten minutes a night for one minute's work.
  *

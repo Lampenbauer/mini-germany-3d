@@ -38,8 +38,8 @@
  * ribbon carries the moment its foam was made (the ships' clock less
  * the pose's age, as a distance at WAKE_STREAK_MPS), so a streak stays
  * where it was laid while the ship runs on from it, and the bow wave's
- * foam streams aft along the flank. Until 2026-09-15 the pattern was
- * measured from the stern and rode along with the hull, which read as
+ * foam streams aft along the flank. An earlier version measured the
+ * pattern from the stern, riding along with the hull, which read as
  * painted on. On top of that the pattern churns: the noise has a third
  * axis the shader walks along with the ships' clock (u_churn, held by a
  * pause, no faster than PLUME_MAX_RATE under the time-lapse like the

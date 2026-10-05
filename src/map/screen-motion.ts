@@ -9,7 +9,7 @@
  * view, where a tram five kilometers away crawls across the screen at
  * about one CSS pixel per second. Thirty frames a second to move a badge
  * by a fortieth of a pixel each is fill rate spent on nothing the eye can
- * register. Measured 2026-09-05: that view cost ~19 ms of GPU per frame.
+ * register. Measured: that view cost ~19 ms of GPU per frame.
  *
  * So the layers now measure the motion of what they draw in pixels since
  * the frame that was last rendered, and only ask for a frame once it

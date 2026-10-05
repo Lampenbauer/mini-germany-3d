@@ -8,7 +8,7 @@
  * seamark:light:*.
  *
  * For now only the buoys of one colour – red, green or yellow all over
- * (the user's first cut, 2026-09-13). The banded marks stay out: the
+ * (a first cut). The banded marks stay out: the
  * cardinal buoys (yellow and black), the isolated-danger and safe-water
  * marks (black and red, red and white), the preferred-channel laterals
  * (green;red;green), the yellow;red;yellow special marks and the white

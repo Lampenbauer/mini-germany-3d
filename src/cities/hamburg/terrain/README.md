@@ -18,6 +18,6 @@ city's stops used to carry: all 1528 within 2 m, 96 % within 0.5 m.
   (dl-de/by-2-0). Attribution: © Freie und Hansestadt Hamburg, Landesbetrieb
   Geoinformation und Vermessung (LGV).
 - Built once, by hand, with
-  `node scripts/build-terrain-patch.mjs --city hamburg` (2026-09-05). A
+  `node scripts/build-terrain-patch.mjs --city hamburg`. A
   rerun writes the same bytes; once Mapterhorn closes the holes it writes
   nothing and names the tiles that can go.

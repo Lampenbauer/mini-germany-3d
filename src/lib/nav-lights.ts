@@ -116,8 +116,8 @@ export function aircraftLightsMode(onGround: boolean, moving: boolean): 'off' | 
  * status is set by hand on the bridge and left as it was in either
  * direction – the GRANDE INGHILTERRA came down the Elbe at twelve knots
  * calling herself moored, and 139 of Hamburg's ships called themselves
- * under way while lying at their berths, against 40 that moved (both
- * 2026-09-11). A ship truly stopped in the fairway under engine goes
+ * under way while lying at their berths, against 40 that moved. A
+ * ship truly stopped in the fairway under engine goes
  * dark for this; that is the rarer picture by far.
  */
 export function vesselLightsMode(navStatus: number | null, underWay: boolean): 'off' | 'underway' | 'anchor' {

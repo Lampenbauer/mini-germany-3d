@@ -17,7 +17,7 @@ export type LighthouseKind = 'major' | 'minor'
  * The character (Fl, Oc, Iso …) is carried as OSM has it, with the
  * light's period in seconds and its group ("3", "2+1": the flashes a
  * period holds), null where OSM has none; the two trailing elements are
- * absent in a file written before 2026-09-16. A major light flashing
+ * absent in a file written before they were added. A major light flashing
  * with a known period is a rotating optic, and the map turns its beam
  * (see lib/lighthouse-beam.ts); every other light shows steadily.
  */

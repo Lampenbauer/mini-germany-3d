@@ -36,7 +36,7 @@
  * its approach – read off the record, those fixes were taken for
  * pressure altitudes and lifted by the geoid height, and every landing
  * hovered some forty metres over the runway until the playback reached
- * the ground (2026-10-03). The heading is where the nose points and is
+ * the ground. The heading is where the nose points and is
  * played back on its own arc (aircraftPlaybackSample): on the apron it
  * is the only direction most aircraft report – the surface position
  * message carries it and no track – and the one that stands while a
@@ -402,7 +402,7 @@ export interface AircraftPlaybackSample {
    * by this share and never draws the aircraft below the apron, so a
    * landing comes down onto the runway at its own rate and rolls there,
    * and arrives on it by the first fix on the ground at the latest –
-   * where until 2026-10-03 it held the last altitude reported in the
+   * where before it held the last altitude reported in the
    * air and dropped onto the runway at the first fix on the ground, the
    * length of the segment later (seconds live, a minute where the
    * feeders lose an aircraft at the runway's height).
@@ -452,7 +452,7 @@ function lastKnown(track: readonly AircraftTrackPoint[], i: number, field: 5 | 7
  * North – a guess and nothing else – only for a track that never said
  * either. Standing still an aircraft keeps pointing where it did: no
  * direction is ever made up from the wobble of a parked transponder's
- * fixes, which spun the aircraft on the apron before this (2026-09-15).
+ * fixes, which spun the aircraft on the apron before this.
  */
 function knownDirections(track: readonly AircraftTrackPoint[], i: number): { bearingDeg: number; noseDeg: number } {
   const trackDeg = lastKnown(track, i, 5)
@@ -691,19 +691,19 @@ export const AIRCRAFT_LIFT_BAND_M = 1500
  * What lifts a pressure altitude onto the geometric scale, measured on
  * the sky itself: the geometric minus the pressure altitude of the
  * aircraft that report both. That is the geoid height plus the day's
- * pressure – at Frankfurt 120 m near the ground on 2026-09-11 and 200 m
- * on 2026-10-03, at about 1032 hPa, against a geoid height of 47 – and
- * it grows with the height through air warmer than the standard (the
- * same 2026-09-11: 300 m at cruise), so the lift is the median of the
+ * pressure – at Frankfurt 120 m near the ground on one day and 200 m on
+ * another, at about 1032 hPa, against a geoid height of 47 – and it
+ * grows with the height through air warmer than the standard (the first
+ * of those days: 300 m at cruise), so the lift is the median of the
  * AIRCRAFT_LIFT_NEIGHBOURS aircraft nearest in pressure altitude to the
  * one asked about, within AIRCRAFT_LIFT_BAND_M of it – a transponder
  * that reports something odd outvoted. Where fewer than
  * AIRCRAFT_LIFT_MIN_AIRCRAFT report both there – a quiet sky, an
  * altitude nobody else flies – and for an aircraft with no pressure
  * altitude to lift, `fallbackM`: the geoid height, and the pressure
- * error with it, which was the rule for every pressure altitude until
- * 2026-10-03 and drew a pressure-only aircraft on Frankfurt's runway
- * 150 m under it that morning.
+ * error with it, which was the rule for every pressure altitude before
+ * and drew a pressure-only aircraft on Frankfurt's runway 150 m under
+ * it.
  */
 export function pressureLift(
   list: readonly Aircraft[],

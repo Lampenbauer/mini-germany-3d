@@ -6,7 +6,7 @@
  * left alone, answered or not; a new generation says the tiles changed
  * and the answer may have too.
  *
- * It followed the tileset's allTilesLoaded event until 2026-09-13, which
+ * It followed the tileset's allTilesLoaded event before, which
  * Cesium raises on every load-progress transition – a single request
  * that starts and ends, a cancelled one – and the layers' own offscreen
  * picks are what starts such requests: at a resting camera over Hamburg

@@ -59,7 +59,7 @@ import { DEFAULT_TILT_SHIFT_SETTINGS, type TiltShiftSettings } from '@/lib/photo
  * 0.8 is the maintainer's choice, picked by eye against the real tiles.
  * Two things to know before touching it. The fill rate of the two blur
  * passes goes with its square (0.8 → 64 % of a full frame each, 0.5 →
- * 25 %); measured 2026-09-05 on a 3200×2000 buffer the whole effect at
+ * 25 %); measured on a 3200×2000 buffer the whole effect at
  * full strength costs ~1.3 ms of GPU per frame at this value. And at
  * anything but an exact half (0.5, 0.25) or 1.0, the composite pass reads
  * the blur texture at a fraction of a texel that drifts across the

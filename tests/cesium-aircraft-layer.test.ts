@@ -128,7 +128,7 @@ describe('AircraftLayer heights', () => {
     // there carry geometric altitudes, and are drawn as such – read off
     // the record, they took the geoid height on top, and every landing
     // hovered forty metres over the runway until the playback reached the
-    // ground, where it dropped onto it (2026-10-03)
+    // ground, where it dropped onto it
     const { heightAt } = harness()
     expect(heightAt(approach, NOW + 3_000)).toBeCloseTo(86, 1)
     expect(heightAt(landed, NOW + 6_000)).toBeCloseTo(80, 1)
@@ -139,7 +139,7 @@ describe('AircraftLayer heights', () => {
     heightAt(landed, NOW + 6_000)
     expect(picks).toHaveLength(0)
     // A second past the last fix in the air: 3.6 m lower and coming down,
-    // where the last altitude reported was held until 2026-10-03 – and
+    // where the previous rule held the last altitude reported – and
     // the runway under it already asked for
     const descending = heightAt(landed, NOW + 11_000)
     expect(descending).toBeLessThan(72 - 3.6 + 0.01)
@@ -153,8 +153,8 @@ describe('AircraftLayer heights', () => {
 
   it('stops a blind descent on the runway', () => {
     // The feeders lose the landing at its last fix in the air and hear it
-    // again on the ground a minute on (Frankfurt, 2026-10-03): past that
-    // fix the reckoning flies it on down at its rate – until 2026-10-03
+    // again on the ground a minute on (Frankfurt): past that fix the
+    // reckoning flies it on down at its rate – under the previous rule
     // through the runway and 77 m under it
     const { layer, heightAt, picks } = harness()
     expect(heightAt(approach, NOW + 12_000)).toBeCloseTo(72 - 3.6 * 2, 1)

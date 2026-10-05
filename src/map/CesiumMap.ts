@@ -319,7 +319,7 @@ const SHADOW_SUN_MIN = 0.05
  * GPUs allow (Cesium halves the size where one allows less). The
  * maintainer's choice, for the edge. The alternative, 4096, would be an
  * 8192² texture of 256 MB and ~2.5 ms less per frame while shadows are
- * on (measured 2026-09-05), at half the texels per meter of shadow.
+ * on, at half the texels per meter of shadow.
  * Since the shadowed volume ends where a caster stops spanning a couple
  * of pixels (applyShadowState), the cascades spend these texels on a
  * short range, and the edge is finer than it was at the map's old
@@ -336,7 +336,7 @@ const SHADOW_MAX_DISTANCE = 4000 * FRAMING_SCALE
  * about as wide as the vehicle; narrower than this it is a sub-pixel
  * smear the eye cannot find. The home view of a city sits ~5 km above
  * the fleet, where a tram is a pixel wide – there the pass used to cost
- * half of every frame (9.5 of 19 ms, measured 2026-09-05) to change
+ * half of every frame (9.5 of 19 ms, measured) to change
  * 0.026 % of the pixels. SHADOW_CASTER_WIDTH_M is the width the test
  * assumes: a tram or bus body, the narrowest thing that casts.
  *
@@ -364,7 +364,7 @@ const FALLBACK_AIRCRAFT_SPAN_M = 11
  * (see releaseShadowMap). Cesium allocates it on the first shadowed frame
  * and frees it only with the scene: at the desktop's size, the four cascades
  * packed 2×2, that is a 16384² depth texture – 1 GB by Cesium's count,
- * ~1.5 GB by the OS's (measured 2026-09-07) – sitting in the GPU process
+ * ~1.5 GB by the OS's (measured) – sitting in the GPU process
  * for the rest of the session after one visit to the streets. Re-creating
  * it costs the first shadowed frame 5–10 ms, so a moment's hold keeps the
  * gate flapping at the edge of the reach from paying that twice.
@@ -379,7 +379,7 @@ const SHADOW_MAP_RELEASE_MS = 5000
  * inside cacheBytes, but never the tree itself: an external tileset,
  * once fetched, keeps its subtree of Cesium3DTile objects for the life
  * of the tileset, and Google's globe is stitched from hundreds of
- * thousands of them. Measured 2026-09-05: a city's home view is ~31 000
+ * thousands of them. Measured: a city's home view is ~31 000
  * tiles, every city visited adds ~35–45 000 more at ~3 KB each, and a
  * tour of seven cities stood at 282 000 tiles and a gigabyte of JS heap
  * – towards V8's 4 GB ceiling the collector stutters the map into
@@ -389,7 +389,7 @@ const SHADOW_MAP_RELEASE_MS = 5000
  * that depends on the screen: the tile budget is a constant in CSS
  * pixels, so a bigger drawing buffer means finer tiles everywhere. The
  * home view alone is ~31 000 tiles on a 3200×2000 buffer and ~124 000 on
- * a 5K display's 5120×2880 (measured 2026-09-06). A limit of 120 000
+ * a 5K display's 5120×2880 (measured). A limit of 120 000
  * tripped there before the camera had moved at all, and every wide view
  * after that – a fresh tileset every minute, the city thrown away and
  * reloaded each time, two tilesets traversing per frame in between. So:
@@ -502,7 +502,7 @@ const UNDERGROUND_DIM = 0.02
  * matrix churn by 2e-9 a frame with nobody touching it – numerical
  * noise of Cesium's own camera update – and exact equality then never
  * saw it rest: every surface pick waited for good, and every frame was
- * drawn (found 2026-09-14 at exactly that pose, where a pick due within
+ * drawn (found at exactly that pose, where a pick due within
  * a tick was still waiting a minute later).
  */
 const CAMERA_STILL_EPSILON = 1e-6
@@ -511,7 +511,7 @@ const CAMERA_STILL_EPSILON = 1e-6
  * Minimum gap between two hover picks in ms. A pick runs the scene update
  * for a tiny frustum – every selected tile and every vehicle model still
  * has its update called – so one per mouse-move event would put a real
- * cost on a cursor change: measured 2026-09-05 at 1 ms in Rostock and
+ * cost on a cursor change: measured at 1 ms in Rostock and
  * 7.4 ms in Berlin's morning rush. Ten a second is plenty for a cursor
  * to change under a resting mouse, and none at all are taken while a
  * button is held (the camera is being dragged, the cursor is a hand).
@@ -529,7 +529,7 @@ const HOVER_PICK_INTERVAL_MS = 100
  * Night keeps a blue ambient and only mild desaturation so the city stays
  * readable: real night light (lit windows, street lamps) cannot be derived
  * from daylight photogrammetry, this is an ambience grade – with one
- * exception since 2026-09-16: where a lighthouse's turning beam falls, the
+ * exception: where a lighthouse's turning beam falls, the
  * baked daylight colour comes back in the beam's colour (see
  * LighthouseBeams.ts, whose block and uniforms this shader carries).
  */
@@ -697,7 +697,7 @@ interface ViewInternals {
  * Drops the draw commands Cesium keeps around from earlier frames. Every
  * command points at its model, the model at its tile, the tile at its
  * tileset – so one stale entry holds a tileset we have already destroyed,
- * tree and all (a 2026-09-07 heap snapshot found the previous city's
+ * tree and all (a heap snapshot found the previous city's
  * 138k tiles, ~750 MB, retained this way after a swap; see
  * replaceTileset). Three places keep such entries:
  *
@@ -811,7 +811,7 @@ export class CesiumMap {
    * that runs WebGL, at the very moment the frame rate is watched. A
    * followed ship or ferry is picked all the same (the chase camera
    * never rests), the rest catch up the tick the camera stops – a
-   * couple of seconds for a harbour at the budgets. Measured 2026-09-13
+   * couple of seconds for a harbour at the budgets. Measured
    * in Firefox over Hamburg's harbour: the picks' readPixels were 14 %
    * of a pan's wall time, their scene updates another 7 %.
    */
@@ -974,8 +974,8 @@ export class CesiumMap {
       fullscreenButton: false,
       infoBox: false,
       selectionIndicator: false,
-      // Multisampling off (1) on both tiers since 2026-09-13, the user's
-      // call for the desktop too after a week at 2×. Cesium's default is
+      // Multisampling off (1) on both tiers, a settled decision for the
+      // desktop too after a week at 2×. Cesium's default is
       // 4, and MSAA was the single most expensive thing in a frame here –
       // 11.7 of the 19 ms the home view cost on the GPU at 4× – almost all
       // of it spent on this map's own strokes rather than on the tiles:
@@ -1886,7 +1886,7 @@ export class CesiumMap {
       // Not during the flight: the old tileset preloads the destination
       // for the arrival as it always did, and a second tileset chasing
       // the moving view with a traversal of its own per frame was what
-      // made the flights heavy (measured 2026-09-05/06). The copy gets
+      // made the flights heavy (measured). The copy gets
       // the same tiles from the browser's cache a few seconds later.
       this.armTilesetSwap(TILESET_SWAP_GRACE_MS)
       this.scheduleGroundBootstrap(500)
@@ -1980,7 +1980,7 @@ export class CesiumMap {
    * FlatBasemap). A swap, not a reload, like the city switch: the layers
    * keep their records and are told that the ground moved.
    *
-   * On the flat map every height is 0 m – the user's call (2026-09-14):
+   * On the flat map every height is 0 m – by design:
    * no terrain, so the routes' profile, the stops, the lamps, the water
    * the ships ride and the apron the aircraft stand on all lie on the
    * one plane, and the air traffic comes down by the city's ground height
@@ -2892,9 +2892,9 @@ export class CesiumMap {
   /**
    * Draws the sky atmosphere only while the sky can be in the frame.
    * Cesium renders it every frame with no visibility test of its own – a
-   * full-screen scattering pass, ~2 ms of the home view's 19 (measured
-   * 2026-09-05) – even with the camera pitched down onto a city that
-   * covers every pixel. The underground view hides it regardless (see
+   * full-screen scattering pass, ~2 ms of the home view's 19 (measured)
+   * – even with the camera pitched down onto a city that covers every
+   * pixel. The underground view hides it regardless (see
    * setUnderground). Called per rendered frame from render(): the pose
    * is what it depends on, and a pose change always brings a frame.
    */
@@ -3218,7 +3218,7 @@ export class CesiumMap {
    * their lights, the buoys and their lanterns, the airfield lights, the
    * route lines draped over the water, the stop names, the webcams – a
    * pick that landed on any of them would set a ship on her own deck, a
-   * buoy on its lantern, an aircraft on a taxiway light. Until 2026-09-13
+   * buoy on its lantern, an aircraft on a taxiway light. Before,
    * they were kept off with exclusion lists instead, per layer, expanded
    * to the points Cesium matches against – and an excluded hit costs
    * Cesium a second offscreen pass from below it, so a ship's clamp

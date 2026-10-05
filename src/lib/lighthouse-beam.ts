@@ -11,8 +11,7 @@
  * turning slowly – how many, OSM cannot say, so the map takes the
  * fewest that let a turn last MIN_TURN_S (four lenses in twelve seconds
  * for Friedrichsort's Fl 3s), which shows the same flash every three
- * seconds and turns like an optic does (the user saw the one-lens
- * version strobe, 2026-09-16).
+ * seconds and turns like an optic does (the one-lens version strobed).
  *
  * Which lights are optics at all: a tower's – a major light with a
  * range of OPTIC_RANGE_NM and more, so a pier head's flashing LED

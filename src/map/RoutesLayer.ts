@@ -318,8 +318,8 @@ export class RoutesLayer {
       // A ferry line is draped over the tiles: its profile is the water
       // level, and the water in Google's mesh lies wherever the survey
       // found it – a lock reach, a tide, a metre of wake and noise –
-      // which no height and no lift of ours can follow. Until 2026-09-08
-      // the lines rode NHN 0 plus the offset plus 1.25 m and still dipped
+      // which no height and no lift of ours can follow. The lines
+      // once rode NHN 0 plus the offset plus 1.25 m and still dipped
       // into the water or floated over it. Clamping is the per-frame
       // classification the other routes avoid, affordable for a handful
       // of short lines; the ships float the same way (VesselLayer).

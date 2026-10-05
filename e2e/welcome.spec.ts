@@ -32,8 +32,8 @@ test('asks for a city, keeps the map bare behind the door and jumps there', asyn
   // The screen stands with a spinner while the city loads behind it … –
   // read in one look, because the city's arrival blocks the page for
   // seconds on the CI runner and the door (WELCOME_LINGER_MS, 2 s past
-  // the pick) can be gone before a second assertion runs (seen
-  // 2026-09-16, retried green). Where the door still stands, it stands
+  // the pick) can be gone before a second assertion runs (seen once,
+  // retried green). Where the door still stands, it stands
   // with its spinner and the session open behind it.
   const standing = await page.evaluate(() => ({
     door: document.querySelector('[data-testid="welcome-screen"]') !== null,

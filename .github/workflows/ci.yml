@@ -41,8 +41,8 @@ on:
         type: boolean
         default: false
   schedule:
-    # Nightly data refresh, every second night (since 2026-10-03, to
-    # spare Actions minutes): on the odd days of the month, which puts two
+    # Nightly data refresh, every second night (to spare Actions
+    # minutes): on the odd days of the month, which puts two
     # nights in a row where a 31st meets the 1st – a strict alternation
     # cannot be written in cron, and a run that started every night only
     # to stop on the even ones would bill a minute for each. GTFS schedule
@@ -201,8 +201,8 @@ jobs:
           # 29th, the 31st) leaves it to the Sunday the 1st, which runs as
           # well. The month's first of those lies within its first seven
           # days, but for a Saturday the 7th: then the 1st was the Sunday
-          # that went first. Until 2026-10-03, with a run every night, it
-          # was Sunday and the first Sunday.
+          # that went first. With a run every night it was Sunday and
+          # the first Sunday.
           # %-d: no leading zero, which [ ] would read but [[ ]] would not
           dow="$(date +%u)"
           dom="$(date +%-d)"
@@ -375,9 +375,16 @@ jobs:
           # this build, so it does not care either way.
           export VITE_CESIUM_ION_TOKEN="$ION_TOKEN_DEPLOY"
           export VITE_MAPBOX_TOKEN="$MAPBOX_TOKEN_DEPLOY"
+          # The provider named in the legal and privacy notices
+          # (src/lib/legal.ts) comes from the repository's secrets, never
+          # from the source. Missing, the notices show placeholders.
+          export VITE_OPERATOR_NAME="${{ secrets.OPERATOR_NAME }}"
+          export VITE_OPERATOR_STREET="${{ secrets.OPERATOR_STREET }}"
+          export VITE_OPERATOR_PLACE="${{ secrets.OPERATOR_PLACE }}"
+          export VITE_OPERATOR_EMAIL="${{ secrets.OPERATOR_EMAIL }}"
           npm run build
 
-      # Not on the nightly run (since 2026-09-19): the suite is what the
+      # Not on the nightly run: the suite is what the
       # run's twenty minutes went into – fifteen of them, under
       # SwiftShader – and it tests the code, which the night does not
       # change and whose push run already had the suite. Of the data

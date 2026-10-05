@@ -29,7 +29,7 @@
  * lantern's mesh, whose dome would otherwise clip it at a grazing angle.
  * Off underground with the rest of the surface.
  *
- * The one exception to "steady" (since 2026-09-16, the user's call): a
+ * The one exception to "steady", by design: a
  * major light that flashes with a known period is a rotating optic
  * (lib/lighthouse-beam.ts), and its beams turn – a shaft in the air per
  * lens and the light it throws on the tiles (LighthouseBeams.ts, for
@@ -39,7 +39,7 @@
  * map renders for: with a lit beam in view the layer asks for frames the
  * way the fleets do (screen-motion.ts) – at most every BEAM_MIN_FRAME_MS,
  * the loop's fastest tick – and reports its motion to the loop so the
- * ticks keep pace. That is the cost the user accepted for what the buoys
+ * ticks keep pace. That is the cost accepted for what the buoys
  * and the airfield were kept steady to avoid, tamed to where it applies:
  * only within the beams' reach of the camera (beamDistanceFade in
  * LighthouseBeams: full to 10 km, gone at 20, the pacing weighed by
@@ -125,7 +125,7 @@ export const BEAM_MAX_RATE = PLUME_MAX_RATE
 /**
  * The pace a turning beam holds the loop's ticks to at most: the loop's
  * own fastest tick, the rate the beam turns at anyway while the camera
- * moves, so the two look alike – the user's call (2026-09-16, after
+ * moves, so the two look alike – a settled choice (after
  * looking at the true 20 twice and at the 30 twice; 20 is the number to
  * come back to if the frames ever weigh). It caps the motion the layer
  * reports, not the frames it
@@ -134,7 +134,7 @@ export const BEAM_MAX_RATE = PLUME_MAX_RATE
  * on the requests measured from the last frame's end was tried and
  * halved the rate – a tick later, less than a tick had passed since the
  * frame finished, and every second tick drew nothing (15 fps at a 33 ms
- * tick, headed, 2026-09-16).
+ * tick, headed).
  */
 export const BEAM_MIN_FRAME_MS = 33
 /** How far over the tiles a beam lights the ground, in metres – its haze's reach, not the light's range. */

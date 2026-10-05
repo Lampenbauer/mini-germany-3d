@@ -131,6 +131,7 @@ Tokens live in `.env` (see [.env.example](.env.example)), never in the source:
 | `VITE_MAPBOX_TOKEN` | The flat map's raster tiles (optional; without it the flat map is a bare globe). The styles must be classic Mapbox styles, see `src/config.ts` |
 | `AISSTREAM_KEY`, `WINDY_KEY` | The dev server's AIS and webcam proxies (optional; production reads its own key files, see [Deployment](#deployment)) |
 | `VITE_GTFS_RT_URL` | Overrides the realtime endpoint; an empty string disables GTFS-RT |
+| `VITE_OPERATOR_NAME`, `VITE_OPERATOR_STREET`, `VITE_OPERATOR_PLACE`, `VITE_OPERATOR_EMAIL` | The provider named in the legal and privacy notices (`src/lib/legal.ts`); placeholders without them. The deployed site takes them from the repository's secrets |
 
 ```bash
 npm test               # unit tests (Vitest)
@@ -261,8 +262,9 @@ the two to the same output and run in CI.
 the PHP scripts and each city's `city.json` and `schedule.json` to an all-inkl
 webspace (Apache + PHP) after every push to `main`. Secrets:
 `KAS_SSH_HOST`, `KAS_SSH_USER`, `KAS_SSH_PASSWORD`, `KAS_TARGET_DIR` (the
-document root as rsync sees it, `websites/mini-germany-3d/website/`) and
-`WINDY_KEY`. The rsync deletes what it does not carry, so everything the site
+document root as rsync sees it, `websites/mini-germany-3d/website/`),
+`WINDY_KEY`, and the provider's details for the legal notice as
+`OPERATOR_NAME`, `OPERATOR_STREET`, `OPERATOR_PLACE` and `OPERATOR_EMAIL`. The rsync deletes what it does not carry, so everything the site
 reads or writes at run time sits *beside* the document root, never in it:
 
 ```

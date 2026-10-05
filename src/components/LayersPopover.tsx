@@ -61,9 +61,9 @@ export interface LayersPopoverProps {
   /**
    * The rail's column, for a phone: the popover hangs from its top there
    * rather than from the button, so it opens on the row's top edge like
-   * the weather's, beside the column (the user's call, 2026-09-15; from
-   * its button, bottom-aligned, it opened 38 px down the screen). On a
-   * desktop the button on the dial stays the anchor.
+   * the weather's, beside the column (from its button, bottom-aligned,
+   * it opened 38 px down the screen). On a desktop the button on the
+   * dial stays the anchor.
    */
   railRef?: RefObject<HTMLElement | null>
 }

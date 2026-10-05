@@ -375,7 +375,7 @@ describe('aircraftPlaybackSample', () => {
     // reports no altitude of either kind, while the playback is still on
     // its final approach. Those fixes carry geometric altitudes, and stay
     // them – read off the record, they were lifted by the geoid height,
-    // and the landing hovered forty metres over the runway (2026-10-03)
+    // and the landing hovered forty metres over the runway
     const landed = aircraft({
       onGround: true,
       altGeomM: null,
@@ -417,7 +417,7 @@ describe('aircraftPlaybackSample', () => {
   })
 
   it('comes down from the last fix in the air at its own rate, onto the ground by the first fix on it', () => {
-    // Frankfurt, 2026-10-03: the feeders lose a landing a few metres over
+    // Frankfurt: the feeders lose a landing a few metres over
     // the runway and hear it again on the ground a minute on – holding
     // the last altitude, the aircraft hovered over the runway that long
     const landing = aircraft({
@@ -500,9 +500,9 @@ describe('pressureLift', () => {
   })
 
   it('lifts the Frankfurt answer’s low pressure-only aircraft by what the others measure', () => {
-    // 2026-09-11 over Frankfurt: geometric 375–450 ft over the pressure
-    // altitude down low, against a geoid height of 47 m – the multilaterated
-    // aircraft at 500 ft took 47 until 2026-10-03, and 114 is the truth
+    // Over Frankfurt: geometric 375–450 ft over the pressure altitude
+    // down low, against a geoid height of 47 m – the multilaterated
+    // aircraft at 500 ft took 47 under the previous rule, and 114 is the truth
     const state: AircraftState = new Map()
     mergeAdsbResponse(state, fixture, NOW)
     const list = aircraftStateList(state, NOW)
@@ -530,8 +530,8 @@ describe('pressureReference', () => {
 
 describe('adsbQuery', () => {
   it('asks for the circle around the box that reaches its corner, and a margin beyond', () => {
-    // A box 53 km on a side (Frankfurt's, with the 15 km padding it had
-    // until 2026-09-13): 21 nm to the corner from its centre
+    // A box 53 km on a side (Frankfurt's, with the 15 km padding it once
+    // had): 21 nm to the corner from its centre
     expect(
       adsbQuery({ west: 8.2648, south: 49.8811, east: 9.0083, north: 50.3615 }),
     ).toEqual({ lat: 50.1213, lon: 8.6366, distNm: 21 + AIRCRAFT_MARGIN_NM })

@@ -6,7 +6,7 @@
  * heard into a persistent state file, and closes again. What that costs
  * is set by the source, not by AIS on-air: aisstream aggregates, and a
  * ship under way arrives on a 30 s grid, mostly every 60 s (measured
- * 2026-08-28 on a permanently open socket – a 15 kn ship therefore jumps
+ * on a permanently open socket – a 15 kn ship therefore jumps
  * ~450 m between fixes no matter what we do). Every window we are NOT
  * listening multiplies that interval, so the duty cycle is the one knob
  * that matters. Moored ships trickle in over the first windows –

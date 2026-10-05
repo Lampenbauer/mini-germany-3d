@@ -35,7 +35,7 @@ test.afterAll(async () => {
  * alone. Both poses look steeply down on purpose – the offline globe's
  * grid tiles refine by the same screen-space error as any terrain, and a
  * view along the water from a low camera took 154 of them, which the CI
- * runner's software renderer did not get in within a minute (2026-09-11);
+ * runner's software renderer did not get in within a minute;
  * from above, 20 to 30 do.
  */
 async function boot(pose: string, time = '12:00') {
@@ -94,8 +94,8 @@ const putShip = (sogKn: number, courseDeg = 45, runMeters = 0, navStatus = 0) =>
  * Whether the box ship wears her hull yet. The layer puts up a
  * placeholder box and swaps in the glTF hull once that is loaded – a
  * second locally, long enough on the CI runner that a frame taken right
- * after the ship was put showed water where the next one showed a hull
- * (2026-09-11). A picture meant to hold the hull still waits for it.
+ * after the ship was put showed water where the next one showed a hull.
+ * A picture meant to hold the hull still waits for it.
  */
 const hullReady = () =>
   page.evaluate(() => {

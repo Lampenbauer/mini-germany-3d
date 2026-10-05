@@ -21,12 +21,21 @@
 import type { Lang } from './i18n'
 import type { LegalKind } from './site-path'
 
-/** Who runs the site – the one place these details are written. */
+/**
+ * Who runs the site – the one place these details are read. They come
+ * from the build's environment (`VITE_OPERATOR_*` in `.env` locally, the
+ * deploy's secrets in ci.yml), not from the source: a legal notice has to
+ * name a person and an address, and a public repository is no place for
+ * either. The email is written obfuscated on purpose, so write it that way
+ * in the variable too (`mail [at] example [dot] com`). A build without the
+ * variables shows the placeholders, which say what is missing.
+ */
+const env = (import.meta.env ?? {}) as Record<string, string | undefined>
 export const OPERATOR = {
-  name: 'Mario Meyer',
-  street: 'August-Bebel-Str. 36',
-  place: '18055 Rostock, Germany',
-  email: 'mail [@] lampenbauer [Punkt] com',
+  name: env.VITE_OPERATOR_NAME || 'Site operator (set VITE_OPERATOR_NAME)',
+  street: env.VITE_OPERATOR_STREET || 'Street and number (set VITE_OPERATOR_STREET)',
+  place: env.VITE_OPERATOR_PLACE || 'Postcode and city (set VITE_OPERATOR_PLACE)',
+  email: env.VITE_OPERATOR_EMAIL || 'email (set VITE_OPERATOR_EMAIL)',
 } as const
 
 /** A heading and the paragraphs under it; a paragraph may hold line breaks (an address). */

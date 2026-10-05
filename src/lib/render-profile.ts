@@ -44,8 +44,8 @@ export interface RenderProfile {
   shadowMapSize: number
   /**
    * Multisampling; 1 turns the multisample path off entirely – which it
-   * is on both tiers since 2026-09-13 (the user's call for the desktop
-   * too, after a week at 2×; see the note in CesiumMap). The knob stays
+   * is on both tiers (a settled decision for the desktop too, after a
+   * week at 2×; see the note in CesiumMap). The knob stays
    * in the profile, where a rendering number belongs.
    */
   msaaSamples: number
@@ -53,7 +53,7 @@ export interface RenderProfile {
    * The device pixel ratio the drawing buffer follows, at most. Phones
    * report 3× and would draw nine times the pixels of a 1× screen for a
    * sharpness the fill rate cannot pay for; 2× on both tiers (the phone
-   * ran at 1.5× until 2026-09-14, and its text read soft for it).
+   * ran at 1.5× before, and its text read soft for it).
    */
   maxPixelRatio: number
   /**

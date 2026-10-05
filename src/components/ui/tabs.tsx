@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * shadcn-style tabs on Radix, as the About dialog wears them. The map's
- * view switch wore them too until 2026-09-11 – hence the square triggers
+ * view switch wore them too before – hence the square triggers
  * and no assumption about text width – but it had no panels for its tabs
  * to control and is a segmented control now (segmented-control.tsx),
  * which keeps this look.

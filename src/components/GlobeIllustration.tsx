@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
  * the city from above (public/globe/, drawn once per city by
  * scripts/build-globe-images.mjs and committed – nothing is fetched
  * from Mapbox when the map runs), clipped to a disc with a rim of shade
- * so it reads as a sphere. No gloss and no border, by the user's call
- * (2026-09-14): the picture is the button.
+ * so it reads as a sphere. No gloss and no border, deliberately: the
+ * picture is the button.
  *
  * A city switch crossfades: the city left behind stays under the one
  * arriving while that one fades in over GLOBE_FADE_MS (@starting-style

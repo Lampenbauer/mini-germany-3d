@@ -5,7 +5,7 @@
  * and Google's fine tiles are what the pictures are for, and software
  * rendering answers the tile requests with 429s. Every view is loaded with
  * the simulation running, which is paused one second after the app is up
- * (the user's call: a second of playback, then the vehicles stay where
+ * (a second of playback, then the pause, so the vehicles stay where
  * they are), waits for the tileset to settle and is shot with the
  * interface on – the panel and the cards are part of the picture. The
  * PNGs go to the output folder; they are downscaled to 2400 px and saved

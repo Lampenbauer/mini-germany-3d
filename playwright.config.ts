@@ -10,7 +10,7 @@ import { defineConfig } from '@playwright/test'
  * rendering).
  */
 
-// In some environments (e.g. Claude Code containers) a suitable Chromium
+// In some CI containers a suitable Chromium
 // already exists under /opt/pw-browsers – then no download is needed.
 const preinstalledChromium = '/opt/pw-browsers/chromium'
 

@@ -108,7 +108,7 @@ export class FollowCamera {
    * two – 0.0012° at 140 m, always in the same direction. Adopting
    * camera.pitch as the new offset therefore added that much every frame,
    * and the camera climbed about 0.035°/s for as long as the follow
-   * lasted (measured 2026-09-10, and reproduced with a standing subject:
+   * lasted (measured, and reproduced with a standing subject:
    * ask lookAt for -16.0000°, read back -16.0012°, ask for that, read
    * -16.0024°…).
    */

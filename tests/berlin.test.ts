@@ -21,8 +21,8 @@ const schedule = berlinScheduleJson as ScheduleJson
 
 /**
  * The ferries that do not sail every day of the week: the F21 and the F23
- * from Tuesday to Sunday, the F24 at weekends alone (the feeds of
- * 2026-09-05 and 2026-09-26 agree), so a Monday's service day has none of
+ * from Tuesday to Sunday, the F24 at weekends alone (two feeds three
+ * weeks apart agree), so a Monday's service day has none of
  * the three and any weekday's no F24. Which weekday the service day is
  * moves with the calendar – see WEEKEND_NIGHT_LINES in cologne.test.ts.
  */

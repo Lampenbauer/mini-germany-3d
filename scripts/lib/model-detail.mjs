@@ -10,8 +10,8 @@
  * Smoothing is by crease angle (smoothSurface): coincident vertices
  * average their normals where the faces meet at less than the crease,
  * so a bilge or a fuselage reads as one curved surface while a deck
- * edge or a wing's trailing edge keeps its hard line. The reformat of
- * 2026-09-12 was proved against the built GLBs the same way.
+ * edge or a wing's trailing edge keeps its hard line. The reformat that
+ * introduced it was proved against the built GLBs the same way.
  */
 import { createMesh, extrude, fan, quad } from './vehicle-mesh.mjs'
 

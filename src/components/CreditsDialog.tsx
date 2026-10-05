@@ -61,7 +61,7 @@ export function CreditsDialog(props: {
         closeLabel={t('credits.close')}
         // Capped at the window and scrolling inside: the list is as long
         // as the sources on screen, and a tall tileset view or a phone
-        // put its end past the fold with no way to reach it (2026-09-13).
+        // put its end past the fold with no way to reach it.
         className="max-h-[calc(100dvh-2rem)] overflow-hidden rounded-2xl shadow-2xl sm:max-w-md"
       >
         <DialogHeader>

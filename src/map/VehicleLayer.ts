@@ -71,7 +71,7 @@ import {
  * texture atlas by the URL when it gets one, but a canvas gets a fresh
  * GUID per billboard, and a texture atlas never gives a region back. With
  * canvases every vehicle that ever started a trip left its own copy of
- * the badge in the atlas – measured 2026-09-05 in Berlin at 60× speed:
+ * the badge in the atlas – measured in Berlin at 60× speed:
  * one atlas image per trip, the atlas texture growing from 2048² to
  * 4096² in two minutes and on towards the 16384² the GPU allows. Keyed
  * by URL, a line's badge is in the atlas once.
@@ -186,7 +186,7 @@ interface VehicleRecord {
    * its whole per-frame update (scene graph, environment map, draw
    * command build) and only skips the final submit. With Berlin's ~3000
    * wagons that difference was 3.6 ms of every frame for vehicles too far
-   * to draw (measured 2026-09-05). Removing the collection destroys its
+   * to draw. Removing the collection destroys its
    * children, as removing them one by one did.
    */
   group: PrimitiveCollection
@@ -331,7 +331,7 @@ const HEIGHT_SAMPLE_INTERVAL = 12
  * FRAMING_SCALE). The body range used to be pinned too, which through the
  * plain 60° lens drew every body out to 7.7 km – three pixels of wagon –
  * and had Berlin's morning fleet cost 13 ms of every frame in Model
- * updates alone (measured 2026-09-05).
+ * updates alone.
  */
 const VEHICLE_BODY_VISIBLE_RANGE_AT_REFERENCE = 3_500
 const VEHICLE_LABEL_VISIBLE_RANGE = 35_000 * FRAMING_SCALE
@@ -620,7 +620,7 @@ export const FERRY_FLOAT_LIFT = 1.1
  * tick; the rest ride the route profile until their turn. A pick that
  * found no tile waits for the tiles to change like an answered one (the
  * ships' rule): asked again every tick, the HADAG fleet cost the home
- * view 217 readPixels a second at rest (measured 2026-09-13). A load
+ * view 217 readPixels a second at rest. A load
  * cycle re-reads an answered ferry only within FERRY_CLAMP_REFINE_RANGE_AT_REFERENCE
  * of the camera (at the reference lens, scaled like the render range),
  * where the tiles refine – the ships' rule, see VesselLayer. A moored
@@ -962,7 +962,7 @@ export class VehicleLayer {
     // vehicle: every labelPosition.setValue below raised the entity's
     // definitionChanged, the collection copied its three change lists and
     // ran all visualizers' listeners on it – 18 000 times a second in
-    // Berlin's morning rush (measured 2026-09-05). Suspended, the
+    // Berlin's morning rush. Suspended, the
     // collection folds them into one event on resume.
     const entities = this.viewer.entities
     entities.suspendEvents()

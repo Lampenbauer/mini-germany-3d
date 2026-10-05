@@ -602,7 +602,7 @@ interface SitePagesModule {
  *
  * Both run src/lib/site-pages.ts through Vite's module runner – the dev
  * server's own SSR environment, or one made for the build's last step
- * and closed after it. Measured 2026-09-10: every city's data loaded and
+ * and closed after it. Measured: every city's data loaded and
  * profiled in under a second, ~200 MB of heap.
  */
 function prerenderPlugin(): Plugin {
@@ -711,11 +711,11 @@ export default defineConfig({
     // every one of the 85 files got one. A test that renders declares
     // `// @vitest-environment jsdom` in its first line.
     environment: 'node',
-    // The repo is private, and GitHub's standard runner for private repos
-    // has 2 vCPUs; Vitest 4 keeps one for its main thread and runs the
-    // files on the other, one after another (default: cpus − 1). The main
-    // thread mostly waits, so two workers are the better use of the two
-    // cores there. Locally the default (all cores but one) stands.
+    // GitHub's standard runner for a private repository has 2 vCPUs (a
+    // public one's 4); Vitest 4 keeps one for its main thread and runs
+    // the files on the other, one after another (default: cpus − 1). The
+    // main thread mostly waits, so two workers are the better use of two
+    // cores. Locally the default (all cores but one) stands.
     maxWorkers: process.env.CI ? 2 : undefined,
     globals: true,
     setupFiles: ['tests/setup.ts'],

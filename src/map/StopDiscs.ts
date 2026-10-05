@@ -2,7 +2,7 @@
  * The stop discs: one flat circle on the ground per stop position, all
  * of them one instanced draw command.
  *
- * They were billboards until 2026-09-11 – a disc image facing the camera,
+ * They were billboards before – a disc image facing the camera,
  * which turned with it: a dot that stands up on the street and swings
  * round as the camera orbits is a pin, not a mark on the ground. A
  * billboard cannot lie flat, and nothing else Cesium offers draws a flat

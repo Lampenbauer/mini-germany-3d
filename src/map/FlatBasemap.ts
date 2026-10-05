@@ -28,8 +28,8 @@ const MAPBOX_CREDIT =
 
 /**
  * The imagery in the underground view: dimmed to a dark relief the way
- * the tile shader dims the photo tiles, but faintly readable – the user
- * wanted the streets still there under the tunnels (2026-09-14). Not
+ * the tile shader dims the photo tiles, but faintly readable – the
+ * streets are deliberately still there under the tunnels. Not
  * the tile shader's number: UNDERGROUND_DIM is applied in linear light
  * and reads as ~35 % on screen, while an imagery layer's brightness
  * scales the sampled colour as it is (GlobeFS mixes towards black by

@@ -40,11 +40,9 @@ export const config = {
      * own light-v11 and dark-v11 – because the map draws them as raster
      * tiles through the Static Tiles API, and a style built on Mapbox
      * Standard (Studio's default template since 2024, an `imports` block
-     * with no layers of its own) comes out of that API as empty tiles:
-     * the site's own two styles, lampenbauer/cmu0uxyzx00fg01qy6vovc1kz
-     * (day) and lampenbauer/cmu0vcbgm00f801qtaj6c4s47 (night), are such
-     * and drew a bare globe (2026-09-14). Rebuilt on a classic template
-     * in Studio, their ids go here.
+     * with no layers of its own) comes out of that API as empty tiles
+     * and draws a bare globe. A style of one's own, built on a classic
+     * template in Studio, goes here by its user and id.
      */
     day: { user: 'mapbox', styleId: 'light-v11' },
     night: { user: 'mapbox', styleId: 'dark-v11' },

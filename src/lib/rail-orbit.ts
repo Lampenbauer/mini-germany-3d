@@ -10,7 +10,7 @@
  * The ring the buttons stand around, and the globe drawn inside it:
  * the buttons were placed for a 92 px globe and stay there, the globe
  * itself is 84 px (Tailwind's size-21 – 100 and 92 were tried and found
- * large, 2026-09-14), so it has 4 px more air on every side than the
+ * large), so it has 4 px more air on every side than the
  * gap alone gives. The buttons' diameter is size-9.
  */
 export const ORBIT_RING_PX = 92

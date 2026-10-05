@@ -675,13 +675,13 @@ function medianStopNhn(network: PreparedNetwork): number {
  * bottom-8 does for the rail – with room to spare: at bottom-9 the
  * sheet's foot stood 13 px over the credit bar (which begins 24 px
  * from the edge, its own padding included) and the credit read as the
- * sheet's own footnote, the user's call of 2026-09-15; 24 px now. z-20,
+ * sheet's own footnote, found too close; 24 px now. z-20,
  * over the map's controls
  * (the rail, the readings, the weather: z-10 like every wrapper here,
  * ordered by their place in the markup): where a card reaches into
  * them – a tall card on a short desktop window, the sheet against the
  * rail's column on a short phone – the card is what was asked for and
- * lies on top, the user's call the same day. The panel's wrapper below
+ * lies on top, by design. The panel's wrapper below
  * is z-20 for the same reason; the portalled popovers, tooltips and
  * dialogs stay above both at z-50.
  */
@@ -691,8 +691,8 @@ const CARD_SLOT =
 /**
  * The weather button's place while a card is up beside it: the card's
  * 400 px (w-100 in CARD_SHELL, card-parts.tsx) plus the 1rem it stands
- * from the edge plus a 0.75rem gap – the two share the top edge, the
- * user's call (2026-09-14; the card stood under the button before).
+ * from the edge plus a 0.75rem gap – the two share the top edge, by
+ * design (the card stood under the button before).
  * A slide, not a jump: the card appears at once, and the button moving
  * over is what says where it went.
  */
@@ -4279,7 +4279,7 @@ export default function App() {
           // the foot there, so the button has nothing to step aside for.
           // On the phone's own inset, top-3 like the readings and the rail
           // (it kept the desktop's top-4 and stood 4 px lower than the
-          // rail's first button until 2026-09-15).
+          // rail's first button before).
           <div
             className={cn(
               'pointer-events-none absolute right-4 top-4 z-10 flex justify-end transition-[right] duration-200 max-sm:top-3 max-sm:right-auto max-sm:left-3',
@@ -4393,7 +4393,7 @@ export default function App() {
             not belong in the column of camera buttons at the right.
             bottom-8 clears the Cesium attribution line at the lower edge. */}
         {/* One reading of three, a radio group by role (see
-            ui/segmented-control.tsx): it was tabs until 2026-09-11, and
+            ui/segmented-control.tsx): it was tabs before, and
             a tab controls a panel these never had. The arrow keys move
             the focus and Enter picks, as before – Radix's roving focus,
             with no activation on focus, so arrowing across the group
@@ -4465,7 +4465,7 @@ export default function App() {
             clear of the sheet at the foot, and the desktop-only ones –
             the photo mode, full screen – leave. */}
         {/* At half its opacity while the pointer is elsewhere (railDimmed,
-            the user's call of 2026-09-14 – the camera path bar's manner),
+            the camera path bar's manner),
             full under it or with the focus inside, for a reader stepping
             through by keyboard. The way back under the pointer is quick,
             the step down waits a moment: the wrapper lets the pointer

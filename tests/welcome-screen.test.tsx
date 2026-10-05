@@ -67,7 +67,7 @@ describe('when the welcome screen opens', () => {
     expect(welcomeWanted('/', '', '#stop=n123', storage)).toBe(false)
     // A preference alone names no place
     expect(welcomeWanted('/', '', '#routes=0', storage)).toBe(true)
-    // The city is in the path since 2026-09-10; the language alone is no place
+    // The city is in the path; the language alone is no place
     expect(welcomeWanted('/kiel/', '', '', storage)).toBe(false)
     expect(welcomeWanted('/en/kiel/', '', '#routes=0', storage)).toBe(false)
     expect(welcomeWanted('/en/', '', '', storage)).toBe(true)

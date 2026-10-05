@@ -8,8 +8,8 @@
  *   /impressum/  the legal notice             /en/imprint/  in English
  *   /datenschutz/ the privacy notice          /en/privacy/  in English
  *
- * Real addresses rather than a `#city=` fragment (which they replaced on
- * 2026-09-10, with no links from before to keep alive) because a
+ * Real addresses rather than a `#city=` fragment (which they replaced,
+ * with no links from before to keep alive) because a
  * fragment never reaches a server or a crawler: every city was one URL
  * to Google, and a shared link's preview was the site's. The build
  * writes an index.html into each of these directories

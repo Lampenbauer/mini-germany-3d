@@ -123,7 +123,7 @@ const CLAMP_BUDGET_PER_TICK = 6
  * How far from the camera a buoy is clamped at all. A pick answers with
  * whatever tile is loaded under the mark, and far from the camera that
  * is a coarse one whose mesh lumps the water with its banks: measured
- * 2026-09-13 over the Breitling from a level 45 m view, the marks three
+ * over the Breitling from a level 45 m view, the marks three
  * kilometres out came back between 9 m under and 18 m over the water,
  * and hopped there until the finer tiles arrived. Within this range the
  * tiles are fine enough for a metre; a mark further out keeps the
@@ -146,7 +146,7 @@ const RIM_PX = 1
  * LANTERN_FULL_M, down to LANTERN_FAR_STRENGTH at LANTERN_FAR_M and
  * that faint beyond – a chain of lights that burned as bright from
  * thirty kilometres up as from the quay read as a string of LEDs laid
- * over the map (the user, 2026-09-13). The airfield's lights keep their
+ * over the map. The airfield's lights keep their
  * strength at any height on purpose; a runway is meant to be read from
  * the home view, a fairway is not. On the GPU per point
  * (translucencyByDistance), so the fade costs no repaint.
@@ -162,7 +162,7 @@ const ALPHA_STEP = 0.05
  * under the topmark – and a point inside a mesh loses the depth test
  * against it from every side: from afar the point's four pixels reach
  * past the housing's one or two and the lantern shows, up close the
- * housing covered it entirely (seen 2026-09-13 from 88 m over a red
+ * housing covered it entirely (seen from 88 m over a red
  * pillar buoy). Drawn over its own housing the point is the lantern's
  * glow, which is the picture; the price is a hull or a quay in front of
  * a buoy no longer hiding its light within this range, which is rare
@@ -432,7 +432,7 @@ export class BuoysLayer {
         // (CesiumMap.advanceSurfaceGeneration), so a view along the water
         // – thousands of tiles, over which a load cycle never finishes –
         // still sets its marks down within seconds of their tiles: the
-        // Breitling's seventy-seven in half a minute (measured 2026-09-13,
+        // Breitling's seventy-seven in half a minute (measured;
         // under the same rule keyed to allTilesLoaded six of them).
         if (!inRange || !this.host.clampToSurface || clampBudget <= 0) continue
         if (record.clampedGeneration === surfaceGeneration) continue

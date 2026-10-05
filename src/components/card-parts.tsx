@@ -37,9 +37,9 @@ import { narrowViewport } from '@/lib/viewport'
  * the upper half. Past either cap the body scrolls under the head
  * (CardBody), never the card as a whole: the head, with the close
  * button and the card's action in it, stands whatever the body holds.
- * It scrolled as a whole on a phone until 2026-09-15, and a long stop
- * list took the head, the close button and the follow off the top of
- * the screen with it.
+ * It scrolled as a whole on a phone before, and a long stop list took
+ * the head, the close button and the follow off the top of the screen
+ * with it.
  */
 const CARD_SHELL =
   'pointer-events-auto w-100 gap-0 overflow-hidden border-border/60 bg-card/85 py-0 backdrop-blur-xl ' +

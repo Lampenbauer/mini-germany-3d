@@ -48,7 +48,7 @@ describe('the generated backdrop fleet', () => {
 
       it('keeps everything on deck inside the hull\u2019s plan', () => {
         // A deck or a fo'c'sle wider than the hull under it stands proud
-        // of the side like a flight deck – the tanker's did (2026-09-11);
+        // of the side like a flight deck – the tanker's did;
         // the strakes are a hand proud on purpose, nothing else is
         const hull = (mesh as { hull?: { length: number; width: number } }).hull!
         expect(hull).toBeDefined()
@@ -172,7 +172,7 @@ describe('the generated backdrop fleet', () => {
   })
 
   it('paints the pilot boat orange all over, and nothing else in it', () => {
-    // The German pilot boats' livery (the JASMUND of 2026-09-16): hull
+    // The German pilot boats' livery (after the JASMUND): hull
     // and house in the one orange, the fender black, the deck green –
     // and the patrol boat the rescue and police craft keep is not orange
     const pilot = VESSELS['vessel-pilot']()

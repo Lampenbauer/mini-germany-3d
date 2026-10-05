@@ -32,7 +32,7 @@ import {
  * a little less colour than the frame is rendered with. The tiles'
  * time-of-day shader tints and desaturates the photographed daylight into
  * a blue night, and on its own that night came out pale and flat – the
- * user found the look (2026-09-17) in the photo popover with the
+ * look to match was found in the photo popover with the
  * miniature effect on: its toy-plastic grade (saturation 1.35, contrast
  * 1.15, see TiltShiftEffect) and −30 saturation and −3 contrast on the
  * knobs over it. Saturation and contrast in this order commute into one

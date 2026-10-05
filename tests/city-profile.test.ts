@@ -143,8 +143,8 @@ describe('buildCityProfile', () => {
     expect(profile.modes.map((m) => m.mode)).toEqual(['tram', 'train', 'bus', 'ferry'])
     expect(profile.lines.total).toBeGreaterThan(30)
     // Whether every line runs is the feed's business: tram 2 had no departures
-    // while its tracks were rebuilt and came back in the nightly refresh of
-    // 2026-09-12 (36 of 36), which is why the idle case is pinned on the
+    // while its tracks were rebuilt and came back in a nightly refresh
+    // (36 of 36), which is why the idle case is pinned on the
     // synthetic schedule above and not here
     expect(profile.lines.running).toBeGreaterThan(30)
     expect(profile.lines.running).toBeLessThanOrEqual(profile.lines.total)

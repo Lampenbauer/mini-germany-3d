@@ -8,7 +8,7 @@
  * primitive per part (see toGlb): Cesium draws a primitive per draw call,
  * and a tram of six materials was six draw calls a wagon, a ship up to
  * thirteen – the fleets were three quarters of the draw calls of a busy
- * view (measured 2026-09-13, Hamburg at 1175 m: 1 190 vehicle and up to
+ * view (measured over Hamburg at 1175 m: 1 190 vehicle and up to
  * 2 000 ship commands against 280 for the tiles), and in Firefox every
  * call is serialised to the process that runs WebGL and waited for at the
  * end of the frame. The materials' colours become vertex colours, and

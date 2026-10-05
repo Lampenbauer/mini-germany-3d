@@ -50,7 +50,7 @@ export const VESSEL_DIMS = {
  * a quarter-ellipse in plan from full beam down to the stem, so the
  * entry is full and rounded rather than a wedge. The first bows were
  * straight lines to a stem a tenth of the beam wide, and a tanker and a
- * box ship came out as pointed as a rowing boat (2026-09-11).
+ * box ship came out as pointed as a rowing boat.
  */
 function hullStations({ length, bow, stern, taper, bowSheer = 1 }) {
   const taperStart = length / 2 - length * taper
@@ -165,7 +165,7 @@ export function hullHalfWidthAt(z, { length, width, bow = 0.22, stern = 0.55, ta
  * and the transom with the hull and sits on its top wherever that top
  * is. It used to be a plain box, which at the bow of a tanker stood
  * four metres proud of the hull on either side and read as a flight
- * deck (seen 2026-09-11). `inset` keeps it a little inside the gunwale.
+ * deck. `inset` keeps it a little inside the gunwale.
  */
 function deckPlate(
   mesh,
@@ -459,7 +459,7 @@ export function vesselDredger() {
   // dipping a little toward the
   // bow but never below the deck, and ending before the bow's taper –
   // the first version raked it six metres down and out through the
-  // hull's side where the hull had already narrowed (seen 2026-09-11).
+  // hull's side where the hull had already narrowed.
   const pipeX = width * 0.44
   const pipeR = 0.9
   const pipePoints = [[pipeX, deck + 1.9, -length * 0.16], [pipeX, deck + 1.6, length * 0.1], [pipeX * 0.8, deck + 1.1, length * 0.26]]
@@ -559,8 +559,8 @@ function facetedBlock(mesh, material, { z, l, w, y0, y1, lean = 0.12 }) {
  * long faceted superstructure with the bridge forward and the pyramid
  * of the phased-array mast over it, the long-range radar's flat
  * antenna on the aft block, the boxy exhaust stacks, and the flight
- * deck aft with its hangar. Modelled on the SACHSEN class (F221 HESSEN,
- * 2026-09-17) at a reference 140 × 17 m; the layer stretches it from a
+ * deck aft with its hangar. Modelled on the SACHSEN class (F221 HESSEN)
+ * at a reference 140 × 17 m; the layer stretches it from a
  * corvette to a supply ship, and the reference height is the mast's.
  */
 export function vesselFrigate() {
@@ -646,7 +646,7 @@ export function vesselFrigate() {
  * over a low deckhouse, a heavy mast with its yards and the big radome
  * on a tripod behind it, and the open working deck aft with the crane
  * that puts the drones over the side. Modelled on the FRANKENTHAL class
- * (M1098 SIEGBURG, 2026-09-17) at a reference 54 × 9 m.
+ * (M1098 SIEGBURG) at a reference 54 × 9 m.
  */
 export function vesselMinehunter() {
   const mesh = createMesh()
@@ -715,8 +715,8 @@ export function vesselMinehunter() {
  * against the glare, a raked mast with the radar on it, and the white
  * and red diagonal on the bow. The working decks fore and aft carry
  * the boarding rails, the crane and the liferafts; the sides beside
- * the house are bare. Modelled on the JASMUND of the Lotsenbetrieb MV
- * (2026-09-16); the reference 20 × 6 m is stretched to the reported
+ * the house are bare. Modelled on the JASMUND of the Lotsenbetrieb MV;
+ * the reference 20 × 6 m is stretched to the reported
  * boat, and the reference height is the mast's: 9.5 m over the water,
  * where the other small craft keep 7.5 – capped there the mast was a
  * stub over the wheelhouse. The rescue and police boats of 51 and 55 wear their own
@@ -849,7 +849,7 @@ export function vesselPilot() {
  * dark, deep-sheered hull built to lie alongside a moving ship – heavy
  * fendering, the wheelhouse well forward, a low working deck aft, and a
  * mast that carries more aerials than the boat seems able to. It was
- * the pilot boat until 2026-09-16, when the pilots got their orange.
+ * the pilot boat until the pilots got their orange.
  */
 export function vesselPatrol() {
   const mesh = createMesh()
@@ -860,7 +860,7 @@ export function vesselPatrol() {
   // The fendering a boat takes ship's-side contact on, all the way
   // round – its top a hand under the deck plate's: at the deck's own
   // height the two faces shared a plane and the whole deck flickered
-  // between grey and black (seen on the ROSENORT, 2026-09-16)
+  // between grey and black (seen on the ROSENORT)
   deckPlate(mesh, 'bellows', { length, width, yBase, depth: 2.0 - 0.65, bow: 0.14, stern: 0.78, inset: 1 + 0.06 / width, thickness: 0.7 })
   deckPlate(mesh, 'roof', { length, width, yBase, depth: 2.0, bow: 0.14, stern: 0.78, inset: 0.9, thickness: 0.1 })
   // Deckhouse forward of midship, wheelhouse glazed on top of it

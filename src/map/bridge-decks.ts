@@ -23,7 +23,7 @@
  * everywhere else, interpolated between the two at the portals.
  *
  * The measurement is tileset.getHeight – a CPU ray against the loaded
- * tiles, ~1 ms measured on Berlin's real tiles (2026-09-08) – and not
+ * tiles, ~1 ms measured on Berlin's real tiles – and not
  * scene.clampToHeight, which is an offscreen render pass with a
  * readPixels stall (the ships' cost). The ray only answers where a tile
  * is loaded and selected, which for a vertex on screen is soon, and it
@@ -160,7 +160,7 @@ interface DeckVertex {
    * that found no tile counts too: the answer changes only with the
    * tiles, and asking again every two seconds kept a view over the water
    * (every vertex of a bridge the mesh has no deck for) at the full ray
-   * budget for good (found 2026-09-13).
+   * budget for good.
    */
   generation: number
   /** The directions this point is a vertex of – rebuilt when it changes. */

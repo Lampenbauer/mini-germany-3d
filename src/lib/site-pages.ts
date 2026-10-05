@@ -13,7 +13,7 @@
  * (lib/legal.ts), in both languages, linked from every page's foot –
  * the law wants them reachable from wherever the site is read, and a
  * reader without the app reads it here. They ask the crawlers to keep
- * them out of the index (`noindex, follow`, the user's wish) and stay
+ * them out of the index (`noindex, follow`, by design) and stay
  * out of the sitemap for the same reason.
  *
  * Everything on the page is what the city card states and nothing more

@@ -6,7 +6,7 @@
  * answer is always too HIGH – the deck of a ship Google photographed at
  * the berth the live one is at now, a bridge deck she is passing under,
  * a crane, the quay's edge – and never too low, unless the tile is
- * coarse (found 2026-09-15: Hamburg's box ships on their photographed
+ * coarse (Hamburg's box ships on their photographed
  * twins, a tug riding the Köhlbrandbrücke). So a pick is judged against
  * whatever reference water level is at hand, and one that stands too far
  * over it is held back: the hull keeps the level it had, or the
@@ -26,7 +26,7 @@
  *   the tide the mesh was photographed at and its undulation, narrow
  *   enough to turn a box ship's deck, a cruise ship's or any bridge
  *   away, and `belowM` under it, because the mesh's water sags: the
- *   Köhlbrand's middle reads five metres under NHN 0 (probed 2026-09-15)
+ *   Köhlbrand's middle reads five metres under NHN 0 when probed
  *   and a hull held on the reference would hover over it;
  * - the lowest level accepted for a neighbour in the same cell of
  *   `cellM` (inland, where no level is known), `aboveM` over it at most,

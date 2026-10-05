@@ -28,9 +28,9 @@ const schedule = cologneScheduleJson as ScheduleJson
  * feed runs them from Friday to Sunday alone, the Friday's in the small
  * hours after it (25:38–26:50), so a service day from Monday to Thursday
  * has none of them. Which weekday the service day is moves with the
- * calendar: the busiest of the next three weeks was a Friday until
- * 2026-09-25 and a Monday the night after, when the refresh failed on the
- * five idle lines.
+ * calendar: the busiest of the next three weeks was a Friday, then a
+ * Monday the night after, when the refresh failed on the five idle
+ * lines.
  */
 const WEEKEND_NIGHT_LINES = ['123', '156', '165', '166', '167']
 

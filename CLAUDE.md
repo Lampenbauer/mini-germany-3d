@@ -23,7 +23,7 @@ run in reality must not run here, even if that leaves it idle — Munich's U8 is
 Saturday-only and correctly sits still on a weekday; do not "fix" it. Synthetic
 headways are acceptable only where no real data exists at all (a city without
 `schedule.json`). When data fidelity and a livelier map conflict, fidelity wins.
-This was stated explicitly after a synthetic fallback ran a line that was
+This was decided after a synthetic fallback ran a line that was
 suspended for track works. Known gaps that follow from the same principle and
 are *not* modelled: Rostock's construction reroutes (line 1) and split routes
 (line 5) during the Werftdreieck works still run on their normal alignment.
@@ -31,14 +31,14 @@ are *not* modelled: Rostock's construction reroutes (line 1) and split routes
 **The data pipeline is built for the CI runner, and may be run locally
 when a result is wanted now.** The nightly workflow
 ([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC every
-second night – on the odd days of the month since 2026-10-03, the
-user's call, to spare Actions minutes; cron cannot alternate strictly,
+second night – on the odd days of the month, a settled decision to
+spare Actions minutes; cron cannot alternate strictly,
 so a 31st and the 1st after it both run, and a run that started every
 night to stop on the even ones would bill a minute each time; GTFS on
 every run, the OSM network and its heights on the weekend's run – the
 Saturday or the Sunday, whichever is odd, a Saturday that ends a month
 leaving it to the Sunday the 1st – the lamps, airfield lights, buoys
-and lighthouses only on the month's first weekend run, since 2026-09-17,
+and lighthouses only on the month's first weekend run,
 to spare Overpass the lamps query, which is the one that hits its rate
 limits, for data that is mapped once and touched rarely; the two were
 Sunday and the first Sunday while every night ran; `refresh_osm` by hand
@@ -51,13 +51,13 @@ holds the feed's 2.2 GB `stop_times.txt` unpacked), and make
 regenerated files byte-stable across reruns so the "anything new?"
 short-circuit still works. A local run of a step
 (`npm run data:<step> -- --city <slug>`, with the `PREV_*` file from
-HEAD as ci.yml passes it) is fine when the user asks for it – the
-lighthouses on 2026-09-16, the whole monthly tier on 2026-09-17 – and
+HEAD as ci.yml passes it) is fine when a result is wanted now – it has
+been done for the lighthouses and for the whole monthly tier – and
 its files are committed like the nightly run's. Byte-stable means no
 date of any shape in the file: the schedule's chosen service day
 (`meta.serviceDate`, GTFS's dashless `20260910`) slipped past the
 meta-date test and set the full pipeline going nearly every night for
-four weeks – found 2026-09-11 with four cities whose nightly diff was
+four weeks – found with four cities whose nightly diff was
 that one line. A date belongs in the run's log and the data commit's
 message, where it now is. The feed download is cached under the feed's
 `Last-Modified` for the same reason: the feed changes weekly, the
@@ -67,14 +67,13 @@ refresh runs every second night. The GTFS step runs ONCE for every city
 rows (`prepareCity` → `scanStopTimes` → `finishCity` in
 [fetch-gtfs-schedule.mjs](scripts/fetch-gtfs-schedule.mjs)); a city
 at a time was thirteen scans of the same 38 million rows, 47 s each on
-the runner, ten minutes a night for a minute's work (found
-2026-09-19). A city that fails keeps its schedule with a warning
-annotation; the step fails only when every city did. **The nightly run
-skips the E2E suite** (since 2026-09-19, the user's call, to save
-Actions minutes – every second night was weighed and dropped for it
-then, and taken up as well on 2026-10-03):
-the suite is fifteen of the run's twenty minutes and tests the code,
-which the night does not change and whose push run already had it; of
+the runner, ten minutes a night for a minute's work. A city that fails
+keeps its schedule with a warning annotation; the step fails only when
+every city did. **The nightly run skips the E2E suite** (a settled
+decision, to save Actions minutes – every second night was weighed and
+dropped for it at first, and taken up as well later): the suite is
+fifteen of the run's twenty minutes and tests the code, which the night
+does not change and whose push run already had it; of
 the data it sees Rostock alone, offline, and what it reads there the
 unit tests pin for every city. Counted before the change: one E2E
 failure in 34 nightly runs, a runner timing flake. A manual
@@ -86,7 +85,7 @@ left red goes out with the next data commit – keep push runs green.
 one second.** The twelve `tests/<slug>.test.ts` read their line set
 from `linesOutInTheMorning` in [tests/cities.ts](tests/cities.ts) – the
 hour from 08:00 sampled every five minutes – and keep the 08:30
-snapshot for the fleet size alone. The nightly run of 2026-09-19 failed
+snapshot for the fleet size alone. A nightly run failed
 on Berlin's 100 at 08:30:00: the feed's busiest day of the three weeks
 ahead was the Friday of the Marathon weekend, on which the 100 is a
 3 km shuttle Zoo ↔ Nordische Botschaften (the trips carry `spans`), 11
@@ -96,13 +95,13 @@ city's test uses the helper; a line absent from it on the chosen day is
 a fact to look at in the feed's calendar, not a reason to widen the
 window. The count of lines with departures is the same kind of pin,
 and the chosen day's weekday is not fixed either: Cologne's was a
-Friday until 2026-09-25 and a Monday the night after, on which KVB's
-five weekend-night rings have no trip, and the nightly run of
-2026-09-26 failed on 74 of 80 lines against a tolerance of three. A
+Friday one night and a Monday the night after, on which KVB's
+five weekend-night rings have no trip, and that nightly run
+failed on 74 of 80 lines against a tolerance of three. A
 line that runs on some days of the week alone is named in its city's
 test and left out of the count (`WEEKEND_NIGHT_LINES` in
 `tests/cologne.test.ts`, `PART_WEEK_FERRIES` in `tests/berlin.test.ts`),
-not absorbed by a wider tolerance. Berlin's were found the same day by
+not absorbed by a wider tolerance. Berlin's were found by
 running the GTFS step in a scratch copy of the repo (`git archive
 HEAD`) with its day loop held to one date and the unit suite over the
 result: a Monday broke Berlin's count as well, a Wednesday nothing.
@@ -120,7 +119,7 @@ formatted by hand: single quotes, no semicolons, trailing commas, lines
 around 100 columns where the file keeps to it. `npx prettier --write`
 therefore runs with Prettier's defaults – double quotes, semicolons,
 80 columns – and rewrites every line of every file it touches. It did
-on 2026-09-15: four component files were restored from HEAD with
+once: four component files were restored from HEAD with
 `git show HEAD:<file> > <file>` and the edits made again by hand. Do
 not run it; match the surrounding code instead.
 
@@ -131,10 +130,10 @@ that render or touch `window`/`document` open with
 file on the CI runner – 62 s of a 217 s run when all 85 files got one. A new
 component test without the line fails loudly (`document is not defined`), so
 the miss is cheap; the trap is the other way round: do not put jsdom back as
-the default. The same block pins `maxWorkers: 2` under `CI`: the repo is
-private, GitHub's standard runner for private repos has 2 vCPUs, and Vitest 4
-defaults to `cpus − 1` workers, which ran the whole suite on one core, file
-after file. Measured 2026-09-09: 217 s before, ~90 s expected after, locally
+the default. The same block pins `maxWorkers: 2` under `CI`: GitHub's
+standard runner for a private repository has 2 vCPUs (a public one's 4), and
+Vitest 4 defaults to `cpus − 1` workers, which ran the whole suite on one
+core, file after file. Measured: 217 s before, ~90 s expected after, locally
 36 s → 28 s with two workers. Per-file cost is the lever from here – a new
 test file costs its imports and environment in full, so a check that belongs
 to an existing file goes there rather than into a new one, and an assertion
@@ -144,11 +143,12 @@ points, 15 s) is counted instead.
 **Playwright specs are written and run as cheaply as they can be.** The
 e2e suite is the long pole of CI: one worker, software-rendered WebGL
 (SwiftShader) on GitHub's 2-vCPU runner, about three times slower than
-this Mac – 53 tests take 5 minutes here and ~15 of the ~18-minute run
-there. Every boot of the page costs 10–20 s on the runner before a test
-can start, and every second of real time a test waits for is a second
-of CI. So: one page per spec, booted in `beforeAll` and reused across
-its tests where a test does not need a fresh boot; boot with
+the development machine – 53 tests take 5 minutes on that machine and
+~15 of the ~18-minute run on the runner. Every boot of the page costs
+10–20 s on the runner before a test can start, and every second of
+real time a test waits for is a second of CI. So: one page per spec,
+booted in `beforeAll` and reused across its tests where a test does not
+need a fresh boot; boot with
 `routes=0&stops=0&labels=0` unless the test is about them, and paused
 where nothing has to move; put the map into the state under test
 through `__mg3d` (`setTime`, `setAisVessels`, `setAircraft`, injected
@@ -163,7 +163,7 @@ boot. Where the behaviour is pure, a unit test is the right place and
 costs milliseconds. Measure before restructuring, though: a boot is not
 always the dear part – `linear-view.spec.ts` boots seven times because
 a second pass through the morph on one scene cost 56 s more on CI than
-the boot it replaced. Measured 2026-09-11 (this Mac, headless
+the boot it replaced. Measured (the development machine, headless
 SwiftShader): 53 tests in 4.3 minutes, the two newest specs the
 outliers at 44 s and 31 s until their fixed waits and second boots went
 – a negative is proved by a simulated second going by (`secondsOfDay`,
@@ -179,17 +179,17 @@ moved, and follow it into:
   the "What you see" section, the cities table, the URL-parameter table, the
   `city.json` field list, the live-data table, the architecture tree, the
   attribution list. A new URL parameter, script, `city.json` field or terrain
-  source that is not in there is only half-added. It was rewritten short on
-  2026-10-05 (the user's call: 1 235 lines had grown past what a reader
+  source that is not in there is only half-added. It was rewritten short
+  (deliberately: 1 235 lines had grown past what a reader
   wants) – the detail it carried lives here now, so a decision belongs in
   this file and the README gets the one sentence a visitor needs. Its nine
   screenshots are `docs/screenshots/*.jpg`, taken by
   `scripts/build-readme-screenshots.mjs` from the live site in a headed
   Chromium on the real GPU (1440×900 at DPR 2, a second of playback and then
-  the pause – the user's call, as is the interface in every picture: the
+  the pause – by design, as is the interface in every picture: the
   panel and the cards are part of what is shown – the tileset settled;
-  2400 px JPEGs by hand with `sips`) – the views are the user's links of
-  that day, kept in the script, and the aircraft one has to be re-aimed at
+  2400 px JPEGs by hand with `sips`) – the views are hand-picked links,
+  kept in the script, and the aircraft one has to be re-aimed at
   an aircraft that is over Frankfurt at the time (`name=url`).
 - **The app's own prose** — [src/lib/i18n.ts](src/lib/i18n.ts) carries strings
   that repeat facts about the project, and it carries them **twice**, in the
@@ -248,7 +248,7 @@ with the `Co-Authored-By` trailer. See `git log` for the register.
 
 **Styling lives in the markup.** Tailwind classes on the element, never a
 per-component stylesheet. The About and Credits dialogs each had one and both
-were folded back into their components on 2026-09-08; nothing should grow a
+were folded back into their components; nothing should grow a
 `*.css` file next to a `*.tsx` again. What is left in
 [src/index.css](src/index.css) is the theme tokens, the preflight corrections,
 and the handful of rules that reach markup this app does not own — Cesium's
@@ -329,7 +329,7 @@ exception to the `--accent` rule besides the About hero's close button,
 for the same reason: a black wash sinks into the green.
 
 **A card stands at the weather button's height, and the button steps
-left beside it (since 2026-09-14).** `CARD_SLOT` is `top-4` like the
+left beside it.** `CARD_SLOT` is `top-4` like the
 button's wrapper; while `cardOpen` the wrapper takes `WEATHER_BESIDE_CARD`
 (`sm:right-[26.75rem]`: the card's 400 px, `w-100` in `CARD_SHELL`, plus
 its 1rem from the edge plus a 0.75rem gap – a card width that changes
@@ -341,13 +341,13 @@ at the upper left. `e2e/app.spec.ts` measures both places.
 **A phone gets one sheet, at the foot of the screen.** Under Tailwind's
 `sm` (640 px) the panel's wrapper and the card slots (`CARD_SLOT` in
 [src/App.tsx](src/App.tsx)) share one place, `inset-x-3 bottom-12`
-(`bottom-9` until 2026-09-15, when the user found the sheet's foot too
-close to the credit line: 13 px over the credit bar, 24 now – move the
-two together, they are one sheet), at `z-20` over the map's controls,
+(`bottom-9` once, which left the sheet's foot too close to the credit
+line: 13 px over the credit bar, 24 now – move the two together, they
+are one sheet), at `z-20` over the map's controls,
 which are `z-10` like every other wrapper (where a card reaches into
-the rail, the card lies on top – the user's call of 2026-09-15, after a
-short phone's rail stood over the sheet's head). The credit line under
-the sheet breaks between credits since the same day: Cesium writes a
+the rail, the card lies on top – a settled decision, after a short
+phone's rail stood over the sheet's head). The credit line under
+the sheet breaks between credits: Cesium writes a
 credit, its "•" and the next credit with no whitespace between them,
 one unbreakable run, and on a phone the line broke inside Windy's
 credit 60 px short of the edge – `.cesium-credit-delimiter` is an
@@ -355,7 +355,7 @@ inline-block in [index.css](src/index.css), a soft wrap opportunity on
 either side; the phone spec injects three credits and wants every line
 filled. The same rule pads the bar so the line starts and ends 7 px
 from the sides and stands 4 px over the bottom edge (Cesium's own 5, 5
-and 3; the user's numbers) – padding, because the Viewer writes `left`,
+and 3; chosen by eye) – padding, because the Viewer writes `left`,
 `right` and `bottom` as inline styles on every resize and an offset
 would need an `!important`. And the
 panel leaves while a card is up (`cardOpen && 'max-sm:hidden'`): a phone
@@ -367,13 +367,13 @@ become a desktop mid-session) and unfolds to `55dvh`; a card is at most
 [card-parts.tsx](src/components/card-parts.tsx)) – and the screen less
 its margin on a desktop – with its head standing and its body scrolling
 under it (`CardBody`, the app's ScrollArea), never the card as a whole:
-it did until 2026-09-15, and a long stop list carried the head with the
-close button and the follow off the top of the screen. Since 2026-09-15 every
+it did once, and a long stop list carried the head with the
+close button and the follow off the top of the screen. Every
 card folds to its head there, with the panel's fold button
 (`ArrowsToLineIcon`/`ArrowsFromLineIcon`) beside the close button, and
 its one action – the follow, the flight to the stop or the line –
 stands in the head as an icon button before the fold button, so that
-it is there with the card folded (the user's two asks of that day; the
+it is there with the card folded (both by design; the
 city card has no action). Both are the parts' business, not the
 cards': `CardShell` (the card in the shell's clothes) holds the fold
 and the `action` a card declares on it (`CardAction`: label, click,
@@ -398,12 +398,12 @@ chips) stay with the head: a follow on a phone ran behind a sheet that
 covered a good half of the screen, and folded the head still names
 what was picked. A card opens unfolded (it was asked for) and keeps its
 fold from one vehicle to the next while it stays up. The vehicle card's
-stop list is its own component (`TripStops`) since, so that it centres
+stop list is its own component (`TripStops`), so that it centres
 its marker when the body comes back. Each card's test pins the fold
 and the action's two places, `e2e/mobile-layout.spec.ts` measures both
 and `e2e/app.spec.ts` wants the desktop's labelled button and no fold.
-Two traps found on
-2026-09-10 while building it: the head must not shrink (`shrink-0` on
+Two traps found
+while building it: the head must not shrink (`shrink-0` on
 `CardHead`'s header; the body takes the squeeze with `min-h-0`) – it
 clips its illustration with `overflow-hidden`, which lets a flex column
 shrink it to its eyebrow, and the title went first; and nothing inside a
@@ -414,8 +414,8 @@ to the top centre, the rail to the upper right as a column of round
 buttons with `gap-2` – the globe among them at button size – which ends
 above where the sheet opens; the three share one top edge, the phone's
 12 px inset (`top-3`; the weather kept the desktop's `top-4` and stood
-4 px under the rail's first button until 2026-09-15 – edges are what
-the user aligns by, not centres: the readings' box is 10 px taller than
+4 px under the rail's first button once – edges are what
+the eye aligns by, not centres: the readings' box is 10 px taller than
 the round buttons and starts on the same line). The popovers keep to
 that edge too: a popover's collision padding is the inset of the
 viewport it opens on (`PHONE_POPOVER_EDGE_PADDING`, 12, against
@@ -447,7 +447,7 @@ neither be scrubbed nor stopped – and keeps `flyingUntil` so the loop
 renders at full rate. It gives way to anything else that wants the
 camera: a drag (`lastInteractionAt` past the start), a follow, another
 flight, the next city; `onEnd(false)` says so, `onEnd(true)` marks the
-end reached. Two things learnt building it (2026-09-10): the hash writer
+end reached. Two things learnt building it: the hash writer
 waits for Cesium's `moveEnd`, which needs frames after the motion, and
 after a flight set per frame the loop draws none until its heartbeat –
 so the app writes the pose itself when a flight ends or a keyframe is
@@ -462,7 +462,7 @@ clearing the bar's reset button does, seconds and pace kept): they are
 poses over the city that is leaving. A link's path is safe, the cleanup
 runs only when a session ends; `tests/app.test.tsx` pins both.
 
-The controls are a bar of their own since 2026-09-11
+The controls are a bar of their own
 ([src/components/CameraPathBar.tsx](src/components/CameraPathBar.tsx)):
 a compact editor – two saved-view cards with labelled save/replace and
 preview actions, duration as a number field (1–600 seconds, committed
@@ -499,9 +499,9 @@ timeline beside it stays put. `tests/photo-mode-popover.test.tsx` holds
 the bar's tests beside the popover's – one jsdom file for one feature.
 
 **The night is graded on the whole frame, and the miniature's colour
-steps aside for it (since 2026-09-17).** The tiles' time-of-day shader
+steps aside for it.** The tiles' time-of-day shader
 tints and desaturates the photographed daylight into a blue night, and on
-its own that night was pale and flat – the user found the look wanted in
+its own that night was pale and flat – the look wanted was found in
 the photo popover with the miniature effect on: its toy-plastic grade
 (saturation 1.35, contrast 1.15) and −30 saturation and −3 contrast on
 the knobs over it. So `NIGHT_GRADE` in
@@ -525,7 +525,7 @@ ramps, `e2e/app.spec.ts` sees the pass compiled and on at 23:00 and off
 at noon.
 
 **The three readings at the foot of the map are a radio group, not
-tabs.** They were Radix `Tabs` until 2026-09-11, for the look and the
+tabs.** They were Radix `Tabs` once, for the look and the
 keyboard, but a tab controls a panel and these swap what the whole map
 shows – every trigger carried an `aria-controls` pointing at a panel
 that never existed, which an accessibility audit flagged. They are a
@@ -541,7 +541,7 @@ there is always one. Tests and specs address them as
 **A clock moved past the present says so once, in a toast.** The ships
 and the aircraft are live and cannot be shown in the future, so a clock
 set ahead leaves them in real time under a timetable that has run on
-(the panel's help says it too). Since 2026-09-11 the first crossing in a
+(the panel's help says it too). The first crossing in a
 session puts a Sonner info toast at the top centre
 ([src/components/ui/sonner.tsx](src/components/ui/sonner.tsx), shadcn's
 wrapper minus next-themes – the app has one theme), and the rule is pure
@@ -559,8 +559,8 @@ rest. `tests/clock.test.ts` pins the rule, `tests/app.test.tsx` the toast
 `motionThresholdCssPx`: without it the tick interval was NaN and the
 simulation had never ticked in jsdom.
 
-**The time-lapse runs both ways (since 2026-09-22).** The user wanted to
-drag the slider left to rewind. The clock needed nothing for it –
+**The time-lapse runs both ways.** The slider is meant to be dragged
+left to rewind. The clock needed nothing for it –
 `SimClock` is an anchor plus the real time elapsed times the factor, so
 `setSpeed` merely keeps the sign now (magnitude 0.1 at least) – and
 neither did most of what the map shows, each a function of the moment:
@@ -577,15 +577,15 @@ was tried and dropped, the thumb or the fill always covered it), the
 value written `×30` either way (`formatSpeed`) – the row's label and
 icon switch to "Rewind"/"Rücklauf" with lucide's `Rewind` while the
 clock runs backward, and the slider's `aria-valuetext` says "×30
-backward" (`sim.speedBackward`); it read `×−30` for a day and the user
-found the two signs before the number ugly, so the sign is not the
+backward" (`sim.speedBackward`); it read `×−30` for a day and the two
+signs before the number read ugly, so the sign is not the
 number's to show; a factor
 off the steps (a link's `?speed=50`) runs as asked and rests the thumb
 on the nearest detent until the next drag. The first version was a
 linear scale from ×−120 to ×120 and slid without a stop: ×1 to ×10 lay
-on eleven pixels of it, and the user asked for detents the same day –
+on eleven pixels of it, and detents replaced it at once –
 do not give the slider a free scale back. `?speed=` takes a negative
-factor (`clampUrlSpeed`), and "Now" puts ×1 back as before. What did assume a forward clock, each changed the same day: the
+factor (`clampUrlSpeed`), and "Now" puts ×1 back as before. What did assume a forward clock, each changed with it: the
 archive client's prefetch lead reaches behind the moment instead of
 ahead while the pace read off consecutive calls is negative
 (`HourArchiveClient.follow`), the clouds' drift is carried back with the
@@ -608,8 +608,8 @@ named above.
 the simulation – the clock, the time-lapse, the lines. What is *drawn* belongs
 to the rail at the lower right: the layers popover (routes, stops, names,
 webcams), the camera's buttons, the photo popover, and the ground itself. The Layers block moved out of
-the panel on 2026-09-08 for exactly that reason; do not move map switches back
-into it. Since 2026-09-14 the rail is a **dial** (the user's design from
+the panel for exactly that reason; do not move map switches back
+into it. The rail is a **dial** (a design carried over from
 an earlier project): a round globe in the middle, 84 px (`size-21`;
 100 and 92 were tried and found large – the buttons stand on the ring
 a 92 px globe would fill, `ORBIT_RING_PX`, and only the globe shrank)
@@ -633,10 +633,10 @@ the privacy notice is untouched, and their credit stands in the credit
 list (`CesiumMap.addGlobeCredit`), as Mapbox's terms want when the
 picture carries none. A new city needs a run of the script;
 `tests/globe-illustration.test.tsx` fails until it has one. No gloss
-and no border on the globe (the user's call): the picture with its rim
+and no border on the globe (a settled decision): the picture with its rim
 of shade is the button. A vector globe from Natural Earth came first
 and showed the whole of Europe, then Germany, then Germany as Mapbox's
-still; the user wanted the city (2026-09-14). Every other button is round
+still; the city is the picture wanted. Every other button is round
 and stands on an arc around it, 35° apart from the About button at
 the lower left over the layers, the photo mode, the compass and 2D/3D
 at the top to the camera reset and full screen on the right
@@ -650,13 +650,13 @@ upper right, the globe among them at button size; the diagram keeps a
 short column of full screen and About, since nothing else on the dial
 is on screen there. A button the browser has not got (full screen on
 iOS) leaves its slot empty rather than moving the rest. No zoom and no
-measure button, by the user's call. The rail stands at half its opacity
-while the pointer is elsewhere (`railDimmed`, the same day, the camera
+measure button, by design. The rail stands at half its opacity
+while the pointer is elsewhere (`railDimmed`, the camera
 path bar's manner) and comes back under it or with the focus inside;
 the step down waits a second, because the wrapper lets the pointer
 through to the map between the buttons and a pointer crossing the dial
 would otherwise flicker at every gap – never where `(hover: none)` holds,
-where a finger never hovers and the rail would stay dim for good. Since 2026-09-12 the rail fades out once the pointer has rested
+where a finger never hovers and the rail would stay dim for good. The rail fades out once the pointer has rested
 `RAIL_IDLE_MS` (10 s) – a slow fade, a quick return on the first movement,
 press, wheel or key ([src/lib/pointer-idle.ts](src/lib/pointer-idle.ts),
 `watchPointerIdle` on the window, `railIdle` in App.tsx) – and keeps
@@ -670,8 +670,8 @@ has moved, so they are back before it arrives.
 wears its line's colour with white text ([VehicleLayer](src/map/VehicleLayer.ts),
 `lineBadge`). A stop wears no plate at all: light slate text in a thin dark
 halo, its lines a shade dimmer ([StopsLayer](src/map/StopsLayer.ts),
-`stopNameImage`), over a disc that lies *flat on the ground* – since
-2026-09-11 a hand-built instanced DrawCommand
+`stopNameImage`), over a disc that lies *flat on the ground* –
+a hand-built instanced DrawCommand
 ([StopDiscs](src/map/StopDiscs.ts)), because a billboard cannot lie flat
 and nothing else in Cesium draws a flat mark that moves with the height
 refinement and holds its screen size. It keeps the billboard's two habits:
@@ -681,8 +681,8 @@ billboard shader uses, log-depth varying included) and pickable by a
 GLSL compiles offline, so every e2e run proves it; the stop-card spec's
 real click goes through its pick colours.
 A ship wears a dark slate plate with white text
-([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). An aircraft, since
-2026-09-11, wears its callsign on a blue plate (`#1e40af`, white text –
+([VesselLayer](src/map/VesselLayer.ts), `NAME_PLATE`). An aircraft
+wears its callsign on a blue plate (`#1e40af`, white text –
 [AircraftLayer](src/map/AircraftLayer.ts), `NAME_PLATE` there): the sky's
 colour, and one no line badge wears as a plain dark ground. Bare text on
 land, a dark plate on water, blue in the sky, traffic in colour: that is how
@@ -700,16 +700,16 @@ not paint the ship's card green to match, and do not give a stop a line's
 colour – a stop is the network's furniture, not a line's.
 
 The stop names are deliberately the *quietest* of the three. They had a light
-plate until 2026-09-08 — white, then a grey pill — and whatever its colour it
+plate once — white, then a grey pill — and whatever its colour it
 was the brightest thing over Google's tiles and outshouted the line badges. A
 vehicle is the news, a stop is the furniture; if the stop names ever draw the
 eye before the badges do, that is the bug. Do not give them a plate back.
 
 **A picked thing lights up the same way, whatever it is.** The selected
 vehicle's body is washed toward white and rimmed in a 2.5 px silhouette
-(`applyVehicleAppearance`), and since 2026-09-10 the selected ship's hull is
+(`applyVehicleAppearance`), and the selected ship's hull is
 too (`VesselLayer.setSelected`, `applyVesselAppearance` – the constants there
-are the vehicles' own, borrowed by name), and since 2026-09-11 the selected
+are the vehicles' own, borrowed by name), and the selected
 aircraft's body (`AircraftLayer.setSelected`). A ship or an aircraft carries
 no line colour to brighten, so the blend goes to white itself; everything
 else is shared. If a fourth kind of thing ever becomes selectable, it takes
@@ -728,7 +728,7 @@ is. None of the three needs a timer — the badges and the ship names expire in
 their layer's next sync, the stops in the next frame's `update()`, and the
 pulse keeps frames coming to its very end. A new layer that puts something over
 the map and does not join is the one thing left standing on the route the pulse
-is pointing at, which is how the stops and the ships were found on 2026-09-09,
+is pointing at, which is how the stops and the ships were found,
 long after the pulse itself was built.
 
 **The cards state facts the sources state, not simulation results.**
@@ -775,8 +775,8 @@ still reads. Keep all three plates opaque either way.
 
 **The city is the path, the rest is the hash.** `/berlin/` is Berlin,
 `/en/berlin/` Berlin in English, `/` and `/en/` the front door
-([src/lib/site-path.ts](src/lib/site-path.ts)). Until 2026-09-10 the city
-was `#city=berlin` – one URL to Google for every city, and a shared link's
+([src/lib/site-path.ts](src/lib/site-path.ts)). The city was once
+`#city=berlin` – one URL to Google for every city, and a shared link's
 preview was the site's. That form is gone without a trace: there were no
 links out there to keep alive, so nothing reads it, `HashUiState` has no
 city field, and it must not get one back. The path carries the language the interface
@@ -790,13 +790,17 @@ must never be one of `RESERVED_PATH_SEGMENTS` (`en`, `api`, `assets`,
 `cesium`, `models`, `og`, and the legal pages' four words below) –
 `tests/cities.test.ts` pins it, and the parser names no city for them.
 
-**The legal notice and the privacy notice are one text in two places
-(since 2026-09-13).** [src/lib/legal.ts](src/lib/legal.ts) holds both,
+**The legal notice and the privacy notice are one text in two
+places.** [src/lib/legal.ts](src/lib/legal.ts) holds both,
 in both languages, with the provider's details (`OPERATOR`) at its top –
-the one place a name or address is written. The app shows them in
+read from the build's environment (`VITE_OPERATOR_NAME`, `_STREET`,
+`_PLACE`, `_EMAIL`: `.env` locally, the repository's `OPERATOR_*` secrets
+in ci.yml), never written in the source, since the repository is public
+and a legal notice names a person and an address; without them the
+notices show placeholders that say what is missing. The app shows them in
 [LegalDialog](src/components/LegalDialog.tsx), a sibling of the Credits
-dialog and deliberately *not* a fourth tab of the About dialog (the user's
-call: the tabs are about the map, these are about the site); the links
+dialog and deliberately *not* a fourth tab of the About dialog (a settled
+decision: the tabs are about the map, these are about the site); the links
 stand at the foot of the welcome screen, right of the checkbox on its
 line, and at the foot of the About dialog under every tab. The same text
 is a page under the map – `/impressum/`, `/datenschutz/`, `/en/imprint/`,
@@ -804,7 +808,7 @@ is a page under the map – `/impressum/`, `/datenschutz/`, `/en/imprint/`,
 reads in either place, the prefix says the language) – linked from every
 page's foot, because a crawler and a WebGL-less reader never see the
 dialog; the pages carry `noindex, follow` and stay out of the sitemap
-(the user's wish; `StaticPage.noindex`). The app's links are real `href`s
+(by design; `StaticPage.noindex`). The app's links are real `href`s
 that a plain click turns into the dialog (`LegalLinks`), and an address
 that names a page opens the dialog over the door – from an effect, a
 commit *after* the welcome screen: two Radix modals mounted in one commit
@@ -816,19 +820,19 @@ gtfs.de), about localStorage and about there being no cookies has to
 stay true: a new third-party request from the browser, a cookie or an
 analytics script is a change to `legal.ts` as much as to the code, and
 to the German text first – it is the binding one, the English says so.
-The email in `OPERATOR` is written obfuscated on purpose (the user's
-call). The hosting section mirrors the KAS setting "Logs & Statistiken"
-as it stood on 2026-09-14 – IP addresses shortened by two octets
-(11.22.0.0), log files deleted after 90 days, a Webalizer-style access
+The email in `OPERATOR` is written obfuscated on purpose, in the variable
+itself – it is shown as written. The hosting
+section mirrors the hosting's log setting – IP addresses shortened by
+two octets (11.22.0.0), log files deleted after 90 days, a Webalizer-style access
 statistic generated from them – so a change to that setting is a change
 to the text, and the other way round.
 
-**The clock rides in the hash as it was set, never as it runs (since
-2026-09-13).** `date=YYYY-MM-DD` is the day picked in the panel's
+**The clock rides in the hash as it was set, never as it runs.**
+`date=YYYY-MM-DD` is the day picked in the panel's
 calendar, `time=HH:MM` the time typed into its field, each written the
 moment it is entered and left alone while the simulation runs on from
-it – the user asked for exactly this: a link that ticked would never be
-the same twice, and the moment they set is the one they mean. The
+it – a settled decision: a link that ticked would never be the same
+twice, and the moment set is the one meant. The
 entry lives in `App.tsx` (`clockEntry`, `ClockEntry` =
 `Pick<HashUiState, 'date' | 'time'>`; a ref for the writer, state for
 the panel) and the panel only shows it – `ControlPanel` lost its own
@@ -846,22 +850,22 @@ switches read an absent key. `tests/app.test.tsx` pins all of it,
 `tests/camera-hash.test.ts` the spelling (a bare `8:30` reads back as
 `08:30`, seconds only when given, Feb 30 is no day).
 
-**The traffic categories and the photo knobs ride in the hash too
-(since 2026-09-13), and single lines do not.** `hide=tram,bus,ais,aircraft`
+**The traffic categories and the photo knobs ride in the hash too,
+and single lines do not.** `hide=tram,bus,ais,aircraft`
 is one key for what the panel's traffic list has switched off as a
 whole – a mode is off when none of its lines shows, whether the group
 switch or the lines one by one did it (`noteHiddenModes` in `App.tsx`
 derives it after every toggle), the two fleets from their switches – in
 `TRAFFIC_CATEGORIES` order, so the hash is stable. A single line
-switched off is deliberately not in the URL (the user's call). The
+switched off is deliberately not in the URL (a settled decision). The
 modes live in `hiddenModesRef`, apart from the line set, because they
 outlive the city like the layer switches: a city arriving puts its
 lines of those modes up hidden, and a mode the city does not have keeps
 its place for the next one. The photo mode travels whole:
 `HashUiState.photo` is a `PhotoSettings`, `tiltshift=1/0` stays the
 miniature switch's key, and every other knob off its default is written
-under a short key with the value in full (the user asked for short
-names) – the table is `formatPhotoHash`/`parsePhotoHash` in
+under a short key with the value in full (short names by design) –
+the table is `formatPhotoHash`/`parsePhotoHash` in
 [photo-settings.ts](src/lib/photo-settings.ts), beside `KNOB_RANGES`,
 which the popover's sliders and the parser's clamp both read, so a link
 can put a knob anywhere the slider goes and nowhere else. The lens is
@@ -874,8 +878,8 @@ dolly walk. `__mg3d.photoSettings()` reads them back; `e2e/camera-hash.spec.ts`
 opens a link with `hide=bus&con=1.2` and takes both away with an edited
 hash.
 
-**The flat map swaps the ground, and everything on it lies at 0 m
-(since 2026-09-14).** The globe in the middle of the rail's dial
+**The flat map swaps the ground, and everything on it lies at
+0 m.** The globe in the middle of the rail's dial
 (`basemap=flat` in the hash, `CesiumMap.setBasemap`) takes Google's
 tileset off – destroyed, not hidden: a hidden tileset is still traversed,
 and the tree is what the city switch rebuilds to let go of – and shows
@@ -885,8 +889,8 @@ layers, one style by day and one at night, the night one laid over the
 day's at `nightFactor` as its alpha and a style that would be invisible
 switched off rather than faded (Cesium requests tiles for every shown
 layer whatever its alpha, and Mapbox counts each against the account's
-200 000 a month). Decisions taken with the user: **no terrain** – the
-user wanted the map flat, so every height the city carries is 0 m there,
+200 000 a month). Settled decisions: **no terrain** – the map is meant
+to be flat, so every height the city carries is 0 m there,
 the route profile, the stops, the lamps (they follow `groundHeightForNhn`
 on their own through `builtAnchor`), the water the ships ride
 (`waterSurfaceHeight` is 0 on the flat map, but keeps the tiles' number
@@ -899,13 +903,12 @@ offline path with pictures: `flatGround` (offline or flat) is what
 RoutesLayer and VehicleLayer read instead of `offline` for the heights,
 `defaultGroundHeight` is a getter over `groundReference` since, and every
 clamping layer has a `resetClamps()`/`resetHeights()` for the switch. The
-styles must be **classic** Mapbox styles (built from layers): the two the
-user made in Studio (`lampenbauer/cmu0uxyzx00fg01qy6vovc1kz` day,
-`…/cmu0vcbgm00f801qtaj6c4s47` night) are built on Mapbox Standard – an
-`imports` block, no layers of their own – which the Static Tiles API
-answers with empty 235-byte PNGs, and the map was a bare globe until
-`mapbox/light-v11` and `mapbox/dark-v11` went into `config.flatMap`
-instead; rebuilt on a classic template, the user's ids go back there.
+styles must be **classic** Mapbox styles (built from layers): the site's
+own two Studio styles (a day and a night one) are built on Mapbox
+Standard – an `imports` block, no layers of their own – which the Static
+Tiles API answers with empty 235-byte PNGs, and the map was a bare globe
+until `mapbox/light-v11` and `mapbox/dark-v11` went into `config.flatMap`
+instead; rebuilt on a classic template, own style ids go back there.
 The token rides like the ion token: `VITE_MAPBOX_TOKEN` from `.env`, the
 domain-locked one in ci.yml; none means no request and a bare globe.
 The tile shader's night, rain wash and cloud shadow do not reach the
@@ -941,7 +944,7 @@ map, or the page would end at the fold. It is hidden before the body is
 parsed: an inline script in index.html's head puts `has-app` on the root
 element and the page's stylesheet hides it under that class – `main.tsx`
 alone was too late, the page flashed for the moment the bundle took to
-load (seen 2026-09-10). The same script takes the class off on `load`
+load. The same script takes the class off on `load`
 when `main.tsx` has not set `data-app-started`, so a bundle that fails to
 load still leaves the page. `main.tsx` then hides it for good
 (`showStaticPage(false)`) before the first render and
@@ -951,7 +954,7 @@ nothing before. Googlebot renders without WebGL, so that fallback is
 exactly what Google reads. `e2e/static-page.spec.ts` proves both in a
 Chromium started with `--disable-3d-apis`: the page a reader without
 scripts gets, and the notice over it when the viewer cannot be built.
-Measured 2026-09-10: every city loaded and profiled in under a second,
+Measured: every city loaded and profiled in under a second,
 ~200 MB of heap, in `closeBundle`.
 
 **The link previews are committed, not built.** `scripts/build-og-images.mjs`
@@ -973,16 +976,16 @@ Rostock is the default. The README's [Data](README.md#data) section documents
 is what the data itself taught.
 
 **The box is the limits plus 20 km on every side, and the camera ceiling
-is 30 km (since 2026-09-13; 15 km and 25 km before).** `add-city` pads
+is 30 km (15 km and 25 km before).** `add-city` pads
 `DEFAULT_PADDING_METERS`, every city carries its own `paddingMeters`, and
 the ceiling is `config.cameraLimits.maxHeightMeters`. The cities in the
-build were re-padded the same day by rewriting `paddingMeters` and the
+build were re-padded by rewriting `paddingMeters` and the
 recomputed `boundingBox` in each `city.json` (`tests/cities.test.ts`
 names the numbers when a box is off) – and nothing else, because the
 box is what the lamps, the airfield lights, a `clip: "box"` network and
 the AIS subscription are fetched for, and those files are the nightly
 pipeline's: the band between 15 and 20 km stays empty until the OSM run
-after the change fills it (accepted by the user). Widen a box only with
+after the change fills it (accepted). Widen a box only with
 that in mind, and never as a side effect. The camera leash, the AIS box
 and the cloud slab follow the JSON at once; a spec that needs an edge
 reads it from the definition (`cityBySlug(…).boundingBox`) rather than
@@ -1061,7 +1064,7 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 |---|---|
 | **Rostock** | The default city and the byte-stability canary — its output stayed identical through every pipeline change above |
 | **Kiel** | `clip: "box"` so Laboe/Strande stay on the map; ~1800 community-mapped lamps (2/km vs Rostock's 16/km) — lamps are always on, there is no per-city switch |
-| **Hamburg** | Rebuilt from scratch 2026-09-05 via `add-city 62782` at the user's explicit request — **do not restore files from git history before 3e57f1c**. Terrain patch above. Open: the "St. Pauli" AIS twin (the only AIS "ST. PAULI" is a 19×6 m launch, not the 30 m ferry) |
+| **Hamburg** | Rebuilt from scratch via `add-city 62782` — **do not restore files from git history before 3e57f1c**. Terrain patch above. Open: the "St. Pauli" AIS twin (the only AIS "ST. PAULI" is a 19×6 m launch, not the 30 m ferry) |
 | **Berlin** | Buses limited to `^(M[0-9]+\|100\|200\|300)$` for load — 685 vehicles at 08:30, twice Rostock; measure the 08:30 snapshot in [tests/berlin.test.ts](tests/berlin.test.ts) before adding more. `waterLevelNhn: null` because the Berlin DGM carries the lakes. The ferries F21 and F23 sail Tuesday to Sunday, the F24 at weekends – idle, correctly, on a Monday's service day, the F24 on every weekday's |
 | **Cologne** | KVB 181 excluded — its OSM relation is a four-stop stub (53 ways with gaps) that placed 18 of 216 GTFS trips; re-admit once the relation is whole. Line 197 has no GTFS departures. The night rings 123, 156, 165, 166 and 167 run Friday to Sunday only and are idle, correctly, on a service day from Monday to Thursday |
 | **Munich** | U8 is Saturday-only in reality and correctly idle on weekdays. Bus limited to MetroBus/ExpressBus; the 80 StadtBus lines would double the fleet |
@@ -1070,7 +1073,7 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 | **Frankfurt** | X express lines are regional (X95 has 450 m inside the city) and excluded; tram 11 has no operator tag, so trams come by network RMV |
 
 **The airfield lighting comes from OSM one light at a time, and it is
-all steady (since 2026-09-13).** `data:airfield-lights`
+all steady.** `data:airfield-lights`
 ([scripts/fetch-airfield-lights.mjs](scripts/fetch-airfield-lights.mjs),
 the selection in `scripts/lib/airfield-lights.mjs`, tested) takes the
 `aeroway=navigationaid` nodes of the box that the map has a light for –
@@ -1083,9 +1086,9 @@ masts burn on match nights) as the kind `flood`, with a terrain height
 like the lamps', into `airfield-lights.json`; the month's first weekend
 run with the lamps and the seamarks, heights reused through
 `PREV_AIRFIELD_LIGHTS`.
-Counted 2026-09-13, per box – the 15 km boxes of that morning; the
-20 km ones since reach more (all of Laage in Rostock's, Parchim in
-Schwerin's) from the first OSM run after: Frankfurt ~10 200, Berlin
+Counted per box – with the 15 km boxes; the 20 km ones reach more
+(all of Laage in Rostock's, Parchim in Schwerin's) from the first OSM
+run after the widening: Frankfurt ~10 200, Berlin
 ~6 400 (BER, Schönhagen, Strausberg), Hamburg ~3 900 (Fuhlsbüttel and
 Finkenwerder), Stuttgart ~3 500, Cologne ~3 300, Hanover ~3 000, Munich
 ~1 700 (edge and taxiway lights not mapped yet), Bremen ~1 000, Lübeck
@@ -1099,10 +1102,10 @@ draws them as one PointPrimitiveCollection per city – points, not the
 lamps' ground pools, so the lit runway reads from the home view; no
 camera-height fade, half size far out – and the floodlight masts as
 pools of lit apron through a second `StreetLampsLayer` (its pool is a
-parameter since then, `PoolOptions`; `APRON_FLOOD_POOL`: 90 m, cooler
+parameter, `PoolOptions`; `APRON_FLOOD_POOL`: 90 m, cooler
 white, up to a 15 km camera), on the airfield's own level
-(`airfieldLightLevel`) rather than the streets' night; the user wanted
-the pool and no point at the mast top (2026-09-13). Both built lazily along the night
+(`airfieldLightLevel`) rather than the streets' night; the pool and no
+point at the mast top, by design. Both built lazily along the night
 ramp like the lamps, and by day once the weather's visibility drops
 (`LOW_VISIBILITY_M`, 4 km full, fading in from 6 km – the tower's
 practice is the lighting on under roughly five kilometres; the ramp
@@ -1121,7 +1124,7 @@ so a light is hidden by a terminal in front of it but never sinks into
 Google's runway mesh. A surface pick (`CesiumMap.clampToSurface`)
 never sees them – nor anything else but the tiles, see "Ships are
 clamped to the tiles" under AIS – or an aircraft on the apron would
-stand on a taxiway light. (Until 2026-09-13 the lights were kept off the
+stand on a taxiway light. (Before, the lights were kept off the
 picks with exclusion lists, expanded to their points because Cesium
 matches a pick against the point, its `primitive` and its `id`, never
 the collection – the bare collection on the list had excluded nothing,
@@ -1131,10 +1134,10 @@ their alpha; `e2e/street-lamps.spec.ts` checks them on the lamps' scene
 (Rostock-Laage is in the box).
 
 **The buoys come from OSM's seamark tagging, float on the tiles like
-the ships, and are lit steadily (since 2026-09-13).** `data:buoys`
+the ships, and are lit steadily.** `data:buoys`
 ([scripts/fetch-buoys.mjs](scripts/fetch-buoys.mjs), the selection in
 `scripts/lib/buoys.mjs`, tested) takes the `seamark:type=buoy_*` nodes
-of the box that are red, green or yellow all over – the user's first
+of the box that are red, green or yellow all over – a first
 cut: the banded cardinal, isolated-danger, safe-water and
 preferred-channel marks, the white bathing spheres and the beacons
 stay out, and `classifyBuoy` is where to widen it – with their shape
@@ -1153,8 +1156,8 @@ each buoy with the ships' pick (`clampToSurface`), with three rules of
 its own: six a tick, not three, because a harbour view sets down
 dozens at once; a pick is made once per surface generation
 (`surfaceGeneration`) and a failed one only with the next – a buoy
-never moves, so nothing else can change the answer (since 2026-09-13
-that is every layer's rule, see the AIS section); and no plausibility
+never moves, so nothing else can change the answer (that is every
+layer's rule, see the AIS section); and no plausibility
 band against the
 fallback surface, because inland (Berlin's Havel, 1058 marks) the
 fallback lies thirty metres under the river – the fallback is the
@@ -1166,8 +1169,8 @@ cell when it leaves (a hidden parent collection is what skips
 PointPrimitiveCollection for the city, drawn always, on
 `airfieldLightLevel` – dusk or poor visibility – and steady for the
 airfield's reason (a flash keeps the loop ticking wherever a harbour is
-in view). Two things the first
-evening taught, both over the real tiles (headed Chromium): with the
+in view). Two things the real tiles
+taught (headed Chromium): with the
 clock at 04:00 the marks climbed a lantern's height on every load
 cycle and sat right by day – the pick under a buoy goes straight down
 through the lantern over it, and a PointPrimitiveCollection on the
@@ -1179,8 +1182,8 @@ out, so a buoy is clamped only within `CLAMP_RANGE_M` (1.5 km) of the
 camera and keeps its height or the fallback beyond it. Measured after
 both: eighteen marks re-clamped through five camera moves, day and
 night, all within a 2.2 m band – the water mesh's own undulation.
-`__mg3d.buoys().heightsOverFallbackM` is the reading. A third, the
-same evening: the lantern point sits inside the lantern housing, under
+`__mg3d.buoys().heightsOverFallbackM` is the reading. A third: the
+lantern point sits inside the lantern housing, under
 the topmark, and from 88 m the housing hid it entirely (from afar the
 point's four pixels reach past the housing's two), so the lanterns are
 drawn without the depth test within `LANTERN_THROUGH_HOUSING_M`
@@ -1190,16 +1193,17 @@ real buoy as a blurred lump a few metres from the OSM position, where
 it was swinging on its chain the day it was photographed; that is not
 a bug of the layer. And the lanterns fade with the distance to the
 camera (`translucencyByDistance`: full within 1.5 km, 30 % from
-12 km out – the user set the far end and the rim's width by eye) – asked for the same evening, they burned as bright from
-30 km up as from the quay; the airfield's lights keep their strength
-on purpose, a runway is read from the home view. Counted 2026-09-13, per
+12 km out – the far end and the rim's width chosen by eye) – without
+it they burned as bright from 30 km up as from the quay; the
+airfield's lights keep their strength
+on purpose, a runway is read from the home view. Counted per
 box (lit in brackets): Berlin 1058 (11 – the Havel lakes), Hamburg 399
 (83), Wilhelmshaven 290 (83), Rostock 228 (96), Frankfurt 141 (0 – the
 Main's), Lübeck 131 (24), Schwerin 127 (3), Kiel 126 (49), Bremen 112
 (38), Cologne 103 (0 – the Rhine's), Stuttgart 97 (0), Munich 50 (2),
 Hanover 22 (0). Over the real tiles the marks were seen floating on
-the Breitling's water by day and lit at night (headed Chromium, the
-day the layer was built). `?seamarks=0` leaves them out
+the Breitling's water by day and lit at night (headed Chromium).
+`?seamarks=0` leaves them out
 with the lighthouses; `ship-effects`, `clouds`, `rain-gate` and
 `street-lamps` boot so because their frames are compared or their
 scene is low over the Warnow. `__mg3d.buoys()` counts them; `tests/cesium-buoys-layer.test.ts`
@@ -1207,7 +1211,7 @@ pins the cells, the clamps and the lights with a model double
 (`host.loadModel`), `e2e/app.spec.ts` brings the camera down to them.
 
 **The lighthouses have no model: the light stands on the tiles' own
-tower (since 2026-09-13).** `data:lighthouses`
+tower.** `data:lighthouses`
 ([scripts/fetch-lighthouses.mjs](scripts/fetch-lighthouses.mjs), the
 selection in `scripts/lib/lighthouses.mjs`, tested) takes the
 `man_made=lighthouse` and `seamark:type=light_major|light_minor` nodes
@@ -1231,8 +1235,8 @@ pure, tested) – outside every sector the light is obscured, as at sea –
 repainted per frame only where the sector or the night level changed.
 Major (light_major, or a range of ten miles and more): 7 px, fading to
 half by 40 km; minor: 4 px, the lanterns' fade. Steady, for the same
-reason as the buoys – with one exception since 2026-09-16, the user's
-call: **the towers' rotating optics turn.** A major light of ten miles'
+reason as the buoys – with one deliberate exception: **the towers'
+rotating optics turn.** A major light of ten miles'
 range and more whose EVERY sector flashes (`Fl`, `LFl`) with one period
 from OSM is a rotating optic ([lighthouse-beam.ts](src/lib/lighthouse-beam.ts),
 pure, tested in `tests/seamark-lights.test.ts`): one lens per flash of
@@ -1241,7 +1245,7 @@ whose panels are not), one turn per period, clockwise – and where the
 period is short, more lenses rather than a faster optic: the fewest
 that make a turn last `MIN_TURN_S` (12 s; Friedrichsort's `Fl 3s` is
 four lenses in twelve seconds, the same flash every three – as one lens
-in three it strobed, the user saw it that day). The range rule keeps
+in three it strobed). The range rule keeps
 the Havel's red sector lights out – `light_major` on a four-metre pole,
 `LFl 4s`, no range: an LED, no optic (Berlin, found in the data) – and
 the every-sector rule keeps the leading and sector lights out: an optic
@@ -1249,15 +1253,14 @@ turns one lamp's light through coloured screens and cannot flash to the
 west and burn steadily to the east, so Wilhelmshaven's leading light
 (`Oc 6s` over the degree of the leading line, `Fl 3s` a degree left,
 `Fl(2) 9s` three degrees right, fixed colours elsewhere – the first rule
-swept a beam through its degree of arc and strobed, the user's find)
+swept a beam through its degree of arc and strobed)
 and Bülk (a white `Fl(2)` over one arc among occulting and fixed
 sectors) turn nothing. Four towers turn: Warnemünde and Bastorf,
 Friedrichsort, Travemünde; Hamburg's, Bremen's and Wilhelmshaven's
 lights are leading and fixed lights, none turns. `seamark:light:period` and `:group` ride in
-the sector tuple since (elements five and six, absent in an older
-file), fetched by `data:lighthouses` – run locally on 2026-09-16 at
-the user's request so the towers turned that day rather than after the
-Sunday run. Two things draw a beam
+the sector tuple (elements five and six, absent in an older
+file), fetched by `data:lighthouses`, which can be run locally rather
+than waiting for the Sunday run. Two things draw a beam
 ([LighthouseBeams.ts](src/map/LighthouseBeams.ts)): a shaft in the air,
 one instanced DrawCommand after the smoke's pattern (a strip along the
 beam turning its face to the camera, additive, render pass only, the
@@ -1269,14 +1272,14 @@ mixes the *baked daylight colour* back in where the beam falls – so the
 sea's photographed turquoise lights up under a white beam, and a red
 sector reddens the quay. The shader compiles online only (see "Offline
 mode does not compile the tile shader"); checked headed over
-Warnemünde the day it was built: no loop error, the shaft from the
+Warnemünde: no loop error, the shaft from the
 lantern, the sweep on the water. The optic runs on the simulated clock
 like the smoke (`BEAM_MAX_RATE` = `PLUME_MAX_RATE`; a pause holds it),
 and it is the one animated thing among the seamarks, which is why the
 loop is tamed for it: with a lit beam within `BEAM_MAX_DISTANCE_M`
 (20 km; the beams fade with the camera's distance to the lantern like
 the lanterns' `translucencyByDistance`, full to `BEAM_FULL_DISTANCE_M`
-= 10 km and gone at 20, linear – the user's numbers, in place of the
+= 10 km and gone at 20, linear – numbers chosen by eye, in place of the
 hard edge at 15 km the first version had, where a beam popped in as
 the camera came down; `beamDistanceFade` in LighthouseBeams.ts, applied
 to the shaft's intensity and the shader slot's colour alike) in the
@@ -1288,13 +1291,13 @@ at `BEAM_MIN_FRAME_MS` (`beamInView` in the sync result and
 pace is 33 ms, the loop's fastest tick – the rate the beam turns at
 anyway while the camera moves, so the two look alike (measured headed
 with the tower alone in the frame: 33 ms tick, 29.6 fps). The number was
-arrived at the long way (2026-09-16): a second cap on the requests
+arrived at the long way: a second cap on the requests
 themselves, measured from the last frame's *end*, had halved the rate –
 a tick later less than a tick had passed since the frame finished, and
 every second tick drew nothing, 15 fps at a 33 ms tick, headed – so the
-50 ms the user first saw was really 15 fps; gone, the tick is the only
-cap a request needs. With that fixed the user looked at the true 20
-(50 ms: 18.6–18.8 fps) and at the 30, each twice, and settled on the 30;
+50 ms first seen was really 15 fps; gone, the tick is the only
+cap a request needs. With that fixed the true 20 (50 ms: 18.6–18.8 fps)
+and the 30 were compared by eye, each twice, and the 30 chosen;
 50 is the number to come back to if the frames ever weigh. The taming
 is in the gates, not
 the rate: by day, underground, with the tower out of range or out of
@@ -1303,7 +1306,7 @@ without a turning tower never notices the feature.
 A floodlight or spotlight on a tower is a work
 light, not a mark, and is left out of the sectors – Warnemünde's mole
 lights carry theirs as the unnumbered set, ahead of the green and the
-red, and showed white until then (2026-09-13). Counted the same day:
+red, and showed white before the rule. Counted per box:
 Bremen 188 (the Weser's), Hamburg 151 (the Elbe's), Berlin 61, Lübeck
 54, Wilhelmshaven 35, Rostock 9, Kiel 8, Munich 4, Frankfurt 1, none in
 Cologne, Hanover, Schwerin and Stuttgart. Seen over the real tiles at
@@ -1330,19 +1333,19 @@ hull's bow is a quarter-ellipse in plan (`hullStations` in
 a fifth to a third of the beam – a tanker's is the fullest) over the
 last fifth of the length (`taper`; a seventh on the box ship and the
 cruise ship, which carry their beam nearly to the stem). It was a
-straight wedge to a stem a tenth of the beam wide, and the user found
-the tanker and the box ship "viel zu spitz" (2026-09-11) – keep the
-bows full. A rectangular deck, fo'c'sle or fender strake laid over the
+straight wedge to a stem a tenth of the beam wide, and the tanker and
+the box ship read far too pointed – keep the bows full. A rectangular
+deck, fo'c'sle or fender strake laid over the
 taper stood proud of the bow on either side – the tanker read as an
-aircraft carrier, the dredger's suction pipe came out through the side
-(same day). The deck plates and the strakes are extrusions through the
+aircraft carrier, the dredger's suction pipe came out through the
+side. The deck plates and the strakes are extrusions through the
 hull's own stations now (`deckPlate`), the bow furniture sits back
 where the hull is wide enough (`hullHalfWidthAt` says how wide), and
 `tests/vessel-models.test.ts` measures every vertex above the keel
 against the hull's plan and allows a hand's breadth.
 
 **The pilot boat is orange all over, and the rescue and police boats
-are not (since 2026-09-16).** AIS 50 wears `vessel-pilot`, built after
+are not.** AIS 50 wears `vessel-pilot`, built after
 the JASMUND of the Lotsenbetrieb MV: hull, house, mast and rails in
 `pilotOrange`, a black fender strake and boot top, a green deck
 (`deckGreen`), the wheelhouse front raked forward at the top
@@ -1351,8 +1354,8 @@ from a side elevation), the white-and-red diagonal on the bow as a decal
 a finger proud of the topsides. A hull's colours are baked, so 51, 55
 and 39 keep the dark boat it replaced as `vessel-patrol` (the old
 `vesselPilot` renamed) – an orange police boat would be wrong. The
-patrol boat's fender strake ends a hand under its deck plate since the
-same day: at the deck's own height the two upward faces shared a plane
+patrol boat's fender strake ends a hand under its deck plate: at the
+deck's own height the two upward faces shared a plane
 and the whole deck flickered between grey and black (the ROSENORT, a
 type 55 at her berth in Rostock). Two same-facing faces in one plane
 are what a flicker on a hull always is; a scan for them over every
@@ -1364,7 +1367,7 @@ boat rails her working decks only), `railing` a `material`; the other
 twelve GLBs came out byte-identical, which is the proof for any change
 to them.
 
-**The navy is two hulls, told apart by length (since 2026-09-17).**
+**The navy is two hulls, told apart by length.**
 AIS 35 (warship or naval auxiliary; the card says "Military vessel")
 draws `vessel-frigate` from `WARSHIP_FRIGATE_MIN_LENGTH_M` (80 m: the
 Braunschweig corvettes at 89 m and the Elbe tenders at 100 m wear it,
@@ -1384,7 +1387,7 @@ stations (`hullStations`, through `hull` and `deckPlate`), a sheer of
 out byte-identical again. The frigate's triangle budget is the
 passenger ship's (18 000): 140 m of rails and a faceted superstructure.
 
-Since 2026-09-12 all thirteen AIS hulls and both scheduled ferry models
+All thirteen AIS hulls and both scheduled ferry models
 have smooth rounded bilges, finer bow stations, railings, mooring fittings
 and bevelled enclosures. The larger ships carry individual container tiers
 and corrugations, passenger-deck windows and lifeboats, round pipes and
@@ -1398,7 +1401,7 @@ funnel anchors, navigation lights and waterline origins remain unchanged.
 The geometry tests budget 36,000 triangles for the container ship, 18,000
 for the passenger ship, 8,500 for the other AIS craft and 4,500 for a ferry.
 
-Since 2026-09-17 the scheduled bus is a detailed 12 m low-floor city bus
+The scheduled bus is a detailed 12 m low-floor city bus
 inspired by the Mercedes-Benz Citaro (`scripts/lib/bus-model.mjs`). It has
 rounded front/rear shells, glazing clipped to their actual triangles,
 open wheel arches, rounded tyres and rims, two glazed doors on -X (the
@@ -1413,7 +1416,7 @@ tyres, seals, grilles and the red/amber lamps must stay above it. The
 body still takes the runtime's line-colour tint. Rebuild twice to check
 determinism and compare all other GLBs byte-for-byte when changing it.
 
-**One primitive per part (since 2026-09-13).** A mesh is still built as
+**One primitive per part.** A mesh is still built as
 one triangle soup per material, but `toGlb` writes every opaque group
 of a part into ONE glTF primitive: the material's colour becomes a
 vertex colour (`COLOR_0`, bytes), its metalness and roughness a texel
@@ -1428,7 +1431,7 @@ fleets were three quarters of a busy view's commands (Hamburg at 1175 m:
 1 190 vehicle and up to 2 000 ship commands against 280 for the tiles);
 a command costs ~3 µs of JS in Cesium and, in Firefox, its serialisation
 to the process that runs WebGL (see "Firefox" under rendering). Measured
-2026-09-13 at that view: 3 900 → 954 commands, render JS 13 → 8 ms in
+at that view: 3 900 → 954 commands, render JS 13 → 8 ms in
 Firefox, 10.7 → 7.4 in Chrome. Verified pixel for pixel on a fixed
 offline scene of every fleet close up (old GLBs against new): 6.5 % of
 the pixels differ, by at most 1/255 in any channel – the 8-bit rounding
@@ -1447,7 +1450,7 @@ stops, lamps, vehicles and bridge decks down, the app's own cleanup stops the
 pollers, drops the selections and lets the chase go, and on a flight both
 happen halfway through it (`CITY_HANDOVER_FRACTION`, see `setCity`). What
 survives is every layer *instance* and everything it still holds — which is
-where three bugs of one family were found on 2026-09-09:
+where three bugs of one family were found:
 
 - **Anything keyed by an identifier needs the thing that actually
   distinguishes it in the key.** Line numbers repeat between cities (24 of
@@ -1490,21 +1493,21 @@ the wrong path before this was understood.
 ### How to actually measure a frame
 
 Headed Playwright Chromium + `EXT_disjoint_timer_query_webgl2` (available there
-on this Mac; readPixels-synced timing has ~7 ms of sync overhead). Wait for
-`__mg3d.tilesetStatus() === 'google-3d-tiles'` **and** `tileset.tilesLoaded &&
-statistics.numberOfTilesWithContentReady > 50` held ~2 s (`tilesLoaded` is true
-before the first request), then `gl.beginQuery(ext.TIME_ELAPSED_EXT)` /
-`viewer.render()` / `endQuery` per frame. Runtime toggles: `scene.msaaSamples`,
+on the development machine; readPixels-synced timing has ~7 ms of sync
+overhead). Wait for `__mg3d.tilesetStatus() === 'google-3d-tiles'` **and**
+`tileset.tilesLoaded && statistics.numberOfTilesWithContentReady > 50` held ~2 s
+(`tilesLoaded` is true before the first request), then
+`gl.beginQuery(ext.TIME_ELAPSED_EXT)` / `viewer.render()` / `endQuery` per frame.
+Runtime toggles: `scene.msaaSamples`,
 `scene.shadowMap.size` (4 cascades → the texture is 2×size square!),
 `viewer.resolutionScale`, the `mg3d_tilt_shift` stage in
 `scene.postProcessStages`. `viewer.shadows` must be overridden via
 `defineProperty` — `applyShadowState` re-sets it every tick. City comes from the
 path (`/berlin/`). The dev build inflates React (jsxDEV).
 
-Baseline 2026-09-05 (M5 Pro, 1600×1000 CSS at DPR 2, SSE 6 CSS px, real Google
-tiles). MSAA was still 4 then, which is what the "MSAA 4" column costs — the app
-ran 2× from 2026-09-08 and none since 2026-09-13, so a frame today is that
-column cheaper than the totals below:
+Baseline (M5 Pro, 1600×1000 CSS at DPR 2, SSE 6 CSS px, real Google tiles).
+MSAA was still 4 then, which is what the "MSAA 4" column costs — it is off now,
+so a frame today is that column cheaper than the totals below:
 
 | view | GPU/frame | CPU in `viewer.render()` | of which shadows | MSAA 4 | sky atmosphere |
 |---|---|---|---|---|---|
@@ -1517,7 +1520,7 @@ scene-graph update even for `show=false` models — only `submitDrawCommands`
 checks `show` — so a hidden *parent* `PrimitiveCollection` is the only way to
 skip children.
 
-Where Berlin's CPU actually goes, measured the same day: of 22 ms render CPU in
+Where Berlin's CPU actually goes, measured the same way: of 22 ms render CPU in
 the home view, 16.8 ms are the 3002 wagon `Model` primitives (13.2 ms for the
 969 shown bodies, 3.6 ms for the 2033 hidden ones); tiles and everything else
 are 5.2 ms. A known inefficiency sits there: `showBody` uses the `FRAMING_SCALE`
@@ -1532,7 +1535,7 @@ or it stays invisible for up to 15 seconds. Two related budgets from the same
 pass: the stop-height bootstrap samples only ~40 stops (full sampling kept the
 tileset loading for minutes), and vehicles count as "in view" only within 12 km.
 
-Since 2026-09-05, frames and sim ticks are paced by on-screen motion:
+Frames and sim ticks are paced by on-screen motion:
 `VehicleLayer`/`VesselLayer` measure each in-view object's screen motion since
 the last *rendered* pose and request a frame only past
 `MOTION_RENDER_DEVICE_PX = 0.5` device px
@@ -1543,8 +1546,8 @@ chasing or with the diagram open; 500 ms paused or with nothing in view. Home
 view renders ~5–6 fps instead of 30; Berlin's main thread sits at 18–25 %
 instead of 99 %.
 
-**The time-lapse and a playing camera path pace the whole view (since
-2026-09-11).** "In view" is bounded by a render range – 20 km for a
+**The time-lapse and a playing camera path pace the whole view.** "In
+view" is bounded by a render range – 20 km for a
 vehicle, 5 km for a ship, at the reference lens – while their labels are
 drawn out to 35 km, so a label between the two moves only when
 something else earns a frame: at real pace that is the deliberate
@@ -1573,12 +1576,12 @@ Consequences to keep in mind:
   and the sky atmosphere is hidden while the horizon is out of the frustum
   (Cesium draws it every frame with no frustum test otherwise).
 - The desktop's shadow cascade is **8192** (a 16384² texture, ~1 GB — Cesium
-  packs the 4 cascades 2×2). The user deliberately raised this back from 4096
-  for the shadow edge. **Do not propose lowering it again**; the 256 MB /
+  packs the 4 cascades 2×2). It was deliberately raised back from 4096 for
+  the shadow edge. **Do not propose lowering it again**; the 256 MB /
   ~2.5 ms it saves are known and were weighed. It lives in the desktop
   profile now (below), which is the only place the number is.
-- **Every rendering number above is the desktop profile's.** Since
-  2026-09-10 the map draws from a `RenderProfile`
+- **Every rendering number above is the desktop profile's.** The
+  map draws from a `RenderProfile`
   ([src/lib/render-profile.ts](src/lib/render-profile.ts)) handed in by
   `App.tsx`: two tiers, `desktop` with every number as measured here and
   `mobile` – a touch screen whose shorter side is under 900 CSS px, or
@@ -1593,16 +1596,16 @@ Consequences to keep in mind:
   measured frame by frame – measure on a phone before tuning them, with
   `renderPacing()` and `tileMemory()`, the same way the desktop's were.
   A new rendering knob goes into the profile, not beside it. The
-  pixel-ratio cap (`maxPixelRatio`) is 2 on both tiers since 2026-09-14
-  (the user's call; the phone's was 1.5): a 3× phone still draws at 2×,
+  pixel-ratio cap (`maxPixelRatio`) is 2 on both tiers, a settled
+  decision (the phone's was 1.5): a 3× phone still draws at 2×,
   a 2× screen at its own.
-- **MSAA is off on both tiers** since 2026-09-13 (`msaaSamples: 1` in both
-  profiles – the user's call for the desktop, which had run at 2× since
-  2026-09-08, down from Cesium's default of 4). At 4× it was the most expensive
+- **MSAA is off on both tiers** (`msaaSamples: 1` in both profiles – a settled
+  decision for the desktop, which had run at 2× before that, down from Cesium's
+  default of 4). At 4× it was the most expensive
   item in a frame — 11.7 of the home view's 19 GPU ms — and the sampling rate is
   spent almost entirely on this map's own strokes: 4× against 1× differs in 17 %
   of the pixels, 4× against 2× in only 14 %, nearly all of it route-polyline
-  edges, which alias now. What the second sample cost, measured 2026-09-13 the
+  edges, which alias now. What the second sample cost, measured the
   way the section above describes (headed Chromium, real tiles, timer queries,
   `scene.msaaSamples` toggled 1 → 2 → 1 → 2 on one scene, medians of 40
   frames, 3200×2000 buffer at DPR 2, clock paused, ships and aircraft off):
@@ -1624,10 +1627,10 @@ Consequences to keep in mind:
 
 ### Animated effects are stateless shaders, not particle systems
 
-(The lighthouses' turning beams of 2026-09-16 follow the same rule – see
+(The lighthouses' turning beams follow the same rule – see
 the lighthouses paragraph under "Cities and the data pipeline".)
 
-The ships under way trail exhaust since 2026-09-11
+The ships under way trail exhaust
 ([src/map/FunnelSmoke.ts](src/map/FunnelSmoke.ts)): one instanced
 DrawCommand after StopDiscs' pattern, twenty puffs per ship, and the
 vertex shader places every puff from (seed, time) alone – born at the
@@ -1643,7 +1646,7 @@ here. Its clock is the ships' (`VesselLayer.sync`'s `nowMs` – the wall
 clock live, the simulated one in a replay), so a pause holds it, and
 it runs at most `PLUME_MAX_RATE` (3×) real time under the time-lapse –
 either way: under the rewind it runs back into the funnel at the same
-cap, the film played backward (since 2026-09-22; the wake's churn and
+cap, the film played backward (the wake's churn and
 the lighthouse optics follow the same rule, see the rewind paragraph
 under "Interface and styling").
 It asks for frames the way the ships and the clouds do – once its own
@@ -1658,7 +1661,7 @@ within `SMOKE_MAX_DISTANCE_M`. Offline the shader compiles and draws –
 primitive draws in the render pass only: no pick, and nothing in the
 offscreen passes, or a hull would be clamped onto its own smoke.
 
-The wake ([src/map/Wake.ts](src/map/Wake.ts), same day) is stateless
+The wake ([src/map/Wake.ts](src/map/Wake.ts)) is stateless
 in a different way: it is placed from the ship's **past**, not from a
 clock. For every age up to `WAKE_LIFE_S` (40 s, every 2 s) the layer
 asks where she was – `playbackSample` on the AIS track, the timetable
@@ -1673,7 +1676,7 @@ the wash she left (a still pose only breaks the ribbon), and the layer
 keeps reading the track for a wake's length after her last tick under
 way (`wakeUntilMs`; the ferries ask the timetable whether she moved a
 wake ago). First built as flat discs – it read as a string of pearls
-with rings, "zu billig", and was rebuilt as ribbons the same day; the
+with rings, cheap-looking, and was rebuilt as ribbons; the
 look to match is the wakes Google's own water tiles carry. The ribbons
 lie in the water's tangent plane on the hull's clamped height, and
 their depth is written from a point pulled `WAKE_DEPTH_BIAS` (0.3 %)
@@ -1686,9 +1689,9 @@ behind a quay. The replay's track window reaches
 this. Two `Wake` primitives, one per fleet, because the two layers
 start and commit their sets at different moments of the tick.
 
-The foam itself lies in the water and churns (since 2026-09-15; the
-user found it "zu statisch" – the pattern was measured from the stern
-and rode along with the hull, painted on). Every ribbon point carries
+The foam itself lies in the water and churns (it was too static before
+– the pattern was measured from the stern and rode along with the hull,
+painted on). Every ribbon point carries
 the moment its foam was made – the ships' clock less the pose's age,
 as metres at `WAKE_STREAK_MPS` – so the same water wears the same
 streak from tick to tick while the ship runs on, and the bow wave's
@@ -1709,7 +1712,7 @@ so the sin hash never sees the coordinates a long session grows.
 
 The map changes hands halfway through the flight to the next city
 (`CITY_HANDOVER_FRACTION`), and everything the new city puts up lands in the
-single `scene.render()` after it. Measured 2026-09-10, headed Chromium on the
+single `scene.render()` after it. Measured in headed Chromium on the
 real GPU, production build, `?offline=1`, Munich → Berlin: the worst frame gap
 was **398 ms** where a quiet frame is 19 ms — the freeze you can see mid-flight.
 
@@ -1741,7 +1744,7 @@ It places the camera by the local vertical at the **subject**, while
 stands, and the earth curves between the two: at the 140 m chase range that
 is a constant 0.0012°, always in the same direction. So a loop that reads the
 camera's pose and re-applies it — which is what `FollowCamera.update` did for
-a follow left in free orbit — adds that much every frame. Measured 2026-09-10:
+a follow left in free orbit — adds that much every frame. Measured:
 the camera climbed ~0.035°/s, minutes of following and it is looking down from
 above. Reproduced with a standing subject: ask for −16.0000°, read back
 −16.0012°, ask for that, read −16.0024°.
@@ -1761,7 +1764,7 @@ every LOD knob**. Before proposing any SSE change, check
 active and SSE tuning is moot. Budgets were raised in
 `CesiumMap.loadGoogleTiles` (2 GB cache on ≥8 GB devices, 1 GB otherwise, 1 GB
 overflow). The base budget is `TILE_SSE_CSS_PX = 6` CSS px × pixelRatio
-(user-picked); `?sse=<n>` overrides it live. Dynamic-SSE factor tuning is
+(a settled choice); `?sse=<n>` overrides it live. Dynamic-SSE factor tuning is
 visually near-irrelevant (~1–7 px on a ~23 px budget).
 
 ### The tile-tree leak (and why the tileset gets rebuilt)
@@ -1801,8 +1804,8 @@ a `TextureAtlas` never frees regions, so vehicle badges are **data URLs** (keyed
 by URL → one region per line+colour+delay). The colour belongs in the badge
 cache's own key for the same reason it belongs in the atlas's: `badgeCache`
 outlives the city switch, and a line number met in an earlier city otherwise
-keeps that city's colour while its card shows the right one (fixed 2026-09-09;
-up to 24 of a city's lines were wrong after one switch).
+keeps that city's colour while its card shows the right one (up to 24 of a
+city's lines were wrong after one switch).
 `WebcamsLayer.clear` destroys its collection per city for the same reason.
 
 When measuring heap: readings without `HeapProfiler.collectGarbage` are
@@ -1828,8 +1831,8 @@ to mind its pose.** The grid imagery refines by the globe's screen-space
 error like any imagery, and a view along the water from a low camera
 (60 m up, pitch −10°) selects ~150 tiles – the CI runner's software
 renderer, which loads a handful per frame at a few frames a second, did
-not get them in within a minute, twice in a row (2026-09-11,
-`e2e/ship-effects.spec.ts`); the same scene looked at steeply from
+not get them in within a minute, twice in a row
+(`e2e/ship-effects.spec.ts`); the same scene looked at steeply from
 400 m needs 29 and straight down from 700 m 18. A spec that polls
 `renderPacing().tilesLoading` before comparing frames (the clouds, the
 ship effects) keeps the horizon out of the frame; measure with
@@ -1844,14 +1847,13 @@ runner half a minute per frame.
 
 ### Firefox: WebGL runs in another process, and every frame waits for it
 
-Investigated 2026-09-13 after the user found Firefox 155 "ruckelt ganz
-stark" over Hamburg where Chrome did not, and `?offline=1` smooth. The
-tools, all in the scratchpad of that session and cheap to rebuild:
+Investigated after Firefox 155 stuttered badly over Hamburg where Chrome
+did not, and `?offline=1` smooth. The tools, cheap to rebuild:
 Playwright 1.62 drives the stock Firefox (`channel: 'moz-firefox'`,
 WebDriver BiDi – from a sandboxed shell only through a wrapper that
 launches it with `open -a` and tails its stdio for the "WebDriver BiDi
 listening" line) and the stock Chrome (`channel: 'chrome'`), headed, on
-the real GPU, at 1600×1000 CSS and DPR 2, through the user's scenario
+the real GPU, at 1600×1000 CSS and DPR 2, through the reported scenario
 (home view → flight to 1175 m over the harbour → a pan); a Gecko profile
 of the run (`MOZ_PROFILER_STARTUP=1`, `MOZ_PROFILER_SHUTDOWN=<file>`,
 passed through `open --env`), read with a small script that sums self
@@ -1874,7 +1876,7 @@ GetLinkResult 10 %, ReadPixels 6 %, GetBufferSubData 1.5 %). The "drain"
 after `viewer.render()` – a `getError()` timed – was 4–6 ms at the
 median in Firefox against 0.3–0.7 in Chrome. Nothing else differed:
 JS per draw command is ~3 µs in both engines, the window size was not
-it (the user's 14" display is smaller than the test viewport), MSAA and
+it (a 14" display is smaller than the test viewport), MSAA and
 shadows were off in every scene, Playwright's profile sets no gfx
 prefs. Firefox also has no persistent shader cache, so every visit
 links its ~40 programs and the derived variants again, 16–25 ms each,
@@ -1941,14 +1943,14 @@ no poll runs (offline, the tests); `basemap()`/`setBasemap()` and
 
 ## AIS (live harbour traffic)
 
-Fully live on `main` since 2026-08-27 (PR #10).
+Fully live on `main` (PR #10).
 
 **Operationally critical:** the production cron must call
 `/api/ais?listen=45` every minute. The bare URL gives 12 s windows, which
 stutters moving ships and almost never catches the 6-minute `ShipStaticData`
 frames, so ferries render as small default hulls. `?listen=` bypasses the TTL
-check and queues for the lock (a fix from 2026-08-28: before that the browser's
-own short windows kept the state fresh and the keeper answered from cache —
+check and queues for the lock (a later fix: before it the browser's own
+short windows kept the state fresh and the keeper answered from cache —
 measured duty cycle 27 %). Healthy looks like: window starts alternating
 ~49 s / ~12 s, duty cycle ~93 %, ~35 position updates/min. Diagnose via the fix
 ages of fast movers against the `listenedAt` age in the response, and verify the
@@ -1966,17 +1968,16 @@ from the folder above the docroot – two levels up from the scripts in
 [server/api/ais.php](server/api/ais.php) and
 [server/api/webcams.php](server/api/webcams.php); the README's Deployment
 section draws the layout). Keys are never `VITE_`-prefixed. The webspace
-moved on 2026-09-11 from `apps/mini-germany-3d/` (docroot, key beside it
-in `apps/`) to `websites/mini-germany-3d/website/` (docroot) with the key
-and the archive in `websites/mini-germany-3d/` – nothing in the code
-changed for it, only `KAS_TARGET_DIR` and the domain's path in KAS.
+moved from `apps/mini-germany-3d/` (docroot, key beside it in `apps/`)
+to `websites/mini-germany-3d/website/` (docroot) with the key and the
+archive in `websites/mini-germany-3d/` – nothing in the code changed for
+it, only `KAS_TARGET_DIR` and the domain's path in KAS.
 
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
 `ais.simulatedByMmsi` (Rostock FG/FW, Kiel F1/F2, Hamburg 18× HADAG).
 
-**A ship is shareable (`#vessel=<mmsi>`, since 2026-09-10) but not
-reproducible.** The MMSI is as stable an id as a trip id, yet whether she is
+**A ship is shareable (`#vessel=<mmsi>`) but not reproducible.** The MMSI is as stable an id as a trip id, yet whether she is
 still in the harbour is the harbour's business, so the restore is the
 vehicle's mechanism with a longer fuse — `SHARED_VESSEL_TIMEOUT_MS` is 90 s
 against the vehicle's 20 s, because a trip is in the very first snapshot the
@@ -1984,8 +1985,8 @@ simulation makes while a ship waits for the poller's first answer and then for
 her own next fix. It expires silently, and it must stay that way: a link that
 opened an empty card would be worse than one that opens the harbour.
 
-**A ship at rest lies along the course she came in on (since
-2026-09-15).** Measured that evening in Hamburg: 253 of 417 moored ships
+**A ship at rest lies along the course she came in on.** Measured in
+Hamburg: 253 of 417 moored ships
 reported no heading (511 – the inland barges carry no gyro), 159 of
 those no COG either, and the rest a COG at 0 kn that is GNSS drift –
 so 60 % of the berthed fleet lay north or anywhere, crosswise to the
@@ -2005,14 +2006,13 @@ cannot do: a ship never heard moving keeps today's guess, and a ship
 that turned to moor bow-out lies the wrong way round. The real fix for
 both is the quay: the nearest shoreline segment from OSM's water
 polygons as a product of the weekly OSM run, with the last course only to
-pick which end is the bow – agreed with the user as the second step,
-not built yet.
+pick which end is the bow – agreed as the second step, not built yet.
 
-**The harbour is recorded, and a clock set back replays it (since
-2026-09-11).** Every fix the keeper hears also goes into an archive – one
-NDJSON file per city and UTC hour, a snapshot of every ship alive at the
-top of each so an hour reads on its own, five days kept
-(`AIS_ARCHIVE_KEEP_HOURS`, 120 h – three until 2026-09-14), the writer in
+**The harbour is recorded, and a clock set back replays it.** Every fix
+the keeper hears also goes into an archive – one NDJSON file per city and
+UTC hour, a snapshot of every ship alive at the top of each so an hour
+reads on its own, five days kept (`AIS_ARCHIVE_KEEP_HOURS`, 120 h), the
+writer in
 [src/lib/ais-archive.ts](src/lib/ais-archive.ts) with its PHP twin in
 `ais.php` and `scripts/test-ais-archive-parity.mjs` holding the two to the
 same files. The app asks the same endpoint for `&hour=…` whenever the
@@ -2024,7 +2024,7 @@ replay renders `AIS_PLAYBACK_DELAY_MS` behind the *simulated* clock,
 exactly as the live fleet renders behind the real one – not for the data
 (the archive is complete) but because it is what makes the two sources
 meet without a jump, at the edge and after a pause; a clock set ahead is
-live (the user's choice), a pause holds whichever source drew the
+live (a settled decision), a pause holds whichever source drew the
 picture; where nothing was recorded – before the archive began, an hour
 the keeper missed, a day older than the retention – the water is empty,
 never today's ships on yesterday's date. The calendar in the panel offers
@@ -2045,14 +2045,14 @@ the first window after it, and a moment before that is an empty harbour.
 `__mg3d.aisReplay()` says whether the replay is on, which hours are held
 and how many ships the recording places at the simulated moment.
 
-**Ships are clamped to the tiles, and the clamps are rationed.** Until
-2026-09-08 every ship sat on sea level plus the calibrated offset, which put
+**Ships are clamped to the tiles, and the clamps are rationed.** Once
+every ship sat on sea level plus the calibrated offset, which put
 Frankfurt's fleet 87 m and Berlin's 31 m under the tiles (the Main is a
 staircase of lock reaches, Berlin sits on two water levels). Two cures were
-built and compared the same day: a measured water surface per lock reach in
+built and compared: a measured water surface per lock reach in
 `city.json` (more data, more logic; shelved) and a `scene.clampToHeight`
-pick per hull ([VesselLayer](src/map/VesselLayer.ts)), which the user chose
-for being less code. Measured cost: 1.4 ms per pick, an offscreen render
+pick per hull ([VesselLayer](src/map/VesselLayer.ts)), chosen for being
+less code. Measured cost: 1.4 ms per pick, an offscreen render
 with a `readPixels` stall, so never clamp per tick — the layer picks only
 for ships on screen and only when the ship moved 25 m or the tiles under
 her changed (`surfaceGeneration` in `CesiumMap`), capped at three a
@@ -2060,11 +2060,11 @@ tick; a fleet at rest costs nothing. The pick answers with whatever LOD
 is loaded (coarse and fine differ by metres, a ship at a quay can land
 on a baked-in crane or on Google's own photographed hull), which is why a
 new generation re-reads it. The **scheduled ferries** (VehicleLayer, mode
-`ferry`) float the same way since 2026-09-08: the same `clampToSurface`,
+`ferry`) float the same way: the same `clampToSurface`,
 3 picks a tick, again after 25 m or a `surfaceGeneration` bump, the route
 profile until the first answer; `FERRY_FLOAT_LIFT` stays on top for the
-mesh's crests. The rules that keep the picks rare, all of 2026-09-13 and
-all measured (the Firefox investigation below is where they come from):
+mesh's crests. The rules that keep the picks rare, all measured (the
+Firefox investigation below is where they come from):
 
 - **A generation is a tile that loaded, at most every 2 s.** It followed
   `allTilesLoaded` until then, which Cesium raises on every load-progress
@@ -2102,7 +2102,7 @@ all measured (the Firefox investigation below is where they come from):
   of seconds for a harbour at the budgets. Measured in Firefox: 14 % of
   a pan's wall time in the picks' `readPixels`, 7 % in their scene
   updates, before. "Still" is `CAMERA_STILL_EPSILON` (1e-6 per matrix
-  element) since 2026-09-14, in `noteCameraAtRest` and
+  element), in `noteCameraAtRest` and
   `cameraMovedSinceRender` both: a camera 35 m over Rostock's Neuer
   Markt at a near-level pitch (`height=35&pitch=-9`) had its view
   matrix churn by 2e-9 a frame with nobody touching it – numerical
@@ -2120,7 +2120,7 @@ all measured (the Firefox investigation below is where they come from):
   a ship's own hull under her ray made every clamp two passes, six
   readPixels, with 1 200 `Model.update`s each – 7.9 ms a clamp in Chrome,
   10.5 in Firefox; 2.1 and 3.2 ms now.
-- **A pick's answer is judged, not taken (since 2026-09-15).** The tiles
+- **A pick's answer is judged, not taken.** The tiles
   carry the ships Google photographed at their berths and every bridge
   deck, and a hull at such a berth stood on the twin's deck, a tug
   passing under the Köhlbrandbrücke rode over it. The pick answers with
@@ -2142,7 +2142,7 @@ all measured (the Firefox investigation below is where they come from):
   undulation fit, a box ship's deck or any bridge does not – and
   `belowM` (8 m) under it, because the mesh's water sags: the
   Köhlbrand's middle reads five metres under NHN 0 (probed on the real
-  tiles that day); and inland the lowest level accepted for a neighbour
+  tiles); and inland the lowest level accepted for a neighbour
   in the same `cellM` (300 m) cell, read fine (`VesselLayer.neighbourFloor`,
   built once per tick when first asked). A held answer leaves the hull
   on her level, or on the reference it was held against (the lifted
@@ -2158,7 +2158,7 @@ all measured (the Firefox investigation below is where they come from):
   her back. A level taken with nothing to judge it by is `provisional`:
   the first hulls picked after a city arrives, before any floor stands,
   may be on a twin, and a floor that appears later drops it. Verified
-  over the real tiles the same evening: the box ships at the Waltershof
+  over the real tiles: the box ships at the Waltershof
   and Burchardkai berths lie at the water inside their twins instead of
   on them, and a coaster served from a mocked `/api/ais` through the
   bridge's deck (the mesh has it at 53.5195–53.5205 N, 9.9414–9.9434 E;
@@ -2177,14 +2177,14 @@ all measured (the Firefox investigation below is where they come from):
   real tiles has to come through a mocked `/api/ais` route; and a
   height grid probed with `scene.clampToHeight` over the water is the
   quickest way to see what the mesh holds at a place.
-The **ferry route lines** drape over the tiles the same way
-since 2026-09-08: `clampToGround` polylines, the per-frame classification
+The **ferry route lines** drape over the tiles the same way:
+`clampToGround` polylines, the per-frame classification
 every other route avoids, because NHN 0 plus offset plus a 1.25 m lift
 (`FERRY_ROUTE_EXTRA_LIFT`, gone) still dipped into the water or floated
 over it. A clamped line does not pulse on "zoom to line" (Cesium's
 per-material batch does not re-evaluate colours per frame). Offline the
 ferry lines lie on the ellipsoid like every other route. `tileset.getHeight` (CPU, 0.3 ms) was rejected: it answered for
-only half the fleet – checked again 2026-09-13 against the pick for every
+only half the fleet – checked again against the pick for every
 ship on screen: 12 of 49 at 1175 m, 47 of 226 in the home view, and from
 a low camera the heights it did give were off by 200–680 m. `sampleHeightMostDetailed` was rejected harder: it
 loads the finest tiles under every ship (10 000 tiles and 100 MB for one
@@ -2197,7 +2197,7 @@ bare earth, so a viaduct whose ends meet the ground comes out at street
 level – Berlin's Stadtbahn (one 6.2 km bridge range, OSM tags it
 correctly) had the S-Bahn in its own arches and 10 m under the
 Hauptbahnhof's upper level, and every Hochbahn (Berlin U1/U3, Hamburg U3,
-Cologne 13) is the same case. Since 2026-09-08
+Cologne 13) is the same case.
 [bridge-decks.ts](src/map/bridge-decks.ts) reads the deck off the tiles per
 route vertex inside a bridge range, plus stations every 30 m where a
 straight bridge way has none (Frankfurt's Friedensbrücke: one vertex in
@@ -2208,10 +2208,10 @@ for 107 directions) – and vehicles and route polylines take it, blending
 into the profile at the portals (`heightAt`). It uses `tileset.getHeight`, the tool the ships
 rejected, for two reasons that do not apply to ships: a route vertex has
 the route's own polyline drawn exactly on it at exactly the wrong height
-(a pick has seen the tiles alone only since 2026-09-13), and a vertex
+(a pick has not always seen the tiles alone), and a vertex
 that gets no answer is simply asked again – at the next surface
 generation, like everything else (see the ships' rules); measured
-2026-09-08 on real tiles: ~1 ms a ray, and since 2026-09-13 the ray no
+on real tiles: ~1 ms a ray, and the ray no
 longer reads the tile geometry back from the GPU each time (the readback
 cache under "Rendering and performance"). A ray
 answers with whatever is on top, or – where the mesh lost a thin bridge,
@@ -2248,18 +2248,18 @@ model bug.
 
 ## ADS-B (live air traffic)
 
-Built 2026-09-11 after the AIS pattern: `/api/aircraft?city=<slug>` (the
+Built after the AIS pattern: `/api/aircraft?city=<slug>` (the
 Vite middleware, `server/api/aircraft.php` in production, the extraction
 shared in [src/lib/aircraft-extract.ts](src/lib/aircraft-extract.ts) and
 held to the PHP twin by `scripts/test-aircraft-parity.mjs`),
 [AircraftLayer](src/map/AircraftLayer.ts) after VesselLayer, an
 `AircraftCard`, `#aircraft=<hex>`, `?aircraft=0`, the panel row after the
-ships. Decisions, taken with the user, that should not be re-litigated:
+ships. Decisions that should not be re-litigated:
 
 - **The source is adsb.fi's open data API** (`opendata.adsb.fi/api/v3`),
   a readsb aggregator with second-by-second updates, no key, one request
   a second for personal use, and a link asked for in return (the layer's
-  static credit – in the credits dialog only since 2026-09-13, not on
+  static credit – in the credits dialog only, not on
   screen: the terms name no place, unlike Windy's, whose courtesy line
   has to stand in the corner of the map and does). OpenSky was the alternative and lost on resolution (10 s
   anonymous, 5 s registered, credits per day). Both sides keep the rate
@@ -2268,7 +2268,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   ever requires a key for non-feeders (adsb.lol has announced it), the
   same shape is spoken by airplanes.live and adsb.lol – only the URL and
   the query helper (`adsbQuery`) would change.
-- **No altitude filter.** The user wants the traffic at cruise as much as
+- **No altitude filter.** The traffic at cruise is wanted as much as
   the approach, so every aircraft over the city is drawn, at 12 km up as
   at 400 m. The plates are drawn out to 60 km and the bodies to 40 km for
   that reason. A wide-body at cruise is a few pixels and its plate; that
@@ -2276,7 +2276,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
 - **The sky is a circle, not the box.** The endpoint serves everything
   within the circle it asks adsb.fi for – the box's corner distance plus
   `AIRCRAFT_MARGIN_NM` (6 nm) – while the camera's leash stays the box.
-  Since 2026-09-11, for the soft end of a follow: where the chase would
+  For the soft end of a follow: where the chase would
   carry the camera out of the box, `FollowCamera` parks it at the edge
   (`clampToLeash` on every layer host, `CesiumMap.clampToLeash`) and
   looks at the subject from there, turning after it until it leaves
@@ -2285,8 +2285,8 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   snapping back inside. The ships get the same soft end at the box's
   edge, though their data still ends there. `e2e/aircraft.spec.ts`
   flies one out over Rostock's eastern edge.
-- **Recorded like the harbour, by a keeper of its own (since
-  2026-09-11, the same day).** [src/lib/aircraft-archive.ts](src/lib/aircraft-archive.ts)
+- **Recorded like the harbour, by a keeper of its own.**
+  [src/lib/aircraft-archive.ts](src/lib/aircraft-archive.ts)
   is the AIS archive's pattern on the shared hour files
   (`archive-hours.ts`): a line per fix, a static line when the callsign,
   registration, type, category, squawk or position source change, a
@@ -2315,7 +2315,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   `ais-archive/`. Without the cron there is no recording at all (the
   AIS archive fills a little from the browser's own windows; this one
   does not). In dev the middleware runs the keeper from the first
-  aircraft request on. Measured 2026-09-11: the cover circle answers
+  aircraft request on. Measured: the cover circle answers
   ~460 aircraft at 21:40, 71 kB gzipped; expect the busiest city
   (Frankfurt, ~100 aircraft aloft) to record ~3 MB an hour raw, which
   the `.htaccess` deflate rule for `application/x-ndjson` shrinks to a
@@ -2341,26 +2341,27 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   into Cesium as it is. A pressure altitude – `alt_baro` from an
   aircraft that reports nothing else: multilaterated ones, older
   transponders, a fifth of the sky – is lifted onto that scale by what
-  the sky measures (`pressureLift`, since 2026-10-03): the median
+  the sky measures (`pressureLift`): the median
   geometric-minus-pressure difference of the five aircraft nearest in
   pressure altitude, within 1500 m of it, that report both. That
   difference is the geoid height plus the day's pressure and grows with
-  the height through air off the standard's temperature (Frankfurt,
-  2026-09-11: 120 m down low, 310 m at cruise; 2026-10-03, about
-  1032 hPa: 200 m down low); where fewer than three report both there,
-  `routes.heightOffset` (the geoid height the routes are calibrated
-  against) alone. Until then that was the rule everywhere and "the
-  pressure error lived with", which drew a pressure-only aircraft on
-  Frankfurt's runway 150 m under it that morning, and SWR41D up to
+  the height through air off the standard's temperature (Frankfurt on
+  one day: 120 m down low, 310 m at cruise; on a high-pressure day of
+  about 1032 hPa: 200 m down low); where fewer than three report both
+  there, `routes.heightOffset` (the geoid height the routes are
+  calibrated against) alone. Before the lift that was the rule
+  everywhere and "the pressure error lived with", which drew a
+  pressure-only aircraft on Frankfurt's runway 150 m under it one
+  morning, and SWR41D up to
   151 m under it for its first seconds after lift-off, until its own
   geometric altitude came in. Which of the two a fix carries rides with
-  the fix (the track point's ninth element, `true` for geometric, since
-  the same day), never with the record: the record is twelve seconds
+  the fix (the track point's ninth element, `true` for geometric),
+  never with the record: the record is twelve seconds
   ahead of the picture, and once it reports the ground it reports no
   altitude at all, so the approach still being played took the geoid
   height on top, and every landing hovered some forty metres over the
-  runway until the playback reached the ground and dropped onto it (the
-  user's GIFs over Fuhlsbüttel and BER). `aircraftPlaybackSample(…,
+  runway until the playback reached the ground and dropped onto it (seen
+  in recordings over Fuhlsbüttel and BER). `aircraftPlaybackSample(…,
   pressureLiftM)` puts every fix on the geometric scale before it
   interpolates; a fix without the element (a state written before it,
   three minutes' worth) takes the record's kind, geometric where the
@@ -2392,8 +2393,8 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   `AIRCRAFT_EXPIRE_MS` still leaves the map, to come back with its
   first fix on the ground. Nothing else is
   clamped – the feed's number is the truth, and a reckoned descent is
-  not the feed's number. Measured on Frankfurt's answers of
-  2026-10-03, recorded and replayed through the layer (scratch script,
+  not the feed's number. Measured on one day's Frankfurt answers,
+  recorded and replayed through the layer (scratch script,
   not kept), per landing: over the runway after the record's ground
   flag 6–10 s before, 0–0.8 s after; under it 37–50 s (down to 77 m)
   before, 0–2 s (down to 7 m, the feed's own altitude a little low on
@@ -2408,7 +2409,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   hanging in the sky is the lesser wrong, flying into a building the
   greater – and a descent near the ground stops on the runway (see
   Heights). An aircraft unheard for `AIRCRAFT_EXPIRE_MS` (60 s) leaves.
-- **The card shows the aircraft as drawn (since 2026-10-03).** The
+- **The card shows the aircraft as drawn.** The
   record is the last fix, twelve seconds ahead of the body; the card
   read it and said "on the ground" while the body was still twelve
   seconds out on its approach, which read as the body hovering over the
@@ -2426,14 +2427,14 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   is `atan2(vertical rate, ground speed)` capped at 12°, the bank is the
   reported `roll` or the coordinated turn the track rate implies, capped
   at 35°. Cesium's HPR frame: positive pitch is nose up, positive roll
-  is right wing down, which is what readsb's `roll` means too. Since
-  2026-09-15 the heading rides in the track point (its eighth element,
+  is right wing down, which is what readsb's `roll` means too.
+  The heading rides in the track point (its eighth element,
   absent on points an older state wrote) and the playback eases it on
   its own arc as `noseDeg`, beside `bearingDeg` for the motion; the
   layer draws the nose and chases along the bearing. It was the motion
   bearing plus the crab of the record's latest heading against its
-  latest track, and the user saw the aircraft spin 180° on the apron:
-  polled at Frankfurt that evening, nearly every aircraft on the ground
+  latest track, and the aircraft spun 180° on the apron:
+  polled at Frankfurt one evening, nearly every aircraft on the ground
   reports a heading and NO track (the surface position message carries
   the one and not the other), so the bearing was the azimuth of a
   parked transponder's wobble where it exceeded 5 m and north where it
@@ -2455,7 +2456,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   `tests/aircraft-models.test.ts` pins the GLB bounds against
   `ARCHETYPE_SIZE` and `AIRCRAFT_DIMS`. Surface vehicles (emitter
   category C) are dropped in the extraction: the map has no body for a
-  follow-me car. Since 2026-09-12 the aircraft have smooth 32-sided
+  follow-me car. The aircraft have smooth 32-sided
   fuselages and nacelles, profiled wings and fins, recessed engine intakes
   with fans, door outlines and satin PBR materials. `model-detail.mjs`
   holds the shared curved geometry and normal smoothing; keep hard edges
@@ -2469,7 +2470,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   triangles and normals as well as the window positions; opposite
   angular bands do not have the same height direction, so repeating one
   side's offsets on the other is not a reflection (the first strip
-  cockpit had mismatched heights on each side, 2026-09-12).
+  cockpit had mismatched heights on each side).
   `tests/aircraft-models.test.ts` checks the six connected panes, the
   centre pillar and the mirrored normals. Rotors and propellers have shaped blades in a faint
   translucent blur; the helicopter's tail rotor has an open shroud.
@@ -2483,9 +2484,9 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   fixed. `e2e/aircraft.spec.ts` checks cruise → approach → climb on the
   actual loaded GLB as well as the navigation lights. Road and rail
   vehicle GLBs must stay byte-identical when changing these helpers.
-  The three small bodies were rebuilt on 2026-09-17 against the user's
-  Cessna 172 and Airbus H140 photographs and ATR's official 72-600 side
-  elevation. `shapedShell` lofts independent crown, belly and width
+  The three small bodies were rebuilt against photographs of a Cessna
+  172 and an Airbus H140 and ATR's official 72-600 side elevation.
+  `shapedShell` lofts independent crown, belly and width
   stations; `shellPanel` clips window and paint contours against the
   actual shell triangles in front, side or top elevation and mirrors
   both geometry and winding. Do not return to angular glazing bands:
@@ -2542,7 +2543,7 @@ ships. Decisions, taken with the user, that should not be re-litigated:
   that is 15 km at the reference lens, three times the ships', because
   an airliner moves on screen from much further out.
 
-Verified 2026-09-11 with a live answer over Frankfurt: 50 aircraft in a
+Verified with a live answer over Frankfurt: 50 aircraft in a
 21 nm circle, 39 with `alt_geom`, 32 with `roll`, 3 on the ground, 2
 multilaterated; that answer is the fixture (`tests/fixtures/adsb-aircraft.json`).
 `e2e/aircraft.spec.ts` puts two aircraft on the offline map through
@@ -2562,14 +2563,14 @@ endpoint (`tests/aircraft-archive.test.ts`), like the harbour's.
 
 ## Weather (Open-Meteo)
 
-**The sky follows the simulated clock, and nothing is recorded for it
-(since 2026-09-11).** Until then the live weather was one `current`
+**The sky follows the simulated clock, and nothing is recorded for
+it.** Before that the live weather was one `current`
 reading, shown only within ten minutes of the real clock
 (`maxSimTimeDriftSeconds`, gone) – a clock set back an hour meant a dry,
 open sky over a harbour that was replaying its ships. Open-Meteo keeps
 its own past: the same forecast endpoint answers `past_days=` on the
 quarter-hour grid its models run on (`minutely_15`, the grid `current`
-is the newest step of – checked 2026-09-11, the two agree to the value),
+is the newest step of – checked: the two agree to the value),
 so [src/lib/weather.ts](src/lib/weather.ts) fetches the last
 `WEATHER_PAST_DAYS` days and the rest of today in one request (16 kB
 for three days, ~25 kB for five) every ten minutes, and the UI tick in `App.tsx` takes the step of
@@ -2577,8 +2578,7 @@ for three days, ~25 kB for five) every ten minutes, and the UI tick in `App.tsx`
 grade, the clouds' wind, the temperature on the weather button and the
 visibility that lights the airfield by day (see the airfield paragraph
 under "Cities and the data pipeline").
-Decisions: five UTC days back (three until 2026-09-14, when the
-archives and the calendar grew by two days), because the calendar's
+Decisions: five UTC days back, because the calendar's
 four Berlin days begin at 22:00 UTC of the evening before
 (`DATE_PICKER_DAYS_BACK` carries the reason); a clock set ahead shows the present's sky, never
 the forecast the answer also holds – a forecast is not a fact, and the

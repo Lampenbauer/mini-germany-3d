@@ -7,8 +7,8 @@
  * src/map/LighthousesLayer.ts). What the file carries is where a light
  * is and what it shows.
  *
- * The tagging is less tidy than the buoys' (surveyed 2026-09-13 in
- * Rostock and Kiel): the Warnemünde lighthouse is a building way with
+ * The tagging is less tidy than the buoys' (surveyed in Rostock and
+ * Kiel): the Warnemünde lighthouse is a building way with
  * seamark:type=landmark, the mole lights are man_made=lighthouse with
  * seamark:type=beacon_lateral, the Petersdorf leading light front is
  * man_made=beacon with light_minor, and many a light_minor node carries
@@ -56,7 +56,7 @@ const DIRECTIONAL_HALF_WIDTH_DEG = 2
  * mole head that lights the pier, a spotlight, a strip of lights. The
  * Warnemünde mole lights carry the floodlight as their unnumbered
  * seamark:light set, ahead of the green and the red – taken along it
- * would be the colour the mole shows (2026-09-13).
+ * would be the colour the mole shows.
  */
 const WORK_LIGHT_CATEGORIES = ['floodlight', 'spotlight', 'strip_light']
 

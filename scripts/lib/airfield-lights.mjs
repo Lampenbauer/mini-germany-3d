@@ -4,8 +4,8 @@
  * approach lighting, the PAPIs, the taxiway edge and centre-line lights,
  * the stop bars and the runway guard lights – mapped one node each as
  * aeroway=navigationaid with navigationaid=<kind>, at the big airports
- * by the thousand (Frankfurt ~10 000, Berlin ~6 000, Hamburg ~3 500,
- * counted 2026-09-13). The colour is the one ICAO Annex 14 gives the
+ * by the thousand (Frankfurt ~10 000, Berlin ~6 000, Hamburg ~3 500
+ * when counted). The colour is the one ICAO Annex 14 gives the
  * kind, unless the node says otherwise (light:colour – a threshold seen
  * from the runway is red: the runway end). The apron's floodlight masts
  * come along as the kind `flood`: man_made=mast (or tower) with

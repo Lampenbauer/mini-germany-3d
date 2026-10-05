@@ -573,7 +573,7 @@ test('the buoys come up on the water as the camera comes down, and their lantern
   // Paced, not the 500 ms of an idle map (the beam's own cap is the unit
   // test's). Polled, and read in one go with the flag: the flight the
   // hash change starts swings the frustum, and on the CI runner one tick
-  // had the tower out of it between the two reads (2026-09-16, retried)
+  // had the tower out of it between the two reads (seen once, retried)
   await expect
     .poll(
       () =>
