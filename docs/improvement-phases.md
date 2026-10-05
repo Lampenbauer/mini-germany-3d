@@ -130,9 +130,9 @@ Expected cost: negative (fewer billboards) or one point collection.
 2. **Route line width in steps** (like the near/far lift switch at
    500 m), not a per-frame `CallbackProperty`, which would make every
    polyline dynamic. Width is a constant 5 px today.
-3. **Headlights and tail lights** as points in a
+3. ~~**Headlights and tail lights** as points in a
    `PointPrimitiveCollection`, the `NavLights` pattern; the cabin glow
-   pool stays.
+   pool stays.~~ Done 2026-10-06 (`addVehicleLights` in VehicleLayer).
 
 ## Phase 5 – Instanced wagon rendering
 

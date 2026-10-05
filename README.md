@@ -76,9 +76,10 @@ flat street map.
 - **Volumetric clouds** ray-marched from the live cloud cover, drifting with
   the reported wind and shadowing the streets; rain from their base.
 - **Night** – the tiles graded into a blue night, a cabin-light pool under
-  every vehicle, OSM street lamps along the routes, runway and taxiway lights
-  in ICAO colours, buoy lanterns, sector lights and rotating lighthouse optics,
-  navigation lights on ships and aircraft.
+  every vehicle and its headlights and tail lights, OSM street lamps along
+  the routes, runway and taxiway lights in ICAO colours, buoy lanterns,
+  sector lights and rotating lighthouse optics, navigation lights on ships
+  and aircraft.
 - **Cards** – vehicle (line, destination, next stop, delay, interchange),
   stop (departures with live countdowns), line, city (the network in numbers,
   as the data states them), ship and aircraft.

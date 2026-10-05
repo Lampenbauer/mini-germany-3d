@@ -225,10 +225,10 @@ describe('ferries show their navigation lights at night', () => {
   // The camera of the harness stands ahead of the ferry and high up, so it
   // sees both sidelights and the masthead light, three points – and none
   // by day
-  it('three of them from overhead at night, none by day, none for a tram', () => {
+  it('three of them from overhead at night, none by day – and the tram beside her its two headlights', () => {
     const night = harness(() => 37.9, undefined, 1)
     night.layer.sync([snapshot('f', 'ferry'), snapshot('t', 'tram')], night.visible)
-    expect(night.layer.lightCount).toBe(3)
+    expect(night.layer.lightCount).toBe(5)
     const day = harness(() => 37.9, undefined, 0)
     day.layer.sync([snapshot('f', 'ferry')], day.visible)
     expect(day.layer.lightCount).toBe(0)
@@ -247,6 +247,31 @@ describe('ferries show their navigation lights at night', () => {
     h.layer.sync([snapshot('f', 'ferry')], new Set())
     expect(h.layer.lightCount).toBe(0)
     h.layer.sync([], h.visible)
+    expect(h.layer.lightCount).toBe(0)
+  })
+})
+
+describe('the road and rail vehicles show headlights and tail lights at night', () => {
+  // The harness camera stands north of the vehicle: ahead of one heading
+  // north, behind one heading south
+  it('two white from ahead, two red from behind, none by day or ghosted in a tunnel', () => {
+    const ahead = harness(() => 37.9, undefined, 1)
+    ahead.layer.sync([snapshot('t', 'tram')], ahead.visible)
+    expect(ahead.layer.lightCount).toBe(2)
+    const behind = harness(() => 37.9, undefined, 1)
+    behind.layer.sync([{ ...snapshot('b', 'tram'), bearing: 180 }], behind.visible)
+    expect(behind.layer.lightCount).toBe(2)
+    const day = harness(() => 37.9, undefined, 0)
+    day.layer.sync([snapshot('t', 'tram')], day.visible)
+    expect(day.layer.lightCount).toBe(0)
+    const tunnel = harness(() => 37.9, undefined, 1)
+    tunnel.layer.sync([{ ...snapshot('t', 'tram'), inTunnel: true }], tunnel.visible)
+    expect(tunnel.layer.lightCount).toBe(0)
+  })
+
+  it('goes with the body: none for a vehicle its line has switched off', () => {
+    const h = harness(() => 37.9, undefined, 1)
+    h.layer.sync([snapshot('t', 'tram')], new Set())
     expect(h.layer.lightCount).toBe(0)
   })
 })

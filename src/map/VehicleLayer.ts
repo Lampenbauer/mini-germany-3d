@@ -658,6 +658,29 @@ const FERRY_CLAMP_FINE_RANGE_AT_REFERENCE = 1_500
  * lib/nav-lights.ts for the rules and NavLights for the points).
  */
 const FERRY_LIGHTS_RANGE_M = 20_000
+
+/**
+ * The road and rail vehicles' lights at night: two white headlights at
+ * the leading end, two red tail lights at the trailing one, a hand in
+ * from the corners and this high over the road, seen from ahead and
+ * from behind over HEADLIGHT_ARC_DEG either side (a headlight shows
+ * well past abeam, a tail light nearly as far). Within the body's own
+ * range only – a light without its body is a stray point – and on the
+ * consist's end wagons, where a curve has taken them off the centre's
+ * axis (see composeWagonMatrix). The cabin glow pool stays.
+ */
+const HEADLIGHT_ARC_DEG = 100
+const VEHICLE_LIGHT_INSET_M = 0.45
+const VEHICLE_LIGHT_HEIGHT_M = 0.7
+/**
+ * How far a light stands proud of the body's end face. The point is
+ * drawn with the depth test, and a hand INSIDE the shell was hidden by
+ * the shell from anywhere near: from a distance the point's pixels
+ * reached past the body's outline and it showed, from close by nothing
+ * did (seen on the bus and the S-Bahn). A raked cab nose recedes from
+ * its tip toward the road, so the margin is a good step, not a hair.
+ */
+const VEHICLE_LIGHT_PROUD_M = 0.4
 /** The lights' brightness below which none is drawn – by day a ferry shows none. */
 const FERRY_LIGHTS_MIN_NIGHT = 0.05
 
@@ -730,6 +753,8 @@ const glowPositionScratch = new Cartesian3()
 
 const hprScratch = new HeadingPitchRoll()
 const wagonHprScratch = new HeadingPitchRoll()
+const lightOriginScratch = new Cartesian3()
+const lightAxisScratch = [new Cartesian4(), new Cartesian4(), new Cartesian4(), new Cartesian4()]
 
 /**
  * Where a wagon whose centre is `centre` meters along the path stands,
@@ -1381,6 +1406,15 @@ export class VehicleLayer {
           lights.add(at(length * 0.15, 0, record.halfHeight + 0.4), LIGHT_WHITE, night, id)
         }
       }
+      // Headlights and tail lights on the road and rail vehicles at night
+      if (
+        snap.mode !== 'ferry' &&
+        lightsOn &&
+        showBody &&
+        tunnelOpacity(snap.inTunnel, this.underground) === 1
+      ) {
+        this.addVehicleLights(record, snap, camera.positionWC, position, night)
+      }
       // A vehicle under the street is lit by nothing and casts nothing.
       // It is still DRAWN – ghosted, so the route stays followable – so
       // without this it threw a sunlit shadow onto the road above it.
@@ -1827,6 +1861,81 @@ export class VehicleLayer {
     record.modelMatrices[index] = model.modelMatrix
     record.appearanceDirty = true
     this.host.requestRender()
+  }
+
+  /**
+   * The headlights and tail lights of one vehicle this tick (see
+   * HEADLIGHT_ARC_DEG). The lights stand on the end wagons' own frames
+   * where the body is a consist – the wagon matrices carry the model
+   * scale and a flipped cab car's turn, both taken out here – and on
+   * the vehicle's base pose for a box body.
+   */
+  private addVehicleLights(
+    record: VehicleRecord,
+    snap: VehicleSnapshot,
+    cameraPosition: Cartesian3,
+    position: Cartesian3,
+    intensity: number,
+  ): void {
+    const { length, width } = snap.vehicle
+    const id = `vehicle:${snap.id}`
+    Cartesian3.subtract(cameraPosition, position, toCameraScratch)
+    const bearing = viewBearingDeg(
+      axisDot(record.matrix, 0, toCameraScratch),
+      axisDot(record.matrix, 1, toCameraScratch),
+    )
+    const headSeen = Math.abs(bearing) <= HEADLIGHT_ARC_DEG
+    const tailSeen = Math.abs(bearing) >= 180 - HEADLIGHT_ARC_DEG
+    if (!headSeen && !tailSeen) return
+    const z = -record.halfHeight + VEHICLE_LIGHT_HEIGHT_M
+    const y = width / 2 - VEHICLE_LIGHT_INSET_M
+    const wagons = record.modelMatrices.length
+    // The frame a light is placed in: the end wagon's, or the vehicle's
+    const endFrame = (leading: boolean): { origin: Cartesian3; matrix: Matrix4; halfLength: number } => {
+      const index = leading ? 0 : wagons - 1
+      const wagonMatrix = wagons > 1 ? record.modelMatrices[index] : undefined
+      if (!wagonMatrix) {
+        return { origin: position, matrix: record.matrix, halfLength: length / 2 }
+      }
+      return {
+        origin: Matrix4.getTranslation(wagonMatrix, lightOriginScratch),
+        matrix: wagonMatrix,
+        halfLength: record.wagonLengths[index] / 2,
+      }
+    }
+    const place = (frame: ReturnType<typeof endFrame>, x: number, yy: number): Cartesian3 => {
+      // Unit axes of the frame: the wagon matrices are scaled, and a
+      // flipped cab car's x points the other way – the vehicle's x says
+      // which way the consist travels
+      const ax = Matrix4.getColumn(frame.matrix, 0, lightAxisScratch[0])
+      const ay = Matrix4.getColumn(frame.matrix, 1, lightAxisScratch[1])
+      const az = Matrix4.getColumn(frame.matrix, 2, lightAxisScratch[2])
+      const forward = Matrix4.getColumn(record.matrix, 0, lightAxisScratch[3])
+      const flip = Cartesian4.dot(ax, forward) < 0 ? -1 : 1
+      const out = Cartesian3.clone(frame.origin, lightWorldScratch)
+      const addAxis = (axis: Cartesian4, meters: number) => {
+        const norm = Math.hypot(axis.x, axis.y, axis.z) || 1
+        out.x += (axis.x / norm) * meters
+        out.y += (axis.y / norm) * meters
+        out.z += (axis.z / norm) * meters
+      }
+      addAxis(ax, flip * x)
+      addAxis(ay, flip * yy)
+      addAxis(az, z)
+      return out
+    }
+    if (headSeen) {
+      const front = endFrame(true)
+      const x = front.halfLength + VEHICLE_LIGHT_PROUD_M
+      this.lights.add(place(front, x, y), LIGHT_WHITE, intensity, id)
+      this.lights.add(place(front, x, -y), LIGHT_WHITE, intensity, id)
+    }
+    if (tailSeen) {
+      const rear = endFrame(false)
+      const x = -rear.halfLength - VEHICLE_LIGHT_PROUD_M
+      this.lights.add(place(rear, x, y), LIGHT_RED, intensity, id)
+      this.lights.add(place(rear, x, -y), LIGHT_RED, intensity, id)
+    }
   }
 
   /**

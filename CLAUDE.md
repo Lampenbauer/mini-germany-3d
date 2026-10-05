@@ -2641,7 +2641,21 @@ ships. Decisions that should not be re-litigated:
   rule). Do not bring the status back as a reason for running lights.
   The scheduled ferries (VehicleLayer) wear the same lights whenever
   they are on the map at night, dwelling at the pier included – a ferry
-  in service keeps them on; `tests/cesium-ferry-float.test.ts` pins it. The screened lights show over
+  in service keeps them on; `tests/cesium-ferry-float.test.ts` pins it.
+  The road and rail vehicles wear two white headlights at the leading
+  end and two red tail lights at the trailing one through the same
+  pool (`addVehicleLights`, Phase 4 of the backlog, 2026-10-06): at
+  night, within the body's range only (a light without its body is a
+  stray point), never on a ghosted body, seen from ahead and from
+  behind over `HEADLIGHT_ARC_DEG` (100°) either side, on the end
+  wagons' own frames where the body is a consist, so a curve does not
+  leave them beside the cab, and `VEHICLE_LIGHT_PROUD_M` (0.4 m) proud
+  of the end face: a hand inside the shell they were hidden by the shell
+  from anywhere near and showed from a distance alone, where the
+  point's pixels reached past the outline (seen on the bus and the
+  S-Bahn before the margin). The test file pins them beside the ferry's;
+  `__mg3d.navLights().ferries` counts the scheduled vehicles' lights,
+  the ferries' among them. The screened lights show over
   their real arcs (112.5° sidelights at sea, 110° in the air, the stern
   and tail light the rest) – from the chase camera behind an aircraft
   the tail light and the strobes, never the red and green. A flash that

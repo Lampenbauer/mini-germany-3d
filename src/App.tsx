@@ -180,6 +180,7 @@ export interface Mg3dTestApi {
   /** Aircraft currently drawn (0 = layer off or no data yet). */
   aircraftCount: () => number
   /** The navigation lights on at the last tick, per fleet (see map/NavLights.ts). */
+  /** Lights on this tick per fleet; `ferries` counts every scheduled vehicle's, the ferries' among them. */
   navLights: () => { aircraft: number; ships: number; ferries: number }
   /** Aircraft selection by ICAO address, as a click on a body does it. */
   selectAircraft: (hex: string | null) => void
