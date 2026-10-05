@@ -94,6 +94,7 @@ import {
 } from './WeatherOverlay'
 import type { PreparedNetwork } from '@/data/network-types'
 import { sampleAtDistance } from '@/lib/geo'
+import { HeightField } from './height-field'
 import type { StreetLampData } from '@/data/street-lamps'
 import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { BuoyData } from '@/data/buoys'
@@ -272,6 +273,8 @@ const STOP_HEIGHT_CHUNK = 100
  * demand by resolveStopHeights() once the camera gets near them.
  */
 const STOP_BOOTSTRAP_SAMPLES = 40
+/** The least time between two route rewrites for a changed height field (see flushFieldRewrites). */
+const FIELD_REWRITE_INTERVAL_MS = 250
 
 
 
@@ -766,6 +769,16 @@ export class CesiumMap {
   private readonly routes: RoutesLayer
   /** The city's network as given to addRoutes – the wagons' path sampler reads it. */
   private network: PreparedNetwork | null = null
+  /**
+   * The NHN→ellipsoid offset along every direction (see map/height-field.ts):
+   * the calibrated city offset as its base, the stops measured on the
+   * tiles as its samples. The routes, the vehicles and the bridge decks'
+   * portals read it; the lamps and the lights keep the base.
+   */
+  private readonly heightField: HeightField
+  /** Directions whose field changed and whose routes still wait for their rewrite. */
+  private readonly fieldDirty = new Set<string>()
+  private lastFieldRewriteAt = 0
   /** Bridge decks measured on the tiles for routes and vehicles (see bridge-decks.ts). */
   private readonly bridgeDecks: BridgeDecks
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -1051,6 +1064,7 @@ export class CesiumMap {
       opts.city,
       opts.clouds ?? config.weather.clouds3dDefault,
     )
+    this.heightField = new HeightField(opts.city.terrain.geoidOffsetFallback)
     this.routes = new RoutesLayer(this.viewer, {
       requestRender: () => this.requestRender(),
       offline: opts.offline === true,
@@ -1058,7 +1072,13 @@ export class CesiumMap {
         return map.flatGround
       },
       deckHeight: (lineId, direction, distance) =>
-        this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
+        this.bridgeDecks.heightAt(
+          lineId,
+          direction,
+          distance,
+          this.heightField.offsetAt(lineId, direction, distance),
+        ),
+      offsetAt: (lineId, direction, distance) => this.heightField.offsetAt(lineId, direction, distance),
       bridgeStations: (lineId, direction, from, to) =>
         this.bridgeDecks.stationsBetween(lineId, direction, from, to),
     })
@@ -1144,7 +1164,14 @@ export class CesiumMap {
         return map.routes.heightOffset
       },
       bridgeDeckHeight: (lineId, direction, distance) =>
-        this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
+        this.bridgeDecks.heightAt(
+          lineId,
+          direction,
+          distance,
+          this.heightField.offsetAt(lineId, direction, distance),
+        ),
+      groundOffsetAt: (lineId, direction, distance) =>
+        this.heightField.offsetAt(lineId, direction, distance),
       // Where a point `distance` meters along a direction's path lies –
       // the consists' wagons stand on their own points of it
       pathSample: (lineId, direction, distance) => {
@@ -1187,6 +1214,17 @@ export class CesiumMap {
     })
     this.stops = new StopsLayer(this.viewer, {
       requestRender: () => this.requestRender(),
+      stopMeasured: (id, nhn, height, fromDistance) => {
+        // A stop measured fine moves the field around it: the vehicles
+        // read it on their next tick, the routes are rewritten one
+        // direction at a time (see flushFieldRewrites). Fine means near
+        // AND with the tiles loaded – the ships' rule: a coarse tile
+        // under a near camera still answers metres too high
+        if (this.getRenderHints().tilesLoading) return
+        for (const key of this.heightField.measure(id, height - nhn, fromDistance)) {
+          this.fieldDirty.add(key)
+        }
+      },
       obstacles: () => map.webcamsLayer.screenRects,
       obstaclesVersion: () => map.webcamsLayer.screenRectsVersion,
       sampleGroundHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
@@ -1823,6 +1861,7 @@ export class CesiumMap {
       this.vehicleLayer.setGroundHeight(this.defaultGroundHeight)
     }
     this.routes.resetHeightOffset(city.terrain.geoidOffsetFallback)
+    this.heightField.setBase(city.terrain.geoidOffsetFallback)
     const limits = boundingBoxCameraLimits(city.boundingBox, config.cameraLimits.maxHeightMeters)
     if (transition === 'jump') {
       this.cameraLimits = limits
@@ -1911,6 +1950,8 @@ export class CesiumMap {
    */
   clearCity(): void {
     this.network = null
+    this.heightField.clear()
+    this.fieldDirty.clear()
     this.vehicleLayer.clear()
     this.webcamsLayer.clear()
     this.stops.clear()
@@ -2586,6 +2627,7 @@ export class CesiumMap {
     this.noteCameraAtRest()
     this.stops.update()
     this.bridgeDecks.update()
+    this.flushFieldRewrites()
     this.buoys.sync()
     const beams = this.lighthouses.sync(simMs)
     const info = this.vehicleLayer.sync(snapshots, visibleLines, simMs)
@@ -2944,10 +2986,40 @@ export class CesiumMap {
    */
   addRoutes(network: PreparedNetwork): void {
     this.network = network
+    this.heightField.add(network)
     this.routes.add(network)
     if (!this.opts.offline && this.opts.fixedGroundHeight === undefined) {
       this.bridgeDecks.add(network)
     }
+  }
+
+  /**
+   * Rewrites the routes of one direction whose height field changed,
+   * at most one every FIELD_REWRITE_INTERVAL_MS – every rewrite
+   * re-batches the polyline geometry, as the bridge decks' do, and a
+   * camera coming down over a stop measures a few of them a pass.
+   */
+  private flushFieldRewrites(now = performance.now()): void {
+    if (this.fieldDirty.size === 0 || now - this.lastFieldRewriteAt < FIELD_REWRITE_INTERVAL_MS) return
+    const key = this.fieldDirty.values().next().value as string
+    this.fieldDirty.delete(key)
+    this.lastFieldRewriteAt = now
+    const [lineId, direction] = key.split('|')
+    this.routes.refreshDirection(lineId, direction === '1' ? 1 : 0)
+  }
+
+  /** Debug/test: the height field – its base, its samples, and what it says at a point (see __mg3d.groundOffsets). */
+  getHeightFieldInfo(): { base: number; samples: number; pending: number } {
+    return {
+      base: this.heightField.baseOffset,
+      samples: this.heightField.sampleCount,
+      pending: this.fieldDirty.size,
+    }
+  }
+
+  /** Debug/test: the field's offset at a point of a direction. */
+  groundOffsetAt(lineId: string, direction: 0 | 1, distance: number): number {
+    return this.heightField.offsetAt(lineId, direction, distance)
   }
 
   /** Debug/test: progress of the bridge deck measurement (see __mg3d.bridgeDecks). */
@@ -3177,6 +3249,7 @@ export class CesiumMap {
       nhnOffsets.sort((a, b) => a - b)
       const offset = nhnOffsets[Math.floor(nhnOffsets.length / 2)]
       if (offset > 20 && offset < 60) {
+        this.heightField.setBase(offset)
         this.routes.calibrateHeightOffset(offset)
         console.info(
           `[MiniGermany3D] Route heights calibrated: NHN→ellipsoid offset ` +

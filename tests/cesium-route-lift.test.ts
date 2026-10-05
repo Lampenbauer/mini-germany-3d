@@ -62,9 +62,9 @@ describe('route lift by camera height', () => {
     expect(h.layer.currentBaseLift).toBe(0.8)
 
     h.layer.updateForCameraHeight(100)
-    expect(h.layer.currentBaseLift).toBe(0.15)
+    expect(h.layer.currentBaseLift).toBe(0.3)
     const low = h.heightsOf(piece)
-    low.forEach((height, i) => expect(high[i] - height).toBeCloseTo(0.65, 3))
+    low.forEach((height, i) => expect(high[i] - height).toBeCloseTo(0.5, 3))
 
     h.layer.updateForCameraHeight(ROUTE_LIFT_SWITCH_HEIGHT + 200)
     expect(h.layer.currentBaseLift).toBe(0.8)
@@ -76,9 +76,9 @@ describe('route lift by camera height', () => {
     h.layer.updateForCameraHeight(ROUTE_LIFT_SWITCH_HEIGHT - 20)
     expect(h.layer.currentBaseLift).toBe(0.8)
     h.layer.updateForCameraHeight(ROUTE_LIFT_SWITCH_HEIGHT - 100)
-    expect(h.layer.currentBaseLift).toBe(0.15)
+    expect(h.layer.currentBaseLift).toBe(0.3)
     h.layer.updateForCameraHeight(ROUTE_LIFT_SWITCH_HEIGHT + 20)
-    expect(h.layer.currentBaseLift).toBe(0.15)
+    expect(h.layer.currentBaseLift).toBe(0.3)
   })
 })
 
@@ -97,12 +97,12 @@ describe('the flat map', () => {
     h.heightsOf(piece).forEach((height) => expect(height).toBeCloseTo(0.8, 3))
     // The lift still follows the camera on the plane
     h.layer.updateForCameraHeight(100)
-    h.heightsOf(piece).forEach((height) => expect(height).toBeCloseTo(0.15, 3))
+    h.heightsOf(piece).forEach((height) => expect(height).toBeCloseTo(0.3, 3))
 
     // And the tiles again: the profile is where it was, at the near lift
     flat.flatGround = false
     h.layer.relayout()
-    h.heightsOf(piece).forEach((height, i) => expect(height).toBeCloseTo(profiled[i] - 0.65, 3))
+    h.heightsOf(piece).forEach((height, i) => expect(height).toBeCloseTo(profiled[i] - 0.5, 3))
   })
 })
 

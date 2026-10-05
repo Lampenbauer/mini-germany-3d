@@ -185,9 +185,11 @@ src/cities/kiel/
 **Sources.** Routes, stops, tunnels, bridges, lamps, airfield lights, buoys
 and lighthouses come from OpenStreetMap through Overpass. Terrain heights come
 from [Mapterhorn](https://mapterhorn.com)'s tiles, built from the states'
-open 1 m elevation models, sampled per route vertex, stop and lamp (bridge
-decks are measured on Google's tiles at run time instead, since a bare-earth
-model knows no viaduct). Timetables come from the Germany-wide
+open 1 m elevation models, sampled per route vertex, stop and lamp, with a
+vertex added wherever a straight stretch's height would miss the terrain
+(bridge decks are measured on Google's tiles at run time instead, since a
+bare-earth model knows no viaduct, and the stops measured there correct the
+routes' height around them). Timetables come from the Germany-wide
 [gtfs.de](https://gtfs.de) feed (DELFI): one service day per city, the
 busiest of the next three weeks, every trip with its own stop times (as
 shared patterns, so a city's file stays small; where the free feed

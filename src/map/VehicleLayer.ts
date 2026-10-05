@@ -99,6 +99,11 @@ export interface VehicleLayerHost {
   /** NHN→ellipsoid offset the route profile heights are drawn at. */
   readonly routeHeightOffset: number
   /**
+   * The NHN→ellipsoid offset at a point of a direction (see
+   * map/height-field.ts); absent, routeHeightOffset everywhere.
+   */
+  groundOffsetAt?(lineId: string, direction: 0 | 1, distance: number): number
+  /**
    * Ellipsoidal height of a bridge deck measured on the tiles under a
    * point of a direction (see map/bridge-decks.ts), undefined where the
    * profile height applies. Optional: without it every vehicle rides
@@ -1143,7 +1148,9 @@ export class VehicleLayer {
       const routeGroundHeight =
         this.host.fixedGroundHeight === undefined && !this.host.flatGround && snap.nhn !== undefined
           ? (this.host.bridgeDeckHeight?.(snap.lineId, snap.direction, snap.distance) ??
-            snap.nhn + this.host.routeHeightOffset)
+            snap.nhn +
+              (this.host.groundOffsetAt?.(snap.lineId, snap.direction, snap.distance) ??
+                this.host.routeHeightOffset))
           : undefined
       if (routeGroundHeight !== undefined) {
         record.groundHeight = routeGroundHeight

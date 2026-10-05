@@ -63,6 +63,12 @@ export interface StopsLayerHost {
   obstacles?: () => readonly ScreenRect[]
   /** Bumped whenever the obstacles changed without the camera moving. */
   obstaclesVersion?: () => number
+  /**
+   * A stop was measured on the tiles: its id, its DGM height, the tile
+   * height, and how far the camera stood (0 for the bootstrap's most
+   * detailed sample). The height field is fed from it (map/height-field.ts).
+   */
+  stopMeasured?(id: string, nhn: number, height: number, fromDistance: number): void
 }
 
 /**
@@ -435,6 +441,7 @@ export class StopsLayer {
           // camera-dependent sampling in resolveHeights() leaves it alone.
           stop.sampledFrom = 0
           this.placeStop(stop, height)
+          if (stop.nhn !== undefined) this.host.stopMeasured?.(stop.id, stop.nhn, height, 0)
         },
       }))
   }
@@ -810,6 +817,7 @@ export class StopsLayer {
       }
       stop.sampledFrom = nearestDistances[i]
       this.placeStop(stop, height)
+      if (stop.nhn !== undefined) this.host.stopMeasured?.(stop.id, stop.nhn, height, stop.sampledFrom)
       this.host.requestRender()
     }
   }

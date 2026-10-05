@@ -39,9 +39,11 @@ import { createTerrainSampler, terrainAttribution, terrainSummary } from './lib/
 import {
   applyBridgeProfile,
   cumulativeDistances,
+  densifyByHeight,
   fillHeightGaps,
   indexPreviousHeights,
   normalizeRanges,
+  removeInserted,
   sameTerrainSource,
   withTerrainAttribution,
 } from './lib/route-heights.mjs'
@@ -70,23 +72,33 @@ async function main(city, paths) {
 
   let vertexCount = 0
   let filledCount = 0
+  let insertedCount = 0
   let reusedDirs = 0
   let minH = Infinity
   let maxH = -Infinity
 
   for (const line of network.lines) {
     for (const dir of line.directions) {
-      const reused = heightsByPath.get(JSON.stringify(dir.path))
+      // The path as the simplify step left it: a rerun over a network
+      // this step already densified must not densify it again
+      const original = removeInserted(dir.path, dir.inserted)
+      const reused = heightsByPath.get(JSON.stringify(original))
       if (reused) {
-        dir.heights = reused
+        dir.path = reused.path
+        dir.heights = reused.heights
+        if (reused.inserted.length > 0) dir.inserted = reused.inserted
+        else delete dir.inserted
         reusedDirs++
-        vertexCount += reused.length
-        for (const h of reused) {
+        vertexCount += reused.heights.length
+        insertedCount += reused.inserted.length
+        for (const h of reused.heights) {
           if (h < minH) minH = h
           if (h > maxH) maxH = h
         }
         continue
       }
+      dir.path = original
+      delete dir.inserted
       if (line.mode === 'ferry' && city.terrain.waterLevelNhn !== null) {
         // Water: a coastal terrain model has no meaningful height mid-river;
         // ferries ride at the city's water level (0 m NHN on the Baltic).
@@ -115,9 +127,21 @@ async function main(city, paths) {
             `${missing} of ${heights.length} vertices without terrain data (${pct} %) – interpolated`,
         )
       }
-      applyBridgeProfile(heights, cum, normalizeRanges(dir.bridges, cum[cum.length - 1]))
-      dir.heights = heights.map(round1)
-      vertexCount += heights.length
+      // Vertices where the chord misses the terrain, then the bridge
+      // decks over the densified path (its distances are the same)
+      const dense = await densifyByHeight(
+        dir.path,
+        heights,
+        (lon, lat) => sampler.heightAt(lon, lat),
+        dir.bridges,
+      )
+      dir.path = dense.path
+      if (dense.inserted.length > 0) dir.inserted = dense.inserted
+      const denseCum = cumulativeDistances(dir.path)
+      applyBridgeProfile(dense.heights, denseCum, normalizeRanges(dir.bridges, denseCum[denseCum.length - 1]))
+      dir.heights = dense.heights.map(round1)
+      vertexCount += dir.heights.length
+      insertedCount += dense.inserted.length
       filledCount += filled
       for (const h of dir.heights) {
         if (h < minH) minH = h
@@ -150,9 +174,18 @@ async function main(city, paths) {
   writeFileSync(FILE, JSON.stringify(network, null, 2) + '\n', 'utf8')
   console.log(
     `\n✅ ${FILE}: heights for ${vertexCount} route vertices ` +
-      `(${filledCount} interpolated) and ${stopCount} stops, ` +
-      `range ${minH.toFixed(1)}–${maxH.toFixed(1)} m NHN`,
+      `(${filledCount} interpolated, ${insertedCount} inserted where the chord missed the terrain) ` +
+      `and ${stopCount} stops, range ${minH.toFixed(1)}–${maxH.toFixed(1)} m NHN`,
   )
+  const fallback = Object.entries(sampler.stats.fallbackSamples ?? {})
+  if (fallback.length > 0) {
+    console.warn(
+      `  ⚠ Samples answered below the city's zoom ${sampler.zoom}: ` +
+        fallback.map(([zoom, n]) => `${n} from z${zoom}`).join(', ') +
+        ' – a Mapterhorn hole; below z13 that is the 30 m surface model, metres over the ground ' +
+        '(Hamburg carries its own tiles for it, see scripts/build-terrain-patch.mjs)',
+    )
+  }
   if (reusedDirs > 0 || reusedStops > 0) {
     console.log(
       `   Reused from PREV_NETWORK: ${reusedDirs} direction(s), ${reusedStops} stop(s) (unchanged geometry)`,

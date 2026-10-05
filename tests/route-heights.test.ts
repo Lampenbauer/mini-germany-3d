@@ -10,10 +10,12 @@ import {
 } from '../scripts/lib/terrain.mjs'
 import {
   applyBridgeProfile,
+  densifyByHeight,
   fillHeightGaps,
   heightAtDistance,
   indexPreviousHeights,
   normalizeRanges,
+  removeInserted,
   sameTerrainSource,
   withTerrainAttribution,
 } from '../scripts/lib/route-heights.mjs'
@@ -100,7 +102,7 @@ describe('MapterhornSampler', () => {
     const h = await sampler.heightAt(...lonLatFromPixel(px, py, 3))
     expect(h).toBeCloseTo(plane(px, py), 3)
     expect(fake.fetched).toEqual(['3/1/1'])
-    expect(sampler.stats).toEqual({ tiles: 1, bytes: 5, failedTiles: 0, localTiles: 0 })
+    expect(sampler.stats).toEqual({ tiles: 1, bytes: 5, failedTiles: 0, localTiles: 0, fallbackSamples: {} })
   })
 
   it('reads a tile from the city folder before asking the server', async () => {
@@ -116,7 +118,7 @@ describe('MapterhornSampler', () => {
     const [px, py] = [1000.25, 700.75]
     expect(await sampler.heightAt(...lonLatFromPixel(px, py, 3))).toBeCloseTo(plane(px, py) + TILE_SIZE, 3)
     expect(fake.fetched).toEqual([])
-    expect(sampler.stats).toEqual({ tiles: 0, bytes: 0, failedTiles: 0, localTiles: 1 })
+    expect(sampler.stats).toEqual({ tiles: 0, bytes: 0, failedTiles: 0, localTiles: 1, fallbackSamples: {} })
     // The neighbour is not in the folder: fetched as before.
     await sampler.heightAt(...lonLatFromPixel(100, 700, 3))
     expect(fake.fetched).toEqual(['3/0/1'])
@@ -326,7 +328,7 @@ describe('indexPreviousHeights', () => {
 
   it('indexes directions by geometry and stops by id + coordinate', () => {
     const { heightsByPath, nhnByStop } = indexPreviousHeights(prev)
-    expect(heightsByPath.get(JSON.stringify([[12.1, 54.0], [12.2, 54.1]]))).toEqual([7.5, 9.1])
+    expect(heightsByPath.get(JSON.stringify([[12.1, 54.0], [12.2, 54.1]]))?.heights).toEqual([7.5, 9.1])
     expect(nhnByStop.get('a:12.1:54')).toBe(7.5)
     expect(nhnByStop.has('b:12.2:54.1')).toBe(false)
   })
@@ -367,5 +369,66 @@ describe('prepareNetwork with height data', () => {
     const network = prepareNetwork(broken)
     expect(network.lineById.get('T')!.directions[0].heights).toBeUndefined()
     expect(network.lineById.get('T')!.directions[1].heights).toBeUndefined()
+  })
+})
+
+describe('densifyByHeight (vertices where the chord misses the terrain)', () => {
+  // A straight 1.6 km path of two vertices over a terrain that rises to a
+  // crest in the middle: the chord between the ends misses it by metres
+  const path: [number, number][] = [
+    [12.0, 54.0],
+    [12.0, 54.0 + 1600 / 111_320],
+  ]
+  const crest = (_lon: number, lat: number) => {
+    const along = (lat - 54.0) * 111_320
+    return 10 + 6 * Math.sin((Math.PI * along) / 1600)
+  }
+  const terrain = async (lon: number, lat: number) => crest(lon, lat)
+
+  it('inserts vertices until every chord lies within the tolerance, and names them', async () => {
+    const dense = await densifyByHeight(path, [10, 10], terrain)
+    expect(dense.path.length).toBeGreaterThan(5)
+    expect(dense.heights).toHaveLength(dense.path.length)
+    expect(dense.path[0]).toEqual(path[0])
+    expect(dense.path[dense.path.length - 1]).toEqual(path[1])
+    // The inserted indices are exactly the vertices that are new
+    expect(dense.inserted).toHaveLength(dense.path.length - 2)
+    expect(removeInserted(dense.path, dense.inserted)).toEqual(path)
+    // Every remaining chord is within the tolerance (checked at its middle)
+    for (let i = 0; i + 1 < dense.path.length; i++) {
+      const a = dense.path[i]
+      const b = dense.path[i + 1]
+      const midLat = (a[1] + b[1]) / 2
+      const chord = (dense.heights[i] + dense.heights[i + 1]) / 2
+      const length = (b[1] - a[1]) * 111_320
+      if (length >= 40) expect(Math.abs(crest(12, midLat) - chord)).toBeLessThanOrEqual(0.31)
+    }
+    // The crest itself is on the path now
+    expect(Math.max(...dense.heights)).toBeGreaterThan(15)
+  })
+
+  it('leaves flat ground, short segments and bridge spans alone', async () => {
+    const flat = await densifyByHeight(path, [10, 10], async () => 10)
+    expect(flat.inserted).toEqual([])
+    expect(flat.path).toEqual(path)
+    const short: [number, number][] = [[12.0, 54.0], [12.0, 54.0 + 30 / 111_320]]
+    const tiny = await densifyByHeight(short, [10, 10], terrain)
+    expect(tiny.inserted).toEqual([])
+    // The whole path is a bridge: its profile is the deck, not the terrain
+    const bridged = await densifyByHeight(path, [10, 10], terrain, [[0, 1600]])
+    expect(bridged.inserted).toEqual([])
+  })
+
+  it('is reused by the original path, densified vertices and all', async () => {
+    const dense = await densifyByHeight(path, [10, 10], terrain)
+    const prev = {
+      lines: [{ directions: [{ path: dense.path, heights: dense.heights, inserted: dense.inserted }] }],
+      stops: {},
+    }
+    const { heightsByPath } = indexPreviousHeights(prev)
+    const reused = heightsByPath.get(JSON.stringify(path))
+    expect(reused?.path).toEqual(dense.path)
+    expect(reused?.inserted).toEqual(dense.inserted)
+    expect(heightsByPath.has(JSON.stringify(dense.path))).toBe(false)
   })
 })

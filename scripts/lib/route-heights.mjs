@@ -140,7 +140,17 @@ export function indexPreviousHeights(prevNetwork) {
   for (const line of prevNetwork.lines ?? []) {
     for (const dir of line.directions ?? []) {
       if (dir.heights && dir.path && dir.heights.length === dir.path.length) {
-        heightsByPath.set(JSON.stringify(dir.path), dir.heights)
+        // Keyed by the path as it came from the simplify step – the
+        // vertices the heights step inserted taken out again (see
+        // densifyByHeight) – and the reuse hands back the whole of what
+        // was written: the densified path, its heights, the inserted
+        // indices. A network unchanged in OSM thus fetches no tile.
+        const original = removeInserted(dir.path, dir.inserted)
+        heightsByPath.set(JSON.stringify(original), {
+          path: dir.path,
+          heights: dir.heights,
+          inserted: dir.inserted ?? [],
+        })
       }
     }
   }
@@ -200,4 +210,76 @@ export function applyBridgeProfile(heights, cum, bridgeRanges, opts = {}) {
       heights[i] = h0 + (h1 - h0) * t + deckClearanceMeters * feather
     }
   }
+}
+
+/** A path without the vertices at the given indices (the ones densifyByHeight inserted). */
+export function removeInserted(path, inserted) {
+  if (!inserted || inserted.length === 0) return path
+  const skip = new Set(inserted)
+  return path.filter((_, i) => !skip.has(i))
+}
+
+/** Default tuning of the height densification (meters). */
+export const DENSIFY_DEFAULTS = {
+  /** A chord that misses the terrain by more than this gets a vertex at its middle. */
+  toleranceMeters: 0.3,
+  /** A segment shorter than this is left as it is, whatever the terrain does. */
+  minSegmentMeters: 20,
+  /** Halvings per original segment at most – a 3 km chord ends at 50 m pieces. */
+  maxDepth: 6,
+}
+
+/**
+ * Inserts vertices where the straight height chord between two vertices
+ * misses the terrain: the simplify step is two-dimensional, so a straight
+ * street keeps only its end vertices whatever the ground does between
+ * them – Berlin had a thousand segments over 300 m and the longest 3.5 km
+ * – and the route and its vehicles ran a metre over a dip or through a
+ * crest. Each segment is halved, recursively, while the terrain at the
+ * middle lies further than `toleranceMeters` from the chord and the
+ * piece is longer than `minSegmentMeters`; a segment inside a bridge
+ * range is left alone (its profile is the deck, see applyBridgeProfile).
+ * The inserted vertices lie ON the chord in plan, rounded like every
+ * path vertex (six decimals), so the distances along the path of
+ * everything already there do not move. `sampleAt(lon, lat)` is the
+ * terrain, async, undefined where it has nothing.
+ *
+ * Returns the new path, heights and the indices of the inserted vertices
+ * (for indexPreviousHeights to take them out again).
+ */
+export async function densifyByHeight(path, heights, sampleAt, bridges = [], options = {}) {
+  const { toleranceMeters, minSegmentMeters, maxDepth } = { ...DENSIFY_DEFAULTS, ...options }
+  const cum = cumulativeDistances(path)
+  const total = cum[cum.length - 1]
+  const inBridge = (from, to) =>
+    normalizeRanges(bridges, total).some(([start, end]) => from < end && to > start)
+  const outPath = [path[0]]
+  const outHeights = [heights[0]]
+  const inserted = []
+  const round6 = (v) => Number(v.toFixed(6))
+
+  const refine = async (a, ha, b, hb, from, to, depth) => {
+    const length = to - from
+    if (depth >= maxDepth || length < 2 * minSegmentMeters) return
+    const mid = [round6((a[0] + b[0]) / 2), round6((a[1] + b[1]) / 2)]
+    const hm = await sampleAt(mid[0], mid[1])
+    if (hm === undefined || !Number.isFinite(hm)) return
+    const chord = (ha + hb) / 2
+    if (Math.abs(hm - chord) <= toleranceMeters) return
+    const middle = (from + to) / 2
+    await refine(a, ha, mid, hm, from, middle, depth + 1)
+    inserted.push(outPath.length)
+    outPath.push(mid)
+    outHeights.push(hm)
+    await refine(mid, hm, b, hb, middle, to, depth + 1)
+  }
+
+  for (let i = 0; i + 1 < path.length; i++) {
+    if (!inBridge(cum[i], cum[i + 1])) {
+      await refine(path[i], heights[i], path[i + 1], heights[i + 1], cum[i], cum[i + 1], 0)
+    }
+    outPath.push(path[i + 1])
+    outHeights.push(heights[i + 1])
+  }
+  return { path: outPath, heights: outHeights, inserted }
 }

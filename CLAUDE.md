@@ -1015,6 +1015,65 @@ now fails the city rather than write an empty schedule (the local cache
 in `scripts/.cache/gtfs.zip` is unconditional – delete it for a fresh
 feed; the first run wrote thirteen empty files from a month-old one).
 
+**The height chord is densified where it misses the terrain, and the
+offset is a field.** Two of the reasons a line floated or sank (Phase 3
+of [docs/improvement-phases.md](docs/improvement-phases.md), 2026-10-06):
+
+- The simplify step is two-dimensional, so a straight street kept only
+  its end vertices whatever the ground did between them (Berlin: a
+  thousand segments over 300 m, the longest 3.5 km), and the height
+  between two vertices was a chord. `densifyByHeight` in
+  [route-heights.mjs](scripts/lib/route-heights.mjs) halves a segment,
+  recursively, while the terrain at its middle lies more than 0.3 m off
+  the chord and the piece is longer than 20 m – not inside a bridge
+  range, whose profile is the deck – and writes the inserted indices as
+  `inserted` on the direction, which only the pipeline reads: the reuse
+  from `PREV_NETWORK` keys the heights by the path WITHOUT them, so an
+  unchanged network still fetches no tile, and the simplify step drops
+  the field with the heights. Berlin gained 2 183 vertices (5.6 %); a
+  blanket 20 m densification would have been ×3.5 and was rejected for
+  it (`tests/network.test.ts` runs over every point).
+- The NHN→ellipsoid offset was one median per city, and Google's mesh
+  is a surface model whose distance to the bare-earth DGM differs from
+  quarter to quarter. [height-field.ts](src/map/height-field.ts) (pure,
+  tested) keeps that median as its base and takes every stop the stops
+  layer measures on the tiles – fine, from within `FIELD_FINE_RANGE_M`
+  (1.5 km) with the tiles loaded (`tilesLoading`, the ships' rule; a
+  coarse tile answers metres too high), in band, within
+  `FIELD_BAND_M` (4 m) of the base, or it is a hall roof – as a sample
+  at the stop's distance along every direction calling there; between
+  samples the offset runs from one to the next, a sample's say fades to
+  the base over `FIELD_REACH_M` (1 km), a direction with no sample is on
+  the base as before. The routes (`offsetAt` on the host, per vertex),
+  the vehicles (`groundOffsetAt`) and the bridge decks' portals read it;
+  the lamps and the airfield lights keep the base. No new tile sampling:
+  the stops were measured anyway (`StopsLayer.resolveHeights`, four a
+  pass near the camera; the host's `stopMeasured` hands them on), and
+  more bootstrap samples are the one thing NOT to add
+  (`sampleHeightMostDetailed` loads the finest tiles under every sample
+  – minutes, and the tile-tree leak). A direction whose field changed
+  has its routes rewritten one direction per `FIELD_REWRITE_INTERVAL_MS`
+  (250 ms), the decks' kind of rationing; the vehicles read the field
+  on their next tick. `__mg3d.groundOffsets(lineId, direction,
+  distance)` reads the base, the sample count, the pending rewrites and
+  the offset at a point.
+
+Two smaller things from the same phase: the near lift of the lines is
+the vehicles' 0.3 m now (`ROUTE_BASE_LIFT_NEAR`; it was 0.15, and the
+wheels stood a hand over their line), and the terrain sampler counts
+the samples a Mapterhorn hole answered from a coarser zoom
+(`stats.fallbackSamples`), which `data:heights` prints as a warning –
+below z13 that is the 30 m surface model, metres over the ground, and
+only Hamburg carries tiles of its own against it. The four hotspots the
+review listed were looked up in OSM: Hamburg's S1/S2 at 53.5508,
+10.0090 is the City-S-Bahn's tunnel portal under the Altmannbrücke and
+Berlin's S3 at 52.50959, 13.23148 the cutting under the Passenheimer
+Straße, Munich's bus 56 at 48.15196, 11.45646 the Lortzingstraße where
+it passes under the railway's bridges – surface DGM over a portal, a
+bridge's abutments, the embankment beside an underpass, no missing
+bridge tag among them; Stuttgart's U3 at 48.7278, 9.1393 could not be
+looked up (Overpass answered with server errors) and stays open.
+
 ### Terrain
 
 Heights come from **Mapterhorn** tiles (Terrarium WebP, decoded with sharp) at

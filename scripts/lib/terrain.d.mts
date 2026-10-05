@@ -18,6 +18,8 @@ export interface TerrainStats {
   failedTiles: number
   /** Tiles read from the city folder instead of the server. */
   localTiles: number
+  /** Samples answered from a zoom below the city's, per zoom (a Mapterhorn hole). */
+  fallbackSamples: Record<string, number>
 }
 
 /** The part of a fetch Response the sampler reads. */

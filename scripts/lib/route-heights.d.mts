@@ -42,7 +42,32 @@ export function withTerrainAttribution<M extends { attribution?: string; terrain
   line: string,
 ): M & { attribution: string; terrainAttribution: string }
 
+/** A direction's heights as written before, keyed by its path before densification. */
+export interface PreviousHeights {
+  path: number[][]
+  heights: number[]
+  inserted: number[]
+}
+
 export function indexPreviousHeights(prevNetwork: unknown): {
-  heightsByPath: Map<string, number[]>
+  heightsByPath: Map<string, PreviousHeights>
   nhnByStop: Map<string, number>
 }
+
+export function removeInserted<P>(path: readonly P[], inserted: readonly number[] | undefined): P[]
+
+export interface DensifyOptions {
+  toleranceMeters?: number
+  minSegmentMeters?: number
+  maxDepth?: number
+}
+
+export const DENSIFY_DEFAULTS: Required<DensifyOptions>
+
+export function densifyByHeight(
+  path: readonly (readonly [number, number])[],
+  heights: readonly number[],
+  sampleAt: (lon: number, lat: number) => Promise<number | undefined>,
+  bridges?: readonly (readonly number[])[],
+  options?: DensifyOptions,
+): Promise<{ path: [number, number][]; heights: number[]; inserted: number[] }>

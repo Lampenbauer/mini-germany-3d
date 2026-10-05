@@ -120,7 +120,7 @@ export class MapterhornSampler {
     this.raw = new Map()
     /** "z/x/y" → heights, least recently used first. */
     this.decoded = new Map()
-    this.stats = { tiles: 0, bytes: 0, failedTiles: 0, localTiles: 0 }
+    this.stats = { tiles: 0, bytes: 0, failedTiles: 0, localTiles: 0, fallbackSamples: {} }
     this.label = `Mapterhorn z${this.zoom}`
   }
 
@@ -131,6 +131,8 @@ export class MapterhornSampler {
       const tile = await this.tileAt(zoom, Math.floor(px / TILE_SIZE), Math.floor(py / TILE_SIZE))
       if (tile === null) continue // nothing this fine here – one level coarser
       if (tile === false) return undefined // unreachable – no guessing
+      // Counted per zoom, so the run can say where a hole fell back
+      if (zoom < this.zoom) this.stats.fallbackSamples[zoom] = (this.stats.fallbackSamples[zoom] ?? 0) + 1
       return this.sampleAt(zoom, px, py)
     }
     return undefined

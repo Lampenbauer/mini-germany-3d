@@ -52,6 +52,13 @@ export interface RoutesLayerHost {
    */
   deckHeight?(lineId: string, direction: 0 | 1, distance: number): number | undefined
   /**
+   * The NHN→ellipsoid offset at a point of a direction (see
+   * map/height-field.ts: the city's calibrated offset, moved by the
+   * stops measured on the tiles nearby). Optional: without it every
+   * piece rides the one offset the layer holds.
+   */
+  offsetAt?(lineId: string, direction: 0 | 1, distance: number): number
+  /**
    * The deck's measured stations strictly between two distances of a
    * direction (see map/bridge-decks.ts) – extra polyline vertices, so a
    * line follows a bridge's hump rather than cutting it with a chord.
@@ -82,8 +89,11 @@ export const ROUTE_HEIGHT_OFFSET_FALLBACK = 36.5
  * camera is close to the ground: enough to keep the lines clear of road
  * surfaces that sit slightly above the DGM (curbs, rails) and of
  * z-fighting with the tile mesh, little enough for them to hug the road.
+ * The vehicles' own lift (VehicleLayer puts the wheels 0.3 m over the
+ * profile), so a line and the vehicle on it agree; it was 0.15 and the
+ * wheels stood a hand over their line.
  */
-const ROUTE_BASE_LIFT_NEAR = 0.15
+const ROUTE_BASE_LIFT_NEAR = 0.3
 
 /**
  * The same lift from further up: under a shallow viewing angle the
@@ -484,19 +494,26 @@ export class RoutesLayer {
     if (this.host.flatGround) {
       return piece.path.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, lift))
     }
-    const offset = this.routeHeightOffset
     const { lineId, direction, path, cum, heights } = piece
+    const offsetAt = (distance: number) =>
+      this.host.offsetAt?.(lineId, direction, distance) ?? this.routeHeightOffset
     const positions: Cartesian3[] = []
     for (let i = 0; i < path.length; i++) {
       const deck = this.host.deckHeight?.(lineId, direction, cum[i])
-      positions.push(Cartesian3.fromDegrees(path[i][0], path[i][1], (deck ?? heights[i] + offset) + lift))
+      positions.push(
+        Cartesian3.fromDegrees(path[i][0], path[i][1], (deck ?? heights[i] + offsetAt(cum[i])) + lift),
+      )
       if (i + 1 === path.length || !this.host.bridgeStations) continue
       for (const station of this.host.bridgeStations(lineId, direction, cum[i], cum[i + 1])) {
         const t = (station.cum - cum[i]) / (cum[i + 1] - cum[i])
         const profile = heights[i] + (heights[i + 1] - heights[i]) * t
         const stationDeck = this.host.deckHeight?.(lineId, direction, station.cum)
         positions.push(
-          Cartesian3.fromDegrees(station.lon, station.lat, (stationDeck ?? profile + offset) + lift),
+          Cartesian3.fromDegrees(
+            station.lon,
+            station.lat,
+            (stationDeck ?? profile + offsetAt(station.cum)) + lift,
+          ),
         )
       }
     }

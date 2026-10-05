@@ -85,7 +85,7 @@ in Berlin's home view; skip hidden wagons.
 
 ## Phase 3 – Heights without new tile sampling
 
-- [ ] **Phase 3**
+- [x] **Phase 3** – implemented 2026-10-06: vertical densification in the pipeline (Berlin +2 183 vertices, 5.6 %), the offset field from the stops already measured (`src/map/height-field.ts`), the near lift at the vehicles' 0.3 m, the sampler's zoom-fallback warning; three hotspots looked up (a tunnel portal, a cutting, an underpass – no missing tags), Stuttgart's still to look up.
 
 Expected cost: pipeline only, plus a few more route vertices. No new
 runtime picks.

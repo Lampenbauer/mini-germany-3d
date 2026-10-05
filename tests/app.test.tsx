@@ -700,8 +700,14 @@ describe('App (UI shell)', () => {
 
     // A link with the trams and both fleets off: the tram lines start
     // hidden, and the fleets stay off in the URL though this build has
-    // no row for them (offline, in the tests – see aisAvailable)
-    window.history.replaceState(null, '', '/?welcome=0#lat=54.08&lon=12.13&height=3000&hide=tram,ais,aircraft')
+    // no row for them (offline, in the tests – see aisAvailable). On the
+    // morning clock: on the real one a run after midnight found only
+    // the night buses out, and hiding the trams hid nothing
+    window.history.replaceState(
+      null,
+      '',
+      '/?welcome=0&time=08:30#lat=54.08&lon=12.13&height=3000&hide=tram,ais,aircraft',
+    )
     render(<App />)
     await waitFor(() => expect(window.__mg3d!.ready).toBe(true))
     expect(screen.getByRole('switch', { name: 'Show all Tram lines' })).toHaveAttribute('aria-checked', 'false')

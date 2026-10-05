@@ -297,6 +297,17 @@ export interface Mg3dTestApi {
   setAisVessels: (vessels: AisVessel[] | null) => void
   /** The same for the air traffic (see src/lib/aircraft-extract.ts for the record). */
   setAircraft: (list: Aircraft[] | null) => void
+  /**
+   * The NHN→ellipsoid offset field the routes and vehicles ride on (see
+   * src/map/height-field.ts): its base, how many stops feed it, how
+   * many directions still wait for their route rewrite – and, with a
+   * direction and a distance, what it says there.
+   */
+  groundOffsets: (
+    lineId?: string,
+    direction?: 0 | 1,
+    distance?: number,
+  ) => { base: number; samples: number; pending: number; offsetAt?: number }
   renderPacing: () => {
     /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
@@ -2555,6 +2566,12 @@ export default function App() {
         aircraftRef.current = list ?? []
         aircraftFrozen = null
       },
+      groundOffsets: (lineId?: string, direction?: 0 | 1, distance?: number) => ({
+        ...map.getHeightFieldInfo(),
+        ...(lineId !== undefined
+          ? { offsetAt: map.groundOffsetAt(lineId, direction ?? 0, distance ?? 0) }
+          : {}),
+      }),
       renderPacing: () => {
         const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
         const animating = rainActiveRef.current
