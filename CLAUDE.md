@@ -176,10 +176,21 @@ you touched. Grep for the name you changed, the flag you added, the number you
 moved, and follow it into:
 
 - **[README.md](README.md)** — it is load-bearing documentation, not a summary:
-  the feature table, the URL-parameter table, the `city.json` field list, the
-  architecture tree with its file-by-file comments, the scripts table, the
+  the "What you see" section, the cities table, the URL-parameter table, the
+  `city.json` field list, the live-data table, the architecture tree, the
   attribution list. A new URL parameter, script, `city.json` field or terrain
-  source that is not in there is only half-added.
+  source that is not in there is only half-added. It was rewritten short on
+  2026-10-05 (the user's call: 1 235 lines had grown past what a reader
+  wants) – the detail it carried lives here now, so a decision belongs in
+  this file and the README gets the one sentence a visitor needs. Its nine
+  screenshots are `docs/screenshots/*.jpg`, taken by
+  `scripts/build-readme-screenshots.mjs` from the live site in a headed
+  Chromium on the real GPU (1440×900 at DPR 2, a second of playback and then
+  the pause – the user's call, as is the interface in every picture: the
+  panel and the cards are part of what is shown – the tileset settled;
+  2400 px JPEGs by hand with `sips`) – the views are the user's links of
+  that day, kept in the script, and the aircraft one has to be re-aimed at
+  an aircraft that is over Frankfurt at the time (`name=url`).
 - **The app's own prose** — [src/lib/i18n.ts](src/lib/i18n.ts) carries strings
   that repeat facts about the project, and it carries them **twice**, in the
   `en` and `de` tables. The About dialog lists what the map is built from
@@ -206,8 +217,8 @@ moved, and follow it into:
 - **This file**, when the change settles something it records as open or
   describes differently.
 
-Worked example: adding a city means `definitions.ts`, the README intro *and*
-Cities section *and* attribution list, `city.name.<slug>` in both i18n
+Worked example: adding a city means `definitions.ts`, the README's cities
+table *and* attribution list, `city.name.<slug>` in both i18n
 tables, a new `tests/<slug>.test.ts`, a run of
 `scripts/build-og-images.mjs` for its link-preview picture and one of
 `scripts/build-globe-images.mjs` for the rail globe's three stills of
@@ -956,8 +967,9 @@ a run of the script; `tests/site-pages.test.ts` fails otherwise.
 ## Cities and the data pipeline
 
 The cities in the build are listed in [src/cities/definitions.ts](src/cities/definitions.ts);
-Rostock is the default. The README's [Cities](README.md#cities) section documents
-`city.json` field by field and the `add-city` → pipeline sequence. What follows
+Rostock is the default. The README's [Data](README.md#data) section documents
+`city.json` field by field and the `add-city` → pipeline sequence, its
+[Cities](README.md#cities) table says what each city carries. What follows
 is what the data itself taught.
 
 **The box is the limits plus 20 km on every side, and the camera ceiling

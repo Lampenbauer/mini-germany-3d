@@ -31,3 +31,6 @@ server/api/webcams-key.txt
 .DS_Store
 *.log
 public/cesium/
+
+# README screenshots as shot (the chosen JPEGs are committed)
+docs/screenshots/raw/
