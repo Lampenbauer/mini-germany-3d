@@ -2,7 +2,8 @@ import { Cartesian3, Color, Entity, Intersect, JulianDate, Primitive, type Viewe
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { config } from '@/config'
 import type { VehicleSnapshot } from '@/engine/simulation'
-import { delayBadgeSuffix, VehicleLayer } from '@/map/VehicleLayer'
+import { articulatedWagonPose, delayBadgeSuffix, VehicleLayer } from '@/map/VehicleLayer'
+import { sampleAtDistance } from '@/lib/geo'
 
 /**
  * GTFS-RT delays appear on the map badge as a small "+2" after the line
@@ -206,5 +207,46 @@ describe('the line badge cache', () => {
     // A delay suffix is a badge of its own, the colour unchanged
     badgeOf(layer, '1', '#e2001a', '+2')
     expect(canvases.created()).toBe(2)
+  })
+})
+
+describe('a consist on a curve (articulatedWagonPose)', () => {
+  // An L-shaped path: 300 m north, then 300 m east, cumulative meters
+  // along it, sampled the way the host samples the network's paths
+  const lat0 = 54.0
+  const lon0 = 12.0
+  const dLat = 300 / 111_320
+  const dLon = 300 / (111_320 * Math.cos((lat0 * Math.PI) / 180))
+  const path: [number, number][] = [
+    [lon0, lat0],
+    [lon0, lat0 + dLat],
+    [lon0 + dLon, lat0 + dLat],
+  ]
+  const cum = [0, 300, 600]
+  const sample = (distance: number) => sampleAtDistance(path, cum, distance)
+
+  it('stands each wagon on its own chord, so the ends of a train turn before its middle', () => {
+    // Three 60 m wagons (bogies 42 m apart) with the middle one's centre
+    // on the corner: the front wagon is already round it, the rear one
+    // still runs north, the middle one stands across the bend
+    const front = articulatedWagonPose(sample, 300 + 40, 60, 0)!
+    const middle = articulatedWagonPose(sample, 300, 60, 0)!
+    const rear = articulatedWagonPose(sample, 300 - 40, 60, 0)!
+    expect(front.bearing).toBeCloseTo(90, 3)
+    expect(rear.bearing).toBeCloseTo(0, 3)
+    expect(middle.bearing).toBeGreaterThan(40)
+    expect(middle.bearing).toBeLessThan(50)
+    // The middle wagon's chord cuts the corner: it stands inside the bend
+    expect(middle.lon).toBeGreaterThan(lon0)
+    expect(middle.lat).toBeLessThan(lat0 + dLat)
+    // Rigidly offset along the centre's axis the rear wagon would have
+    // stood 40 m from the middle on one line; on the path it stands on the track
+    expect(rear.lon).toBeCloseTo(lon0, 9)
+  })
+
+  it('takes the fallback bearing where its two points coincide, and nothing without a path', () => {
+    const stub = articulatedWagonPose(() => ({ lon: 1, lat: 2, bearing: 5 }), 0, 20, 123)!
+    expect(stub.bearing).toBe(123)
+    expect(articulatedWagonPose(() => undefined, 0, 20, 0)).toBeNull()
   })
 })

@@ -67,7 +67,7 @@ grows by roughly half.
 
 ## Phase 2 – Articulated consists
 
-- [ ] **Phase 2**
+- [x] **Phase 2** – implemented 2026-10-06. Measured (`renderPacing().vehicleSyncAvgMs`, headless, offline, Berlin 08:30): home view 2.76 → 1.83 ms a tick, 1.2 km over Alexanderplatz 2.63 → 2.30, 400 m over it 2.65 → 2.35 – cheaper than before, since hidden bodies' wagons are no longer composed every tick.
 
 Expected cost: one binary search and one matrix per drawn wagon per
 tick (Berlin: about 1 000 per tick). Measure the tick before and after

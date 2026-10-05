@@ -1557,6 +1557,22 @@ stepping where it should glide; each is pure and pinned by a unit test.
   smaller) by `Simulation.setRealtimeDelays`/`delayAt`; the first delays
   after construction apply at once. A delay is a time shift, and a tram
   that gained a minute jumped half a kilometer back along its route.
+- **A body's bearing is the chord over its bogies, and a consist's
+  wagons stand on their own chords.** `Simulation.snapshotsAt` reads
+  the bearing between the points `bogieHalfSpacing` (35 % of the body,
+  5 m at least) either side of the centre, not the path segment under
+  it – the 0.3 m simplified path turned the body by a corner's whole
+  angle in one step (`tests/simulation.test.ts` holds every body under
+  30°/s). A consist's wagons each take the chord over their own bogies
+  at their own point of the path (`articulatedWagonPose` in VehicleLayer,
+  through `host.pathSample` – CesiumMap keeps the network for it), so a
+  133 m S-Bahn follows a curve instead of leaving the track with both
+  ends; the matrices are composed only while the body is drawn, where
+  every wagon's was composed every tick before. Measured headless and
+  offline in Berlin at 08:30, `renderPacing().vehicleSyncAvgMs` (the
+  reading added for it): the home view 2.76 → 1.83 ms a tick, 1.2 km
+  over Alexanderplatz 2.63 → 2.30, 400 m over it 2.65 → 2.35 – the
+  hidden bodies' composition was worth more than the sampling costs.
 - **A body pitches along its route's gradient** (`VehicleSnapshot.gradient`,
   the per-vertex heights read over the vehicle's own length; capped at
   `MAX_VEHICLE_PITCH_DEG`, 8°, in VehicleLayer), nothing on the flat map

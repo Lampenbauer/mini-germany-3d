@@ -4,7 +4,7 @@
  */
 
 import { SimClock } from '@/lib/clock'
-import { heightAtDistance } from '@/lib/geo'
+import { bearingDegrees, heightAtDistance, sampleAtDistance } from '@/lib/geo'
 import { buildAllTrips, buildRealtimeTripIdMap, DAY_SECONDS, tripStateAt } from '@/lib/timetable'
 import type { ScheduleJson, TimetableOptions, Trip } from '@/lib/timetable'
 import { isInTunnel } from '@/lib/tunnels'
@@ -17,6 +17,17 @@ import { config } from '@/config'
  * does not make a jump less of a jump.
  */
 export const DELAY_RAMP_MS = 15_000
+
+/**
+ * Half the distance between a body's bogies, for a body of `length`
+ * meters: a chord of 70 % of the body, which is about where a tram's or
+ * a coach's bogies stand; a bus's axles stand closer, but its heading
+ * reads the same. Never under 5 m, or a short body would still turn
+ * at every vertex.
+ */
+export function bogieHalfSpacing(length: number): number {
+  return Math.max(5, length * 0.35)
+}
 
 export interface VehicleSnapshot {
   id: string
@@ -390,6 +401,20 @@ export class Simulation {
       const state = tripStateAt(trip, dir, tSec - delay, this.terminalLinger)
       if (!state) continue
 
+      // The bearing over the vehicle's own length – the chord between the
+      // points its bogies stand on, not the path segment under its
+      // centre, which turned the body at every vertex of the simplified
+      // path (the consist's wagons take their own chords, see VehicleLayer)
+      let bearing = state.bearing
+      {
+        const half = bogieHalfSpacing(line.vehicle.length)
+        const behind = sampleAtDistance(dir.path, dir.cum, state.distance - half)
+        const ahead = sampleAtDistance(dir.path, dir.cum, state.distance + half)
+        if (Math.abs(ahead.lon - behind.lon) + Math.abs(ahead.lat - behind.lat) > 1e-7) {
+          bearing = bearingDegrees([behind.lon, behind.lat], [ahead.lon, ahead.lat])
+        }
+      }
+
       // The gradient over the vehicle's own length – a chord, as the
       // body is one – from the per-vertex heights
       let gradient = 0
@@ -412,7 +437,7 @@ export class Simulation {
         distance: state.distance,
         lon: state.lon,
         lat: state.lat,
-        bearing: state.bearing,
+        bearing,
         status: state.status,
         nhn: dir.heights ? heightAtDistance(dir.heights, dir.cum, state.distance) : undefined,
         gradient,

@@ -316,6 +316,10 @@ export interface Mg3dTestApi {
     tickIntervalMs: number
     /** On-screen speed of the fastest vehicle or ship in view, CSS px/s. */
     motionPxPerSecond: number
+    /** What the vehicle sync (VehicleLayer.sync) cost on the last tick, ms of wall time. */
+    vehicleSyncMs: number
+    /** The same, smoothed over the last twenty or so ticks. */
+    vehicleSyncAvgMs: number
     /** Whether the whole picture is paced as if close up – the time-lapse, a camera path (see CesiumMap.setPaceWholeView). */
     paceWholeView: boolean
   }
@@ -1910,6 +1914,8 @@ export default function App() {
     /** The whole-view pacing as of the last tick decision (see renderPacing). */
     let lastPaceWholeView = false
     let lastTickInterval = 33
+    let lastVehicleSyncMs = 0
+    let vehicleSyncAvgMs = 0
     const motionThresholdPx = map.motionThresholdCssPx
     let loopTicks = 0
     let lastLoopError: string | null = null
@@ -2054,6 +2060,7 @@ export default function App() {
             // A map nobody can see is not worth moving the models on: the
             // first tick after the diagram closes syncs them, and that is
             // still before the frame that would show them.
+            const syncStart = performance.now()
             const viewInfo = mapIsHidden()
               ? null
               : map.syncVehicles(
@@ -2061,6 +2068,12 @@ export default function App() {
                   mapNetworkDrawnRef.current ? visibleLinesRef.current : NO_LINES,
                   simMs,
                 )
+            // What the vehicle sync cost this tick, and smoothed over the
+            // last ~20 (see renderPacing: the reading a change to the
+            // per-vehicle work is measured by)
+            lastVehicleSyncMs = performance.now() - syncStart
+            vehicleSyncAvgMs =
+              vehicleSyncAvgMs === 0 ? lastVehicleSyncMs : vehicleSyncAvgMs * 0.95 + lastVehicleSyncMs * 0.05
             // The diagram reads the same snapshots on its own axis
             if (linearRef.current || morphRef.current > 0) {
               linearViewRef.current?.sync(snapshots)
@@ -2557,6 +2570,8 @@ export default function App() {
           intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
           tickIntervalMs: lastTickInterval,
           motionPxPerSecond: lastMotionPxPerSecond,
+          vehicleSyncMs: lastVehicleSyncMs,
+          vehicleSyncAvgMs,
           paceWholeView: lastPaceWholeView,
         }
       },

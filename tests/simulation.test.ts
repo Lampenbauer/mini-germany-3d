@@ -93,6 +93,37 @@ describe('Simulation with the Rostock network', () => {
   )
 })
 
+describe('the bearing over the bogies', () => {
+  const sim = new Simulation(loadRostockNetwork(), new SimClock())
+
+  it('turns a tram through a corner gradually rather than at one vertex', () => {
+    // Every vehicle out at 08:30, followed second by second for a
+    // minute: no tram turns more than 30° in a second (a 32 m body on
+    // a 25 m radius turns about 20°/s), and the rest of the fleet keeps
+    // under 40°/s at the 99th percentile – a 12 m bus on a 10 m chord
+    // does swing 80°/s round a street corner, which is what a bus does.
+    // The bearing was the path segment's under the centre, and a corner
+    // of the 0.3 m simplified path turned the body by the whole angle
+    // in one step
+    const turns: number[] = []
+    let largestTram = 0
+    for (let t = 8.5 * 3600; t < 8.5 * 3600 + 60; t++) {
+      const before = new Map(sim.snapshotsAt(t).map((s) => [s.id, s]))
+      for (const after of sim.snapshotsAt(t + 1)) {
+        const prev = before.get(after.id)
+        if (!prev || after.status !== 'moving' || prev.status !== 'moving') continue
+        const turn = Math.abs(((after.bearing - prev.bearing + 540) % 360) - 180)
+        turns.push(turn)
+        if (after.mode === 'tram') largestTram = Math.max(largestTram, turn)
+      }
+    }
+    turns.sort((a, b) => b - a)
+    expect(turns.length).toBeGreaterThan(1000)
+    expect(largestTram).toBeLessThan(30)
+    expect(turns[Math.floor(turns.length * 0.01)]).toBeLessThan(40)
+  })
+})
+
 describe('where a vehicle was some seconds ago (positionAt)', () => {
   it('answers with the timetable at the earlier instant, and null for a trip not active then', () => {
     const clock = new SimClock()

@@ -93,6 +93,7 @@ import {
   WeatherOverlay,
 } from './WeatherOverlay'
 import type { PreparedNetwork } from '@/data/network-types'
+import { sampleAtDistance } from '@/lib/geo'
 import type { StreetLampData } from '@/data/street-lamps'
 import type { AirfieldLightData } from '@/data/airfield-lights'
 import type { BuoyData } from '@/data/buoys'
@@ -763,6 +764,8 @@ export class CesiumMap {
   private readonly webcamsLayer: WebcamsLayer
   /** Route polylines, their heights and the attention pulse (see RoutesLayer). */
   private readonly routes: RoutesLayer
+  /** The city's network as given to addRoutes – the wagons' path sampler reads it. */
+  private network: PreparedNetwork | null = null
   /** Bridge decks measured on the tiles for routes and vehicles (see bridge-decks.ts). */
   private readonly bridgeDecks: BridgeDecks
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -1142,6 +1145,12 @@ export class CesiumMap {
       },
       bridgeDeckHeight: (lineId, direction, distance) =>
         this.bridgeDecks.heightAt(lineId, direction, distance, this.routes.heightOffset),
+      // Where a point `distance` meters along a direction's path lies –
+      // the consists' wagons stand on their own points of it
+      pathSample: (lineId, direction, distance) => {
+        const dir = this.network?.lineById.get(lineId)?.directions[direction]
+        return dir ? sampleAtDistance(dir.path, dir.cum, distance) : undefined
+      },
       // The ferries float on the tiles' own water like the AIS fleet
       clampToSurface: (lon, lat) => this.clampToSurface(lon, lat),
       surfaceGeneration: () => this.surfaceGeneration.current,
@@ -1901,6 +1910,7 @@ export class CesiumMap {
    * is the app's: it syncs the next city's ships in on its next tick.
    */
   clearCity(): void {
+    this.network = null
     this.vehicleLayer.clear()
     this.webcamsLayer.clear()
     this.stops.clear()
@@ -2933,6 +2943,7 @@ export class CesiumMap {
    * there, offline and in the deterministic tests there are no tiles.
    */
   addRoutes(network: PreparedNetwork): void {
+    this.network = network
     this.routes.add(network)
     if (!this.opts.offline && this.opts.fixedGroundHeight === undefined) {
       this.bridgeDecks.add(network)

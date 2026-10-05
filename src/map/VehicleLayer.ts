@@ -48,7 +48,8 @@ import { config } from '@/config'
 import { FRAMING_SCALE } from './camera-fov'
 import { cameraFramingScale } from './CameraLens'
 import { FollowCamera } from '@/map/FollowCamera'
-import type { VehicleSnapshot } from '@/engine/simulation'
+import { bogieHalfSpacing, type VehicleSnapshot } from '@/engine/simulation'
+import { bearingDegrees, type PathSample } from '@/lib/geo'
 import { tunnelOpacity } from './tunnel-view'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
@@ -104,6 +105,13 @@ export interface VehicleLayerHost {
    * the profile.
    */
   bridgeDeckHeight?(lineId: string, direction: 0 | 1, distance: number): number | undefined
+  /**
+   * Where a point `distance` meters along a direction's path lies, and
+   * the path's bearing there – the wagons of a consist stand on their
+   * own points (see composeWagonMatrix); without it every wagon is
+   * offset rigidly along the centre's axis, as the box bodies are.
+   */
+  pathSample?(lineId: string, direction: 0 | 1, distance: number): PathSample | undefined
   /**
    * Ellipsoid height of the loaded scene geometry under a position – the
    * tiles' own water under a ferry (scene.clampToHeight, an offscreen pick
@@ -211,6 +219,8 @@ interface VehicleRecord {
   modelMatrices: (Matrix4 | undefined)[]
   /** Per-wagon travel-axis offset from the vehicle center in meters. */
   wagonOffsets: number[]
+  /** Per-wagon length in meters (scaled), the chord its bogies span. */
+  wagonLengths: number[]
   /** Per-wagon 180° flip (rear cab cars face backwards). */
   wagonFlips: boolean[]
   /** Uniform model scale (VEHICLE_CONSISTS[…].scale). 0 for box bodies. */
@@ -714,6 +724,34 @@ const positionScratch = new Cartesian3()
 const glowPositionScratch = new Cartesian3()
 
 const hprScratch = new HeadingPitchRoll()
+const wagonHprScratch = new HeadingPitchRoll()
+
+/**
+ * Where a wagon whose centre is `centre` meters along the path stands,
+ * and which way: the chord between the points its bogies stand on,
+ * bogieHalfSpacing either side of the centre – its middle is the
+ * wagon's position, its azimuth the heading. `fallbackBearing` serves
+ * where the two points coincide (a path shorter than the chord); null
+ * where the path has no point for them.
+ */
+export function articulatedWagonPose(
+  sample: (distance: number) => PathSample | undefined,
+  centre: number,
+  length: number,
+  fallbackBearing: number,
+): { lon: number; lat: number; bearing: number } | null {
+  const half = bogieHalfSpacing(length)
+  const behind = sample(centre - half)
+  const ahead = sample(centre + half)
+  if (!behind || !ahead) return null
+  const apart = Math.abs(ahead.lon - behind.lon) + Math.abs(ahead.lat - behind.lat) > 1e-7
+  return {
+    lon: (behind.lon + ahead.lon) / 2,
+    lat: (behind.lat + ahead.lat) / 2,
+    bearing: apart ? bearingDegrees([behind.lon, behind.lat], [ahead.lon, ahead.lat]) : fallbackBearing,
+  }
+}
+const wagonPositionScratch = new Cartesian3()
 
 /**
  * The most a body pitches along its route's gradient, in degrees: a tram
@@ -1291,17 +1329,21 @@ export class VehicleLayer {
         undefined,
         record.matrix,
       )
-      // glTF consists: compose each wagon pose from the fresh base pose
-      for (let k = 0; k < record.modelMatrices.length; k++) {
-        const wagonMatrix = record.modelMatrices[k]
-        if (wagonMatrix) this.composeWagonMatrix(record, k, wagonMatrix)
-      }
       // The body is only drawn close up; the number label carries the
       // vehicle out to VEHICLE_LABEL_VISIBLE_RANGE. (Checked here on the
       // CPU – a DistanceDisplayCondition attribute on the Primitive
       // measures from the instance matrix, which is identity for these
       // boxes since the position lives in the primitive's own modelMatrix.)
       const showBody = show && cameraDistance < bodyRange
+      // glTF consists: compose each wagon pose – on its own point of the
+      // path where the host has one – while the body is drawn at all;
+      // a hidden body's matrices are composed again the tick it shows
+      if (showBody) {
+        for (let k = 0; k < record.modelMatrices.length; k++) {
+          const wagonMatrix = record.modelMatrices[k]
+          if (wagonMatrix) this.composeWagonMatrix(record, k, wagonMatrix, snap, hprScratch.pitch)
+        }
+      }
       // A ferry's navigation lights at night, screened as at sea (see
       // VesselLayer for the same on the AIS fleet): red to port and green
       // to starboard on the wheelhouse, white at the mast and the stern –
@@ -1573,6 +1615,7 @@ export class VehicleLayer {
     // Consist layout: wagon centers along the travel axis, vehicle center
     // at the pose origin (front wagon at positive X).
     const wagonOffsets: number[] = []
+    const wagonLengths: number[] = []
     const wagonFlips: boolean[] = []
     if (modelSpec) {
       const lengths = modelSpec.wagons.map((w) => w.length * modelSpec.scale)
@@ -1581,6 +1624,7 @@ export class VehicleLayer {
       let consumed = 0
       modelSpec.wagons.forEach((wagon, index) => {
         wagonOffsets.push(total / 2 - consumed - lengths[index] / 2)
+        wagonLengths.push(lengths[index])
         wagonFlips.push(wagon.flipped === true)
         consumed += lengths[index] + modelSpec.gap
       })
@@ -1690,6 +1734,7 @@ export class VehicleLayer {
       models: [],
       modelMatrices: [],
       wagonOffsets,
+      wagonLengths,
       wagonFlips,
       modelScale: modelSpec?.scale ?? 0,
       matrix: liveMatrix,
@@ -1777,8 +1822,47 @@ export class VehicleLayer {
     this.host.requestRender()
   }
 
-  /** Wagon pose: vehicle base pose → travel-axis offset → flip → scale. */
-  private composeWagonMatrix(record: VehicleRecord, index: number, result: Matrix4): Matrix4 {
+  /**
+   * Wagon pose. A consist of several wagons stands each wagon on its
+   * own point of the path – the chord between the points its bogies
+   * stand on, `bogieHalfSpacing` either side of the wagon's own centre
+   * (the vehicle's distance plus the wagon's offset), at the vehicle's
+   * height and pitch – so a long train follows a curve instead of
+   * leaving the track with both ends, which the 133 m S-Bahn did. A
+   * single body, or a consist without a path sampler (the tests'
+   * doubles), is the vehicle base pose → travel-axis offset → flip →
+   * scale, as before.
+   */
+  private composeWagonMatrix(
+    record: VehicleRecord,
+    index: number,
+    result: Matrix4,
+    snap?: VehicleSnapshot,
+    pitch = 0,
+  ): Matrix4 {
+    const sample = this.host.pathSample
+    if (snap && sample && record.wagonOffsets.length > 1) {
+      const pose = articulatedWagonPose(
+        (distance) => sample(snap.lineId, snap.direction, distance),
+        snap.distance + record.wagonOffsets[index],
+        record.wagonLengths[index],
+        snap.bearing,
+      )
+      if (pose) {
+        const position = Cartesian3.fromDegrees(
+          pose.lon,
+          pose.lat,
+          record.groundHeight + record.halfHeight + 0.3,
+          undefined,
+          wagonPositionScratch,
+        )
+        wagonHprScratch.heading = CesiumMath.toRadians(pose.bearing - 90)
+        wagonHprScratch.pitch = pitch
+        Transforms.headingPitchRollToFixedFrame(position, wagonHprScratch, undefined, undefined, result)
+        if (record.wagonFlips[index]) Matrix4.multiply(result, wagonFlipMatrix, result)
+        return Matrix4.multiplyByUniformScale(result, record.modelScale, result)
+      }
+    }
     Matrix4.clone(record.matrix, result)
     Matrix4.multiplyByTranslation(
       result,
