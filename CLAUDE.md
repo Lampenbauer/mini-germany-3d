@@ -975,6 +975,46 @@ and the cloud slab follow the JSON at once; a spec that needs an edge
 reads it from the definition (`cityBySlug(…).boundingBox`) rather than
 pinning the number.
 
+**Every trip runs on its own stop times, from the feed.** The GTFS
+step writes, per direction, `patterns` – a trip's time points as one
+flat array, `[meters along the path, arrival, departure, …]` relative
+to the trip's departure from its first city stop, each stop_times row
+projected onto the direction's path on the first pass at or after the
+stop before it (`computeTripPattern` in
+[fetch-gtfs-schedule.mjs](scripts/fetch-gtfs-schedule.mjs); a path that
+passes a stop twice has two candidates, and the single nearest point put
+stops on the wrong pass) – and `patternIds`, parallel to the departures,
+the patterns shared between the trips that run alike and written one per
+line (`scheduleJsonText`; JSON.stringify's indentation gave every number
+a line). The runtime (`stopTimesFromTimePoints` in
+[timetable.ts](src/lib/timetable.ts)) gives a network stop within
+`TIME_POINT_SNAP_M` (150 m) of a point that point's times, passes a stop
+between two points at the time its distance says, and reaches one
+outside every point at the cruise speed; the feed has arrival equal
+departure at most stops, so the vehicle stands `dwellSeconds` before a
+departure where the run before allows it – a stop is a stop. Before this
+only the departure at the first city stop was the feed's and everything
+after it the route length over one speed per mode plus 25 s a stop: a
+tram with twenty stops ran minutes off its timetable by the end, the
+stop card's board showed invented times, and the realtime delay shifted
+an invented base. Settled: a ring's round and a ferry loop's leg carry no
+pattern (their stops run round a closed path; `classifyLoopTrip`) and
+keep the cruise speed, as does a trip whose pattern the reader rejects
+(`timePointsFromPattern`: distances and times must run forward, and the
+whole must not run faster than `MAX_TIME_POINT_MPS`). Two traps the first
+run found. **The free feed repeats a trip's first time at every stop for
+some operators** – Bremen's VBN and Hanover's GVH: 04:18:00 at forty
+stops – so a stop with the time of the stop before it, more than 100 m
+on, is dropped as no time point, and a pattern left with nothing but
+its first time is none (Bremen keeps the RS lines' 61 patterns, Hanover
+the S-Bahn's 38; their buses and trams run at the cruise speed as
+before, which the first version compressed into five-second hops across
+the city and emptied the 08:30 fleet). **A cached feed whose calendar
+has run out** chooses a service day with no trip at all: `finishCity`
+now fails the city rather than write an empty schedule (the local cache
+in `scripts/.cache/gtfs.zip` is unconditional – delete it for a fresh
+feed; the first run wrote thirteen empty files from a month-old one).
+
 ### Terrain
 
 Heights come from **Mapterhorn** tiles (Terrarium WebP, decoded with sharp) at
@@ -1494,9 +1534,70 @@ skip children.
 Where Berlin's CPU actually goes, measured the same way: of 22 ms render CPU in
 the home view, 16.8 ms are the 3002 wagon `Model` primitives (13.2 ms for the
 969 shown bodies, 3.6 ms for the 2033 hidden ones); tiles and everything else
-are 5.2 ms. A known inefficiency sits there: `showBody` uses the `FRAMING_SCALE`
-pinned to the 25° lens even when the 60° lens is on, so bodies are drawn out to
-7.7 km, where a wagon is about 3 px.
+are 5.2 ms. The body range follows the lens the camera wears
+(`cameraFramingScale` per tick in `VehicleLayer.sync`, since 45d6257 – it
+was pinned to the 25° lens once and drew every body out to 7.7 km through
+the 60° lens); what is still pinned is `VEHICLE_LABEL_VISIBLE_RANGE`, the
+badges' distance condition, which is baked into the billboards.
+
+### Motion: how a vehicle, a ship and an aircraft get from one fix to the next
+
+Decided together on 2026-10-06, after a review found every one of them
+stepping where it should glide; each is pure and pinned by a unit test.
+
+- **A scheduled vehicle accelerates and brakes** between its stops:
+  `profileDistance` in [timetable.ts](src/lib/timetable.ts), a trapezoid
+  at the rate `config.simulation.accelerationByMode` gives the mode
+  (1 m/s² for a tram, 0.8 for a train, 0.25 for a ferry), a triangle
+  where the run is too short to cruise – the run's time stays the
+  timetable's, the rate only shapes it. A trip without a rate (the
+  tests' hand-built ones) runs at constant speed, as everything did.
+- **A changed GTFS-RT delay is eased in** over `DELAY_RAMP_MS` (15 s of
+  real time – the wall clock on purpose, a time-lapse makes a jump no
+  smaller) by `Simulation.setRealtimeDelays`/`delayAt`; the first delays
+  after construction apply at once. A delay is a time shift, and a tram
+  that gained a minute jumped half a kilometer back along its route.
+- **A body pitches along its route's gradient** (`VehicleSnapshot.gradient`,
+  the per-vertex heights read over the vehicle's own length; capped at
+  `MAX_VEHICLE_PITCH_DEG`, 8°, in VehicleLayer), nothing on the flat map
+  or offline, where every height is 0 m.
+- **Ships and aircraft move along a cubic Hermite curve** between two
+  fixes, with the reported course (COG under way, the aircraft's track)
+  as the tangent at each and the chord's length as the tangent's
+  ([track-curve.ts](src/lib/track-curve.ts): unit speed, no overshoot;
+  a course more than a right angle off the chord – a ship going astern,
+  a stale track – is not trusted and the chord's direction stands in).
+  The fallback bearing is the curve's tangent. A straight chord turned
+  every bend into a polygon that the layers' 400 ms ease only rounded.
+- **An AIS fix is stamped with its message's own time** (`time_utc`,
+  `aisFixTimeMs`, PHP `mg3d_ais_fix_time`) where that lies within
+  `AIS_MESSAGE_TIME_BEHIND_MS` (10 min) behind the keeper's clock and
+  `AIS_MESSAGE_TIME_AHEAD_MS` (5 s) ahead of it, the receive time
+  otherwise; a message older than the fix held is late, not news – its
+  position and kinematics are left alone, its static data taken. The
+  receive time was the fix's time before, and the seconds a message
+  took through aisstream became a change of speed from one fix to the
+  next. The parity script runs the fixture twice, once with a clock a
+  minute after the capture, so the PHP parser is proved.
+- **An aircraft banks as it was banked at the drawn instant:** the
+  roll rides in the track point (its tenth element, in TS, PHP and the
+  archive's replay) and the sampler eases it; a point too old to carry
+  it leaves the record's roll to the layer. The layer read the record's
+  roll before, twelve seconds ahead of the body.
+- **A late fix after a spell of dead reckoning is eased over longer**
+  (`HANDOVER_TAU_MS`, 1.5 s, for `HANDOVER_BLEND_MS` after the handover
+  in AircraftLayer) – the reckoned point and the chord the late fix
+  draws differ by however far the reckoning went wrong.
+- **The chase camera's heading eases by the time gone by**
+  (`FOLLOW_CHASE_TAU_MS`, 250 ms, `1 − e^(−dt/τ)` with dt held to
+  33–250 ms) where it closed a fixed 0.12 of the gap per call, which was
+  a quarter second at the chase's 33 ms tick alone.
+
+Still per tick, not per frame: every pose is written on the simulation
+tick (33–100 ms), nothing interpolates in `scene.preUpdate`. That is
+Phase 7 of [docs/improvement-phases.md](docs/improvement-phases.md),
+held back on purpose – interpolating every frame for every vehicle
+would give every frame a reason to render and undo the pacing below.
 
 ### Rendering is event-driven and motion-paced
 

@@ -20,12 +20,52 @@
  * test (scripts/test-ais-parity.mjs) holds both to the same fixtures.
  */
 
+import { curvePoint } from './track-curve.ts'
+
 /**
  * One recorded fix: [unix ms, lat, lon, sogKn, cogDeg, headingDeg] –
  * kinematics as of that moment, nulls as in the vessel record. Compact
  * tuples keep the JSON payload small (the track ships with every poll).
  */
 export type AisTrackPoint = [number, number, number, number | null, number | null, number | null]
+
+/**
+ * How far an AIS message's own time may lie from the keeper's clock to
+ * be the fix's time: behind it by the delay a message takes through
+ * aisstream and the keeper's own windows, ahead of it by nothing but
+ * clock skew. Outside the window the receive time stands in, as it did
+ * before messages carried their time at all.
+ */
+export const AIS_MESSAGE_TIME_BEHIND_MS = 10 * 60_000
+export const AIS_MESSAGE_TIME_AHEAD_MS = 5_000
+
+/**
+ * The time aisstream stamps a message with ("2026-08-27 11:15:39.673431615
+ * +0000 UTC"), as unix ms; null for anything else. Mirror of
+ * mg3d_ais_message_time in server/api/ais.php.
+ */
+export function aisMessageTimeMs(timeUtc: unknown): number | null {
+  if (typeof timeUtc !== 'string') return null
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d+))? \+0000 UTC$/.exec(timeUtc)
+  if (!m) return null
+  const ms = m[7] ? Number((m[7] + '00').slice(0, 3)) : 0
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], ms)
+}
+
+/**
+ * When a fix was made: the message's own time where it is within the
+ * window of the keeper's clock, the keeper's clock otherwise. The
+ * receive time was the fix's time before, and the time a message took
+ * to arrive – a second here, twenty there – became a change of speed
+ * between one fix and the next.
+ */
+export function aisFixTimeMs(raw: AisRawMessage, nowMs: number): number {
+  const stamped = aisMessageTimeMs(raw.MetaData?.time_utc)
+  if (stamped === null) return nowMs
+  if (stamped > nowMs + AIS_MESSAGE_TIME_AHEAD_MS) return nowMs
+  if (stamped < nowMs - AIS_MESSAGE_TIME_BEHIND_MS) return nowMs
+  return stamped
+}
 
 /** One tracked vessel, merged from its position and static reports. */
 export interface AisVessel {
@@ -118,6 +158,7 @@ export interface AisRawMessage {
     ShipName?: string
     latitude?: number
     longitude?: number
+    time_utc?: string
   }
   Message?: {
     PositionReport?: {
@@ -174,12 +215,16 @@ function dimensions(dim: RawDimension | undefined): { length: number | null; wid
 /**
  * Folds one raw message into the state. Unknown message types and the
  * SubscriptionConfirmation contribute nothing; any message carrying
- * coordinates refreshes the vessel's position timestamp.
+ * coordinates refreshes the vessel's position timestamp – with the
+ * message's own time (aisFixTimeMs). A message older than the fix
+ * already held is late, not news: its position and kinematics are
+ * left alone, its static data taken.
  */
 export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: number): void {
   const meta = raw.MetaData
   const mmsi = meta?.MMSI
   if (!mmsi) return
+  const fixMs = aisFixTimeMs(raw, nowMs)
 
   const vessel: AisVessel = state.get(mmsi) ?? {
     mmsi,
@@ -205,13 +250,17 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
   const report = raw.Message?.PositionReport ?? raw.Message?.StandardClassBPositionReport
   const lat = report?.Latitude ?? meta?.latitude
   const lon = report?.Longitude ?? meta?.longitude
-  const hasFix = typeof lat === 'number' && typeof lon === 'number' && Math.abs(lat) <= 90
+  const hasFix =
+    typeof lat === 'number' &&
+    typeof lon === 'number' &&
+    Math.abs(lat) <= 90 &&
+    fixMs >= vessel.positionAt
   if (hasFix) {
     vessel.lat = lat
     vessel.lon = lon
-    vessel.positionAt = nowMs
+    vessel.positionAt = fixMs
   }
-  if (report) {
+  if (report && fixMs >= vessel.positionAt) {
     vessel.sogKn = sog(report.Sog)
     vessel.cogDeg = cog(report.Cog)
     vessel.headingDeg = heading(report.TrueHeading)
@@ -224,7 +273,7 @@ export function mergeAisMessage(state: AisState, raw: AisRawMessage, nowMs: numb
   if (hasFix) {
     // Record AFTER the kinematics update, so a MetaData-only fix (static
     // report) carries the last known speed and course, not stale nulls.
-    vessel.track.push([nowMs, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg])
+    vessel.track.push([fixMs, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg])
     vessel.track = vessel.track
       .filter((p) => nowMs - p[0] <= AIS_TRACK_KEEP_MS)
       .slice(-AIS_TRACK_MAX_POINTS)
@@ -308,8 +357,10 @@ function pointSample(vessel: AisVessel, p: AisTrackPoint): AisPlaybackSample {
 
 /**
  * The vessel as the playback shows it at `renderMs` (wall clock minus
- * AIS_PLAYBACK_DELAY_MS): linear interpolation between the two recorded
- * fixes around that instant. Outside the track the position CLAMPS to
+ * AIS_PLAYBACK_DELAY_MS): along the curve between the two recorded
+ * fixes around that instant, with the course over the ground at each
+ * fix as its tangent (see lib/track-curve.ts – a straight chord turned
+ * every bend into a polygon). Outside the track the position CLAMPS to
  * the nearest end – never extrapolates. A ship whose data dries up
  * therefore waits at her last reported spot instead of sailing on over
  * a quay, and moves again the moment the next fix arrives.
@@ -329,14 +380,24 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
   const p1 = track[i + 1]
   const dtMs = p1[0] - p0[0]
   const u = dtMs > 0 ? (renderMs - p0[0]) / dtMs : 1
-  const lat = p0[1] + (p1[1] - p0[1]) * u
-  const lon = p0[2] + (p1[2] - p0[2]) * u
 
+  const metersPerDegreeLongitude = METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
   const northM = (p1[1] - p0[1]) * METERS_PER_DEGREE_LATITUDE
-  const eastM = (p1[2] - p0[2]) * METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
+  const eastM = (p1[2] - p0[2]) * metersPerDegreeLongitude
   const meters = Math.hypot(northM, eastM)
   // ~0.3 kn over the segment – below is berth wobble, not movement.
   const underWay = dtMs > 0 && meters / (dtMs / 1000) >= 0.15
+  // The curve through the two fixes along their courses; a segment of
+  // berth wobble is a chord, there is no course in it
+  const curve = curvePoint(
+    eastM,
+    northM,
+    underWay && underWaySog(p0[3]) ? p0[4] : null,
+    underWay && underWaySog(p1[3]) ? p1[4] : null,
+    u,
+  )
+  const lat = p0[1] + curve.northM / METERS_PER_DEGREE_LATITUDE
+  const lon = p0[2] + curve.eastM / metersPerDegreeLongitude
 
   // Bearing: ease the reported heading (the course under way as
   // fallback) along the shortest arc; without either, a segment long
@@ -349,7 +410,7 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
     const dh = ((h1 - h0 + 540) % 360) - 180
     bearingDeg = (h0 + dh * u + 360) % 360
   } else if (meters > 5) {
-    bearingDeg = ((Math.atan2(eastM, northM) * 180) / Math.PI + 360) % 360
+    bearingDeg = curve.tangentDeg
   } else {
     bearingDeg = h1 ?? h0 ?? restingBearing(vessel, p1[4] ?? p0[4])
   }

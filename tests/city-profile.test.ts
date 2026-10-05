@@ -197,6 +197,7 @@ function snapshot(overrides: Partial<VehicleSnapshot>): VehicleSnapshot {
     bearing: 0,
     status: 'moving',
     inTunnel: false,
+    gradient: 0,
     nextStopName: '',
     destination: '',
     origin: '',

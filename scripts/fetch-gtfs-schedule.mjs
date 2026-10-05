@@ -18,9 +18,19 @@
  *   SERVICE_DAY_LOG – a file the chosen service day is appended to, one
  *                line per city (the nightly run puts them in its commit)
  *
- * From schedule.json the app uses the departure times at the starting point
- * of each line/direction; travel time between stops is still derived from
- * the route geometry. Mind the attribution (gtfs.de / DELFI).
+ * From schedule.json the app takes each trip's departure at the starting
+ * point of its line/direction and, since the patterns were added, the
+ * trip's own stop times: every stop_times row of a city trip is projected
+ * onto the direction's path and written as a time point [meters along
+ * the path, arrival, departure] relative to the trip's departure, the
+ * points of a trip as one pattern, the patterns shared between the trips
+ * that run alike (`patterns` and `patternIds` per direction, see
+ * ScheduleJson in src/lib/timetable.ts). Before that the app derived the
+ * travel time between stops from the route geometry at one speed per
+ * mode, and a tram with twenty stops ran minutes off its timetable by
+ * the end. A ring's round and a ferry loop's leg keep no pattern (their
+ * stops run round the path, see classifyLoopTrip) and still run at the
+ * cruise speed. Mind the attribution (gtfs.de / DELFI).
  *
  * The schedule is one service day – the busiest of the next three weeks,
  * a typical weekday (see the choice below). Which date that was is
@@ -114,6 +124,13 @@ const TRAIN_PENDING = String.fromCharCode(0) + 'pending-train'
 // not necessarily listed under its city's name). The reliable city filter
 // therefore remains matching the stops against the BBOX; agency.txt is
 // only read for diagnostic output.
+
+/**
+ * The fastest a pattern may run over its whole length, in m/s: a city
+ * trip faster than 160 km/h on average has no real times behind it
+ * (the same bound as MAX_TIME_POINT_MPS in src/lib/timetable.ts).
+ */
+const MAX_PATTERN_MPS = 45
 
 // Only these files are extracted from the zip (saves gigabytes of RAM)
 const NEEDED_FILES = new Set([
@@ -266,6 +283,21 @@ async function loadZip() {
   writeFileSync(cachePath, buffer)
   console.log(`Downloaded ${(buffer.length / 1e6).toFixed(1)} MB`)
   return buffer
+}
+
+/**
+ * The schedule as text: indented like every committed data file, but a
+ * pattern on one line – a flat array of numbers that JSON.stringify's
+ * indentation would spread over a line per number, three lines a stop,
+ * tens of thousands of lines a city.
+ */
+function scheduleJsonText(schedule) {
+  const text = JSON.stringify(
+    schedule,
+    (key, value) => (key === 'patterns' ? value.map((p) => `@@pattern:${JSON.stringify(p)}@@`) : value),
+    2,
+  )
+  return text.replace(/"@@pattern:(\[[-0-9.,]*\])@@"/g, '$1') + '\n'
 }
 
 /** A warning the run's log shows – as an annotation under GitHub Actions. */
@@ -532,6 +564,11 @@ function prepareCity(city, paths, files) {
     firstCityStop: new Map(), // trip_id → {seq, dep, stopId}
     lastCityStop: new Map(), // trip_id → {seq, stopId}
     loopTripStops: new Map(), // trip_id → [{seq, stopId, dep}]
+    // Every city stop of every candidate trip, flat – [seq, stopId,
+    // arrival s, departure s, …] – for the trip's time points. Flat
+    // numbers and interned ids, because it is held for every candidate
+    // of every city through the scan (a few hundred MB at most).
+    tripStops: new Map(), // trip_id → number|string[]
     tripTouchesCity: new Set(),
     tripBranchLine: new Map(), // trip_id → lineId (pending S-Bahn trips)
   }
@@ -660,6 +697,7 @@ function noteStopTime(collector, tripId, get) {
     loopTripStops,
     firstCityStop,
     lastCityStop,
+    tripStops,
   } = collector
   const lineId = tripLine.get(tripId)
   const stopId = own(get('stop_id'))
@@ -676,6 +714,15 @@ function noteStopTime(collector, tripId, get) {
     let list = loopTripStops.get(tripId)
     if (!list) loopTripStops.set(tripId, (list = []))
     list.push({ seq, stopId, dep: get('departure_time') })
+  }
+  {
+    const departure = get('departure_time') || get('arrival_time')
+    const arrival = get('arrival_time') || departure
+    if (departure) {
+      let flat = tripStops.get(tripId)
+      if (!flat) tripStops.set(tripId, (flat = []))
+      flat.push(seq, stopId, timeToSeconds(arrival), timeToSeconds(departure))
+    }
   }
   const cur = firstCityStop.get(tripId)
   if (!cur || seq < cur.seq) {
@@ -708,6 +755,7 @@ function finishCity(collector, calendar, tripRecords) {
     loopTripStops,
     tripTouchesCity,
     tripBranchLine,
+    tripStops,
   } = collector
 
   // The city's trips with everything known about them – only the ones
@@ -844,6 +892,16 @@ function finishCity(collector, calendar, tripRecords) {
     console.log(
       `Chosen service day: ${serviceDate} (${best.count} trips, ${activeServiceIds.size} active services)`,
     )
+    // A feed whose calendar has run out – a cached download from weeks
+    // ago – has no trip on any of the next three weeks. Writing that
+    // would empty the city's schedule (it did once, from a month-old
+    // cache); the city keeps its previous one and the run says why.
+    if (best.count === 0) {
+      throw new Error(
+        'no trip of the city runs on any of the next 21 days – the feed is stale ' +
+          '(a cached download whose calendar ended? delete scripts/.cache/gtfs.zip)',
+      )
+    }
     if (process.env.SERVICE_DAY_LOG) {
       appendFileSync(process.env.SERVICE_DAY_LOG, `${city.slug}: ${serviceDate} (${best.count} trips)\n`)
     }
@@ -1021,6 +1079,113 @@ function finishCity(collector, calendar, tripRecords) {
   }
 
   /**
+   * Where a stop lies along a path, every place it could: the nearest
+   * point of each run of segments that passes within 500 m, as [along,
+   * squared degrees off]. A path that passes a stop twice (an out-and-
+   * back loop at a terminus, a one-way ring) has two candidates, and
+   * which one a trip's stop is follows from the stop before it (see
+   * computeTripPattern) – the single nearest point would put the stop on
+   * the wrong pass. Cached per direction geometry and stop.
+   */
+  const candidateCache = new Map()
+  const projectCandidates = (geoKey, path, cum, stopId, [plon, plat]) => {
+    const key = `${geoKey}|${stopId}`
+    const cached = candidateCache.get(key)
+    if (cached) return cached
+    const cosLat = Math.cos((plat * Math.PI) / 180)
+    const limitSq = (500 / 111_320) ** 2
+    const raw = []
+    for (let i = 0; i < path.length - 1; i++) {
+      const [alon, alat] = path[i]
+      const [blon, blat] = path[i + 1]
+      const bx = (blon - alon) * cosLat
+      const by = blat - alat
+      const px = (plon - alon) * cosLat
+      const py = plat - alat
+      const lenSq = bx * bx + by * by
+      const t = lenSq > 0 ? Math.min(1, Math.max(0, (px * bx + py * by) / lenSq)) : 0
+      const dx = px - t * bx
+      const dy = py - t * by
+      const dSq = dx * dx + dy * dy
+      if (dSq <= limitSq) raw.push({ along: cum[i] + (cum[i + 1] - cum[i]) * t, dSq })
+    }
+    // One candidate per pass: the nearest of each run of segments
+    const candidates = []
+    for (const c of raw) {
+      const last = candidates[candidates.length - 1]
+      if (last && c.along - last.along < 100) {
+        if (c.dSq < last.dSq) candidates[candidates.length - 1] = c
+      } else {
+        candidates.push(c)
+      }
+    }
+    candidateCache.set(key, candidates)
+    return candidates
+  }
+
+  /**
+   * The trip's own timetable as a pattern: for every city stop of the
+   * trip in sequence order, where it lies along the direction's path and
+   * when the feed has the trip there, relative to the trip's departure
+   * from its first city stop – [dist, arrival, departure, …], flat. Each
+   * stop is taken on the first pass of the path at or after the stop
+   * before it (a few meters of slack for projection jitter); a stop the
+   * path never passes within 500 m, or one that would run the trip
+   * backwards, is left out. null without two usable points.
+   */
+  const computeTripPattern = (tripId, info, direction, departureSec) => {
+    const targets = dirTargets[info.lineId]
+    if (!targets) return null
+    const geo = direction === '1' ? targets.geo1 : { path: targets.path, cum: targets.cum }
+    if (!geo?.path || geo.path.length < 2) return null
+    const flat = tripStops.get(tripId)
+    if (!flat || flat.length < 8) return null
+    const stops = []
+    for (let i = 0; i < flat.length; i += 4) {
+      stops.push({ seq: flat[i], stopId: flat[i + 1], arrival: flat[i + 2], departure: flat[i + 3] })
+    }
+    stops.sort((a, b) => a.seq - b.seq)
+    const geoKey = `${info.lineId}|${direction}`
+    const pattern = []
+    let lastAlong = -Infinity
+    for (const stop of stops) {
+      const coord = cityStopCoords.get(stop.stopId)
+      if (!coord) continue
+      const candidates = projectCandidates(geoKey, geo.path, geo.cum, stop.stopId, coord)
+      let best = null
+      for (const c of candidates) {
+        if (c.along < lastAlong - 30) continue
+        if (!best || c.dSq < best.dSq) best = c
+      }
+      if (!best) continue
+      const along = Math.round(best.along)
+      const arrival = stop.arrival - departureSec
+      const departure = stop.departure - departureSec
+      const prev = pattern.length > 0 ? pattern[pattern.length - 1] : null
+      if (prev && (along <= prev[0] || arrival < prev[2])) continue
+      if (!prev && (arrival > 0 || departure < 0)) continue
+      // A stop with the time of the stop before it, hundreds of meters
+      // on, is no time point: the free feed repeats a trip's first time
+      // at every stop for some operators (Bremen's VBN, Hanover's GVH –
+      // 04:18:00 at forty stops), and a feed with real times marks a
+      // stop it has no time for the same way. The runtime passes it at
+      // the time its distance says between the points that are kept.
+      if (prev && arrival === prev[2] && along - prev[0] > 100) continue
+      pattern.push([along, Math.max(0, arrival), Math.max(0, departure)])
+      lastAlong = best.along
+    }
+    if (pattern.length < 2) return null
+    // A pattern that is nothing but the first stop's time – every other
+    // dropped above – says nothing, and so does one at an impossible pace
+    const first = pattern[0]
+    const end = pattern[pattern.length - 1]
+    const seconds = end[1] - first[2]
+    const meters = end[0] - first[0]
+    if (seconds <= 0 || meters / seconds > MAX_PATTERN_MPS) return null
+    return pattern.flat()
+  }
+
+  /**
    * A trip that ends where it began. On a ring line (the path itself is
    * closed – Berlin's S41/S42) it is one round in the sense the trip runs
    * it, read off a stop a quarter of the way in. On a ferry line it is
@@ -1121,9 +1286,10 @@ function finishCity(collector, calendar, tripRecords) {
 
     const sec = timeToSeconds(first.dep)
     const span = computeTripSpan(tripId, info, direction)
+    const pattern = computeTripPattern(tripId, info, direction, sec)
     lines[info.lineId] ??= {}
     lines[info.lineId][direction] ??= { pairs: [] }
-    lines[info.lineId][direction].pairs.push({ sec, tripId, span })
+    lines[info.lineId][direction].pairs.push({ sec, tripId, span, pattern })
   }
   // Sort, deduplicate per departure time + served section, and store the
   // GTFS trip_ids in parallel (needed at runtime for GTFS-Realtime
@@ -1147,6 +1313,23 @@ function finishCity(collector, calendar, tripRecords) {
       dir.tripIds = unique.map((p) => p.tripId)
       // Only written when the direction has short workings at all
       if (unique.some((p) => p.span)) dir.spans = unique.map((p) => p.span ?? null)
+      // The patterns, shared between the trips that run alike, in the
+      // order of their first trip – stable from run to run
+      if (unique.some((p) => p.pattern)) {
+        const patternIndex = new Map()
+        dir.patterns = []
+        dir.patternIds = unique.map((p) => {
+          if (!p.pattern) return null
+          const key = p.pattern.join(',')
+          let index = patternIndex.get(key)
+          if (index === undefined) {
+            index = dir.patterns.length
+            patternIndex.set(key, index)
+            dir.patterns.push(p.pattern)
+          }
+          return index
+        })
+      }
       delete dir.pairs
     }
   }
@@ -1207,14 +1390,27 @@ function finishCity(collector, calendar, tripRecords) {
     lines,
   }
 
-  writeFileSync(OUT, JSON.stringify(schedule, null, 2) + '\n', 'utf8')
+  writeFileSync(OUT, scheduleJsonText(schedule), 'utf8')
   const summary = Object.entries(lines)
     .map(
       ([id, dirs]) =>
-        `${id}: ${Object.values(dirs).reduce((n, d) => n + d.departures.length, 0)} departures`,
+        `${id}: ${Object.values(dirs).reduce((n, d) => n + d.departures.length, 0)} departures` +
+        ` (${Object.values(dirs).reduce((n, d) => n + (d.patterns?.length ?? 0), 0)} patterns)`,
     )
     .join(', ')
+  const withoutPattern = Object.values(lines).reduce(
+    (n, dirs) =>
+      n +
+      Object.values(dirs).reduce(
+        (m, d) => m + (d.patternIds ? d.patternIds.filter((id) => id === null).length : d.departures.length),
+        0,
+      ),
+    0,
+  )
   console.log(`\n✅ Wrote ${OUT} – ${summary}`)
+  if (withoutPattern > 0) {
+    console.log(`  ${withoutPattern} trips without a pattern run at the cruise speed between their stops`)
+  }
 }
 
 // Only run as a CLI – the tests import routeTypesForCity without pulling

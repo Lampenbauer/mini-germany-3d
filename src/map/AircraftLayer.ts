@@ -209,6 +209,15 @@ const NAME_INK = Color.fromCssColorString('#f8fafc')
  * kinks where one track segment hands over to the next.
  */
 const SMOOTH_TAU_MS = 400
+/**
+ * The ease while the playback hands over from dead reckoning to a fix
+ * that landed late: the reckoned position and the chord the late fix
+ * draws differ by however far the reckoning went wrong, and the usual
+ * 400 ms closed that gap as a visible lurch. For HANDOVER_BLEND_MS after
+ * the handover the position eases with this constant instead.
+ */
+const HANDOVER_TAU_MS = 1500
+const HANDOVER_BLEND_MS = 2000
 /** The climb angle drawn is capped: a transponder's rate is noisy, and an airliner never pitches more than this. */
 const MAX_PITCH_DEG = 12
 /** The bank drawn is capped at what an airliner turns with – a light aircraft rolls more, and reads fine at this. */
@@ -367,6 +376,10 @@ interface AircraftRecord {
   displayBearing: number
   displayPitch: number
   displayRoll: number
+  /** Whether the last sample was flown on by dead reckoning (see HANDOVER_TAU_MS). */
+  reckoned: boolean
+  /** Until when the position eases with HANDOVER_TAU_MS after a handover. */
+  blendUntilMs: number
   /** Pose as of the last repaint request – the change detector. */
   lastPosition: Cartesian3
   lastBearing: number
@@ -642,8 +655,15 @@ export class AircraftLayer {
       record.sample = sample
       record.liftM = liftM
       record.grounded = grounded
+      // A late fix after a spell of reckoning: ease the gap over longer
+      if (record.reckoned && !sample.reckoned) record.blendUntilMs = nowMs + HANDOVER_BLEND_MS
+      record.reckoned = sample.reckoned
+      const positionAlpha =
+        nowMs < record.blendUntilMs && dtMs > 0 && dtMs < 2000
+          ? 1 - Math.exp(-dtMs / HANDOVER_TAU_MS)
+          : alpha
       const target = Cartesian3.fromDegrees(sample.lon, sample.lat, height, undefined, positionScratch)
-      Cartesian3.lerp(record.displayPosition, target, alpha, record.displayPosition)
+      Cartesian3.lerp(record.displayPosition, target, positionAlpha, record.displayPosition)
       if (Cartesian3.equalsEpsilon(record.displayPosition, target, 0, 0.05)) {
         Cartesian3.clone(target, record.displayPosition)
       }
@@ -671,12 +691,15 @@ export class AircraftLayer {
               MAX_PITCH_DEG,
             )
       record.displayPitch += (targetPitch - record.displayPitch) * alpha
-      // Bank: the reported roll, or the coordinated turn the turn rate implies
+      // Bank: the roll reported at the drawn instant (the record's where
+      // the fixes are too old to carry one), or the coordinated turn the
+      // turn rate implies
+      const reportedRoll = sample.rollDeg === undefined ? aircraft.rollDeg : sample.rollDeg
       const targetRoll =
         grounded
           ? 0
-          : aircraft.rollDeg !== null
-            ? CesiumMath.clamp(aircraft.rollDeg, -MAX_BANK_DEG, MAX_BANK_DEG)
+          : reportedRoll !== null
+            ? CesiumMath.clamp(reportedRoll, -MAX_BANK_DEG, MAX_BANK_DEG)
             : CesiumMath.clamp(
                 CesiumMath.toDegrees(
                   Math.atan((gsMps * CesiumMath.toRadians(sample.turnRateDegPerS)) / GRAVITY_MPS2),
@@ -1169,6 +1192,8 @@ export class AircraftLayer {
       displayBearing: sample.noseDeg,
       displayPitch: 0,
       displayRoll: 0,
+      reckoned: false,
+      blendUntilMs: 0,
       lastPosition: Cartesian3.clone(position),
       lastBearing: sample.noseDeg,
       renderedPosition: Cartesian3.clone(position),

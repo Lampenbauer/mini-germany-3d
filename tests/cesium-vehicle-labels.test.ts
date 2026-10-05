@@ -38,6 +38,7 @@ function snapshot(id: string, lineId: string): VehicleSnapshot {
     bearing: 0,
     status: 'moving',
     inTunnel: false,
+    gradient: 0,
     nextStopName: 'Beta',
     destination: 'Beta',
     origin: 'Alpha',

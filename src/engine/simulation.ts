@@ -11,6 +11,13 @@ import { isInTunnel } from '@/lib/tunnels'
 import type { PreparedNetwork, TransitMode, VehicleDimensions } from '@/data/network-types'
 import { config } from '@/config'
 
+/**
+ * How long a changed GTFS-RT delay takes to reach the vehicle, in ms of
+ * real time – the ramp is on the wall clock on purpose, a time-lapse
+ * does not make a jump less of a jump.
+ */
+export const DELAY_RAMP_MS = 15_000
+
 export interface VehicleSnapshot {
   id: string
   lineId: string
@@ -39,6 +46,13 @@ export interface VehicleSnapshot {
    * direction carries no height data (the map then samples the 3D tiles).
    */
   nhn?: number
+  /**
+   * The route's gradient at the vehicle, rise per meter along the
+   * direction of travel (0.03 = 3 % uphill), read over the vehicle's own
+   * length from the per-vertex heights; 0 without height data. The map
+   * pitches the body by it.
+   */
+  gradient: number
   /** true while the vehicle is inside a tunnel/underground route section. */
   inTunnel: boolean
   nextStopName: string
@@ -113,6 +127,12 @@ export class Simulation {
   private trips: Trip[]
   private tripById: Map<string, Trip>
   private realtimeDelays = new Map<string, number>()
+  /**
+   * Delays on their way from the value before to the value the feed
+   * reports now (see setRealtimeDelays), trip id → the ramp.
+   */
+  private delayRamps = new Map<string, { from: number; to: number; startMs: number }>()
+  private delaysEverSet = false
   /** Turnaround time at the terminus in seconds (see config.simulation). */
   private terminalLinger: number
   /**
@@ -142,6 +162,7 @@ export class Simulation {
       cruiseSpeedByMode:
         options?.cruiseSpeedByMode ??
         (options?.cruiseSpeedMps != null ? undefined : config.simulation.cruiseSpeedByMode),
+      accelerationByMode: options?.accelerationByMode ?? config.simulation.accelerationByMode,
     }
     this.terminalLinger = opts.terminalLingerSeconds ?? 0
     this.trips = buildAllTrips(network, opts, schedule)
@@ -153,9 +174,38 @@ export class Simulation {
     return this.trips.length
   }
 
-  /** Set active delays (simulation trip id → seconds). */
-  setRealtimeDelays(delays: Map<string, number>): void {
+  /**
+   * Set active delays (simulation trip id → seconds). A delay that
+   * changed is eased in over DELAY_RAMP_MS of real time rather than
+   * applied at once: the delay is a time shift, so a tram that gained a
+   * minute of delay would otherwise jump half a kilometer back along its
+   * route in one tick. The first delays after construction are applied
+   * as they are – nothing was drawn before them.
+   */
+  setRealtimeDelays(delays: Map<string, number>, nowMs = Date.now()): void {
+    if (this.delaysEverSet) {
+      const tripIds = new Set([...this.realtimeDelays.keys(), ...delays.keys()])
+      for (const tripId of tripIds) {
+        const from = this.delayAt(tripId, nowMs)
+        const to = delays.get(tripId) ?? 0
+        if (from === to) this.delayRamps.delete(tripId)
+        else this.delayRamps.set(tripId, { from, to, startMs: nowMs })
+      }
+    }
     this.realtimeDelays = delays
+    this.delaysEverSet = true
+  }
+
+  /** The delay a trip runs with at `nowMs` – its ramp's current value, or the feed's. */
+  private delayAt(tripId: string, nowMs: number): number {
+    const ramp = this.delayRamps.get(tripId)
+    if (!ramp) return this.realtimeDelays.get(tripId) ?? 0
+    const u = (nowMs - ramp.startMs) / DELAY_RAMP_MS
+    if (u >= 1) {
+      this.delayRamps.delete(tripId)
+      return ramp.to
+    }
+    return ramp.from + (ramp.to - ramp.from) * Math.max(0, u)
   }
 
   get realtimeDelayCount(): number {
@@ -163,8 +213,8 @@ export class Simulation {
   }
 
   /** Snapshots of all active vehicles at the current simulation time. */
-  snapshots(): VehicleSnapshot[] {
-    return this.snapshotsAt(this.clock.secondsOfDay())
+  snapshots(nowMs = Date.now()): VehicleSnapshot[] {
+    return this.snapshotsAt(this.clock.secondsOfDay(), nowMs)
   }
 
   /**
@@ -173,7 +223,11 @@ export class Simulation {
    * vehicle's current position on the stop sequence. null for unknown or
    * currently inactive trips.
    */
-  tripProgress(tripId: string, tSec = this.clock.secondsOfDay()): TripProgress | null {
+  tripProgress(
+    tripId: string,
+    tSec = this.clock.secondsOfDay(),
+    nowMs = Date.now(),
+  ): TripProgress | null {
     const trip = this.tripById.get(tripId)
     if (!trip) return null
     const line = this.network.lineById.get(trip.lineId)
@@ -182,7 +236,7 @@ export class Simulation {
 
     // Same time frame as snapshotsAt: a delayed trip runs `delay` seconds
     // behind its schedule, and after-midnight service is encoded past 24:00.
-    const delay = this.realtimeDelays.get(trip.id) ?? 0
+    const delay = this.delayAt(trip.id, nowMs)
     let effective = tSec - delay
     const first = trip.stopTimes[0]
     const last = trip.stopTimes[trip.stopTimes.length - 1]
@@ -249,6 +303,7 @@ export class Simulation {
     stopId: string,
     tSec = this.clock.secondsOfDay(),
     { windowSeconds = 3600, limit = 8 }: { windowSeconds?: number; limit?: number } = {},
+    nowMs = Date.now(),
   ): StopDeparture[] {
     if (!this.stopCalls) {
       this.stopCalls = new Map()
@@ -269,7 +324,7 @@ export class Simulation {
 
     const departures: StopDeparture[] = []
     for (const { trip, departure } of this.stopCalls.get(stopId) ?? []) {
-      const delay = this.realtimeDelays.get(trip.id) ?? 0
+      const delay = this.delayAt(trip.id, nowMs)
       const predicted = departure + delay
       // Distance to the departure on the day circle: also catches
       // after-midnight times encoded past 24:00 and the evening→morning
@@ -306,12 +361,13 @@ export class Simulation {
   positionAt(
     tripId: string,
     secondsAgo: number,
+    nowMs = Date.now(),
   ): { lon: number; lat: number; bearing: number; status: 'dwell' | 'moving' } | null {
     const trip = this.tripById.get(tripId)
     if (!trip) return null
     const line = this.network.lineById.get(trip.lineId)
     if (!line) return null
-    const delay = this.realtimeDelays.get(trip.id) ?? 0
+    const delay = this.delayAt(trip.id, nowMs)
     const state = tripStateAt(
       trip,
       line.directions[trip.direction],
@@ -321,7 +377,7 @@ export class Simulation {
     return state ? { lon: state.lon, lat: state.lat, bearing: state.bearing, status: state.status } : null
   }
 
-  snapshotsAt(tSec: number): VehicleSnapshot[] {
+  snapshotsAt(tSec: number, nowMs = Date.now()): VehicleSnapshot[] {
     const snapshots: VehicleSnapshot[] = []
     for (const trip of this.trips) {
       const line = this.network.lineById.get(trip.lineId)
@@ -330,9 +386,19 @@ export class Simulation {
 
       // Delayed trips run time-shifted by the delay: the tram is where it
       // would have been on schedule `delay` seconds ago.
-      const delay = this.realtimeDelays.get(trip.id) ?? 0
+      const delay = this.delayAt(trip.id, nowMs)
       const state = tripStateAt(trip, dir, tSec - delay, this.terminalLinger)
       if (!state) continue
+
+      // The gradient over the vehicle's own length – a chord, as the
+      // body is one – from the per-vertex heights
+      let gradient = 0
+      if (dir.heights) {
+        const half = Math.max(10, line.vehicle.length / 2)
+        const ahead = heightAtDistance(dir.heights, dir.cum, state.distance + half)
+        const behind = heightAtDistance(dir.heights, dir.cum, state.distance - half)
+        gradient = (ahead - behind) / (2 * half)
+      }
 
       snapshots.push({
         id: trip.id,
@@ -349,6 +415,7 @@ export class Simulation {
         bearing: state.bearing,
         status: state.status,
         nhn: dir.heights ? heightAtDistance(dir.heights, dir.cum, state.distance) : undefined,
+        gradient,
         inTunnel: dir.tunnels.length > 0 && isInTunnel(dir.tunnels, state.distance),
         nextStopName: dir.stops[state.nextStopIndex]?.name ?? dir.to,
         destination: trip.destination ?? dir.to,

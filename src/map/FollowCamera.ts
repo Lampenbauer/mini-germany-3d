@@ -73,11 +73,16 @@ const FOLLOW_RANGE_AT_REFERENCE = 140
 const FOLLOW_FLIGHT_SECONDS = 1.4
 
 /**
- * Per-update easing of the chase heading toward the travel bearing
- * (~0.25 s time constant at the 30 fps tick). The bearing jumps at path
- * segment boundaries – applying it directly would visibly snap the view.
+ * Time constant of the chase heading's easing toward the travel bearing,
+ * in ms: the heading closes 1 − e^(−dt/τ) of the gap per update, so the
+ * ease is the same at any tick rate. It was a fixed share per call
+ * (0.12, a quarter second at the chase's 33 ms tick alone). The bearing
+ * jumps at path segment boundaries – applying it directly would visibly
+ * snap the view. The update's dt is held to CHASE_EASE_DT_MS: a first
+ * update, or a clock that stood still, eases as one tick would.
  */
-const FOLLOW_CHASE_EASE = 0.12
+const FOLLOW_CHASE_TAU_MS = 250
+const CHASE_EASE_DT_MS: [number, number] = [33, 250]
 
 /**
  * Deviations beyond these thresholds between the camera pose and the pose
@@ -114,6 +119,8 @@ export class FollowCamera {
    */
   private applied: { heading: number; pitch: number; range: number } | null = null
   private chase = false
+  /** When the chase last eased its heading – the dt of the next ease. */
+  private lastChaseMs: number | null = null
   /**
    * Whether this instance currently owns the camera. Everything below
    * reads camera.position as a distance from the subject, which it only
@@ -207,7 +214,8 @@ export class FollowCamera {
     // the other layer, and touching it here is how it ends up in orbit.
     if (!this.engaged) return
     // The approach flight is still running – lookAt would cut it short.
-    if (performance.now() < this.flightUntil) return
+    const now = performance.now()
+    if (now < this.flightUntil) return
     const camera = this.viewer.camera
     const center = Cartesian3.fromDegrees(target.lon, target.lat, target.centerHeight)
 
@@ -250,13 +258,17 @@ export class FollowCamera {
         } else {
           if (zoomed) this.offset.range = cameraRange
           // Stay behind it: ease the heading toward the travel bearing (it
-          // jumps at path segment boundaries).
+          // jumps at path segment boundaries), by the time gone by.
           const turn = CesiumMath.negativePiToPi(
             CesiumMath.toRadians(target.bearingDeg) - this.offset.heading,
           )
-          this.offset.heading = CesiumMath.zeroToTwoPi(
-            this.offset.heading + turn * FOLLOW_CHASE_EASE,
+          const dtMs = CesiumMath.clamp(
+            now - (this.lastChaseMs ?? now),
+            CHASE_EASE_DT_MS[0],
+            CHASE_EASE_DT_MS[1],
           )
+          const ease = 1 - Math.exp(-dtMs / FOLLOW_CHASE_TAU_MS)
+          this.offset.heading = CesiumMath.zeroToTwoPi(this.offset.heading + turn * ease)
         }
       } else {
         // Free orbit: the offset keeps whatever the user left it at, moved
@@ -286,6 +298,7 @@ export class FollowCamera {
       pitch: camera.pitch,
       range: Cartesian3.magnitude(camera.position),
     }
+    this.lastChaseMs = now
     // The camera moved with the subject – must reach the screen even when
     // the render pacing is otherwise idle.
     this.host.requestRender()

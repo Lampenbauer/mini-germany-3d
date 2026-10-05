@@ -23,6 +23,8 @@
  * fixture.
  */
 
+import { curvePoint } from './track-curve.ts'
+
 /**
  * One recorded fix: [unix ms, lat, lon, altitude m, ground speed kn,
  * track °, vertical rate m/s, true heading °, geometric] – kinematics as
@@ -42,7 +44,11 @@
  * message carries it and no track – and the one that stands while a
  * pushback moves the aircraft backwards. Both are absent on points a
  * state file wrote before they existed: the heading reads as null, the
- * kind as the record's (see aircraftPlaybackSample).
+ * kind as the record's (see aircraftPlaybackSample). The tenth element
+ * is the bank angle the fix reported (rollDeg), so the playback banks
+ * the aircraft as it was banked at the drawn instant rather than as the
+ * record – twelve seconds ahead of the picture – is now; absent on
+ * older points, where the layer falls back to the record's.
  */
 export type AircraftTrackPoint = [
   number,
@@ -54,6 +60,7 @@ export type AircraftTrackPoint = [
   number | null,
   (number | null)?,
   (boolean | null)?,
+  (number | null)?,
 ]
 
 /** One tracked aircraft, as the feed last reported it. */
@@ -331,6 +338,7 @@ export function mergeAdsbAircraft(state: AircraftState, raw: AdsbRawAircraft, po
     aircraft.verticalRateMps,
     aircraft.headingDeg,
     aircraft.altGeomM !== null,
+    aircraft.rollDeg,
   ])
   aircraft.track = aircraft.track
     .filter((p) => positionAt - p[0] <= AIRCRAFT_TRACK_KEEP_MS)
@@ -411,6 +419,13 @@ export interface AircraftPlaybackSample {
   /** Direction of motion in degrees – what the chase camera looks along. */
   bearingDeg: number
   /**
+   * The bank angle at the drawn instant, degrees, positive right wing
+   * down – eased between the fixes that report one; null where the
+   * fixes around the instant report none, undefined where they are too
+   * old to carry the field at all (the layer then takes the record's).
+   */
+  rollDeg: number | null | undefined
+  /**
    * Where the nose points, in degrees – the pose drawn: the true heading
    * where the aircraft reports one (crabbed off the track in the air,
    * standing while a pushback moves it backwards on the ground), the
@@ -485,6 +500,7 @@ function pointSample(
     altGeometric: altM !== null && scale.geometric(p),
     groundShare: altM === null ? 1 : 0,
     ...knownDirections(track, i),
+    rollDeg: p[9],
     gsKn: p[4],
     verticalRateMps: p[6],
     turnRateDegPerS: 0,
@@ -539,6 +555,7 @@ export function aircraftPlaybackSample(
             aircraft.verticalRateMps,
             aircraft.headingDeg,
             aircraft.altGeomM !== null,
+            aircraft.rollDeg,
           ],
         ]
   // A fix written before the kind existed takes the record's: geometric
@@ -563,8 +580,17 @@ export function aircraftPlaybackSample(
   const p1 = track[i + 1]
   const dtMs = p1[0] - p0[0]
   const u = dtMs > 0 ? (renderMs - p0[0]) / dtMs : 1
-  const lat = p0[1] + (p1[1] - p0[1]) * u
-  const lon = p0[2] + (p1[2] - p0[2]) * u
+  const metersPerDegreeLongitude = METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
+  const northM = (p1[1] - p0[1]) * METERS_PER_DEGREE_LATITUDE
+  const eastM = (p1[2] - p0[2]) * metersPerDegreeLongitude
+  const meters = Math.hypot(northM, eastM)
+  // A metre a second over the segment – below is a parked aircraft's GNSS wobble
+  const moving = dtMs > 0 && meters / (dtMs / 1000) >= 1
+  // The curve through the two fixes along their tracks (see
+  // lib/track-curve.ts); a parked aircraft's wobble is a chord
+  const curve = curvePoint(eastM, northM, moving ? p0[5] : null, moving ? p1[5] : null, u)
+  const lat = p0[1] + curve.northM / METERS_PER_DEGREE_LATITUDE
+  const lon = p0[2] + curve.eastM / metersPerDegreeLongitude
   const a0 = scale.of(p0)
   const a1 = scale.of(p1)
   let altM: number | null = null
@@ -587,17 +613,12 @@ export function aircraftPlaybackSample(
     groundShare = 1 - u
   }
 
-  const northM = (p1[1] - p0[1]) * METERS_PER_DEGREE_LATITUDE
-  const eastM = (p1[2] - p0[2]) * METERS_PER_DEGREE_LATITUDE * Math.cos((p0[1] * Math.PI) / 180)
-  const meters = Math.hypot(northM, eastM)
-  // A metre a second over the segment – below is a parked aircraft's GNSS wobble
-  const moving = dtMs > 0 && meters / (dtMs / 1000) >= 1
 
   // Bearing: ease the reported track along the shortest arc; without
-  // one on either end, a segment with real movement gives its own
-  // azimuth; standing, the last direction known (never the azimuth of
-  // a parked transponder's wobble). The turn rate is the same arc over
-  // the segment's time.
+  // one on either end, a segment with real movement gives the curve's
+  // own direction; standing, the last direction known (never the
+  // azimuth of a parked transponder's wobble). The turn rate is the
+  // same arc over the segment's time.
   const h0 = p0[5]
   const h1 = p1[5]
   let bearingDeg: number
@@ -607,7 +628,7 @@ export function aircraftPlaybackSample(
     bearingDeg = (h0 + dh * u + 360) % 360
     turnRateDegPerS = dtMs > 0 ? dh / (dtMs / 1000) : 0
   } else if (moving && meters > 5) {
-    bearingDeg = ((Math.atan2(eastM, northM) * 180) / Math.PI + 360) % 360
+    bearingDeg = curve.tangentDeg
   } else {
     bearingDeg = knownDirections(track, i + 1).bearingDeg
   }
@@ -619,6 +640,10 @@ export function aircraftPlaybackSample(
   const noseDeg = heading ?? lastKnown(track, i + 1, 7) ?? bearingDeg
   const lerpNullable = (a: number | null, b: number | null): number | null =>
     a !== null && b !== null ? a + (b - a) * u : (b ?? a)
+  // The bank between two fixes that report one; a point without the
+  // field at all leaves it to the record (see AircraftTrackPoint)
+  const rollDeg =
+    p0[9] === undefined && p1[9] === undefined ? undefined : lerpNullable(p0[9] ?? null, p1[9] ?? null)
   return {
     lon,
     lat,
@@ -627,6 +652,7 @@ export function aircraftPlaybackSample(
     groundShare,
     bearingDeg,
     noseDeg,
+    rollDeg,
     gsKn: lerpNullable(p0[4], p1[4]),
     verticalRateMps: lerpNullable(p0[6], p1[6]),
     turnRateDegPerS,
@@ -669,6 +695,7 @@ function reckon(
     groundShare: altM === null ? 1 : 0,
     bearingDeg: trackDeg,
     noseDeg: lastKnown(track, track.length - 1, 7) ?? trackDeg,
+    rollDeg: last[9],
     gsKn,
     verticalRateMps: last[6],
     turnRateDegPerS: 0,

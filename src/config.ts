@@ -224,7 +224,27 @@ export const config = {
       bus: 6.9, // ~25 km/h city traffic
       ferry: 3.0, // ~6 kn harbor crossing
     },
-    /** Dwell time at a stop in seconds. */
+    /**
+     * Acceleration and braking rate per mode in m/s² (see
+     * profileDistance in lib/timetable.ts): a tram pulls away at about
+     * 1 m/s², an S-Bahn a little more gently, a ferry barely at all.
+     * The run's time between two stops is the timetable's; the rate
+     * only shapes how the vehicle spends it.
+     */
+    accelerationByMode: {
+      tram: 1.0,
+      subway: 1.0,
+      train: 0.8,
+      bus: 1.0,
+      ferry: 0.25,
+    },
+    /**
+     * Dwell time at a stop in seconds – the whole stop where the
+     * timetable has no stop times of its own (no schedule.json, or a
+     * trip without a pattern), and the least a vehicle stands before a
+     * departure the feed gives (see stopTimesFromTimePoints: the feed
+     * has arrival equal departure at most stops).
+     */
     dwellSeconds: 25,
     /**
      * Turnaround time at the terminus in seconds: the vehicle stays

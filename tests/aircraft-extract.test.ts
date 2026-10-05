@@ -141,7 +141,7 @@ describe('mergeAdsbAircraft', () => {
       source: 'adsb',
       positionAt: NOW,
     })
-    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5, 297.68, true]])
+    expect(a.track).toEqual([[NOW, 50.198959, 8.10473, 10850.9, 457.7, 291.8, 5, 297.68, true, 0.18]])
   })
 
   it('marks every fix with the kind of altitude it carries', () => {
@@ -153,7 +153,7 @@ describe('mergeAdsbAircraft', () => {
     expect(fix[8]).toBe(false)
     // The same aircraft once it reports the geometric altitude too
     mergeAdsbAircraft(state, { hex: '4b1803', alt_baro: 2400, alt_geom: 3050, gs: 140, lat: 50.05, lon: 8.41 }, NOW + 4000)
-    expect(state.get('4b1803')!.track[1].slice(3)).toEqual([929.6, 140, null, null, null, true])
+    expect(state.get('4b1803')!.track[1].slice(3)).toEqual([929.6, 140, null, null, null, true, null])
   })
 
   it('reads the ground, the missing fields and the multilaterated source', () => {
@@ -230,6 +230,27 @@ describe('mergeAdsbAircraft', () => {
   })
 })
 
+describe('the bank angle at the drawn instant', () => {
+  it('eases the roll between the fixes that report one, and leaves old points to the record', () => {
+    const withRoll = (t: number, lonOff: number, roll: number | null): AircraftTrackPoint => {
+      const p = point(t, 0, lonOff, { gs: 200, track: 90 })
+      return [p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], roll]
+    }
+    const banked = aircraft({
+      rollDeg: 30,
+      track: [withRoll(NOW, 0, 10), withRoll(NOW + 10_000, 0.02, 20)],
+    })
+    expect(aircraftPlaybackSample(banked, NOW + 5000).rollDeg).toBeCloseTo(15, 6)
+    // Reckoned on past the last fix: the last fix's roll
+    expect(aircraftPlaybackSample(banked, NOW + 15_000).rollDeg).toBe(20)
+    // Fixes that report no roll say so; fixes too old to carry the field say nothing
+    const unreported = aircraft({ rollDeg: 30, track: [withRoll(NOW, 0, null), withRoll(NOW + 10_000, 0.02, null)] })
+    expect(aircraftPlaybackSample(unreported, NOW + 5000).rollDeg).toBeNull()
+    const old = aircraft({ rollDeg: 30, track: [point(NOW, 0, 0, { gs: 200, track: 90 }), point(NOW + 10_000, 0, 0.02, { gs: 200, track: 90 })] })
+    expect(aircraftPlaybackSample(old, NOW + 5000).rollDeg).toBeUndefined()
+  })
+})
+
 describe('aircraftStateList', () => {
   it('lists fresh positions, keeps stale records a while, then forgets them', () => {
     const state: AircraftState = new Map([
@@ -250,7 +271,11 @@ describe('aircraftPlaybackSample', () => {
     })
     const s = aircraftPlaybackSample(a, NOW + 5000)
     expect(s.lon).toBeCloseTo(8.11, 8)
-    expect(s.lat).toBeCloseTo(50.2, 8)
+    // The tracks at the fixes turn from 80° to 100°: the curve between
+    // them bulges north of the chord by a few dozen metres (see
+    // lib/track-curve.ts), and at its middle runs due east
+    expect(s.lat).toBeGreaterThan(50.2)
+    expect(s.lat).toBeLessThan(50.201)
     expect(s.altM).toBeCloseTo(2950, 6)
     expect(s.bearingDeg).toBeCloseTo(90, 6)
     expect(s.gsKn).toBeCloseTo(210, 6)

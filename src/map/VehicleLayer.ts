@@ -234,7 +234,7 @@ interface VehicleRecord {
    * just its render state, no new appearance/shader per transition.
    */
   appearance: PerInstanceColorAppearance | null
-  /** Vehicle is on a tunnel/underground route section (drawn at 40 %). */
+  /** Vehicle is on a tunnel/underground route section (drawn at TUNNEL_VISIBILITY, 20 %). */
   inTunnel: boolean
   /** Vehicle is the current selection (body brightened). */
   highlighted: boolean
@@ -716,6 +716,15 @@ const glowPositionScratch = new Cartesian3()
 const hprScratch = new HeadingPitchRoll()
 
 /**
+ * The most a body pitches along its route's gradient, in degrees: a tram
+ * on Stuttgart's steepest street climbs about 9 %, the rest of the
+ * network far less, and a per-vertex height model has a spike or two the
+ * cap keeps off the picture. Nothing offline or on the flat map, where
+ * every height is 0 m (see host.flatGround).
+ */
+const MAX_VEHICLE_PITCH_DEG = 8
+
+/**
  * Delay suffix shown on the map badge after the line number ("+2" / "-1").
  * Mirrors the VehicleCard threshold: under a minute counts as on time, and
  * only vehicles with a GTFS-RT match show a delay at all.
@@ -935,7 +944,8 @@ export class VehicleLayer {
 
   /**
    * Reconciles the tram entities with the current snapshots.
-   * Called every frame: updates positions in place, creates new entities,
+   * Called every simulation tick (33–500 ms, see App.tsx – not every
+   * frame): updates positions in place, creates new entities,
    * and removes finished trips.
    *
    * The vehicles' height is set EXPLICITLY instead of via HeightReference
@@ -1051,7 +1061,7 @@ export class VehicleLayer {
         this.host.requestRender()
       }
 
-      // Entering/leaving a tunnel section toggles the 40 % ghost rendering.
+      // Entering/leaving a tunnel section toggles the ghost rendering (TUNNEL_VISIBILITY).
       if (snap.inTunnel !== record.inTunnel) {
         record.inTunnel = snap.inTunnel
         record.appearanceDirty = true
@@ -1264,6 +1274,16 @@ export class VehicleLayer {
       // Update modelMatrix in place – takes effect immediately on the next render
       record.bearing = snap.bearing
       hprScratch.heading = CesiumMath.toRadians(snap.bearing - 90)
+      // Nose up the gradient (x is the travel axis, positive pitch lifts
+      // it – the aircraft's convention), on the terrain profile alone
+      hprScratch.pitch =
+        routeGroundHeight !== undefined
+          ? CesiumMath.clamp(
+              Math.atan(snap.gradient),
+              -CesiumMath.toRadians(MAX_VEHICLE_PITCH_DEG),
+              CesiumMath.toRadians(MAX_VEHICLE_PITCH_DEG),
+            )
+          : 0
       Transforms.headingPitchRollToFixedFrame(
         position,
         hprScratch,
@@ -1772,7 +1792,7 @@ export class VehicleLayer {
   /**
    * Applies the current visual state of a vehicle: selection highlight
    * (body brightened) combined with tunnel ghosting (body and label at
-   * 40 % opacity while on an underground section). Returns false while the
+   * TUNNEL_VISIBILITY while on an underground section). Returns false while the
    * primitive has not rendered yet and the body color could not be written.
    */
   private applyVehicleAppearance(vehicleId: string): boolean {

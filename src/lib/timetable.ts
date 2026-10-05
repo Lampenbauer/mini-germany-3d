@@ -31,6 +31,12 @@ export interface Trip {
   direction: 0 | 1
   stopTimes: StopTime[]
   /**
+   * Acceleration and braking rate between stops in m/s² (see
+   * profileDistance); missing = constant speed, the shape the tests'
+   * hand-built trips have.
+   */
+  accel?: number
+  /**
    * Set for short workings (trips serving only part of the route): display
    * names of the actually served first/last stop. Full-route trips keep the
    * line's terminus names.
@@ -83,6 +89,11 @@ export interface TimetableOptions {
   service?: HeadwaySpan[]
   /** Mode-specific travel speed (m/s); missing = cruiseSpeedMps. */
   cruiseSpeedByMode?: Partial<Record<TransitMode, number>>
+  /**
+   * Acceleration and braking rate per mode in m/s² (see profileDistance);
+   * missing = a vehicle at constant speed between its stops.
+   */
+  accelerationByMode?: Partial<Record<TransitMode, number>>
   /**
    * Turnaround time at the terminus in seconds (vehicle stays at its final
    * stop this long after arrival). Runtime-only – does not affect the
@@ -196,15 +207,145 @@ function servedStopRange(
   return first !== -1 && last - first >= 1 ? [first, last] : null
 }
 
+/**
+ * One point of a trip's own timetable: where it is on the direction's
+ * path (meters) and when the feed has it there (arrival and departure in
+ * seconds after the trip's departure from its first stop). A trip's
+ * points come from the GTFS stop_times (schedule.json `patterns`); the
+ * network's stops take their times from them (stopTimesFromTimePoints).
+ */
+export interface TimePoint {
+  dist: number
+  arrival: number
+  departure: number
+}
+
+/**
+ * A pattern as schedule.json writes it – [dist, arrival, departure, …],
+ * flat, the way the GTFS step lays it out – read back into points.
+ * Anything malformed means "no timetable points" (the cruise speed then).
+ */
+export function timePointsFromPattern(
+  flat: readonly number[] | null | undefined,
+): TimePoint[] | null {
+  if (!flat || flat.length < 6 || flat.length % 3 !== 0) return null
+  const points: TimePoint[] = []
+  for (let i = 0; i < flat.length; i += 3) {
+    const dist = flat[i]
+    const arrival = flat[i + 1]
+    const departure = flat[i + 2]
+    if (!Number.isFinite(dist) || !Number.isFinite(arrival) || !Number.isFinite(departure)) return null
+    const prev = points[points.length - 1]
+    if (prev && (dist <= prev.dist || arrival < prev.departure)) return null
+    points.push({ dist, arrival, departure: Math.max(arrival, departure) })
+  }
+  // A pattern at an impossible pace has no real times behind it: the
+  // free feed repeats a trip's first time at every stop for some
+  // operators, and a trip run on that would cross the city in seconds
+  const first = points[0]
+  const end = points[points.length - 1]
+  const seconds = end.arrival - first.departure
+  if (seconds <= 0 || (end.dist - first.dist) / seconds > MAX_TIME_POINT_MPS) return null
+  return points
+}
+
+/**
+ * The fastest a pattern may run over its whole length, in m/s (160 km/h
+ * on average); the GTFS step rejects the same (MAX_PATTERN_MPS).
+ */
+export const MAX_TIME_POINT_MPS = 45
+
+/**
+ * A network stop this close to one of the trip's time points takes that
+ * point's times: the GTFS platform coordinates land a few dozen meters
+ * off the OSM path (the span projection allows the same slack).
+ */
+export const TIME_POINT_SNAP_M = 150
+
+/** The least a vehicle is under way between two stops, in seconds. */
+const MIN_RUN_SECONDS = 5
+
+/**
+ * The stop times of the served stops `first`..`last` from the trip's own
+ * time points: a stop at a time point takes its arrival and departure,
+ * one between two points is passed at the time the distance says, one
+ * outside every point is reached at the cruise speed from the nearest.
+ * The feed has no dwell at most stops (arrival equals departure), so the
+ * vehicle is shown standing `dwellSeconds` before every departure – the
+ * stop is a stop – as long as the run from the stop before keeps
+ * MIN_RUN_SECONDS. The trip departs its first served stop at `dep`.
+ */
+export function stopTimesFromTimePoints(
+  dir: PreparedDirection,
+  first: number,
+  last: number,
+  dep: number,
+  points: readonly TimePoint[],
+  cruiseSpeedMps: number,
+  dwellSeconds: number,
+): StopTime[] {
+  // Relative to the trip's departure until the end – absolute times and
+  // offsets must not meet in one comparison
+  const offsets: { arrival: number; departure: number }[] = []
+  for (let i = first; i <= last; i++) {
+    const d = dir.stops[i].dist
+    let arrival: number
+    let departure: number
+    // The nearest point, and whether it is this stop's own
+    let nearest = 0
+    for (let k = 1; k < points.length; k++) {
+      if (Math.abs(points[k].dist - d) < Math.abs(points[nearest].dist - d)) nearest = k
+    }
+    if (Math.abs(points[nearest].dist - d) <= TIME_POINT_SNAP_M) {
+      arrival = points[nearest].arrival
+      departure = points[nearest].departure
+    } else if (d < points[0].dist) {
+      arrival = departure = points[0].arrival - (points[0].dist - d) / cruiseSpeedMps
+    } else if (d > points[points.length - 1].dist) {
+      const end = points[points.length - 1]
+      arrival = departure = end.departure + (d - end.dist) / cruiseSpeedMps
+    } else {
+      let j = 0
+      while (j + 1 < points.length && points[j + 1].dist <= d) j++
+      const a = points[j]
+      const b = points[j + 1]
+      const t = (d - a.dist) / (b.dist - a.dist)
+      arrival = departure = a.departure + (b.arrival - a.departure) * t
+    }
+    // A stop is a stop: the vehicle stands dwellSeconds before it leaves
+    // – not at the ends, where the trip begins with its departure and
+    // ends with its arrival
+    if (i !== first && i !== last && departure - arrival < dwellSeconds) {
+      arrival = departure - dwellSeconds
+    }
+    const prev = offsets[offsets.length - 1]
+    if (prev) {
+      // Never back in time, and under way between the two for a moment
+      arrival = Math.max(arrival, prev.departure + MIN_RUN_SECONDS)
+      departure = Math.max(departure, arrival)
+    }
+    if (i === first) arrival = departure = 0
+    if (i === last) departure = arrival
+    offsets.push({ arrival: Math.round(arrival), departure: Math.round(departure) })
+  }
+  return offsets.map((offset, k) => ({
+    stopIndex: first + k,
+    arrival: dep + offset.arrival,
+    departure: dep + offset.departure,
+  }))
+}
+
 export function buildTripsForDirection(
   line: PreparedLine,
   direction: 0 | 1,
   departures: number[],
   opts: TimetableOptions,
   spans?: readonly (TripSpan | undefined)[],
+  timePoints?: readonly (readonly TimePoint[] | null | undefined)[],
 ): Trip[] {
   const dir = line.directions[direction]
   const speed = opts.cruiseSpeedByMode?.[line.mode] ?? opts.cruiseSpeedMps
+  const accel = opts.accelerationByMode?.[line.mode]
   const offsets = stopOffsets(dir, speed, opts.dwellSeconds)
   return departures.map((dep, tripIndex) => {
     // Short working: only the stops between the span endpoints are served.
@@ -218,14 +359,21 @@ export function buildTripsForDirection(
     } else if (range) {
       ;[first, last] = range
     }
-    const stopTimes: StopTime[] = []
-    for (let i = first; i <= last; i++) {
-      // Shift so the trip departs its real first stop at `dep`. The first
-      // stop gets no leading dwell, the last no trailing one (trip ends).
-      const arrival = i === first ? dep : dep + offsets[i].arrival - offsets[first].departure
-      const departure =
-        i === first ? dep : i === last ? arrival : dep + offsets[i].departure - offsets[first].departure
-      stopTimes.push({ stopIndex: i, arrival, departure })
+    const points = timePoints?.[tripIndex]
+    let stopTimes: StopTime[]
+    if (points && points.length >= 2) {
+      // The trip's own timetable, from the feed
+      stopTimes = stopTimesFromTimePoints(dir, first, last, dep, points, speed, opts.dwellSeconds)
+    } else {
+      stopTimes = []
+      for (let i = first; i <= last; i++) {
+        // Shift so the trip departs its real first stop at `dep`. The first
+        // stop gets no leading dwell, the last no trailing one (trip ends).
+        const arrival = i === first ? dep : dep + offsets[i].arrival - offsets[first].departure
+        const departure =
+          i === first ? dep : i === last ? arrival : dep + offsets[i].departure - offsets[first].departure
+        stopTimes.push({ stopIndex: i, arrival, departure })
+      }
     }
     const trip: Trip = {
       id: simTripId(line.id, direction, dep, span),
@@ -233,6 +381,7 @@ export function buildTripsForDirection(
       direction,
       stopTimes,
     }
+    if (accel !== undefined) trip.accel = accel
     if (span) {
       trip.origin = dir.stops[first].name
       trip.destination = dir.stops[last].name
@@ -243,17 +392,29 @@ export function buildTripsForDirection(
 
 /**
  * Optional real departure times from schedule.json:
- * { lines: { [lineId]: { [direction]: { departures, tripIds?, spans? } } } }
+ * { lines: { [lineId]: { [direction]: { departures, tripIds?, spans?, patterns?, patternIds? } } } }
  * tripIds (parallel to departures) are the feed's GTFS trip_ids – they
  * connect the simulation trips to GTFS-Realtime TripUpdates. spans (also
  * parallel) mark short workings: [start, end] meters along the direction's
- * path, null for full-route trips.
+ * path, null for full-route trips. patterns are the trips' own timetables
+ * – [dist, arrival, departure, …] flat per pattern, see TimePoint – and
+ * patternIds (parallel to departures) say which pattern a trip runs, null
+ * for a trip without one (a ring's round, a ferry loop's leg).
  */
 export interface ScheduleJson {
   meta?: { source?: string; serviceCount?: number }
   lines?: Record<
     string,
-    Record<string, { departures: number[]; tripIds?: string[]; spans?: (number[] | null)[] }>
+    Record<
+      string,
+      {
+        departures: number[]
+        tripIds?: string[]
+        spans?: (number[] | null)[]
+        patterns?: number[][]
+        patternIds?: (number | null)[]
+      }
+    >
   >
 }
 
@@ -307,9 +468,14 @@ export function buildAllTrips(
     for (const direction of [0, 1] as const) {
       const real = schedule?.lines?.[line.id]?.[String(direction)]
       if (real && real.departures.length > 0) {
-        // Sort departures and spans together (parallel arrays)
+        // Sort departures, spans and patterns together (parallel arrays)
+        const patterns = (real.patterns ?? []).map(timePointsFromPattern)
         const order = real.departures
-          .map((dep, i) => ({ dep, span: normalizeSpan(real.spans?.[i]) }))
+          .map((dep, i) => ({
+            dep,
+            span: normalizeSpan(real.spans?.[i]),
+            points: patterns[real.patternIds?.[i] ?? -1] ?? null,
+          }))
           .sort((a, b) => a.dep - b.dep)
         trips.push(
           ...buildTripsForDirection(
@@ -318,6 +484,7 @@ export function buildAllTrips(
             order.map((o) => o.dep),
             opts,
             order.map((o) => o.span),
+            order.map((o) => o.points),
           ),
         )
       } else if (!hasSchedule) {
@@ -347,6 +514,46 @@ export interface VehicleState {
 }
 
 export const DAY_SECONDS = 24 * 3600
+
+/**
+ * How far a vehicle has come `t` seconds into a run of `length` meters
+ * that takes `duration` seconds, accelerating and braking at `accel`
+ * m/s²: a trapezoid – up to the cruise speed the run's time allows, along
+ * at it, down again – or, where the run is too short to reach any cruise
+ * speed at that rate, a triangle that peaks halfway. Without a rate (or
+ * a run of no time) the speed is constant, which is what it was before:
+ * a tram that left its stop at 30 km/h and arrived at 30 km/h.
+ */
+export function profileDistance(
+  length: number,
+  duration: number,
+  t: number,
+  accel: number | undefined,
+): number {
+  if (length <= 0 || duration <= 0) return 0
+  const u = Math.min(1, Math.max(0, t / duration))
+  if (!(accel !== undefined && accel > 0)) return length * u
+  const time = u * duration
+  const disc = accel * accel * duration * duration - 4 * accel * length
+  let rampSeconds: number
+  let rate: number
+  if (disc >= 0) {
+    // Trapezoid: the smaller root is the cruise speed, reached in v/a
+    const cruise = (accel * duration - Math.sqrt(disc)) / 2
+    rampSeconds = cruise / accel
+    rate = accel
+  } else {
+    // Triangle: no cruise, the peak at half time
+    rampSeconds = duration / 2
+    rate = (4 * length) / (duration * duration)
+  }
+  if (time <= rampSeconds) return 0.5 * rate * time * time
+  if (time >= duration - rampSeconds) {
+    const left = duration - time
+    return length - 0.5 * rate * left * left
+  }
+  return 0.5 * rate * rampSeconds * rampSeconds + rate * rampSeconds * (time - rampSeconds)
+}
 
 /**
  * State of a trip at time tSec, or null if not underway.
@@ -416,10 +623,10 @@ export function tripStateAt(
     // Between this stop and the next one
     const next = st[i + 1]
     if (next && tSec > cur.departure && tSec < next.arrival) {
-      const t = (tSec - cur.departure) / (next.arrival - cur.departure)
       const d0 = dir.stops[cur.stopIndex].dist
       const d1 = dir.stops[next.stopIndex].dist
-      const dist = d0 + (d1 - d0) * t
+      const dist =
+        d0 + profileDistance(d1 - d0, next.arrival - cur.departure, tSec - cur.departure, trip.accel)
       const sample = sampleAtDistance(dir.path, dir.cum, dist)
       return {
         tripId: trip.id,

@@ -41,6 +41,7 @@ function snapshot(id: string, mode: 'ferry' | 'tram', lon = 12.1): VehicleSnapsh
     status: 'moving',
     nhn: 0,
     inTunnel: false,
+    gradient: 0,
     nextStopName: 'Beta',
     destination: 'Beta',
     origin: 'Alpha',

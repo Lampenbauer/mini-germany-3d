@@ -300,7 +300,7 @@ export class RoutesLayer {
    * reserved as a fallback for directions without height data. Offline,
    * where the ground is the bare ellipsoid at 0 m, the routes lie on it as
    * ordinary polylines as well. Tunnel/underground sections become their
-   * own polyline pieces at 40 % of the normal opacity.
+   * own polyline pieces at TUNNEL_VISIBILITY (20 %) of the normal opacity.
    */
   add(network: PreparedNetwork): void {
     // Network/height data licenses (ODbL, © GeoBasis-DE/M-V) require a

@@ -25,38 +25,49 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = join(root, 'tests/fixtures/ais-messages.json')
 const NOW = 1_800_000_000_000
 
-const state = new Map()
-for (const message of JSON.parse(readFileSync(fixture, 'utf8'))) {
-  mergeAisMessage(state, message, NOW)
-}
-const expected = JSON.parse(
-  JSON.stringify({ timestamp: NOW, vessels: aisStateVessels(state, NOW) }),
-)
-
-const output = execFileSync(
-  'php',
-  [join(root, 'server/api/ais.php'), '--selftest', fixture, String(NOW)],
-  { encoding: 'utf8' },
-)
-const actual = JSON.parse(output)
-
-if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-  console.error('❌ PHP AIS extraction deviates from ais-extract.ts!')
-  console.error('Expected vessels:', expected.vessels.length)
-  console.error('Actual vessels:', actual.vessels?.length)
-  for (let i = 0; i < Math.max(expected.vessels.length, actual.vessels?.length ?? 0); i++) {
-    const a = JSON.stringify(expected.vessels[i])
-    const b = JSON.stringify(actual.vessels?.[i])
-    if (a !== b) {
-      console.error('First difference at index', i)
-      console.error('  TS :', a)
-      console.error('  PHP:', b)
-      break
-    }
+// Twice: once with a clock far from the messages' own times, which the
+// receive time then stands in for, and once a minute after the capture,
+// where every message's time_utc is the fix's time (see aisFixTimeMs) –
+// the PHP twin has to parse the stamps the same way.
+const captured = Date.UTC(2026, 7, 27, 11, 19, 30)
+for (const now of [NOW, captured]) {
+  const state = new Map()
+  for (const message of JSON.parse(readFileSync(fixture, 'utf8'))) {
+    mergeAisMessage(state, message, now)
   }
-  process.exit(1)
+  const expected = JSON.parse(
+    JSON.stringify({ timestamp: now, vessels: aisStateVessels(state, now) }),
+  )
+
+  const output = execFileSync(
+    'php',
+    [join(root, 'server/api/ais.php'), '--selftest', fixture, String(now)],
+    { encoding: 'utf8' },
+  )
+  const actual = JSON.parse(output)
+
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    console.error(`❌ PHP AIS extraction deviates from ais-extract.ts (clock ${now})!`)
+    console.error('Expected vessels:', expected.vessels.length)
+    console.error('Actual vessels:', actual.vessels?.length)
+    for (let i = 0; i < Math.max(expected.vessels.length, actual.vessels?.length ?? 0); i++) {
+      const a = JSON.stringify(expected.vessels[i])
+      const b = JSON.stringify(actual.vessels?.[i])
+      if (a !== b) {
+        console.error('First difference at index', i)
+        console.error('  TS :', a)
+        console.error('  PHP:', b)
+        break
+      }
+    }
+    process.exit(1)
+  }
+  const stamped = expected.vessels.filter((v) => v.positionAt !== now).length
+  console.log(
+    `✅ PHP AIS extraction matches ais-extract.ts: ${expected.vessels.length} vessels identical` +
+      ` (clock ${now}, ${stamped} on their messages' own time)`,
+  )
 }
-console.log(`✅ PHP AIS extraction matches ais-extract.ts: ${expected.vessels.length} vessels identical`)
 
 // --- Bounding boxes --------------------------------------------------------
 // One subscription for every city with AIS – aisstream allows three

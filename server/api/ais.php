@@ -110,6 +110,10 @@ const MG3D_AIS_TRACK_KEEP_MS = 10 * 60_000;
 const MG3D_AIS_TRACK_MAX_POINTS = 40;
 /** From this speed a fix's COG is a course, not GNSS drift. Mirror of ais-extract.ts. */
 const MG3D_AIS_UNDER_WAY_SOG_KN = 0.5;
+// A message's own time counts as the fix's time within this window of
+// the keeper's clock (see AIS_MESSAGE_TIME_* in ais-extract.ts).
+const MG3D_AIS_MESSAGE_TIME_BEHIND_MS = 10 * 60_000;
+const MG3D_AIS_MESSAGE_TIME_AHEAD_MS = 5_000;
 /**
  * The archive: every fix, kept for five days in one file per city and
  * UTC hour, so the app can replay the harbour when its clock is set into
@@ -181,11 +185,41 @@ function mg3d_ais_default_vessel(int $mmsi): array
  * Field-for-field port of mergeAisMessage in src/lib/ais-extract.ts – any
  * behavioral change must land in both, the parity test insists.
  */
+/**
+ * The time aisstream stamps a message with ("2026-08-27 11:15:39.673431615
+ * +0000 UTC"), as unix ms; null for anything else. Mirror of
+ * aisMessageTimeMs in src/lib/ais-extract.ts.
+ */
+function mg3d_ais_message_time($timeUtc): ?int
+{
+    if (!is_string($timeUtc)) return null;
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d+))? \+0000 UTC$/', $timeUtc, $m)) {
+        return null;
+    }
+    $seconds = gmmktime((int) $m[4], (int) $m[5], (int) $m[6], (int) $m[2], (int) $m[3], (int) $m[1]);
+    $ms = isset($m[7]) ? (int) substr($m[7] . '00', 0, 3) : 0;
+    return $seconds * 1000 + $ms;
+}
+
+/**
+ * When a fix was made: the message's own time within the window of the
+ * keeper's clock, the keeper's clock otherwise (mirror of aisFixTimeMs).
+ */
+function mg3d_ais_fix_time(array $raw, int $nowMs): int
+{
+    $stamped = mg3d_ais_message_time($raw['MetaData']['time_utc'] ?? null);
+    if ($stamped === null) return $nowMs;
+    if ($stamped > $nowMs + MG3D_AIS_MESSAGE_TIME_AHEAD_MS) return $nowMs;
+    if ($stamped < $nowMs - MG3D_AIS_MESSAGE_TIME_BEHIND_MS) return $nowMs;
+    return $stamped;
+}
+
 function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
 {
     $meta = $raw['MetaData'] ?? null;
     $mmsi = $meta['MMSI'] ?? null;
     if (!is_int($mmsi) || $mmsi <= 0) return;
+    $fixMs = mg3d_ais_fix_time($raw, $nowMs);
 
     $vessel = $state[$mmsi] ?? mg3d_ais_default_vessel($mmsi);
 
@@ -196,13 +230,15 @@ function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
         ?? null;
     $lat = $report['Latitude'] ?? $meta['latitude'] ?? null;
     $lon = $report['Longitude'] ?? $meta['longitude'] ?? null;
-    $hasFix = is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90;
+    // A message older than the fix already held is late, not news
+    $hasFix = is_numeric($lat) && is_numeric($lon) && abs((float) $lat) <= 90
+        && $fixMs >= $vessel['positionAt'];
     if ($hasFix) {
         $vessel['lat'] = (float) $lat;
         $vessel['lon'] = (float) $lon;
-        $vessel['positionAt'] = $nowMs;
+        $vessel['positionAt'] = $fixMs;
     }
-    if ($report !== null) {
+    if ($report !== null && $fixMs >= $vessel['positionAt']) {
         $vessel['sogKn'] = mg3d_ais_sog($report['Sog'] ?? null);
         $vessel['cogDeg'] = mg3d_ais_cog($report['Cog'] ?? null);
         $vessel['headingDeg'] = mg3d_ais_heading($report['TrueHeading'] ?? null);
@@ -218,7 +254,7 @@ function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
     if ($hasFix) {
         // Record AFTER the kinematics update, so a MetaData-only fix
         // (static report) carries the last known speed and course.
-        $vessel['track'][] = [$nowMs, $vessel['lat'], $vessel['lon'],
+        $vessel['track'][] = [$fixMs, $vessel['lat'], $vessel['lon'],
             $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg']];
         $track = [];
         foreach ($vessel['track'] as $point) {

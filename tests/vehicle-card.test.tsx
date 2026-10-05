@@ -26,6 +26,7 @@ const vehicle: VehicleSnapshot = {
   bearing: 90,
   status: 'moving',
   inTunnel: false,
+  gradient: 0,
   nextStopName: 'Doberaner Platz',
   destination: 'Hafenallee',
   origin: 'Mecklenburger Allee',

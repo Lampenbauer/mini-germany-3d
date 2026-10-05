@@ -36,6 +36,7 @@ function snapshot(id: string, lon = 12.1): VehicleSnapshot {
     bearing: 0,
     status: 'moving',
     inTunnel: false,
+    gradient: 0,
     nextStopName: 'Beta',
     destination: 'Beta',
     origin: 'Alpha',

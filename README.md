@@ -189,9 +189,12 @@ open 1 m elevation models, sampled per route vertex, stop and lamp (bridge
 decks are measured on Google's tiles at run time instead, since a bare-earth
 model knows no viaduct). Timetables come from the Germany-wide
 [gtfs.de](https://gtfs.de) feed (DELFI): one service day per city, the
-busiest of the next three weeks, with the GTFS trip ids kept for matching
-the realtime feed. Lines without GTFS trips stay off the map – a line that is
-suspended for track works does not run here either.
+busiest of the next three weeks, every trip with its own stop times (as
+shared patterns, so a city's file stays small; where the free feed
+carries only a trip's first time, as for Bremen's and Hanover's buses and
+trams, the run between stops is derived from the route length) and the
+GTFS trip ids kept for matching the realtime feed. Lines without GTFS trips stay off the map
+– a line that is suspended for track works does not run here either.
 
 **`city.json`** (typed and validated by `src/lib/city.ts`):
 

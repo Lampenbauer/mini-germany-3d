@@ -1,7 +1,7 @@
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings'
 import { describe, expect, it } from 'vitest'
 import { prepareNetwork } from '@/data/network'
-import { Simulation } from '@/engine/simulation'
+import { DELAY_RAMP_MS, Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { mapDelaysToSimTrips } from '@/lib/realtime'
 import { extractGtfsDelays } from '@/lib/rt-extract'
@@ -140,13 +140,38 @@ describe('Simulation with realtime delays', () => {
     expect(delayed.lat).toBeCloseTo(undelayed.lat, 8)
   })
 
-  it('an empty delay map restores scheduled operation', () => {
+  it('an empty delay map restores scheduled operation, eased in over the ramp', () => {
     const sim = new Simulation(network, new SimClock(), schedule)
     const tripId = sim.realtimeTripIdMap.get('gtfs-a')!
-    sim.setRealtimeDelays(new Map([[tripId, 300]]))
-    sim.setRealtimeDelays(new Map())
-    const snap = sim.snapshotsAt(28900).find((s) => s.id === tripId)!
+    const t0 = 1_000_000
+    // The first delays are applied as they are – nothing was drawn before
+    sim.setRealtimeDelays(new Map([[tripId, 300]]), t0)
+    expect(sim.snapshotsAt(29200, t0).find((s) => s.id === tripId)!.delaySeconds).toBe(300)
+    // A delay that goes away eases out: halfway through the ramp the train
+    // runs with half of it, at the ramp's end with none
+    sim.setRealtimeDelays(new Map(), t0 + 1000)
+    const halfway = sim.snapshotsAt(29200, t0 + 1000 + DELAY_RAMP_MS / 2).find((s) => s.id === tripId)!
+    expect(halfway.delaySeconds).toBeCloseTo(150, 6)
+    expect(halfway.realtime).toBe(false)
+    const snap = sim.snapshotsAt(28900, t0 + 1000 + DELAY_RAMP_MS).find((s) => s.id === tripId)!
     expect(snap.realtime).toBe(false)
     expect(snap.delaySeconds).toBe(0)
+  })
+
+  it('eases a changed delay in rather than jumping the vehicle along its route', () => {
+    const sim = new Simulation(network, new SimClock(), schedule)
+    const tripId = sim.realtimeTripIdMap.get('gtfs-a')!
+    const t0 = 1_000_000
+    sim.setRealtimeDelays(new Map([[tripId, 60]]), t0)
+    const before = sim.snapshotsAt(29200, t0).find((s) => s.id === tripId)!
+    sim.setRealtimeDelays(new Map([[tripId, 120]]), t0 + 1000)
+    const justAfter = sim.snapshotsAt(29200, t0 + 1000).find((s) => s.id === tripId)!
+    // The moment the feed changes its mind nothing has moved yet …
+    expect(justAfter.delaySeconds).toBeCloseTo(60, 6)
+    expect(justAfter.lon).toBeCloseTo(before.lon, 8)
+    // … and the ramp's end has the whole of the new delay
+    const after = sim.snapshotsAt(29200, t0 + 1000 + DELAY_RAMP_MS).find((s) => s.id === tripId)!
+    expect(after.delaySeconds).toBe(120)
+    expect(after.realtime).toBe(true)
   })
 })
