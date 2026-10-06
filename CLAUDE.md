@@ -1917,14 +1917,18 @@ gets its lighting a few frames after it loads – which the plume spec
 had to learn to wait for (`pictureStill`: its picture of the ship
 stopped was taken before her lighting and the one under way after).
 
-Measured headed on the real GPU (timer queries, paused at 08:30,
-offline; the CPU over 60 frames, twice each):
+Measured headed on the real GPU (timer queries, paused at 08:30; the
+CPU over 60 frames, twice each). The two close views ran with Google's
+tiles still loading, not offline as this table first said – the
+script's `&offline=1` was appended after the pose hash there and went
+into the hash, which the app does not read for it (a query switch goes
+before the `#`); the home view, with no hash, was offline:
 
-| scene (offline) | render CPU | commands |
+| scene | render CPU | commands |
 |---|---|---|
-| Berlin 1.2 km over Alexanderplatz | 13.4 · 13.8 → 10.9 · 11.1 ms | 1 570 · 1 610 → 887 · 909 |
-| Hamburg 1175 m over the harbour | 12.7 · 13.0 → 11.8 · 11.9 ms | 1 348 → 1 090 · 1 093 |
-| Berlin home view | 2.5 · 3.2 → 2.3 · 2.6 ms | 65 → 65 |
+| Berlin 1.2 km over Alexanderplatz, tiles loading | 13.4 · 13.8 → 10.9 · 11.1 ms | 1 570 · 1 610 → 887 · 909 |
+| Hamburg 1175 m over the harbour, tiles loading | 12.7 · 13.0 → 11.8 · 11.9 ms | 1 348 → 1 090 · 1 093 |
+| Berlin home view, offline | 2.5 · 3.2 → 2.3 · 2.6 ms | 65 → 65 |
 
 With the real tiles, Berlin's close view went from 14.2 · 14.5 to 12.2
 · 12.3 ms of render CPU and 1 772 · 1 857 to 1 185 · 1 203 commands.
@@ -1933,22 +1937,49 @@ runs of the same build by more than the change, the old build most of
 all (its environment-map passes, above). Interleaved over eight rounds,
 480 frames a variant, in Berlin's close view:
 
-| GPU per frame | old (Models) | new (instances) |
+| GPU per frame, offline | old (Models) | new (instances) |
 |---|---|---|
 | median, as drawn (p25–p75) | 9.69 ms (6.94–12.44) | 6.03 ms (5.59–6.63) |
 | the wagons' share (as drawn − wagons off) | 1.13 ms | 1.63 ms |
 | of it their shadow casting | 0.45 ms | 1.36 ms |
 
-So the frame is cheaper and steadier, but the wagons' own GPU share
-grew by half a millisecond, all of it in the shadow pass: a batch is one
-bounding sphere, so every cascade of the shadow map draws every shown
-wagon of the model, where each Model was culled per cascade and drew
-into the one or two it overlapped. The cure, not built yet, is spatial
-sub-batches (a command per model and grid cell, with its own bounding
-sphere, so the cascades cull again) – a backlog item in
-docs/improvement-phases.md. `__mg3d.wagonBatches()` lists the batches;
-`tests/instanced-wagons.test.ts` pins the parser and the packing;
-`e2e/app.spec.ts` sees the batches hold wagons offline.
+The frame is cheaper and much steadier. The old build's shares are as
+noisy as its frame (a quartile range of five milliseconds), so they are
+no measure to set the new ones against; the new shadow share itself
+varied from 0.9 to 1.4 ms between sessions of the same build.
+
+**Spatial sub-batches were tried and left out (2026-10-06).** A batch
+is one bounding sphere, and Cesium assigns a shadow caster to every
+cascade its sphere reaches (`insertShadowCastCommands`), so every
+cascade draws every shown wagon of the model – counted in Berlin's close
+view, 486 wagons in each of the four. Cells of 1 km (a command, an
+instance buffer and a vertex array each, ghosts apart) cut that to 478
+in all four together, and the main pass from 922 wagons to 342 – and
+the GPU frame at the desktop's 8192 cascade did not move: 5.61–5.78 ms
+with one sphere, 5.65–5.78 with cells of 1 or 2 km, interleaved, three
+sessions. The pictures were pixel-identical bar the line badges. With
+the shadow map at 2048 – the mobile tier's – the same cells took the
+wagons' shadow share from 0.88 to 0.25 ms and the frame from 4.4 to
+3.6 ms; with one sphere the share was the same at 2048 as at 8192
+(0.88 · 0.92 ms), so the one sphere's cost is geometry, but at 8192 the
+cells pay about a millisecond of their own that the culling does not
+win back – the many small draws into the large cascades, as far as a
+timer query can tell (Apple's GPU renders tile by tile). Render CPU
+moved +0.1 ms in Berlin and −0.4 ms in Hamburg, the commands doubled.
+Nothing to gain on the desktop, so the code went; a phone, with its
+2048 cascade and its own GPU, is where to measure it again before
+building it back (the backlog keeps the item).
+
+Two things to know before measuring this again: Cesium fits the
+cascades to the shadow RECEIVERS in view (`View.js`, `receiveShadows`),
+not the casters, so the wagons' spheres never moved the cascade splits;
+and set the clock to a whole second through the test API before
+comparing two builds' pictures – `?time=12:00` does not start on the
+millisecond, the trips departing at 12:00:00 are there in one run and
+not in the next, and two builds then differ by eight vehicles.
+`__mg3d.wagonBatches()` lists the batches; `tests/instanced-wagons.test.ts`
+pins the parser and the packing; `e2e/app.spec.ts` sees the batches
+hold wagons offline.
 
 ### The city handover is one frame – nothing may pile up in it
 

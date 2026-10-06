@@ -136,7 +136,7 @@ Expected cost: negative (fewer billboards) or one point collection.
 
 ## Phase 5 – Instanced wagon rendering
 
-- [x] **Phase 5** – implemented 2026-10-06 (`src/map/InstancedWagons.ts`). Measured headed, offline: Berlin 1.2 km over Alexanderplatz render CPU 13.4 · 13.8 → 10.9 · 11.1 ms, commands 1 570 · 1 610 → 887 · 909; Hamburg harbour CPU 12.7 · 13.0 → 11.8 · 11.9 ms, commands 1 348 → 1 090; with real tiles Berlin's close view 14.2 · 14.5 → 12.2 · 12.3 ms CPU. GPU per frame (interleaved, 480 frames) 9.69 → 6.03 ms median, mostly because Cesium's environment-map queue no longer holds 12 000+ passes for the wagon Models; the wagons' own share grew 1.13 → 1.63 ms, all of it shadow casting (see the follow-up below). The selected vehicle keeps its Models for the silhouette.
+- [x] **Phase 5** – implemented 2026-10-06 (`src/map/InstancedWagons.ts`). Measured headed, the close views with Google's tiles still loading (not offline, as first written – see CLAUDE.md): Berlin 1.2 km over Alexanderplatz render CPU 13.4 · 13.8 → 10.9 · 11.1 ms, commands 1 570 · 1 610 → 887 · 909; Hamburg harbour CPU 12.7 · 13.0 → 11.8 · 11.9 ms, commands 1 348 → 1 090; with the tiles settled Berlin's close view 14.2 · 14.5 → 12.2 · 12.3 ms CPU. GPU per frame offline (interleaved, 480 frames) 9.69 → 6.03 ms median, mostly because Cesium's environment-map queue no longer holds 12 000+ passes for the wagon Models. The selected vehicle keeps its Models for the silhouette.
 
 Expected cost: a large CPU win – the 3 002 wagon `Model` primitives
 are 16.8 of Berlin's 22 ms render CPU – and a neutral GPU. The risk is
@@ -154,14 +154,18 @@ engineering, not performance.
 
 Follow-up found while measuring Phase 5:
 
-- [ ] **Spatial sub-batches for the wagons' shadow pass.** A batch is one
-  bounding sphere per wagon model, so every cascade of the shadow map
-  draws every shown wagon of the model: 1.36 of the wagons' 1.63 GPU ms
-  in Berlin's close view. A command per model and grid cell (each its
-  own bounding sphere and a fixed region of the instance buffer, so a
-  cell's vertex array keeps its offsets) lets the cascades cull again.
-  Mind the CPU: push only the cells in view, or the command count eats
-  the CPU the instancing won.
+- [ ] **Spatial sub-batches for the wagons' shadow pass** – tried on
+  2026-10-06 and left out. Cells of 1 or 2 km, a command, an instance
+  buffer and a vertex array each, cut the wagons drawn into the four
+  cascades in Berlin's close view from 4 × 486 to about 480 and those in
+  the main pass from 922 to 342, but the GPU frame at the desktop's 8192
+  cascade stayed where it was (5.6–5.8 ms either way); render CPU +0.1 ms
+  in Berlin, −0.4 ms in Hamburg, twice the commands. With a 2048 shadow
+  map, the mobile tier's, the wagons' shadow share fell from 0.88 to
+  0.25 ms and the frame from 4.4 to 3.6 ms. Worth building only for the
+  mobile tier, and only after a measurement on a phone shows the GPU
+  there is the limit (CLAUDE.md, "The wagons are instanced", has the
+  numbers and the method).
 
 ## Phase 6 – Routes that follow the mesh near the camera
 
