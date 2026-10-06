@@ -224,7 +224,12 @@ per page, `tests/globe-illustration.test.tsx` three per city).
 explaining the *why*, ending with the `Co-Authored-By` trailer. See `git log`
 for the register. A commit can be verified without touching the working
 tree: `git archive <rev> | tar -x -C <tmp>`, symlink `node_modules`, run
-`npx tsc -b` and `npx vitest run` in there.
+`npx tsc -b` and `npx vitest run` in there. To run the app from such a
+copy – a before/after measurement – symlink `public/cesium` as well (the
+postinstall's copy, untracked): without it the dev server answers
+Cesium's workers with index.html, no entity geometry is ever built, and
+the copy measures a different map (a Phase 6 baseline was thrown away
+for it).
 
 ---
 
@@ -1052,15 +1057,91 @@ of [docs/improvement-phases.md](docs/improvement-phases.md), 2026-10-06):
   more bootstrap samples are the one thing NOT to add
   (`sampleHeightMostDetailed` loads the finest tiles under every sample
   – minutes, and the tile-tree leak). A direction whose field changed
-  has its routes rewritten one direction per `FIELD_REWRITE_INTERVAL_MS`
-  (250 ms), the decks' kind of rationing; the vehicles read the field
-  on their next tick. `__mg3d.groundOffsets(lineId, direction,
-  distance)` reads the base, the sample count, the pending rewrites and
-  the offset at a point.
+  has its routes rewritten with the next batch (see the routes'
+  rewrites below); the vehicles read the field on their next tick.
+  `__mg3d.groundOffsets(lineId, direction, distance)` reads the base,
+  the sample count, the pending rewrites, the routes' lift and the
+  offset at a point.
 
-Two smaller things from the same phase: the near lift of the lines is
+**The calibration's samples see the tiles alone.** The field's base is
+the median, over the forty bootstrap stops, of `sampleHeightMostDetailed`'s
+answer less the stop's NHN height – and that pick answers with whatever
+is on top: over a stop, the route line itself, the stop's disc and name,
+a vehicle at the platform. A city whose `geoidOffsetFallback` stood too
+high had its lines over the tiles at boot and calibrated them on
+themselves – fallback plus lift plus slot, a metre and more over the
+fallback, and every route higher still. Found by Phase 6's measurement
+(2026-10-06; headed, real tiles, the ground every vertex on screen within
+1 km is drawn on, lift taken off, against the mesh under it): with the
+routes shown, half of Munich's samples on a route answered at the
+drawn line, which stood 4.1 m over the tiles on the median; hidden, none
+did. Before → after, the
+median of line minus mesh and the share within ±0.5 m: Munich 3.06 m
+(14 %) → −0.08 m (88 %), Hamburg 1.10 (12 %) → −0.06 (77 %), Stuttgart
+1.01 (6 %) → 0.03 (90 %), Cologne 0.30 (42 %) → −0.13 (88 %), Frankfurt
+0.40 (71 %) → 0.08 (100 %), Berlin 0.01 (72 %) → 0.00 (82 %), Rostock
+unchanged at 94 % – a fallback under the truth leaves the tiles on top.
+The pick spans frames and cannot hide the rest for its pass as
+`clampToSurface` does, so it takes an exclusion list of everything else
+(`tilesOnlyExclusions`, [pick-exclusions.ts](src/map/pick-exclusions.ts)):
+every primitive, every collection walked, every entity – an excluded hit
+costs a second pass from under it, which forty samples at boot afford.
+
+**The routes are rewritten together, once a second at most.** Rewriting a
+direction (`RoutesLayer.refreshDirection`) replaces its pieces'
+positions, and Cesium rebuilds the one batch that holds every route
+polyline of the city – Berlin's 432 pieces and 43 700 vertices, 20–25 ms
+of main thread over three frames, the middle one 15 ms longer than its
+neighbours, the geometry made in a worker between them (measured headed
+on the real tiles) – however few directions changed. So the field's
+directions (a stop measured) and the decks' (a deck read)
+go into one set, `routesDirty`, rewritten in one go once every
+`ROUTE_REWRITE_INTERVAL_MS` (1 s) at most, and the decks publish only in
+a tick that may rewrite (`BridgeDecks.update(now, mayPublish)`), so a
+vehicle, which reads a published deck at once, never runs ahead of its
+line. The field's rewrites went one direction per 250 ms before – four
+rebuilds a second while a camera came down over the stops. A rewrite
+also waits for the last rebuild to come in, and the loop draws at the
+streaming rate while one is building (`batchesBuilding` in the render
+hints, from what `DataSourceDisplay.update` returns – its `ready` stays
+true once it was), for `ENTITY_BATCH_WAIT_MS` (3 s) at most: Cesium makes
+the geometry in workers over three frames and swaps it in with a fourth.
+At the paused 2 Hz that took 1.5 s, the rewrites a second apart while the
+field filled in started it over each time, and the new heights came in
+only once the rewriting stopped – measured over Berlin, one rebuild that
+did not finish in the ten seconds after the tiles settled, against nine
+that came in after some 170 ms each now; before the change the frame
+after the last rewrite could be the 15 s heartbeat's.
+
+**The ground near the camera was measured and left out (2026-10-06).**
+Phase 6 extended the decks to every route vertex within 1.5 km of the
+camera: stations every 30 m filed in cells, a sample taken for ground
+within ±2.5 m of the field's profile and with two neighbours in that
+band, a car or a survey-day train pruned against the residuals' lower
+envelope (2 %), a hole against the lower quartile of its neighbours, the
+residual interpolated between trusted samples and faded to the profile
+beyond them, published with the routes' batch. With the calibration
+fixed, over the same eight views (converged, headed, real tiles) it took
+the share of visible vertices within ±0.5 m of the mesh from 82 to 89 %
+in Berlin, 90 to 94 % in Stuttgart's centre and 69 to 100 % north of its
+station (33 vertices), left Hamburg (77 → 78 %), Rostock, Frankfurt and
+Cologne where they were, and made Munich worse (88 → 82 %). Against that,
+a ray near the camera costs 1–2 ms – `tileset.getHeight` tests every
+triangle of every tile the ray crosses – so a view's 100–600 points took
+half a minute at a tenth of a core in blocks of 20–30 ms, or up to two
+minutes at a budget that does not show (3 ms a pass: five points a
+second), and every publish rebuilt the polyline batch.
+The calibration had been most of the error; the rest was not worth that.
+A second attempt needs a cheaper ray first – a triangle grid per tile,
+built once – before the estimator above is worth its cost.
+
+Two smaller things from Phase 3: the near lift of the lines is
 the vehicles' 0.3 m now (`ROUTE_BASE_LIFT_NEAR`; it was 0.15, and the
-wheels stood a hand over their line), and the terrain sampler counts
+wheels stood a hand over their line) – and since Phase 6 the switch to
+the far lift reads the camera's height over the city's ground (its
+ground reference), not over the ellipsoid, where Munich's 570 m had kept
+every line on the far lift, half a metre over the wheels – and the
+terrain sampler counts
 the samples a Mapterhorn hole answered from a coarser zoom
 (`stats.fallbackSamples`), which `data:heights` prints as a warning –
 below z13 that is the 30 m surface model, metres over the ground, and
@@ -2178,7 +2259,8 @@ is not worth rationing.
 
 The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
-`replacing`, `readbackCache`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
+`replacing`, `readbackCache`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`,
+`batchesBuilding`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
 `wagonBatches()`, `groundOffsets()`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `waterClamp()`, `tiltShiftState()`,
@@ -2454,7 +2536,8 @@ the route's own polyline drawn exactly on it at exactly the wrong height
 (a pick has not always seen the tiles alone), and a vertex
 that gets no answer is simply asked again – at the next surface
 generation, like everything else (see the ships' rules); measured
-on real tiles: ~1 ms a ray, and the ray no
+on real tiles: 1–2 ms a ray near the camera (timed on screen in Phase 6),
+and the ray no
 longer reads the tile geometry back from the GPU each time (the readback
 cache under "Rendering and performance"). A ray
 answers with whatever is on top, or – where the mesh lost a thin bridge,
@@ -2463,15 +2546,23 @@ trusted only 2.5 m and more above the profile (`DECK_ABOVE_PROFILE_M`;
 between 1 m and that it is weak and sets its own point where no trusted
 one encloses it – the Friedensbrücke's deck stands 1.3 m over the
 profile – and below that the profile stands, which is right at a portal
-and no worse than before over a hole), and among the trusted ones station halls (the
+and no worse than before over a hole; and more than 80 m over it,
+`DECK_ABOVE_PROFILE_MAX_M`, a sample is a roof whatever its neighbours
+say: a coarse tile under a camera that had just arrived answered 478 m
+over Hamburg's Hauptbahnhof, and seven bus lines stood up into the sky
+there, the points off screen under the camera and never read again –
+found in Phase 6, the Köhlbrandbrücke's 55 m is the highest real deck),
+and among the trusted ones station halls (the
 Stadtbahn's stand 12–16 m over the rails, the Hauptbahnhof's 8 m over the
 southern tracks) and survey-day trains are pruned as samples no deck
 could climb to from their neighbours at the mode's gradient
 (`pruneRoofs`, a slope-limited lower envelope; `DECK_MAX_GRADIENT`: 3 %
 rail, 5 % tram, 8 % bus – a steeper real ramp is softened to it, and a
 hall longer than twice its roof height over it keeps a tent in its
-middle). Route rewrites are rationed to one per direction per second –
-each re-batches the polyline geometry. Stops on a
+middle). A changed deck is published with every other one, in a tick
+that may rewrite the routes – once a second at most, since each rewrite
+rebuilds the city's whole polyline batch (see "The routes are rewritten
+together"). Stops on a
 viaduct are untouched: they already re-measure themselves near the camera
 (`StopsLayer.resolveHeights`). `__mg3d.bridgeDecks()` shows the progress,
 `__mg3d.bridgeDecks(lineId)` a line's vertices with sample and verdict.

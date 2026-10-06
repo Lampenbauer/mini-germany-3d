@@ -327,12 +327,14 @@ tests/                      # Vitest – incl. one file per city pinning its lin
 e2e/                        # Playwright, offline and deterministic
 ```
 
-**How the simulation works.** Departures come from `schedule.json`; the
-travel time between stops follows from the real track distance at a
-mode-specific cruise speed plus a dwell. Every tick the distance along the
+**How the simulation works.** Departures and every trip's stop times come
+from `schedule.json`; between two stops a vehicle accelerates and brakes at
+its mode's rate, and a trip the feed gives no usable times runs at a
+mode-specific cruise speed with a dwell. Every tick the distance along the
 route is interpolated per active trip and turned into a position and heading.
-Vehicles ride the route's terrain profile and, on a bridge, the deck measured
-on the tiles; the ferries and ships float on the tiles' own water through a
+Vehicles ride the route's terrain profile – set onto Google's tiles by an
+offset measured at the stops – and, on a bridge, the deck measured on the
+tiles; the ferries and ships float on the tiles' own water through a
 rationed clamp pick; stops re-measure their height as the camera approaches.
 Rendering is event-driven: frames are drawn when something on screen has
 moved by half a pixel, not on a timer.

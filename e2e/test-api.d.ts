@@ -260,6 +260,8 @@ declare global {
         beamInView: boolean
         interacting: boolean
         tilesLoading: boolean
+        /** The route polylines are being rebuilt after a rewrite (see CesiumMap.entityBatchesBuilding). */
+        batchesBuilding: boolean
         intervalMs: number
         tickIntervalMs: number
         motionPxPerSecond: number

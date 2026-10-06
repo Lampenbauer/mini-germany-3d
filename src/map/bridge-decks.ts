@@ -45,6 +45,12 @@
  * straight deck for the length of the hole. A sample only a little
  * above the profile – a low bridge, whose deck the profile nearly has
  * anyway – sets its own point and nothing else (see deckFromSamples).
+ *
+ * Whatever changed is published together, when the caller lets it (see
+ * update): every rewrite of a direction rebuilds Cesium's one batch of
+ * every route polyline in the city – Berlin's 432 pieces, 20–25 ms of
+ * main thread over three frames, measured – whether one direction
+ * changed or forty, so CesiumMap rations the rewrites, not the decks.
  */
 
 import { BoundingSphere, Cartesian3, Intersect, type Viewer } from 'cesium'
@@ -77,8 +83,9 @@ export interface BridgeDecksHost {
 
 /**
  * A pass every DECK_SAMPLE_INTERVAL_MS measures up to DECK_SAMPLE_BUDGET
- * vertices: ~1 ms a ray, so a pass costs some 6 ms – 3 % of a core while
- * there is something left to measure – and 30 vertices a second: a
+ * vertices: 1–2 ms a ray near the camera (timed on screen on the real
+ * tiles), so a pass costs 6–12 ms – 3–6 % of a core while there is
+ * something left to measure – and 30 vertices a second: a
  * viaduct in view is done in seconds, a chase cam at 30 m/s meets a new
  * vertex every second or two.
  */
@@ -86,12 +93,6 @@ const DECK_SAMPLE_INTERVAL_MS = 200
 const DECK_SAMPLE_BUDGET = 6
 /** Vertices are measured out to this distance at the reference lens. */
 const DECK_SAMPLE_RANGE_AT_REFERENCE = 6000
-/**
- * A direction's routes are rewritten at most this often while its deck
- * is still filling in: every rewrite re-batches Cesium's polyline
- * geometry, one-off work by design (RoutesLayer), not a per-pass one.
- */
-const DECK_PUBLISH_INTERVAL_MS = 1000
 /** A re-read within this of the last value is not a change. */
 const DECK_CHANGE_M = 0.05
 
@@ -130,6 +131,15 @@ const DECK_CHANGE_M = 0.05
  */
 const DECK_ABOVE_PROFILE_M = 2.5
 const DECK_ABOVE_PROFILE_WEAK_M = 1
+/**
+ * A sample this far over the profile is no deck, whatever its neighbours
+ * say: the highest deck in the cities stands some 55 m over the water (the
+ * Köhlbrandbrücke), and a coarse tile under a camera that had just
+ * arrived answered 478 m over Hamburg's Hauptbahnhof – seven bus lines
+ * went up into the sky there and stayed, the points under the camera
+ * being off screen and never read again. It is judged a roof.
+ */
+const DECK_ABOVE_PROFILE_MAX_M = 80
 const HOLE_SPAN_M = 200
 export const DECK_STATION_SPACING_M = 30
 export const DECK_MAX_GRADIENT: Record<TransitMode, number> = {
@@ -195,7 +205,6 @@ interface DeckDirection {
   deck: (number | undefined)[]
   /** A measurement changed since the deck was last rebuilt. */
   dirty: boolean
-  publishedAt: number
 }
 
 /** What became of a sample (see deckFromSamples). */
@@ -279,6 +288,7 @@ export function deckFromSamples(
     if (indexes.length === 0) continue
     const verdicts: Verdict[] = indexes.map((i) => {
       const above = (samples[i] as number) - profile[i]
+      if (above > DECK_ABOVE_PROFILE_MAX_M) return 'roof'
       return above >= DECK_ABOVE_PROFILE_M ? 'deck' : above >= DECK_ABOVE_PROFILE_WEAK_M ? 'weak' : 'low'
     })
     const candidates = indexes.filter((_, k) => verdicts[k] === 'deck')
@@ -363,7 +373,6 @@ export class BridgeDecks {
       stations: [],
       deck: [],
       dirty: false,
-      publishedAt: 0,
     }
     const nodes: DeckNode[] = dir.path.map(([lon, lat], i) => ({
       cum: dir.cum[i],
@@ -507,11 +516,12 @@ export class BridgeDecks {
 
   /**
    * One pass: the nearest on-screen vertices whose tiles have not been
-   * read at the current generation get a ray each, and the directions
-   * whose deck changed are rebuilt and announced. Called per tick; does
-   * its work every DECK_SAMPLE_INTERVAL_MS.
+   * read at the current generation get a ray each, and – where the caller
+   * lets it (`mayPublish`) – every direction whose deck changed is
+   * rebuilt and announced, all in one go (see the header). Called per
+   * tick; does its work every DECK_SAMPLE_INTERVAL_MS.
    */
-  update(now = performance.now()): void {
+  update(now = performance.now(), mayPublish = true): void {
     if (this.points.size === 0) return
     if (now - this.lastPassAt < DECK_SAMPLE_INTERVAL_MS) return
     this.lastPassAt = now
@@ -570,8 +580,10 @@ export class BridgeDecks {
       }
     }
 
+    if (!mayPublish) return
+    let published = false
     for (const entry of this.directions.values()) {
-      if (!entry.dirty || now - entry.publishedAt < DECK_PUBLISH_INTERVAL_MS) continue
+      if (!entry.dirty) continue
       entry.deck = deckFromSamples(
         entry.nodes.map((n) => n.cum),
         entry.nodes.map((n) => n.vertex?.height),
@@ -580,10 +592,10 @@ export class BridgeDecks {
         entry.gradient,
       )
       entry.dirty = false
-      entry.publishedAt = now
+      published = true
       this.host.deckChanged(entry.lineId, entry.direction)
-      this.host.requestRender()
     }
+    if (published) this.host.requestRender()
   }
 
   /**

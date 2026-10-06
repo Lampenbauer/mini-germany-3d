@@ -196,7 +196,9 @@ export class RoutesLayer {
   }
 
   /**
-   * Picks the lift for the camera's height above the ellipsoid:
+   * Picks the lift for the camera's height over the city's ground (the
+   * map's ground reference – over the ellipsoid it was once, and Munich's
+   * 570 m kept its lines on the far lift from every camera):
    * ROUTE_BASE_LIFT_FAR above ROUTE_LIFT_SWITCH_HEIGHT, ROUTE_BASE_LIFT_NEAR
    * below it, the current one inside the band around it. A change
    * rewrites every height-based piece – the one-off work the calibration

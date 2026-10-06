@@ -51,6 +51,7 @@ import { FRAMING_SCALE } from './camera-fov'
 import { boundingBoxCameraLimits, clampCameraPose, type CameraLimits } from './camera-limits'
 import { ROUTE_PULSE_DURATION_MS, RoutesLayer } from './RoutesLayer'
 import { BridgeDecks } from './bridge-decks'
+import { exclusionsButTiles } from './pick-exclusions'
 import { FunnelSmoke } from './FunnelSmoke'
 import { Wake } from './Wake'
 import {
@@ -273,8 +274,26 @@ const STOP_HEIGHT_CHUNK = 100
  * demand by resolveStopHeights() once the camera gets near them.
  */
 const STOP_BOOTSTRAP_SAMPLES = 40
-/** The least time between two route rewrites for a changed height field (see flushFieldRewrites). */
-const FIELD_REWRITE_INTERVAL_MS = 250
+/**
+ * The least time between two rewrites of the routes (see
+ * flushRouteRewrites): every rewrite rebuilds Cesium's one batch of every
+ * route polyline in the city – Berlin's 432 pieces, 20–25 ms of main
+ * thread over three frames, the one in the middle 15 ms longer than its
+ * neighbours (measured headed on the real tiles) – whether one direction
+ * changed or forty. So whatever changed in the meantime – a bridge deck,
+ * the height field under a stop measured – is rewritten together, once a
+ * second at most.
+ */
+const ROUTE_REWRITE_INTERVAL_MS = 1000
+/**
+ * How long a rebuild of the entity batches is waited for (see
+ * entityBatchesBuilding): Cesium makes the new geometry in workers over
+ * three frames and swaps it in with a fourth – some 100 ms at the loop's
+ * 30 fps, and a rewrite during it would start it over. A batch that has
+ * not come in after this is not waited for any longer, by the loop or the
+ * rewrites.
+ */
+const ENTITY_BATCH_WAIT_MS = 3000
 
 
 
@@ -776,9 +795,18 @@ export class CesiumMap {
    * portals read it; the lamps and the lights keep the base.
    */
   private readonly heightField: HeightField
-  /** Directions whose field changed and whose routes still wait for their rewrite. */
-  private readonly fieldDirty = new Set<string>()
-  private lastFieldRewriteAt = 0
+  /**
+   * Directions whose heights changed – the field under them or a deck on
+   * them – and whose routes wait for the next rewrite (see
+   * flushRouteRewrites), as `lineId|direction`.
+   */
+  private readonly routesDirty = new Set<string>()
+  private lastRouteRewriteAt = Number.NEGATIVE_INFINITY
+  /**
+   * Since when the entity batches – the route polylines – have been
+   * building, null while all of them are in (see entityBatchesBuilding).
+   */
+  private entityBatchesBuildingSince: number | null = null
   /** Bridge decks measured on the tiles for routes and vehicles (see bridge-decks.ts). */
   private readonly bridgeDecks: BridgeDecks
   /** Night-time light pools under the OSM street lamps (see StreetLampsLayer). */
@@ -1026,6 +1054,18 @@ export class CesiumMap {
 
     // Debug/test access to the viewer (e.g. for E2E tests)
     ;(globalThis as { __cesiumViewer?: Viewer }).__cesiumViewer = this.viewer
+    // A rewrite of the routes rebuilds their polyline batch in workers,
+    // swapped in by a later frame: the display's update says whether all
+    // of it is in (its `ready` stays true once it was – see
+    // entityBatchesBuilding)
+    const display = this.viewer.dataSourceDisplay
+    const updateDisplay = display.update.bind(display)
+    display.update = (time) => {
+      const ready = updateDisplay(time)
+      if (ready) this.entityBatchesBuildingSince = null
+      else this.entityBatchesBuildingSince ??= performance.now()
+      return ready
+    }
 
     const scene = this.viewer.scene
     // Live view of the map for the layer host below: its getters must see
@@ -1087,7 +1127,8 @@ export class CesiumMap {
       requestRender: () => this.requestRender(),
       sampleSurfaceHeight: (lon, lat) => this.sampleGroundHeight(lon, lat),
       surfaceGeneration: () => this.surfaceGeneration.current,
-      deckChanged: (lineId, direction) => this.routes.refreshDirection(lineId, direction),
+      // Published together and rewritten in the same tick (see flushRouteRewrites)
+      deckChanged: (lineId, direction) => this.routesDirty.add(`${lineId}|${direction}`),
       routeHeightOffset: () => this.routes.heightOffset,
     })
     const groundHeightForNhn = (nhn: number): number =>
@@ -1216,13 +1257,13 @@ export class CesiumMap {
       requestRender: () => this.requestRender(),
       stopMeasured: (id, nhn, height, fromDistance) => {
         // A stop measured fine moves the field around it: the vehicles
-        // read it on their next tick, the routes are rewritten one
-        // direction at a time (see flushFieldRewrites). Fine means near
-        // AND with the tiles loaded – the ships' rule: a coarse tile
-        // under a near camera still answers metres too high
+        // read it on their next tick, the routes are rewritten with the
+        // next batch (see flushRouteRewrites). Fine means near AND with
+        // the tiles loaded – the ships' rule: a coarse tile under a near
+        // camera still answers metres too high
         if (this.getRenderHints().tilesLoading) return
         for (const key of this.heightField.measure(id, height - nhn, fromDistance)) {
-          this.fieldDirty.add(key)
+          this.routesDirty.add(key)
         }
       },
       obstacles: () => map.webcamsLayer.screenRects,
@@ -1951,7 +1992,7 @@ export class CesiumMap {
   clearCity(): void {
     this.network = null
     this.heightField.clear()
-    this.fieldDirty.clear()
+    this.routesDirty.clear()
     this.vehicleLayer.clear()
     this.webcamsLayer.clear()
     this.stops.clear()
@@ -2626,8 +2667,15 @@ export class CesiumMap {
     this.surfaceGeneration.advance(performance.now())
     this.noteCameraAtRest()
     this.stops.update()
-    this.bridgeDecks.update()
-    this.flushFieldRewrites()
+    // The decks publish only when the routes can be rewritten in the
+    // same tick – a vehicle reads a published deck at once, and its line
+    // must not lag behind it – and not while the last rewrite is still
+    // building (see flushRouteRewrites)
+    const now = performance.now()
+    const rewriteDue =
+      !this.entityBatchesBuilding && now - this.lastRouteRewriteAt >= ROUTE_REWRITE_INTERVAL_MS
+    this.bridgeDecks.update(now, rewriteDue)
+    if (rewriteDue) this.flushRouteRewrites(now)
     this.buoys.sync()
     const beams = this.lighthouses.sync(simMs)
     const info = this.vehicleLayer.sync(snapshots, visibleLines, simMs)
@@ -2999,26 +3047,31 @@ export class CesiumMap {
   }
 
   /**
-   * Rewrites the routes of one direction whose height field changed,
-   * at most one every FIELD_REWRITE_INTERVAL_MS – every rewrite
-   * re-batches the polyline geometry, as the bridge decks' do, and a
-   * camera coming down over a stop measures a few of them a pass.
+   * Rewrites the routes of every direction whose heights changed since
+   * the last rewrite, all at once – the caller lets it happen once every
+   * ROUTE_REWRITE_INTERVAL_MS, since every rewrite rebuilds the whole
+   * polyline batch however few directions changed, and only once the last
+   * rebuild is in: a rewrite while one is building starts it over, and
+   * while the field filled in at a rewrite a second the new heights never
+   * came in at all until it was done (measured over Berlin).
    */
-  private flushFieldRewrites(now = performance.now()): void {
-    if (this.fieldDirty.size === 0 || now - this.lastFieldRewriteAt < FIELD_REWRITE_INTERVAL_MS) return
-    const key = this.fieldDirty.values().next().value as string
-    this.fieldDirty.delete(key)
-    this.lastFieldRewriteAt = now
-    const [lineId, direction] = key.split('|')
-    this.routes.refreshDirection(lineId, direction === '1' ? 1 : 0)
+  private flushRouteRewrites(now: number): void {
+    if (this.routesDirty.size === 0) return
+    for (const key of this.routesDirty) {
+      const [lineId, direction] = key.split('|')
+      this.routes.refreshDirection(lineId, direction === '1' ? 1 : 0)
+    }
+    this.routesDirty.clear()
+    this.lastRouteRewriteAt = now
   }
 
   /** Debug/test: the height field – its base, its samples, and what it says at a point (see __mg3d.groundOffsets). */
-  getHeightFieldInfo(): { base: number; samples: number; pending: number } {
+  getHeightFieldInfo(): { base: number; samples: number; pending: number; lift: number } {
     return {
       base: this.heightField.baseOffset,
       samples: this.heightField.sampleCount,
-      pending: this.fieldDirty.size,
+      pending: this.routesDirty.size,
+      lift: this.routes.currentBaseLift,
     }
   }
 
@@ -3205,6 +3258,7 @@ export class CesiumMap {
         const chunk = sampleStops.slice(start, start + STOP_HEIGHT_CHUNK)
         const updated = await scene.sampleHeightMostDetailed(
           chunk.map((s) => Cartographic.fromDegrees(s.lon, s.lat)),
+          this.tilesOnlyExclusions(),
         )
         // The map moved on to another city while the tiles were loading
         if (this.destroyed || generation !== this.bootstrapGeneration) return
@@ -3267,6 +3321,27 @@ export class CesiumMap {
         )
       }
     }
+  }
+
+  /**
+   * Everything in the scene but the tiles, as an exclusion list for a pick
+   * that spans frames – sampleHeightMostDetailed waits for the finest tiles
+   * – and so cannot hide the rest for its pass the way clampToSurface does.
+   * The bootstrap's samples stand on the stops, and a ray answers with
+   * whatever is on top there: the route line itself, the stop's disc and
+   * name, a vehicle at the platform. A city whose fallback offset stood
+   * too high had its lines over the tiles, and calibrated them on
+   * themselves, a metre and more higher still – Munich's 3 m over the
+   * mesh, Stuttgart's and Hamburg's 1 m (measured headed on the real
+   * tiles: with the routes shown, half of Munich's samples on a route
+   * answered at the drawn line, 4.1 m over the tiles; hidden, none did).
+   * So every primitive, everything in a collection and every entity –
+   * the entities because the routes' batch primitive is replaced when a
+   * direction is rewritten mid-pick, and the entity is not (see
+   * pick-exclusions.ts).
+   */
+  private tilesOnlyExclusions(): object[] {
+    return exclusionsButTiles(this.viewer.scene.primitives, this.viewer.entities.values)
   }
 
   /**
@@ -3362,7 +3437,13 @@ export class CesiumMap {
   /** Renders exactly one frame (the app controls the frequency). */
   render(): void {
     if (this.destroyed) return
-    this.routes.updateForCameraHeight(this.viewer.camera.positionCartographic.height)
+    // The lift's switch reads the camera's height over the city's ground,
+    // not over the ellipsoid: Munich's streets lie 570 m over it, and its
+    // lines rode the far lift from every camera, half a metre over the
+    // wheels the near lift is matched to
+    this.routes.updateForCameraHeight(
+      this.viewer.camera.positionCartographic.height - this.defaultGroundHeight,
+    )
     this.routes.updatePulse()
     this.streetLamps.update()
     this.airfieldLights.update()
@@ -3465,7 +3546,18 @@ export class CesiumMap {
    * - interacting: user is currently moving the camera (or inertia/flight)
    * - tilesLoading: tiles are still being loaded
    */
-  getRenderHints(): { interacting: boolean; tilesLoading: boolean } {
+  /**
+   * The entity batches – the route polylines after a rewrite – are being
+   * built: the loop draws at the streaming rate meanwhile (every frame
+   * moves Cesium's three-frame pipeline on; at the paused 2 Hz a rebuild
+   * took 1.5 s) and the rewrites wait – for ENTITY_BATCH_WAIT_MS at most.
+   */
+  private get entityBatchesBuilding(): boolean {
+    const since = this.entityBatchesBuildingSince
+    return since !== null && performance.now() - since < ENTITY_BATCH_WAIT_MS
+  }
+
+  getRenderHints(): { interacting: boolean; tilesLoading: boolean; batchesBuilding: boolean } {
     const now = performance.now()
     const interacting = now - this.lastInteractionAt < 2500 || now < this.flyingUntil
     const scene = this.viewer.scene
@@ -3475,7 +3567,7 @@ export class CesiumMap {
       (this.googleTileset !== null && !this.googleTileset.tilesLoaded) ||
       (this.replacement !== null && !this.replacement.tileset.tilesLoaded) ||
       (scene.globe.show && !scene.globe.tilesLoaded)
-    return { interacting, tilesLoading }
+    return { interacting, tilesLoading, batchesBuilding: this.entityBatchesBuilding }
   }
 
   /** Current camera orientation (for URL persistence). */

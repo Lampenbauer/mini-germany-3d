@@ -169,7 +169,9 @@ Follow-up found while measuring Phase 5:
 
 ## Phase 6 – Routes that follow the mesh near the camera
 
-- [ ] **Phase 6**
+- [x] **Phase 6** – done 2026-10-06, not as planned: the measurement
+  found most of the error elsewhere, and the ground follow itself was
+  built, measured and left out.
 
 Expected cost: real and unmeasured. Extend the bridge-deck mechanism
 (`bridge-decks.ts`: 6 `tileset.getHeight` rays per 200 ms, on screen,
@@ -180,6 +182,42 @@ thread while tiles refine, and every accepted change re-batches a
 polyline (rationed to one per direction per second today). Measure
 headed before keeping it. Optional `depthFailMaterial` on the
 polylines draws every line twice; measure on the GPU.
+
+What happened (CLAUDE.md, "The calibration's samples see the tiles
+alone" and the two paragraphs after it):
+
+- Measured headed on the real tiles – the ground every visible vertex
+  within 1 km is drawn on, lift taken off, against the mesh – the lines
+  floated in most cities: Munich 3.06 m on the median, Stuttgart 1.0–1.2,
+  Hamburg 1.10, Cologne 0.30, Frankfurt 0.40; Berlin and Rostock were
+  right. The cause was the boot's calibration: its
+  `sampleHeightMostDetailed` at the stops answered with the route lines
+  themselves wherever a city's fallback offset stood too high. With an
+  exclusion list of everything but the tiles: Munich −0.08 m (88 % of the
+  vertices within ±0.5 m, 14 % before), Hamburg −0.06 (77 %, 12 %),
+  Stuttgart 0.03 (90 %, 6 %), Cologne −0.13 (88 %, 42 %), Frankfurt 0.08
+  (100 %, 71 %), Berlin 0.00 (82 %, 72 %). No runtime cost.
+- The ground follow over that: +7 points in Berlin, +4 in Stuttgart, +31
+  on a 33-vertex view, nothing in Hamburg, Rostock, Frankfurt and
+  Cologne, −6 in Munich – for rays of 1–2 ms near the camera, half a
+  minute at a tenth of a core per view or minutes at a budget that does
+  not show. Left out; it wants a cheaper ray first (a triangle grid per
+  tile, built once).
+- Kept from the work: every route rewrite – field, decks – batched into
+  one rebuild a second at most (a rebuild of the city's polyline batch is
+  20–25 ms of main thread, measured, however few directions changed),
+  a rewrite waiting for the last rebuild to come in and the rebuild drawn
+  at the streaming rate (some 170 ms; at the paused 2 Hz the rewrites had
+  started it over until they stopped), and the switch
+  between the near and the far lift reading the camera's height over the
+  city's ground (Munich's lines had ridden the far lift from every camera).
+- Found on the way: a coarse tile under a camera that had just arrived
+  answered 478 m over Hamburg's Hauptbahnhof, and seven bus lines stood
+  up into the sky as bridge decks; a deck sample more than 80 m over the
+  profile is a roof now. (The same tile pushes Cesium's camera collision
+  up to 480 m there at boot – not touched.)
+- `depthFailMaterial` was not tried: with the lines on the mesh there is
+  less to draw through.
 
 ## Phase 7 – Per-frame interpolation in the chase
 

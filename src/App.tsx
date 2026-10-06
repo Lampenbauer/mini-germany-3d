@@ -310,7 +310,7 @@ export interface Mg3dTestApi {
     lineId?: string,
     direction?: 0 | 1,
     distance?: number,
-  ) => { base: number; samples: number; pending: number; offsetAt?: number }
+  ) => { base: number; samples: number; pending: number; lift: number; offsetAt?: number }
   renderPacing: () => {
     /** Falling rain – the one animation that renders at a fixed rate. */
     animating: boolean
@@ -324,6 +324,8 @@ export interface Mg3dTestApi {
     beamInView: boolean
     interacting: boolean
     tilesLoading: boolean
+    /** The route polylines are being rebuilt after a rewrite – frames come at the streaming rate meanwhile. */
+    batchesBuilding: boolean
     /** The fallback render interval; motion and camera changes request frames on their own. */
     intervalMs: number
     /** The simulation tick interval in force (33 … 500 ms, see the loop). */
@@ -1958,7 +1960,7 @@ export default function App() {
           // not worth a frame either.
           const hints =
             render && !mapIsHidden()
-              ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false })
+              ? (map.getRenderHints?.() ?? { interacting: true, tilesLoading: false, batchesBuilding: false })
               : null
           // Tick rate. Paused, or with nothing of either fleet in view,
           // 2 fps is plenty. Otherwise the ticks follow the motion on
@@ -2384,7 +2386,10 @@ export default function App() {
           //   previous 4 fps each round cost 250 ms and freshly loaded
           //   tiles visibly appeared seconds late after zooming. The
           //   streaming phase lasts a few seconds at most, then the idle
-          //   states below take over again.
+          //   states below take over again. A rebuild of the route
+          //   polylines after a rewrite is the same kind of thing – a
+          //   pipeline of three frames – and gets the same rate while it
+          //   lasts (batchesBuilding, ~100 ms; see CesiumMap)
           //   otherwise → event-driven: the moving fleets ask for a frame
           //   through CesiumMap.requestRender() once something in view has
           //   moved by a visible step on screen (see map/screen-motion.ts)
@@ -2401,7 +2406,7 @@ export default function App() {
             ? Number.POSITIVE_INFINITY
             : hints.interacting
               ? 15
-              : animating || hints.tilesLoading
+              : animating || hints.tilesLoading || hints.batchesBuilding
                 ? 33
                 : 15000
           if (
@@ -2577,7 +2582,7 @@ export default function App() {
           : {}),
       }),
       renderPacing: () => {
-        const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false }
+        const hints = map.getRenderHints?.() ?? { interacting: true, tilesLoading: false, batchesBuilding: false }
         const animating = rainActiveRef.current
         return {
           animating,
@@ -2588,7 +2593,12 @@ export default function App() {
           beamInView: lastBeamInView,
           interacting: hints.interacting,
           tilesLoading: hints.tilesLoading,
-          intervalMs: hints.interacting ? 15 : animating || hints.tilesLoading ? 33 : 15000,
+          batchesBuilding: hints.batchesBuilding,
+          intervalMs: hints.interacting
+            ? 15
+            : animating || hints.tilesLoading || hints.batchesBuilding
+              ? 33
+              : 15000,
           tickIntervalMs: lastTickInterval,
           motionPxPerSecond: lastMotionPxPerSecond,
           vehicleSyncMs: lastVehicleSyncMs,

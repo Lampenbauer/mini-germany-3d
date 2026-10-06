@@ -9,7 +9,7 @@ import { BridgeDecks, DECK_MAX_GRADIENT, deckFromSamples, pruneRoofs } from '@/m
  * profile as pure functions, and the class on a stubbed camera – which
  * vertices a pass measures, how the deck blends into the profile at the
  * portals, the mirrored direction, the retry and the re-read after a
- * load cycle.
+ * load cycle, and when what changed is published.
  */
 
 /** Samples 100 m apart (25 m: the Stadtbahn's vertex spacing). */
@@ -134,6 +134,19 @@ describe('deckFromSamples', () => {
     expect(deck[6]).toBe(62)
   })
 
+  it('takes a sample hundreds of metres over the profile for no deck', () => {
+    // A coarse tile answered 478 m over a bus bridge 16 m high: alone in
+    // its range the sample leaves the profile standing, between decks it
+    // is a roof interpolated across
+    const alone = cum.map((c) => (c === 500 ? 478 : undefined))
+    expect(deckFromSamples(cum, alone, profile, ranges, 0.06)[5]).toBeUndefined()
+    const between = cum.map((c) => (onBridge(c) ? (c === 500 ? 478 : 60) : undefined))
+    expect(deckFromSamples(cum, between, profile, ranges, 0.06)[5]).toBe(60)
+    // A high deck is still a deck: the Köhlbrandbrücke stands 55 m over the water
+    const high = cum.map((c) => (onBridge(c) ? 105 : undefined))
+    expect(deckFromSamples(cum, high, profile, ranges, 0.06)[5]).toBe(105)
+  })
+
   it('ignores samples outside every range and unmeasured vertices', () => {
     const samples = cum.map((c) => (c === 300 || c === 0 ? 60 : undefined))
     const deck = deckFromSamples(cum, samples, profile, ranges, 0.06)
@@ -241,7 +254,7 @@ describe('BridgeDecks', () => {
     ).toEqual([Math.round(total - 275), Math.round(total - 250), Math.round(total - 225)])
   })
 
-  it('measures a budget of points per pass and publishes the deck once', () => {
+  it('measures a budget of points per pass and publishes what changed', () => {
     const h = harness()
     h.decks.update(1000)
     expect(h.sample).toHaveBeenCalledTimes(6)
@@ -258,6 +271,30 @@ describe('BridgeDecks', () => {
     // Everything read at this generation – a further pass costs no ray
     h.decks.update(4000)
     expect(h.sample).toHaveBeenCalledTimes(POINTS)
+  })
+
+  it('publishes only when let, and then everything that changed in one go', () => {
+    const h = harness()
+    h.decks.update(1000, false)
+    expect(h.decks.info.measured).toBe(6)
+    expect(h.deckChanged).not.toHaveBeenCalled()
+    expect(h.requestRender).not.toHaveBeenCalled()
+    // Still nothing published: the deck the vehicles read is unchanged
+    expect(h.decks.heightAt('S', 0, 500, OFFSET)).toBeUndefined()
+    h.decks.update(1300, false)
+    expect(h.decks.info.measured).toBe(12)
+    expect(h.deckChanged).not.toHaveBeenCalled()
+    // Let: the direction is announced once, for both passes' points
+    h.decks.update(1600, true)
+    expect(h.deckChanged).toHaveBeenCalledTimes(1)
+    expect(h.deckChanged).toHaveBeenCalledWith('S', 0)
+    expect(h.requestRender).toHaveBeenCalledTimes(1)
+    expect(h.decks.heightAt('S', 0, 500, OFFSET)).toBeCloseTo(60, 6)
+    // Nothing changed since: a pass that may publish announces nothing
+    h.passes(1900, 4)
+    const calls = h.deckChanged.mock.calls.length
+    h.decks.update(4000, true)
+    expect(h.deckChanged).toHaveBeenCalledTimes(calls)
   })
 
   it('rides the measured deck inside the bridge and blends into the profile at the portals', () => {
