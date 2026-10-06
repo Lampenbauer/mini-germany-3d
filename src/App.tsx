@@ -182,6 +182,8 @@ export interface Mg3dTestApi {
   /** The navigation lights on at the last tick, per fleet (see map/NavLights.ts). */
   /** Lights on this tick per fleet; `ferries` counts every scheduled vehicle's, the ferries' among them. */
   navLights: () => { aircraft: number; ships: number; ferries: number }
+  /** The wagon batches the scheduled fleet is drawn with (see src/map/InstancedWagons.ts): per model its wagons on the map and whether its geometry is in. */
+  wagonBatches: () => { uri: string; count: number; ready: boolean }[]
   /** Aircraft selection by ICAO address, as a click on a body does it. */
   selectAircraft: (hex: string | null) => void
   selectedAircraftHex: () => string | null
@@ -2464,6 +2466,7 @@ export default function App() {
       aisVesselCount: () => map.getVesselCount(),
       aircraftCount: () => map.getAircraftCount(),
       navLights: () => map.navLightsState(),
+      wagonBatches: () => map.getWagonBatches(),
       aisReplay: () => ({
         active: aisReplayRef.current,
         hours: aisArchiveRef.current?.status() ?? [],

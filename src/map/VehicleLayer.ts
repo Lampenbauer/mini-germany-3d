@@ -51,6 +51,7 @@ import { FollowCamera } from '@/map/FollowCamera'
 import { bogieHalfSpacing, type VehicleSnapshot } from '@/engine/simulation'
 import { bearingDegrees, type PathSample } from '@/lib/geo'
 import { tunnelOpacity } from './tunnel-view'
+import { InstancedWagons, type WagonBatch } from './InstancedWagons'
 import { rectCoversBox, type ScreenRect } from './screen-rects'
 import { cssPixelsPerMeterAtUnitDistance, motionThresholdCssPx } from './screen-motion'
 import { WAKE_LIFE_S, WAKE_MAX_DISTANCE_M, WAKE_STEP_S, type Wake, type WakeSample } from './Wake'
@@ -230,6 +231,20 @@ interface VehicleRecord {
   wagonFlips: boolean[]
   /** Uniform model scale (VEHICLE_CONSISTS[…].scale). 0 for box bodies. */
   modelScale: number
+  /**
+   * The wagons as instances (see InstancedWagons): per wagon its batch
+   * and its slot in it. Empty for box bodies. The Models in `models`
+   * are loaded for the selected vehicle alone, for the silhouette.
+   */
+  batches: WagonBatch[]
+  slots: number[]
+  /** The wagons' GLBs in consist order – what the selected vehicle's Models are loaded from. */
+  wagonUris: string[]
+  /** Which wagons' Models are being loaded (the selected vehicle's). */
+  loading: boolean[]
+  /** The tint and the opacity the body is drawn with (applyVehicleAppearance). */
+  tint: Color
+  alpha: number
   /**
    * Base pose of the vehicle (position + heading, unscaled): the box
    * primitive's live matrix, or the per-tick source the wagon matrices
@@ -865,6 +880,11 @@ export class VehicleLayer {
   /** Vehicle number labels (see setLabelsVisible). */
   private labelsVisible = true
 
+  /** The wagons, drawn by instancing per model; the batches live in the root (see InstancedWagons). */
+  private readonly wagons: InstancedWagons
+  /** The night ramp as last applied (applyNightFactor) – the batches read it. */
+  private night = 0
+
   constructor(
     private readonly viewer: Viewer,
     private readonly host: VehicleLayerHost,
@@ -872,6 +892,30 @@ export class VehicleLayer {
     this.followCamera = new FollowCamera(viewer, host)
     viewer.scene.primitives.add(this.root)
     this.lights = new NavLights(this.root)
+    const layer = this
+    this.wagons = new InstancedWagons(
+      {
+        requestRender: () => host.requestRender(),
+        tintAmount: MODEL_TINT_AMOUNT,
+        get windowGlow() {
+          return WINDOW_GLOW_MAX * layer.night
+        },
+        get night() {
+          return layer.night
+        },
+      },
+      (uri) =>
+        fetch(`${import.meta.env.BASE_URL}${uri}`).then((response) => {
+          if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+          return response.arrayBuffer()
+        }),
+      (batch) => this.root.add(batch),
+    )
+  }
+
+  /** Debug: the wagon batches – model, wagons on the map, whether the geometry is in. */
+  get wagonBatches(): { uri: string; count: number; ready: boolean }[] {
+    return this.wagons.all.map((batch) => ({ uri: batch.uri, count: batch.count, ready: batch.ready }))
   }
 
   /** The ferries' lights on at the last tick – the debug API's count. */
@@ -991,6 +1035,7 @@ export class VehicleLayer {
    * map, which computes the ramp from the sun elevation.
    */
   applyNightFactor(night: number): void {
+    this.night = night
     this.windowGlowShader.setUniform('u_windowGlow', WINDOW_GLOW_MAX * night)
     if (!this.glowMaterial) return
     const uniforms = this.glowMaterial.uniforms as { color: Color }
@@ -1376,6 +1421,22 @@ export class VehicleLayer {
           if (wagonMatrix) this.composeWagonMatrix(record, k, wagonMatrix, snap, hprScratch.pitch)
         }
       }
+      // The wagons as instances: written while the body is drawn, taken
+      // off while it is not – and, wagon by wagon, once the selected
+      // vehicle's Model of that wagon is in (see applyVehicleAppearance):
+      // until then the instance stands in, or the vehicle would vanish
+      // for the moment the Models take to load
+      if (record.isModelBody) {
+        for (let k = 0; k < record.slots.length; k++) {
+          const matrix = record.modelMatrices[k]
+          const instanced = showBody && !(record.highlighted && record.models[k] !== undefined)
+          if (instanced && matrix) {
+            record.batches[k].write(record.slots[k], matrix, record.tint, record.alpha)
+          } else {
+            record.batches[k].hide(record.slots[k])
+          }
+        }
+      }
       // A ferry's navigation lights at night, screened as at sea (see
       // VesselLayer for the same on the AIS fleet): red to port and green
       // to starboard on the wheelhouse, white at the mast and the stern –
@@ -1497,6 +1558,7 @@ export class VehicleLayer {
         // The group takes body, wagons and pool with it. Wagons may still
         // be loading (attachWagon then destroys the late arrivals itself).
         this.root.remove(record.group)
+        for (let k = 0; k < record.slots.length; k++) record.batches[k].release(record.slots[k])
         this.vehicles.delete(id)
         this.host.requestRender()
       }
@@ -1778,6 +1840,12 @@ export class VehicleLayer {
       wagonLengths,
       wagonFlips,
       modelScale: modelSpec?.scale ?? 0,
+      batches: [],
+      slots: [],
+      wagonUris: [],
+      loading: [],
+      tint: color,
+      alpha,
       matrix: liveMatrix,
       labelEntity,
       labelPosition,
@@ -1809,11 +1877,33 @@ export class VehicleLayer {
       glowScale,
     }
     if (modelSpec) {
+      // A slot per wagon in its model's batch, posed now so the lights
+      // and the end wagons' frames have a matrix from the first tick
       modelSpec.wagons.forEach((wagon, index) => {
-        void this.attachWagon(record, snap.id, wagon.uri, index)
+        const batch = this.wagons.batch(wagon.uri)
+        record.batches.push(batch)
+        record.wagonUris.push(wagon.uri)
+        record.slots.push(batch.allocate({ id: `vehicle:${snap.id}`, primitive: this }))
+        record.modelMatrices[index] = this.composeWagonMatrix(record, index, new Matrix4())
       })
     }
     return record
+  }
+
+  /**
+   * The selected vehicle's Models go when the selection does: the
+   * instances take over again, their matrices their own once more (the
+   * Model's matrix object dies with it).
+   */
+  private releaseModels(record: VehicleRecord): void {
+    record.models.forEach((model, index) => {
+      if (!model) return
+      record.group.remove(model)
+      record.models[index] = undefined
+      const matrix = record.modelMatrices[index]
+      if (matrix) record.modelMatrices[index] = Matrix4.clone(matrix)
+    })
+    record.loading = []
   }
 
   /**
@@ -1846,8 +1936,17 @@ export class VehicleLayer {
       console.warn('[MiniGermany3D] Vehicle model failed to load:', error)
       return
     }
-    // The trip may have ended (or the viewer been torn down) during the load
-    if (this.viewer.isDestroyed() || this.vehicles.get(vehicleId) !== record) {
+    // The trip may have ended (or the viewer been torn down, or the
+    // selection moved on) during the load – or a second load of the same
+    // wagon, started by a selection given up and made again while this
+    // one was in flight, got there first
+    record.loading[index] = false
+    if (
+      this.viewer.isDestroyed() ||
+      this.vehicles.get(vehicleId) !== record ||
+      !record.highlighted ||
+      record.models[index] !== undefined
+    ) {
       model.destroy()
       return
     }
@@ -1856,7 +1955,9 @@ export class VehicleLayer {
     model.customShader = this.windowGlowShader
     record.group.add(model)
     // fromGltfAsync clones the matrix – rebind so the in-place pose
-    // updates in sync() reach the model.
+    // updates in sync() reach the model, with the pose composed since
+    const composed = record.modelMatrices[index]
+    if (composed) Matrix4.clone(composed, model.modelMatrix)
     record.models[index] = model
     record.modelMatrices[index] = model.modelMatrix
     record.appearanceDirty = true
@@ -2012,17 +2113,27 @@ export class VehicleLayer {
       label.outlineColor = new ConstantProperty(record.baseColor.withAlpha(alpha))
     }
     if (record.isModelBody) {
-      // glTF consist: tinted in the line color (colorBlendMode MIX, set at
-      // attach) like the boxes were; the alpha carries the tunnel
-      // ghosting, selection brightens the tint and adds a silhouette.
+      // glTF consist: tinted in the line color like the boxes were; the
+      // alpha carries the tunnel ghosting. The instances take both on
+      // the next tick (sync writes them). Selection brightens the tint
+      // and adds a silhouette – Cesium's own, a stencil pass of a Model,
+      // so the selected vehicle alone is drawn as Models, loaded here on
+      // selection and let go with it (releaseModels).
       const tint = record.highlighted
         ? Color.lerp(record.baseColor, Color.WHITE, 0.45, new Color())
         : record.baseColor
+      record.tint = tint
+      record.alpha = alpha
+      if (!record.highlighted) return true
       let complete = true
       for (let k = 0; k < record.wagonOffsets.length; k++) {
         const model = record.models[k]
         if (!model) {
           complete = false // wagon still loading – retried via appearanceDirty
+          if (!record.loading[k]) {
+            record.loading[k] = true
+            void this.attachWagon(record, vehicleId, record.wagonUris[k], k)
+          }
           continue
         }
         model.color = tint.withAlpha(alpha)
@@ -2055,6 +2166,7 @@ export class VehicleLayer {
       const record = this.vehicles.get(this.selectedId)
       if (record) {
         record.highlighted = false
+        if (record.isModelBody) this.releaseModels(record)
         // Not-yet-rendered primitives are retried via appearanceDirty in
         // syncVehicles – same as tunnel transitions.
         record.appearanceDirty = !this.applyVehicleAppearance(this.selectedId)
@@ -2178,11 +2290,7 @@ export class VehicleLayer {
   getVehicleOpacity(vehicleId: string): number | null {
     const record = this.vehicles.get(vehicleId)
     if (!record) return null
-    if (record.isModelBody) {
-      const model = record.models.find((m) => m !== undefined)
-      // null while the async wagon loads are in flight
-      return model ? (model.color?.alpha ?? 1) : null
-    }
+    if (record.isModelBody) return record.alpha
     try {
       const attributes = (record.primitive as Primitive).getGeometryInstanceAttributes(
         `vehicle:${vehicleId}`,

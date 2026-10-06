@@ -47,6 +47,18 @@ export interface PickId {
 export interface Buffer {
   copyFromArrayView(view: ArrayBufferView, offsetInBytes: number): void
   destroy(): void
+  /**
+   * Whether a VertexArray this buffer is attached to destroys it along
+   * with itself (Cesium's default, true). A buffer shared between vertex
+   * arrays – the wagons' geometry, under one array per growth of the
+   * instance buffer – sets it false and is destroyed by its owner.
+   */
+  vertexArrayDestroyable: boolean
+}
+
+/** An index buffer (Buffer.createIndexBuffer, private). */
+export interface IndexBuffer extends Buffer {
+  readonly numberOfIndices: number
 }
 
 /** One attribute of a hand-built VertexArray. */
@@ -95,6 +107,8 @@ export interface DrawCommand {
   renderState: RenderState
   /** Instances drawn – settable per frame where the set changes (the funnel smoke). */
   instanceCount: number
+  /** Whether the scene's shadow map draws this command into its cascades. */
+  castShadows: boolean
 }
 
 /** What a scene expects of an object in scene.primitives. */
@@ -118,7 +132,8 @@ interface RendererModule {
     pixelDatatype: PixelDatatype
     flipY?: boolean
     sampler?: Sampler
-    source: { arrayBufferView: ArrayBufferView }
+    /** Raw texels, or a decoded picture (an ImageBitmap – the wagons' palette). */
+    source: { arrayBufferView: ArrayBufferView } | ImageBitmap
   }) => Texture
   Texture3D: new (options: {
     context: Context
@@ -139,8 +154,15 @@ interface RendererModule {
     magnificationFilter?: number
   }) => Sampler
   TextureWrap: { REPEAT: number; CLAMP_TO_EDGE: number }
+  TextureMinificationFilter: { NEAREST: number; LINEAR: number }
+  TextureMagnificationFilter: { NEAREST: number; LINEAR: number }
   VertexArray: {
-    new (options: { context: Context; attributes: VertexArrayAttribute[] }): VertexArray
+    new (options: {
+      context: Context
+      attributes: VertexArrayAttribute[]
+      /** Indexed geometry – the wagons' triangles. */
+      indexBuffer?: IndexBuffer
+    }): VertexArray
     fromGeometry(options: {
       context: Context
       geometry: Geometry
@@ -149,6 +171,12 @@ interface RendererModule {
   }
   Buffer: {
     createVertexBuffer(options: { context: Context; typedArray: ArrayBufferView; usage: number }): Buffer
+    createIndexBuffer(options: {
+      context: Context
+      typedArray: ArrayBufferView
+      usage: number
+      indexDatatype: number
+    }): IndexBuffer
     /** The class's prototype – where the GPU readback cache is installed (buffer-readback-cache.ts). */
     prototype: ReadbackBufferPrototype
   }
@@ -182,8 +210,11 @@ interface RendererModule {
      * derives a pick shader that writes it in place of the fragment.
      */
     pickId?: string
+    /** Drawn into the shadow map's cascades (the scene derives the cast command). */
+    castShadows?: boolean
+    receiveShadows?: boolean
   }) => DrawCommand
-  Pass: { TRANSLUCENT: number }
+  Pass: { OPAQUE: number; TRANSLUCENT: number }
 }
 
 /** The renderer classes, under the shapes above. */

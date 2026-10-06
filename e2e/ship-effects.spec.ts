@@ -153,6 +153,33 @@ const differingPixels = (a: string, b: string, box: { x0: number; y0: number; x1
 
 const slowPoll = { timeout: 120_000, intervals: [1000, 2000, 4000] }
 
+/**
+ * Whether the picture in a box holds still: two frames, RENDERS_APART
+ * frames rendered in between, compared by the rule above – the count of
+ * pixels that still change. A Model's image-based lighting arrives some
+ * frames after the Model itself: Cesium renders its environment map
+ * (DynamicEnvironmentMapManager – a cube map of the sky, its
+ * convolutions, the irradiance) as compute passes through a queue every
+ * Model shares, a few passes a frame, and with the clock paused and
+ * nothing moving the loop draws almost no frames. So the picture of the
+ * ship stopped was taken before her sky lighting had arrived and the
+ * picture under way – whose plume keeps frames coming – after it, and
+ * her sides differed by nine thousand pixels. While every wagon of the
+ * fleet was a Model, some 2 000 of their passes queued ahead of hers
+ * and her lighting never arrived inside the test at all, which is why
+ * this held before. Rendering the frames here, in the page, drives the
+ * queue on without waiting on the clock.
+ */
+const RENDERS_APART = 30
+const pictureStill = async (box: { x0: number; y0: number; x1: number; y1: number }) => {
+  await captureFrame('still-a')
+  await page.evaluate((frames) => {
+    for (let i = 0; i < frames; i++) window.__cesiumViewer!.render()
+  }, RENDERS_APART)
+  await captureFrame('still-b')
+  return differingPixels('still-a', 'still-b', box)
+}
+
 test('a ship under way trails a plume from her funnel, a ship stopped shows none', async () => {
   test.setTimeout(300_000)
   const pageErrors: string[] = []
@@ -166,13 +193,16 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
     supported: true,
   })
 
-  // Stopped: the hull is up, the funnel cold
+  // Stopped: the hull is up and lit by her sky, the funnel cold
+  const plume = { x0: 0.2, y0: 0.28, x1: 0.38, y1: 0.4 }
+  const hull = { x0: 0.45, y0: 0.36, x1: 0.7, y1: 0.48 }
   await putShip(0)
   await expect.poll(() => page.evaluate(() => window.__mg3d!.aisVesselCount()), slowPoll).toBe(1)
   await expect
     .poll(() => page.evaluate(() => window.__mg3d!.funnelSmoke()!.drawn), slowPoll)
     .toBe(0)
   await expect.poll(hullReady, slowPoll).toBe(true)
+  await expect.poll(() => pictureStill(hull), slowPoll).toBe(0)
   await captureFrame('cold')
 
   // Under way: one plume, and the shader drew it without a word from the loop
@@ -188,8 +218,6 @@ test('a ship under way trails a plume from her funnel, a ship stopped shows none
   // of the bridge, at the left of the hull from this camera, out over the
   // water beyond her stern; the forward two thirds of the hull herself
   // are the same in both pictures
-  const plume = { x0: 0.2, y0: 0.28, x1: 0.38, y1: 0.4 }
-  const hull = { x0: 0.45, y0: 0.36, x1: 0.7, y1: 0.48 }
   expect(await differingPixels('cold', 'smoking', plume)).toBeGreaterThan(150)
   expect(await differingPixels('cold', 'smoking', hull)).toBeLessThan(50)
 

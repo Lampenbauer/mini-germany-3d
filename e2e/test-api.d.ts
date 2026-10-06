@@ -81,6 +81,7 @@ declare global {
       vehicleOpacity: (id: string) => number | null
       renderRate: () => number
       anyVehicleInView: () => boolean
+      wagonBatches: () => { uri: string; count: number; ready: boolean }[]
       streetLamps: () => { drawn: number; alpha: number }
       /** Airfield lighting: lights built into the scene, their current opacity, and the apron pools built. */
       airfieldLights: () => { drawn: number; alpha: number; floods: number }

@@ -136,7 +136,7 @@ Expected cost: negative (fewer billboards) or one point collection.
 
 ## Phase 5 – Instanced wagon rendering
 
-- [ ] **Phase 5**
+- [x] **Phase 5** – implemented 2026-10-06 (`src/map/InstancedWagons.ts`). Measured headed, offline: Berlin 1.2 km over Alexanderplatz render CPU 13.4 · 13.8 → 10.9 · 11.1 ms, commands 1 570 · 1 610 → 887 · 909; Hamburg harbour CPU 12.7 · 13.0 → 11.8 · 11.9 ms, commands 1 348 → 1 090; with real tiles Berlin's close view 14.2 · 14.5 → 12.2 · 12.3 ms CPU. GPU per frame (interleaved, 480 frames) 9.69 → 6.03 ms median, mostly because Cesium's environment-map queue no longer holds 12 000+ passes for the wagon Models; the wagons' own share grew 1.13 → 1.63 ms, all of it shadow casting (see the follow-up below). The selected vehicle keeps its Models for the silhouette.
 
 Expected cost: a large CPU win – the 3 002 wagon `Model` primitives
 are 16.8 of Berlin's 22 ms render CPU – and a neutral GPU. The risk is
@@ -151,6 +151,17 @@ engineering, not performance.
    rule. Cesium 1.144 has no runtime instancing API; glTF
    `EXT_mesh_gpu_instancing` is static at load.
 3. Makes Phase 8 comfortable in Berlin.
+
+Follow-up found while measuring Phase 5:
+
+- [ ] **Spatial sub-batches for the wagons' shadow pass.** A batch is one
+  bounding sphere per wagon model, so every cascade of the shadow map
+  draws every shown wagon of the model: 1.36 of the wagons' 1.63 GPU ms
+  in Berlin's close view. A command per model and grid cell (each its
+  own bounding sphere and a fixed region of the instance buffer, so a
+  cell's vertex array keeps its offsets) lets the cascades cull again.
+  Mind the CPU: push only the cells in view, or the command count eats
+  the CPU the instancing won.
 
 ## Phase 6 – Routes that follow the mesh near the camera
 

@@ -2907,6 +2907,11 @@ export class CesiumMap {
   }
 
   /** Debug/test: the navigation lights on at the last tick, per fleet (see NavLights). */
+  /** Debug/test: the wagon batches – model, wagons on the map, whether the geometry is in (see InstancedWagons). */
+  getWagonBatches(): { uri: string; count: number; ready: boolean }[] {
+    return this.vehicleLayer.wagonBatches
+  }
+
   navLightsState(): { aircraft: number; ships: number; ferries: number } {
     return {
       aircraft: this.aircraftLayer.lightCount,

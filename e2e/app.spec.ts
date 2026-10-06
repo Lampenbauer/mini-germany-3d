@@ -252,6 +252,12 @@ test('line switch hides the vehicles of that line', async () => {
 })
 
 test('selecting a vehicle opens the info card', async () => {
+  // The fleet is drawn by instancing, a batch per wagon model, and the
+  // batches hold the wagons on the map by now (see InstancedWagons; the
+  // GLBs are read offline too, from public/models)
+  await expect
+    .poll(() => page.evaluate(() => window.__mg3d!.wagonBatches().filter((b) => b.ready && b.count > 0).length))
+    .toBeGreaterThan(2)
   const tram = await page.evaluate(() => window.__mg3d!.vehicles()[0])
   await page.evaluate((id) => window.__mg3d!.selectVehicle(id), tram.id)
 

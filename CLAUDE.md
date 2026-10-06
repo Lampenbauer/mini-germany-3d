@@ -1512,6 +1512,10 @@ hand with stored deflate blocks (no zlib – its output could differ
 between Node versions; the build stays byte-stable, checked by
 rebuilding twice), and the GLBs grew by 8 bytes a vertex, which is why
 the aircraft budget is 800 kB and the ships' 70 bytes a triangle.
+Since 2026-10-06 the scheduled fleet's wagons are not Models at all but
+instances (see "The wagons are instanced" under rendering), and that
+one primitive per wagon is what makes it possible: the GLB is read into
+one vertex array, the palette into one texture.
 
 ### Switching cities at runtime
 
@@ -1855,6 +1859,97 @@ was on `performance.now()` – a pause left the foam streaming past a
 standing ferry otherwise. The noise lattice is periodic (4096 cells)
 so the sin hash never sees the coordinates a long session grows.
 
+### The wagons are instanced
+
+Phase 5 of [docs/improvement-phases.md](docs/improvement-phases.md),
+2026-10-06. A wagon was a Cesium `Model` – Berlin's morning fleet some
+2 900 of them, each a scene graph with an update of its own every frame
+and a draw command of its own every pass. [InstancedWagons.ts](src/map/InstancedWagons.ts)
+draws them with one instanced DrawCommand per wagon model instead
+(after StopDiscs' pattern): the GLB's one primitive read from the file
+itself (`parseWagonGlb`, with Cesium's glTF axis correction baked into
+the vertices – Y up, Z forward in the file; Z up, X forward in a Model –
+so an instance matrix is the very modelMatrix the Model took), the
+palette PNG decoded with `createImageBitmap` into one NEAREST texture,
+and per instance the pose (the rotation's columns, the translation as
+high and low floats), the line colour, the opacity and a pick colour.
+The slot buffer holds every wagon of the model; what the GPU gets is
+the SHOWN ones packed together, opaque first, then the ghosts – with
+every slot drawn and the hidden ones collapsed in the vertex shader,
+the 2 900 went through the vertex stage of every shadow cascade and
+both passes for the 300 in range, and the GPU frame grew where it
+should have shrunk. `VehicleLayer` allocates a slot per wagon when the
+record is made, writes the composed wagon matrices into it while the
+body is drawn (`record.modelMatrices` are the record's own Matrix4s
+now) and hides it otherwise.
+
+What the shader reproduces of the Model, each chosen beside a Model
+on the same scene (ab-* screenshots, mean colours over the same
+patches, offline): the metallic-roughness material from the vertex
+colour and the palette texel, `czm_pbrLighting` under the scene's sun,
+an ambient share for the Model's image-based sky lighting
+(`AMBIENT_DAY` 0.55, `AMBIENT_NIGHT` 0.25 along the night ramp, and the
+sky's reflection in smooth surfaces, `SKY_REFLECTION` – the glazing
+above all), the window glow by the glazing's darkness, the neutral
+tonemapping and the sRGB conversion of the Model's lighting stage, and
+the line colour mixed over the LIT body last – the Model's colour stage
+runs after its lighting stage, in sRGB, which is why a tint mixed into
+the base colour came out a saturated purple. The tunnel ghosts are a
+second command in the translucent pass; the command casts shadows and
+receives none, the Models' `CAST_ONLY`. What it does not do is the
+selection silhouette (Cesium's own stencil pass of a Model): the
+selected vehicle alone keeps its Models, loaded on selection
+(`attachWagon`) and let go with it (`releaseModels`), each instance
+hidden once its wagon's Model is in – hidden at once, the vehicle
+vanished for the moment the Models took to load.
+
+**The Models' hidden cost: Cesium's environment maps.** Every `Model`
+computes its image-based lighting with a `DynamicEnvironmentMapManager`
+– a cube map of the sky, its convolutions, the irradiance, as compute
+passes – through a queue all Models share, at most 14 passes a rendered
+frame, and a Model re-queues its map whenever it moves a kilometre. With
+the wagons as Models that queue stood at 12 000 to 15 000 passes in
+Berlin with the clock running (sampled every ten seconds for a minute,
+offline): every frame paid its 14 passes, and a ship, an aircraft or a
+buoy waited minutes for its sky lighting – in the ship-effects spec it
+never arrived. With the wagons instanced the queue is empty, and a hull
+gets its lighting a few frames after it loads – which the plume spec
+had to learn to wait for (`pictureStill`: its picture of the ship
+stopped was taken before her lighting and the one under way after).
+
+Measured headed on the real GPU (timer queries, paused at 08:30,
+offline; the CPU over 60 frames, twice each):
+
+| scene (offline) | render CPU | commands |
+|---|---|---|
+| Berlin 1.2 km over Alexanderplatz | 13.4 · 13.8 → 10.9 · 11.1 ms | 1 570 · 1 610 → 887 · 909 |
+| Hamburg 1175 m over the harbour | 12.7 · 13.0 → 11.8 · 11.9 ms | 1 348 → 1 090 · 1 093 |
+| Berlin home view | 2.5 · 3.2 → 2.3 · 2.6 ms | 65 → 65 |
+
+With the real tiles, Berlin's close view went from 14.2 · 14.5 to 12.2
+· 12.3 ms of render CPU and 1 772 · 1 857 to 1 185 · 1 203 commands.
+The GPU needed a careful reading: 60 frames of one scene varied between
+runs of the same build by more than the change, the old build most of
+all (its environment-map passes, above). Interleaved over eight rounds,
+480 frames a variant, in Berlin's close view:
+
+| GPU per frame | old (Models) | new (instances) |
+|---|---|---|
+| median, as drawn (p25–p75) | 9.69 ms (6.94–12.44) | 6.03 ms (5.59–6.63) |
+| the wagons' share (as drawn − wagons off) | 1.13 ms | 1.63 ms |
+| of it their shadow casting | 0.45 ms | 1.36 ms |
+
+So the frame is cheaper and steadier, but the wagons' own GPU share
+grew by half a millisecond, all of it in the shadow pass: a batch is one
+bounding sphere, so every cascade of the shadow map draws every shown
+wagon of the model, where each Model was culled per cascade and drew
+into the one or two it overlapped. The cure, not built yet, is spatial
+sub-batches (a command per model and grid cell, with its own bounding
+sphere, so the cascades cull again) – a backlog item in
+docs/improvement-phases.md. `__mg3d.wagonBatches()` lists the batches;
+`tests/instanced-wagons.test.ts` pins the parser and the packing;
+`e2e/app.spec.ts` sees the batches hold wagons offline.
+
 ### The city handover is one frame – nothing may pile up in it
 
 The map changes hands halfway through the flight to the next city
@@ -2054,6 +2149,7 @@ The debug/test API ([src/App.tsx](src/App.tsx), `Mg3dTestApi`) is the first stop
 for any "the map is doing X" question: `tileMemory()` (incl. `tilesTotal`,
 `replacing`, `readbackCache`), `renderPacing()` (incl. `tickIntervalMs`, `motionPxPerSecond`),
 `renderRate()`, `shadowMap()`, `tilesetStatus()`, `lastLoopError()`,
+`wagonBatches()`, `groundOffsets()`,
 `cloudState()`, `funnelSmoke()`, `wake()`, `waterClamp()`, `tiltShiftState()`,
 `groundHeights()`, `aisReplay()`, `aircraftCount()`, `aircraftReplay()`;
 `setAisVessels(list)` and `setAircraft(list)` put a fleet on the map where

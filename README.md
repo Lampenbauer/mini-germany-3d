@@ -310,7 +310,9 @@ src/
 │                           # AIS vessels, ADS-B aircraft, webcams – each with clear() for the next city
 ├── map/*.ts                # the stateless effects: FunnelSmoke, Wake, NavLights, LighthouseBeams,
 │                           # StopDiscs, CloudLayer, the photo grade and tilt-shift passes,
-│                           # bridge-decks, water-clamp, the flat basemap, LinearView (the diagram)
+│                           # InstancedWagons (the fleet's wagons, one draw per model),
+│                           # bridge-decks, water-clamp, height-field, the flat basemap,
+│                           # LinearView (the diagram)
 ├── components/             # shadcn-style UI: welcome screen, control panel, cards, popovers,
 │                           # the camera path bar, the About/Credits/Legal dialogs, ui/*
 └── App.tsx                 # the viewer effect (once), the city session effect (per city),
