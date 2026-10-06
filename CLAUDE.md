@@ -2153,6 +2153,48 @@ runs from postRender after a swap and when shadows go off. Separately,
 shadows are gated off (GPU process 2.95 instead of 4.1 GB; the first shadowed
 frame after a release costs 23–28 ms instead of 18–20).
 
+**A fourth holder sat in Cesium's request queue** (found 2026-10-06, Cesium
+1.146 and 1.144 alike). `RequestScheduler` queues a frame's tile requests in a
+`Heap` capped at 20, and `Heap.insert` leaves the request it pushes out past
+the cap at index 20 of its backing array until the next push-out overwrites
+it; a request's `priorityFunction` closes over its tile, a tile holds its
+tileset. After Rostock → Berlin at 1600×1000 the destroyed Rostock tileset
+stayed alive that way with 255 000 tiles – a heap of ~980 MB against ~470 MB
+once released – until a later view queued more than twenty requests at once,
+which is why Hamburg after Berlin showed one live tileset and Kiel after
+Hamburg two again. Windows of 1400×875 and smaller never filled the queue and
+never showed it: measure a leak like this at the desktop's real size.
+`heap-trailing-reference.ts` wraps `Heap.insert` to clear the slot, installed
+on `Heap.prototype` the way the readback cache is on `Buffer.prototype`; its
+test pins Cesium's behaviour on the real `Heap` and fails the day Cesium clears
+the slot itself. The way to it, for the next one: a search through the
+objects' own properties from `window` and the `CesiumMap` instance (3.5 M
+objects) found nothing – the queue is a module variable, reachable only
+through a closure's context – and a snapshot of the 1 GB heap made the
+renderer give up. Marking the old tileset with an object of a class of its
+own, removing the current tileset and cutting the old tiles' child lists
+before the snapshot left 580 MB of heap and a 1.7 GB file, read into typed
+arrays rather than through `JSON.parse` (a string tops out at ~536 M
+characters); the shortest path from the GC roots to the marked tileset named
+the queue.
+
+**A city visited again comes from the browser's cache already; keeping
+Google's session by hand was tried and dropped** (2026-10-06). Every tileset
+asks for Google's root, whose answer writes a session into every URL beneath
+it, and Google names the tiles afresh in every subtree JSON it serves – so a
+city's tiles come back from the cache only under the same session, through
+the cached subtree JSONs (`max-age=14400`). Google hands a new session to
+every unconditional root request, but the root is `max-age=0,
+must-revalidate` with an ETag that does not change with the session: a
+browser holding the root revalidates, gets a 304 and keeps its session.
+Measured with a profile on disk, Rostock → Berlin → five minutes → Rostock:
+the way back took 1.7 MB from the network and 1 924 tiles from the cache (the
+first visit 64 MB); with a module that kept the root's answer in memory and
+handed it to every new tileset, 2.2 MB – nothing gained, so it went. Measure
+caching with `chromium.launchPersistentContext`: a fresh Playwright context
+has a small in-memory cache, and there the way back was 1 923 tiles and
+112 MB from the network.
+
 Also: a canvas assigned as a billboard image gets a fresh GUID per billboard and
 a `TextureAtlas` never frees regions, so vehicle badges are **data URLs** (keyed
 by URL → one region per line+colour+delay). The colour belongs in the badge

@@ -10,7 +10,8 @@
  * examples build on it – but it is marked @private and left out of the
  * type declarations. This module is the one place that knows the shapes
  * this app relies on, so a Cesium upgrade that changes them fails here
- * and nowhere else.
+ * and nowhere else – the one private class beyond the renderer included,
+ * the Heap the request scheduler queues tile requests in.
  */
 
 import * as Cesium from 'cesium'
@@ -24,6 +25,7 @@ import type {
   PixelFormat,
 } from 'cesium'
 import type { ReadbackBufferPrototype } from './buffer-readback-cache'
+import type { HeapPrototype } from './heap-trailing-reference'
 
 /** The GL context of a scene (scene.context, private). */
 export interface Context {
@@ -215,6 +217,26 @@ interface RendererModule {
     receiveShadows?: boolean
   }) => DrawCommand
   Pass: { OPAQUE: number; TRANSLUCENT: number }
+  /**
+   * Core/Heap.js – the queue RequestScheduler keeps a frame's tile
+   * requests in. Its prototype is where the trailing-reference fix is
+   * installed (heap-trailing-reference.ts); the rest is what its test reads.
+   */
+  Heap: {
+    new <T>(options: { comparator: (a: T, b: T) => number }): Heap<T>
+    prototype: HeapPrototype
+  }
+}
+
+/** A Heap (Core/Heap.js, private): a priority queue, optionally capped. */
+export interface Heap<T> {
+  /** The cap: an insert past it pushes an element out and returns it. */
+  maximumLength: number | undefined
+  readonly length: number
+  /** The backing array – it can be longer than the heap. */
+  readonly internalArray: (T | undefined)[]
+  insert(element: T): T | undefined
+  pop(index?: number): T | undefined
 }
 
 /** The renderer classes, under the shapes above. */

@@ -85,6 +85,7 @@ import {
   type ReadbackCacheInfo,
 } from './buffer-readback-cache'
 import { renderer } from './cesium-renderer'
+import { installHeapTrailingReferenceFix } from './heap-trailing-reference'
 import { SurfaceGeneration } from './surface-generation'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
@@ -1005,6 +1006,10 @@ export class CesiumMap {
     // Every tileset.getHeight ray reads tile geometry back from the GPU;
     // the cache keeps a copy per buffer (see buffer-readback-cache.ts)
     installBufferReadbackCache(renderer.Buffer.prototype)
+    // Cesium's request queue kept a cancelled tile request past its end,
+    // and through it the tileset a city switch had let go of, tree and all
+    // (see heap-trailing-reference.ts)
+    installHeapTrailingReferenceFix(renderer.Heap.prototype)
 
     this.viewer = new Viewer(container, {
       baseLayer: false,
@@ -1840,6 +1845,8 @@ export class CesiumMap {
       this.surfaceGeneration.bump(now)
       // remove() destroys the old tileset, tree and all – all but what
       // Cesium's command bins still point at, purged after the next frame
+      // (the stale slot of its request queue is cleared as it falls
+      // vacant, see heap-trailing-reference.ts)
       this.viewer.scene.primitives.remove(current)
       this.commandPurgePending = true
       this.treeRebuildAllowedAt = now + TILE_TREE_REBUILD_COOLDOWN_MS
