@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CreditsDialog } from '@/components/CreditsDialog'
 import { setLanguage } from '@/lib/i18n'
@@ -41,6 +41,23 @@ describe('the credits dialog', () => {
 
     rerender(<CreditsDialog open={false} {...props} />)
     expect(home.contains(list)).toBe(true)
+  })
+
+  it('hands the focus back to the link that opened it', async () => {
+    // Cesium's link, no Radix trigger – a keyboard button since Cesium
+    // 1.146, so a reader who opened the credits from it lands on it again.
+    const { borrow } = creditList()
+    const link = document.createElement('a')
+    link.tabIndex = 0
+    document.body.appendChild(link)
+    link.focus()
+    const props = { onOpenChange: () => {}, borrow }
+    const { rerender } = render(<CreditsDialog open {...props} />)
+    expect(document.activeElement).not.toBe(link)
+
+    rerender(<CreditsDialog open={false} {...props} />)
+    await waitFor(() => expect(document.activeElement).toBe(link))
+    link.remove()
   })
 
   it('speaks the language of the interface', () => {

@@ -148,8 +148,8 @@ engineering, not performance.
    line-colour tint per instance.
 2. Open points: pick colour per instance (StopDiscs shows how), the
    shadow pass, the selection highlight and the window-glow luminance
-   rule. Cesium 1.144 has no runtime instancing API; glTF
-   `EXT_mesh_gpu_instancing` is static at load.
+   rule. Cesium has no runtime instancing API (none in 1.144, none in
+   1.146); glTF `EXT_mesh_gpu_instancing` is static at load.
 3. Makes Phase 8 comfortable in Berlin.
 
 Follow-up found while measuring Phase 5:

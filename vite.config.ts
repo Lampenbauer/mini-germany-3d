@@ -687,12 +687,13 @@ export default defineConfig({
     chunkSizeWarningLimit: 6000,
     rollupOptions: {
       output: {
-        // Cesium (~3.5 MB) and each city's data change on different
+        // Cesium (~5 MB) and each city's data change on different
         // cadences than the app code – separate chunks keep them cacheable
         // across deploys and let the browser download them in parallel.
         manualChunks(id: string) {
           // The `cesium` package is a re-export shell – the code lives in
-          // the @cesium/engine and @cesium/widgets packages.
+          // the @cesium/core (split off in 1.146), @cesium/engine and
+          // @cesium/widgets packages.
           if (id.includes('node_modules/cesium/') || id.includes('node_modules/@cesium/')) {
             return 'cesium'
           }

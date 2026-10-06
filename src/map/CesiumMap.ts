@@ -2572,7 +2572,11 @@ export class CesiumMap {
   /**
    * Rewires Cesium's "Data attribution" link to the app: pressing it calls
    * `open` instead of raising Cesium's own lightbox, so the credits appear
-   * in the same dialog everything else in this interface uses.
+   * in the same dialog everything else in this interface uses. Both ways
+   * of pressing it: since Cesium 1.146 the link is a keyboard button
+   * (tabindex 0, role button) with a keydown handler of its own for Enter
+   * and Space, and with only the click rewired, the keyboard got Cesium's
+   * lightbox.
    *
    * The list stays Cesium's. It rewrites the <ul> on every frame – the
    * credits change as tiles load and layers come and go – and it does so
@@ -2589,6 +2593,14 @@ export class CesiumMap {
     if (!link) return
     link.onclick = (event) => {
       event.preventDefault()
+      open()
+    }
+    link.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      // Space would scroll the page; the key is the link's, as in Cesium's
+      // own handler.
+      event.preventDefault()
+      event.stopPropagation()
       open()
     }
   }

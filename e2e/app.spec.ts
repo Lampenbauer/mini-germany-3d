@@ -82,7 +82,8 @@ test('the data attribution opens in the app\u2019s own dialog', async () => {
   // Cesium draws the link and would raise its own lightbox on it; the
   // credits belong in the dialog the rest of the interface uses. The list
   // inside is Cesium's own element, borrowed while the dialog is open.
-  await page.locator('.cesium-credit-expand-link').click()
+  const link = page.locator('.cesium-credit-expand-link')
+  await link.click()
   const dialog = page.getByRole('dialog', { name: 'Data attribution' })
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('li').first()).toContainText('OpenStreetMap')
@@ -93,6 +94,19 @@ test('the data attribution opens in the app\u2019s own dialog', async () => {
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   await expect(page.getByTestId('sim-clock')).toBeVisible()
+  // Since Cesium 1.146 the link is a keyboard button as well (tabindex 0,
+  // role button), with a keydown handler of its own that raises Cesium's
+  // lightbox on Enter and Space. Both keys lead to the same dialog, and the
+  // focus comes back to the link.
+  for (const key of ['Enter', 'Space']) {
+    await link.focus()
+    await page.keyboard.press(key)
+    await expect(dialog).toBeVisible()
+    await expect(page.locator('.cesium-credit-lightbox-overlay')).toBeHidden()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(link).toBeFocused()
+  }
   // …and handed back, so Cesium goes on writing to it
   await expect(page.locator('.cesium-credit-lightbox > ul')).toHaveCount(1)
 })

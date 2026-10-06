@@ -1670,10 +1670,10 @@ so a frame today is that column cheaper than the totals below:
 | Rostock chase cam (94 m) | 25 ms | 16 ms | 6.5 ms | 10 ms | 2 ms |
 | Berlin home 08:30 | 19 ms | 21.6 ms (CPU-bound) | 10 ms | 12 ms | 2.3 ms |
 
-FXAA is off by default in Cesium 1.144. `Cesium.Model.update` runs the full
-scene-graph update even for `show=false` models — only `submitDrawCommands`
-checks `show` — so a hidden *parent* `PrimitiveCollection` is the only way to
-skip children.
+FXAA is off by default in Cesium (1.144 and 1.146). `Cesium.Model.update`
+runs the full scene-graph update even for `show=false` models — only
+`submitDrawCommands` checks `show` — so a hidden *parent*
+`PrimitiveCollection` is the only way to skip children.
 
 Where Berlin's CPU actually goes, measured the same way: of 22 ms render CPU in
 the home view, 16.8 ms are the 3002 wagon `Model` primitives (13.2 ms for the

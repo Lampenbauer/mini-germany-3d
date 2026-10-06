@@ -55,6 +55,11 @@ export function CreditsDialog(props: {
   onOpenChange: (open: boolean) => void
   borrow: (host: HTMLElement | null) => void
 }) {
+  // Opened from Cesium's link, so there is no Radix DialogTrigger to hand
+  // the focus back to – and since Cesium 1.146 that link is a keyboard
+  // button, whose reader has to land on it again. The About dialog's way.
+  const returnFocus = useRef<HTMLElement | null>(null)
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
@@ -63,6 +68,15 @@ export function CreditsDialog(props: {
         // as the sources on screen, and a tall tileset view or a phone
         // put its end past the fold with no way to reach it.
         className="max-h-[calc(100dvh-2rem)] overflow-hidden rounded-2xl shadow-2xl sm:max-w-md"
+        onOpenAutoFocus={() => {
+          returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        }}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus.current?.isConnected) {
+            event.preventDefault()
+            returnFocus.current.focus()
+          }
+        }}
       >
         <DialogHeader>
           {/* The same eyebrow the About dialog wears, so the two read as
