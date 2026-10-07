@@ -32,7 +32,7 @@ a chase camera; clicking a stop opens its departure board.
 
 | | |
 |---|---|
-| [![Three trams and a bus at Mollstraße/Otto-Braun-Straße in Berlin](docs/screenshots/rostock-dawn-trams.jpg)](docs/screenshots/rostock-dawn-trams.jpg) | [![An S-Bahn train at Lütten Klein station in the evening, with two buses](docs/screenshots/rostock-dawn-sbahn.jpg)](docs/screenshots/rostock-dawn-sbahn.jpg) |
+| [![Three trams and a bus at Mollstraße/Otto-Braun-Straße in Berlin](docs/screenshots/berlin-trams.jpg)](docs/screenshots/berlin-trams.jpg) | [![An S-Bahn train at Lütten Klein station in the evening, with two buses](docs/screenshots/rostock-dawn-sbahn.jpg)](docs/screenshots/rostock-dawn-sbahn.jpg) |
 | *Berlin's trams M4, M6 and M8 and the bus 200 at Mollstraße/Otto-Braun-Straße in the morning rush hour* | *The S1 to Warnemünde at Lütten Klein in the evening, with two buses of line 38 – the cabin glow and the street lamps follow the simulated clock* |
 
 **The harbour and the sky, live.** AIS positions from aisstream.io put every
@@ -47,8 +47,8 @@ clock set back replays the last five days.
 |---|---|
 | [![Container ships at the Waltershof terminals in Hamburg](docs/screenshots/hamburg-ships.jpg)](docs/screenshots/hamburg-ships.jpg) | [![A Lufthansa 747-8 on final into Frankfurt, followed by the chase camera](docs/screenshots/frankfurt-aircraft.jpg)](docs/screenshots/frankfurt-aircraft.jpg) |
 | *Hamburg, Waltershof: the box ships at their berths, each the size AIS reports* | *Frankfurt: following a 747-8 on final, with its ADS-B card* |
-| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](docs/screenshots/kiel-ferry.jpg) | [![U-Bahn trains at Wittenbergplatz in Berlin, seen from beneath the city](docs/screenshots/rostock-night.jpg)](docs/screenshots/rostock-night.jpg) |
-| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *The underground view: Berlin's U1 and U2 at Wittenbergplatz, the city dimmed above them* |
+| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](docs/screenshots/kiel-ferry.jpg) | [![Warnemünde from the sea before sunrise, a ferry putting out between the moles](docs/screenshots/rostock-warnemuende.jpg)](docs/screenshots/rostock-warnemuende.jpg) |
+| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *Warnemünde before sunrise: the ferry BERLIN putting out to sea between the mole lights, the lighthouse's beam on the water, the fairway's buoys lit* |
 
 **A clock, not a feed.** The time field and the calendar set the simulated
 moment, the time-lapse runs it at up to ×120 forward or backward, and
@@ -56,16 +56,29 @@ everything follows: the sun and the night, the street lamps, the airfield
 lights, the lighthouses, the weather of that quarter hour (Open-Meteo keeps
 its past), and the recordings of the harbour and the sky.
 
+**The sky over the city.** Rain, cloud cover, wind, visibility and the
+temperature on the weather button come from Open-Meteo for the moment on the
+clock. The rain greys the photo tiles and falls in streaks, and poor
+visibility lights the airfields by day. Switched on in the weather popover,
+volumetric clouds are ray-marched from the live cover, drift with the
+reported wind, shadow the streets and drop the rain from their base. The same
+popover swaps the live sky for a sunny, overcast or rainy one.
+
 **Two more readings of the city.** The *line diagram* pulls every line
 straight into a row with its stops at their true distances – the vehicles keep
 running on the rows – and the *underground* view looks at the city from
 beneath its tunnels. The globe on the control dial swaps Google's tiles for a
 flat street map.
 
+| |
+|---|
+| [![Rostock's lines pulled straight into a diagram, a tram of line 2 selected with its card](docs/screenshots/rostock-diagram.jpg)](docs/screenshots/rostock-diagram.jpg) |
+| *The line diagram: every line a row, every stop at its distance – a tram of line 2 picked, its card with the stops ahead and the connections at Paulstraße* |
+
 | | |
 |---|---|
-| [![Rostock's lines pulled straight into a diagram](docs/screenshots/rostock-diagram.jpg)](docs/screenshots/rostock-diagram.jpg) | [![Cologne on the flat map with its webcams](docs/screenshots/cologne-flat.jpg)](docs/screenshots/cologne-flat.jpg) |
-| *The line diagram: every line a row, every stop at its distance* | *Cologne on the flat map, with Windy's webcams floating over their spots* |
+| [![U-Bahn trains at Wittenbergplatz in Berlin, seen from beneath the city](docs/screenshots/berlin-underground.jpg)](docs/screenshots/berlin-underground.jpg) | [![Cologne on the flat map with its webcams](docs/screenshots/cologne-flat.jpg)](docs/screenshots/cologne-flat.jpg) |
+| *The underground view: Berlin's U1 and U2 at Wittenbergplatz, the city dimmed above them* | *Cologne on the flat map, with Windy's webcams floating over their spots* |
 
 **And the rest, briefly:**
 
@@ -73,8 +86,6 @@ flat street map.
   contrast, saturation, vignette, a framing grid and a tilt-shift miniature
   look with its own knobs; every setting rides in the URL, so a link is a
   picture. A **camera path** bar flies a dolly shot between two saved views.
-- **Volumetric clouds** ray-marched from the live cloud cover, drifting with
-  the reported wind and shadowing the streets; rain from their base.
 - **Night** – the tiles graded into a blue night, a cabin-light pool under
   every vehicle and its headlights and tail lights, OSM street lamps along
   the routes, runway and taxiway lights in ICAO colours, buoy lanterns,
