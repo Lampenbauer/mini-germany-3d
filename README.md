@@ -280,7 +280,9 @@ the PHP scripts and each city's `city.json` and `schedule.json` to a shared
 webspace (Apache + PHP) after every push to `main`; a push that touches only
 Markdown files and `docs/` starts no run, since neither reaches the site. Secrets:
 `DEPLOY_SSH_HOST`, `DEPLOY_SSH_USER`, `DEPLOY_SSH_PASSWORD`, `DEPLOY_TARGET_DIR` (the
-document root as rsync sees it, `websites/mini-germany-3d/website/`),
+document root as the SSH login sees it, with a trailing slash – on a
+chrooted login an absolute path; one level too high, and the rsync deletes
+the archives beside it),
 `WINDY_KEY`, `CRON_KEY`, and the provider's details for the legal notice as
 `OPERATOR_NAME`, `OPERATOR_STREET`, `OPERATOR_PLACE` and `OPERATOR_EMAIL`. The rsync deletes what it does not carry, so everything the site
 reads or writes at run time sits *beside* the document root, never in it:
