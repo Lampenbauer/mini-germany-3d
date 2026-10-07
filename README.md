@@ -266,7 +266,8 @@ the two to the same output and run in CI.
 
 `.github/workflows/ci.yml` typechecks, tests, builds and rsyncs `dist/` plus
 the PHP scripts and each city's `city.json` and `schedule.json` to an all-inkl
-webspace (Apache + PHP) after every push to `main`. Secrets:
+webspace (Apache + PHP) after every push to `main`; a push that touches only
+Markdown files and `docs/` starts no run, since neither reaches the site. Secrets:
 `KAS_SSH_HOST`, `KAS_SSH_USER`, `KAS_SSH_PASSWORD`, `KAS_TARGET_DIR` (the
 document root as rsync sees it, `websites/mini-germany-3d/website/`),
 `WINDY_KEY`, and the provider's details for the legal notice as

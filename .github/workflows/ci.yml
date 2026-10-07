@@ -14,14 +14,16 @@ on:
   push:
     branches: ['**']
     # Prose alone starts nothing. There is no code to check in a README
-    # edit and nothing new to ship – the markdown never enters dist – so a
-    # push (or a PR) that touches only .md files skips the whole pipeline.
-    # A commit that changes prose AND code still runs it in full: the
-    # filter looks at everything the push touched, not at each file.
-    # Nightly and manual runs carry no paths at all and are unaffected.
-    paths-ignore: ['**.md']
+    # edit and nothing new to ship – neither the markdown nor docs/ (the
+    # README's screenshots) enters dist, and no build or test reads them –
+    # so a push (or a PR) that touches only .md files and docs/ skips the
+    # whole pipeline. A commit that changes prose AND code still runs it
+    # in full: the filter looks at everything the push touched, not at
+    # each file. Nightly and manual runs carry no paths at all and are
+    # unaffected.
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
-    paths-ignore: ['**.md']
+    paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
     inputs:
       refresh_data:
