@@ -10,10 +10,11 @@ export const config = {
   /**
    * Cesium Ion token, always from the environment – no token lives in the
    * source. Ion tokens are client-side and end up in the browser bundle
-   * either way, which is why the deployed site is built with one that is
-   * restricted to its own domain (see .github/workflows/ci.yml); every
-   * other build takes the unrestricted one from the CESIUM_ION_TOKEN
-   * secret, and a local checkout from .env (see .env.example).
+   * either way, so every CI build takes the one restricted to the site's
+   * domain (ION_TOKEN_DEPLOY in .github/workflows/ci.yml – one token for
+   * every build, or builds of one tree would differ and could not stand in
+   * for each other), and a local checkout its own from .env (see
+   * .env.example).
    *
    * Empty means no Ion access: the map falls back to the wireframe globe
    * and the panel shows the fallback badge.
