@@ -251,10 +251,10 @@ i18n tables and a `tests/kiel.test.ts`. Every script takes `-- --city <slug>`
 and runs for every city without it. The unit tests validate every city's
 definition and network.
 
-**Refresh.** A scheduled CI run refreshes the data every second night: the
-GTFS schedules on every run, the OSM network and its heights on the weekend's
-run, the lamps, airfield lights, buoys and lighthouses on the month's first
-weekend. Files are byte-stable across reruns, so a night that changed nothing
+**Refresh.** A scheduled CI run refreshes the data every night: the GTFS
+schedules on every run, the OSM network and its heights on Sundays, the
+lamps, airfield lights, buoys and lighthouses on the month's first Sunday.
+Files are byte-stable across reruns, so a night that changed nothing
 deploys nothing. Overpass mirrors fail often; the scripts retry and can be
 pointed at `OVERPASS_URL=…` or a saved `OVERPASS_FILE=…`. The GTFS feed is
 cached under `scripts/.cache/gtfs.zip`.

@@ -31,17 +31,12 @@ still run on their normal alignment.
 **The data pipeline is built for the CI runner, and may be run locally
 when a result is wanted now.** The nightly workflow
 ([.github/workflows/ci.yml](.github/workflows/ci.yml), 02:30 UTC every
-second night – on the odd days of the month, a settled decision to
-spare Actions minutes; cron cannot alternate strictly,
-so a 31st and the 1st after it both run, and a run that started every
-night to stop on the even ones would bill a minute each time; GTFS on
-every run, the OSM network and its heights on the weekend's run – the
-Saturday or the Sunday, whichever is odd, a Saturday that ends a month
-leaving it to the Sunday the 1st – the lamps, airfield lights, buoys
-and lighthouses only on the month's first weekend run,
-to spare Overpass the lamps query, which is the one that hits its rate
-limits, for data that is mapped once and touched rarely; `refresh_osm`
-by hand does all of it) refreshes the committed
+night – every second night was tried, to spare Actions minutes, and
+dropped again; GTFS every night, the OSM network and its heights on
+Sunday nights, the lamps, airfield lights, buoys and lighthouses only on
+the first Sunday of the month, to spare Overpass the lamps query, which
+is the one that hits its rate limits, for data that is mapped once and
+touched rarely; `refresh_osm` by hand does all of it) refreshes the committed
 data files on a free hosted runner, and that runner is what every step
 is designed for: never a step that needs a pre-downloaded extract or a
 cache on disk – prefer on-demand fetching with in-memory caches, keep
@@ -60,7 +55,7 @@ four weeks – found with four cities whose nightly diff was
 that one line. A date belongs in the run's log and the data commit's
 message, where it now is. The feed download is cached under the feed's
 `Last-Modified` for the same reason: the feed changes weekly, the
-refresh runs every second night. The GTFS step runs ONCE for every city
+refresh runs nightly. The GTFS step runs ONCE for every city
 (`npm run data:gtfs`, no `--city`): the feed is unpacked once and
 `stop_times.txt` streamed once, each city's trips picked out of the same
 rows (`prepareCity` → `scanStopTimes` → `finishCity` in
@@ -69,8 +64,8 @@ at a time was thirteen scans of the same 38 million rows, 47 s each on
 the runner, ten minutes a night for a minute's work. A city that fails
 keeps its schedule with a warning annotation; the step fails only when
 every city did. **The nightly run skips the E2E suite** (a settled
-decision, to save Actions minutes – every second night was weighed and
-dropped for it at first, and taken up as well later): the suite is
+decision, to save Actions minutes – running every second night instead
+was weighed, later tried as well, and dropped again): the suite is
 fifteen of the run's twenty minutes and tests the code, which the night
 does not change and whose push run already had it; of
 the data it sees Rostock alone, offline, and what it reads there the
@@ -1247,8 +1242,8 @@ ICAO gives the kind unless `light:colour` says otherwise, and the
 apron's floodlight masts (`tower:type=lighting`, inside the
 `aeroway=aerodrome` polygons only, via `map_to_area` – a stadium's
 masts burn on match nights) as the kind `flood`, with a terrain height
-like the lamps', into `airfield-lights.json`; the month's first weekend
-run with the lamps and the seamarks, heights reused through
+like the lamps', into `airfield-lights.json`; the first Sunday of the
+month with the lamps and the seamarks, heights reused through
 `PREV_AIRFIELD_LIGHTS`.
 The count per box runs from Frankfurt's ten thousand to Kiel's two –
 sparse light is real light, as with the lamps – and a box without an
@@ -1300,7 +1295,7 @@ preferred-channel marks, the white bathing spheres and the beacons
 stay out, and `classifyBuoy` is where to widen it – with their shape
 (`seamark:<type>:shape`; no model for it → the pillar buoy when lit,
 the spar otherwise) and light (colour, character, period, kept for a
-flashing rule one day) into `buoys.json`, the month's first weekend run
+flashing rule one day) into `buoys.json`, the first Sunday of the month
 with the lamps and the lights, no heights (`PREV_BUOYS` only guards against a half-synced mirror).
 The models are the buoy fleet in `scripts/lib/buoy-fleet.mjs` – six
 shapes in three colours, 18 GLBs of 3–22 kB, baked colours rather than
