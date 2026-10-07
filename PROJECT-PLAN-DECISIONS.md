@@ -129,7 +129,8 @@ the default. The same block gives CI a worker per core
 on the 2-vCPU runner of a private repository ran the whole suite on one
 core, file after file – 217 s, and two workers were pinned then (locally
 36 s → 28 s with two). The public repository's runner has 4 vCPUs, and CI
-takes all four. Per-file cost is the lever from here – a new
+takes all four: the typecheck-and-unit-test step went from 137 s with two
+workers to 87 s with four, on that runner. Per-file cost is the lever from here – a new
 test file costs its imports and environment in full, so a check that belongs
 to an existing file goes there rather than into a new one, and an assertion
 per data point (`network.test.ts` once ran four `expect`s on 331 000 path
@@ -140,7 +141,10 @@ e2e suite is the long pole of CI: one worker, software-rendered WebGL
 (SwiftShader) on GitHub's runner – measured on the 2-vCPU one of the
 private repository, about three times slower than the development
 machine: the suite takes 5 minutes on that machine and ~15 of the
-~18-minute run on the runner. Every boot of the page costs
+~18-minute run on the runner. On the public repository's 4-vCPU runner
+the same suite took 10.7 minutes against 13.6 on the 2-vCPU one, and the
+whole test job 13 against 17 – SwiftShader's threads take the extra
+cores with the one worker. Every boot of the page costs
 10–20 s on the runner before a test can start, and every second of
 real time a test waits for is a second of CI. So: one page per spec,
 booted in `beforeAll` and reused across its tests where a test does not
