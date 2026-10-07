@@ -23,7 +23,7 @@ import { narrowViewport } from '@/lib/viewport'
  * number in its colour.
  *
  * What differs between the cards is the head's ground, and that follows
- * the map's own divide (see CLAUDE.md, "Four kinds of name"): the
+ * the map's own divide (see PROJECT-PLAN-DECISIONS.md, "Four kinds of name"): the
  * network's green for the city and its stops, the line's colour for the
  * line and its vehicles, the harbour's slate for a ship, the sky's blue
  * for an aircraft.

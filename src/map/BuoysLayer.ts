@@ -20,7 +20,7 @@
  * BODY_RANGE_M of it – a session over the city centre never loads one –
  * and a cell out of range hides its collection, so its models cost no
  * update (a hidden parent PrimitiveCollection is what skips a Model's
- * per-frame update, see CLAUDE.md). The lights are one
+ * per-frame update, see PROJECT-PLAN-DECISIONS.md). The lights are one
  * PointPrimitiveCollection for the whole city, always up: a lantern is
  * seen for miles, and at night the channel is what its lights draw
  * from the home view – faintly, the strength falling with the distance
@@ -131,7 +131,10 @@ const CLAMP_BUDGET_PER_TICK = 6
  */
 const CLAMP_RANGE_M = 1500
 
-/** The lanterns' colours, hex because Cesium reads nothing newer (see CLAUDE.md). */
+/**
+ * The lanterns' colours, hex because Cesium reads nothing newer (see
+ * PROJECT-PLAN-DECISIONS.md).
+ */
 const LIGHT_COLOURS: Record<BuoyLightColour, Color> = {
   red: Color.fromCssColorString('#ff3b30'),
   green: Color.fromCssColorString('#30e060'),

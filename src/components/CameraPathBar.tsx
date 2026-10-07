@@ -86,7 +86,7 @@ function Keyframe(props: {
       <div className="flex items-center justify-between gap-2">
         <span id={labelId} className="flex items-center gap-2 text-xs font-medium">
           {/* bg-muted, not bg-accent: the accent is the hover wash and
-              nothing else (see CLAUDE.md), and this chip is never hovered */}
+              nothing else (see PROJECT-PLAN-DECISIONS.md), and this chip is never hovered */}
           <span
             aria-hidden
             className="bg-muted text-muted-foreground text-2xs flex size-5 items-center justify-center rounded-sm font-mono"

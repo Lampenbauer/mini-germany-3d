@@ -8,7 +8,7 @@
  * scene graph with an update of its own every frame and a draw command
  * of its own every pass: 1 200 vehicle commands against 280 for the
  * tiles over Hamburg's harbour, three quarters of a busy view's
- * commands (see "One primitive per part" in CLAUDE.md, which halved
+ * commands (see "One primitive per part" in PROJECT-PLAN-DECISIONS.md, which halved
  * them once by merging each wagon's materials into one primitive). A
  * wagon's GLB is, since that change, exactly one primitive – positions,
  * normals, a vertex colour, a palette coordinate, triangles – so the

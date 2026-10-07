@@ -96,7 +96,7 @@ export interface PoolOptions {
   diameterM: number
   /** Opacity in full night. */
   maxAlpha: number
-  /** The light's colour, hex (see CLAUDE.md on Cesium and colours). */
+  /** The light's colour, hex (see PROJECT-PLAN-DECISIONS.md on Cesium and colours). */
   color: Color
   /** Meters above the terrain height. */
   liftM: number

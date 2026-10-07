@@ -8,14 +8,14 @@ is named. Tick a box to mark a phase as chosen.
 
 The review's basis: the code, the committed data, one measurement of
 the simulation (Berlin at 08:30: 20 465 trips, 682 active vehicles,
-0.6 ms per `snapshotsAt` call) and the measurements CLAUDE.md records.
+0.6 ms per `snapshotsAt` call) and the measurements PROJECT-PLAN-DECISIONS.md records.
 Nothing was measured headed in a browser.
 
 ---
 
 ## Phase 1 – Timetable fidelity and motion, no runtime cost
 
-- [x] **Phase 1** – implemented 2026-10-06 (all ten items; the ring lines' rounds and the ferry loops' legs keep the cruise speed, see CLAUDE.md).
+- [x] **Phase 1** – implemented 2026-10-06 (all ten items; the ring lines' rounds and the ferry loops' legs keep the cruise speed, see PROJECT-PLAN-DECISIONS.md).
 
 Pure data and arithmetic. Expected cost: none at run time; `schedule.json`
 grows by roughly half.
@@ -58,7 +58,7 @@ grows by roughly half.
    lands, instead of relying on the ease.
 9. **Time-based chase easing**: `FOLLOW_CHASE_EASE = 0.12` per call in
    `FollowCamera` → `1 - exp(-dt/τ)`.
-10. **Documentation hygiene.** CLAUDE.md's "known inefficiency"
+10. **Documentation hygiene.** PROJECT-PLAN-DECISIONS.md's "known inefficiency"
     about `showBody`/`FRAMING_SCALE` was fixed in 45d6257 (2026-09-05);
     only `VEHICLE_LABEL_VISIBLE_RANGE` is still pinned to the 25° lens.
     Comments in `VehicleLayer.ts` and `RoutesLayer.ts` still say "40 %"
@@ -136,7 +136,7 @@ Expected cost: negative (fewer billboards) or one point collection.
 
 ## Phase 5 – Instanced wagon rendering
 
-- [x] **Phase 5** – implemented 2026-10-06 (`src/map/InstancedWagons.ts`). Measured headed, the close views with Google's tiles still loading (not offline, as first written – see CLAUDE.md): Berlin 1.2 km over Alexanderplatz render CPU 13.4 · 13.8 → 10.9 · 11.1 ms, commands 1 570 · 1 610 → 887 · 909; Hamburg harbour CPU 12.7 · 13.0 → 11.8 · 11.9 ms, commands 1 348 → 1 090; with the tiles settled Berlin's close view 14.2 · 14.5 → 12.2 · 12.3 ms CPU. GPU per frame offline (interleaved, 480 frames) 9.69 → 6.03 ms median, mostly because Cesium's environment-map queue no longer holds 12 000+ passes for the wagon Models. The selected vehicle keeps its Models for the silhouette.
+- [x] **Phase 5** – implemented 2026-10-06 (`src/map/InstancedWagons.ts`). Measured headed, the close views with Google's tiles still loading (not offline, as first written – see PROJECT-PLAN-DECISIONS.md): Berlin 1.2 km over Alexanderplatz render CPU 13.4 · 13.8 → 10.9 · 11.1 ms, commands 1 570 · 1 610 → 887 · 909; Hamburg harbour CPU 12.7 · 13.0 → 11.8 · 11.9 ms, commands 1 348 → 1 090; with the tiles settled Berlin's close view 14.2 · 14.5 → 12.2 · 12.3 ms CPU. GPU per frame offline (interleaved, 480 frames) 9.69 → 6.03 ms median, mostly because Cesium's environment-map queue no longer holds 12 000+ passes for the wagon Models. The selected vehicle keeps its Models for the silhouette.
 
 Expected cost: a large CPU win – the 3 002 wagon `Model` primitives
 are 16.8 of Berlin's 22 ms render CPU – and a neutral GPU. The risk is
@@ -164,7 +164,7 @@ Follow-up found while measuring Phase 5:
   map, the mobile tier's, the wagons' shadow share fell from 0.88 to
   0.25 ms and the frame from 4.4 to 3.6 ms. Worth building only for the
   mobile tier, and only after a measurement on a phone shows the GPU
-  there is the limit (CLAUDE.md, "The wagons are instanced", has the
+  there is the limit (PROJECT-PLAN-DECISIONS.md, "The wagons are instanced", has the
   numbers and the method).
 
 ## Phase 6 – Routes that follow the mesh near the camera
@@ -183,7 +183,7 @@ polyline (rationed to one per direction per second today). Measure
 headed before keeping it. Optional `depthFailMaterial` on the
 polylines draws every line twice; measure on the GPU.
 
-What happened (CLAUDE.md, "The calibration's samples see the tiles
+What happened (PROJECT-PLAN-DECISIONS.md, "The calibration's samples see the tiles
 alone" and the two paragraphs after it):
 
 - Measured headed on the real tiles – the ground every visible vertex

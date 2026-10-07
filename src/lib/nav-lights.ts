@@ -6,7 +6,7 @@
  * period, so any frame is right whatever the last one was, a pause
  * holds every flash where it is, and a replay flashes as the recording's
  * clock says (the rule every animated effect on this map follows, see
- * CLAUDE.md). Pure, so it is tested without a scene.
+ * PROJECT-PLAN-DECISIONS.md). Pure, so it is tested without a scene.
  *
  * What flashes and what does not is aviation's and the sea's own:
  *

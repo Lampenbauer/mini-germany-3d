@@ -2,7 +2,7 @@
  * What a device can afford to draw. Every number the renderer was tuned
  * with – the shadow map, the multisampling, the tile budget, how far out
  * a vehicle body is drawn – was measured on a desktop GPU with gigabytes
- * of texture memory (see CLAUDE.md, "Rendering and performance"), and a
+ * of texture memory (see PROJECT-PLAN-DECISIONS.md, "Rendering and performance"), and a
  * phone has neither the fill rate nor the memory for them: a 16384²
  * shadow texture alone is a gigabyte, more than a mid-range phone gives
  * a tab in total. So the map takes its numbers from a profile, and the

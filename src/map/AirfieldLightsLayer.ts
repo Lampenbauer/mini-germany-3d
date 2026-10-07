@@ -57,7 +57,10 @@ export interface AirfieldLightsLayerHost {
   readonly visibilityM: number | null
 }
 
-/** The colours, hex because Cesium reads nothing newer (see CLAUDE.md); the aircraft's red and green. */
+/**
+ * The colours, hex because Cesium reads nothing newer (see
+ * PROJECT-PLAN-DECISIONS.md); the aircraft's red and green.
+ */
 const COLOURS: Record<AirfieldLightColour, Color> = {
   white: Color.fromCssColorString('#ffffff'),
   green: Color.fromCssColorString('#30e060'),

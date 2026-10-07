@@ -56,7 +56,7 @@
  * Not caught, and known: a ship at rest INLAND, alone in her cell, on
  * her photographed twin – nothing is there to judge her first pick by,
  * and she takes the deck. A water-level grid from the terrain model
- * would close it (see CLAUDE.md, the AIS section).
+ * would close it (see PROJECT-PLAN-DECISIONS.md, the AIS section).
  */
 
 export const WATER_CLAMP_RULES = {

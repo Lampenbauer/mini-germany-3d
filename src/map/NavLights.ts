@@ -35,7 +35,7 @@ const RIM_PX = 2
 /** The strobes are brighter and bigger than the steady lights – a flash, not a lamp. */
 export const STROBE_PX = 6
 
-/** The colours, hex because Cesium reads nothing newer (see CLAUDE.md). */
+/** The colours, hex because Cesium reads nothing newer (see PROJECT-PLAN-DECISIONS.md). */
 export const LIGHT_RED = Color.fromCssColorString('#ff3b30')
 export const LIGHT_GREEN = Color.fromCssColorString('#30e060')
 export const LIGHT_WHITE = Color.fromCssColorString('#ffffff')

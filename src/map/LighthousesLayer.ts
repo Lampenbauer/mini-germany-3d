@@ -140,7 +140,10 @@ export const BEAM_MIN_FRAME_MS = 33
 /** How far over the tiles a beam lights the ground, in metres – its haze's reach, not the light's range. */
 export const BEAM_REACH_M = 6_000
 
-/** The colours, hex because Cesium reads nothing newer (see CLAUDE.md); the buoys' lanterns' own. */
+/**
+ * The colours, hex because Cesium reads nothing newer (see
+ * PROJECT-PLAN-DECISIONS.md); the buoys' lanterns' own.
+ */
 const COLOURS: Record<LightColour, Color> = {
   white: Color.fromCssColorString('#ffffff'),
   red: Color.fromCssColorString('#ff3b30'),

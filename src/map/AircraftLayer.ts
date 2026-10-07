@@ -27,7 +27,7 @@
  * - Its plate is blue (NAME_PLATE) – the fourth kind of name on the map
  *   after the vehicles' line badges, the stops' bare text and the
  *   ships' slate, and it must not converge with any of them (see
- *   CLAUDE.md, "Three kinds of name").
+ *   PROJECT-PLAN-DECISIONS.md, "Three kinds of name").
  *
  * The ranges are wide: an aircraft at cruise is ten kilometres up and
  * the box is seventy across, so the plates are drawn out to

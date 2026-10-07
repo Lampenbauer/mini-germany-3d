@@ -43,7 +43,7 @@ import { compactPath } from './lib/simplify.mjs'
 /**
  * How far the box reaches past the city limits on every side – 20 km
  * (15 km before; every city in the build was re-padded with it, see
- * CLAUDE.md).
+ * PROJECT-PLAN-DECISIONS.md).
  */
 const DEFAULT_PADDING_METERS = 20000
 /** Douglas–Peucker tolerance for the stored limits ring, in meters. */

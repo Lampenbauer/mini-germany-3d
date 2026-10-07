@@ -361,7 +361,7 @@ the new city's data chunk comes in.
 
 The decisions behind all of this – what was measured, what was tried and
 dropped, and what must not be re-litigated – are written down in
-[CLAUDE.md](CLAUDE.md).
+[PROJECT-PLAN-DECISIONS.md](PROJECT-PLAN-DECISIONS.md).
 
 ## Attribution
 
