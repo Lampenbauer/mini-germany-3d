@@ -13,7 +13,8 @@
  *
  * API key (never in the repo): first hit of
  *   - environment variable WINDY_KEY
- *   - webcams-key.txt next to this script (local tests)
+ *   - webcams-key.txt next to this script – the deploy writes it from the
+ *     repository secret WINDY_KEY (ci.yml); git-ignored for local tests
  *   - windy-api-key.txt two levels up – above the docroot, where the
  *     rsync --delete deploy (ci.yml) can never touch it
  *

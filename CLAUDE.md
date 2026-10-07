@@ -2337,7 +2337,13 @@ from the folder above the docroot – two levels up from the scripts in
 `api/`, which is how they look for it (see the header comments in
 [server/api/ais.php](server/api/ais.php) and
 [server/api/webcams.php](server/api/webcams.php); the README's Deployment
-section draws the layout). Keys are never `VITE_`-prefixed.
+section draws the layout). For Windy that file is the fallback: the deploy
+and the restore job write the `WINDY_KEY` repository secret into
+`api/webcams-key.txt` right before the rsync – never into the build
+artifact, which anyone who can read the repository can download. Its
+binding to the site's domain at Windy does not make it harmless: Windy
+checks the Referer alone, and a request without one passes. Keys are
+never `VITE_`-prefixed.
 
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
