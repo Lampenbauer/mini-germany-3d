@@ -464,8 +464,8 @@ jobs:
           cp server/api/ais.php dist/api/
           cp server/api/aircraft.php dist/api/
           cp server/api/webcams.php dist/api/
-          # No Windy key in here: the deploy and the restore job put it in
-          # place right before the upload (see "Put the Windy key in place").
+          # No keys in here: the deploy and the restore job put them in
+          # place right before the upload (see "Put the keys in place").
           # Every city's definition (the boxes ais.php subscribes with and
           # aircraft.php asks adsb.fi for)
           # and schedule (the trip ids realtime.php filters by) – the same
@@ -546,22 +546,32 @@ jobs:
           github-token: ${{ github.token }}
           path: dist
 
-      # The Windy key for api/webcams.php, from the repository secret
-      # (Settings → Secrets → Actions → WINDY_KEY), is written here and not
-      # into the artifact: anyone who can read the repository can download
-      # an artifact. It goes next to the script, where .htaccess keeps it
-      # from the web. An artifact packed while the key still went into it
-      # carries an old one, so whatever the artifact brings is dropped
-      # first. Without the secret, api/webcams.php falls back to
-      # windy-api-key.txt beside the document root, or answers 503 and the
-      # app runs without webcams.
-      - name: Put the Windy key in place
+      # The keys the PHP scripts read, from the repository secrets
+      # (Settings → Secrets → Actions), are written here and not into the
+      # artifact: anyone who can read the repository can download an
+      # artifact. They go next to the scripts, where .htaccess keeps them
+      # from the web. An artifact packed while the Windy key still went
+      # into it carries an old one, so whatever the artifact brings is
+      # dropped first.
+      #  - WINDY_KEY → api/webcams-key.txt. Without it, api/webcams.php
+      #    falls back to windy-api-key.txt beside the document root, or
+      #    answers 503 and the app runs without webcams.
+      #  - CRON_KEY → api/cron-key.txt, the key the two keeper crons send
+      #    (api/ais?listen=…&key=…, api/aircraft?record=…&key=…). Without
+      #    it anyone may start a keeper, as before there was a key.
+      - name: Put the keys in place
         env:
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          CRON_KEY: ${{ secrets.CRON_KEY }}
         run: |
-          rm -f dist/api/webcams-key.txt
+          rm -f dist/api/webcams-key.txt dist/api/cron-key.txt
           if [ -n "$WINDY_KEY" ]; then
             printf '%s' "$WINDY_KEY" > dist/api/webcams-key.txt
+          fi
+          if [ -n "$CRON_KEY" ]; then
+            printf '%s' "$CRON_KEY" > dist/api/cron-key.txt
+          else
+            echo "::warning::Secret CRON_KEY is not set – anyone may start the AIS and ADS-B keepers."
           fi
 
       - name: Upload via rsync over SSH
@@ -619,8 +629,8 @@ jobs:
   # main deploy and puts it back, without building or testing anything.
   # Nothing untested reaches the site that way – it is byte for byte the
   # build that already passed the full suite on the commit it was made
-  # from, with the Windy key put in as the deploy job does (no artifact
-  # carries one). That is the whole point: re-running 15 minutes of E2E
+  # from, with the keys put in as the deploy job does (no artifact
+  # carries them). That is the whole point: re-running 15 minutes of E2E
   # on a commit that has already been green buys nothing while the
   # preview is still standing on the live site.
   #
@@ -677,15 +687,22 @@ jobs:
           test -s dist/index.html || { echo "::error::Artifact has no index.html – refusing to deploy it."; exit 1; }
 
       # As in the deploy job: the rsync deletes what it does not carry, so
-      # a restore without the key would take the webcams down, and an
-      # artifact packed before the key left it would bring its old one back.
-      - name: Put the Windy key in place
+      # a restore without the keys would take the webcams down and open the
+      # keepers, and an artifact packed before the Windy key left it would
+      # bring its old one back.
+      - name: Put the keys in place
         env:
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          CRON_KEY: ${{ secrets.CRON_KEY }}
         run: |
-          rm -f dist/api/webcams-key.txt
+          rm -f dist/api/webcams-key.txt dist/api/cron-key.txt
           if [ -n "$WINDY_KEY" ]; then
             printf '%s' "$WINDY_KEY" > dist/api/webcams-key.txt
+          fi
+          if [ -n "$CRON_KEY" ]; then
+            printf '%s' "$CRON_KEY" > dist/api/cron-key.txt
+          else
+            echo "::warning::Secret CRON_KEY is not set – anyone may start the AIS and ADS-B keepers."
           fi
 
       - name: Upload via rsync over SSH

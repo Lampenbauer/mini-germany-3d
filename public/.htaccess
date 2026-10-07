@@ -43,13 +43,15 @@ AddType model/gltf-binary .glb
   AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json application/x-ndjson image/svg+xml model/gltf-binary
 </IfModule>
 
-# The Windy API key the deploy writes next to api/webcams.php (from the
-# WINDY_KEY repository secret, see ci.yml) is for the script alone.
-<Files "webcams-key.txt">
+# The keys the deploy writes next to the scripts in api/ (see ci.yml) are
+# for the scripts alone: webcams-key.txt from the WINDY_KEY repository
+# secret for api/webcams.php, cron-key.txt from CRON_KEY for the keeper
+# crons of api/ais.php and api/aircraft.php.
+<FilesMatch "^(webcams|cron)-key\.txt$">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>
   <IfModule !mod_authz_core.c>
     Deny from all
   </IfModule>
-</Files>
+</FilesMatch>

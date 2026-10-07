@@ -23,6 +23,8 @@ scripts/.cache/
 server/api/ais-key.txt
 # Windy API key for local webcams.php tests (see server/api/webcams.php)
 server/api/webcams-key.txt
+# Keeper cron key for local ais.php/aircraft.php tests (see either script)
+server/api/cron-key.txt
 
 # Editor/OS
 .vscode/*

@@ -2316,7 +2316,8 @@ no poll runs (offline, the tests); `basemap()`/`setBasemap()` and
 ## AIS (live harbour traffic)
 
 **Operationally critical:** the production cron must call
-`/api/ais?listen=45` every minute. The bare URL gives 12 s windows, which
+`/api/ais?listen=45&key=…` every minute (the key: see "Keys, never in the
+repo" below). The bare URL gives 12 s windows, which
 stutters moving ships and almost never catches the 6-minute `ShipStaticData`
 frames, so ferries render as small default hulls. `?listen=` bypasses the TTL
 check and queues for the lock (a later fix: before it the browser's own
@@ -2342,8 +2343,13 @@ and the restore job write the `WINDY_KEY` repository secret into
 `api/webcams-key.txt` right before the rsync – never into the build
 artifact, which anyone who can read the repository can download. Its
 binding to the site's domain at Windy does not make it harmless: Windy
-checks the Referer alone, and a request without one passes. Keys are
-never `VITE_`-prefixed.
+checks the Referer alone, and a request without one passes. The keeper
+crons carry a key of their own, the `CRON_KEY` secret, written into
+`api/cron-key.txt` the same way: with it in place, a `?listen=` or
+`?record=` without the matching `&key=` is answered 403 before any work –
+the app never sends either, and each call holds a PHP process for up to
+a minute. Without the secret anyone may start a keeper, as before. Keys
+are never `VITE_`-prefixed.
 
 Which real vessels the map already runs from a timetable — so their AIS twins
 are left out of the backdrop — lives per city in `city.json` under
@@ -2686,8 +2692,9 @@ ships. Decisions that should not be re-litigated:
   city whose circle holds it. The per-city live polls do not record:
   two writers on one file would double its density while a city is
   watched and leave the rest thin. **Operationally critical, like the
-  AIS keeper:** the production cron must call `/api/aircraft?record=50`
-  every minute – the keeper answers at once, then polls at :00, :10,
+  AIS keeper:** the production cron must call
+  `/api/aircraft?record=50&key=…` (the AIS keeper's key) every minute –
+  the keeper answers at once, then polls at :00, :10,
   :20, :30 and :40 of the minute (the poll at :50 would not finish
   inside the 52 s wall budget; the twenty-second gap to the next
   minute's first poll is interpolated across in the replay) under a

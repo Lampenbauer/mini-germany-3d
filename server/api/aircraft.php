@@ -44,8 +44,10 @@
  * covers every city (mg3d_aircraft_cover_query – adsb.fi allows one
  * request a second for all of them together) every
  * MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS and writes what moved into the
- * files, under a lock of its own so two keepers never overlap. The
- * per-city polls above do not record. ?hour=YYYY-MM-DDTHH (with
+ * files, under a lock of its own so two keepers never overlap. With a
+ * cron key configured (mg3d_aircraft_cron_key) the cron adds &key=… and
+ * a ?record= without it is answered 403. The per-city polls above do
+ * not record. ?hour=YYYY-MM-DDTHH (with
  * &from=<byte> for the tail of the hour still being written) serves a
  * recorded hour back.
  *
@@ -375,6 +377,21 @@ function mg3d_aircraft_archive_dir(): ?string
     return null;
 }
 
+/**
+ * The key the keeper cron sends with ?record= (&key=…): the environment
+ * variable CRON_KEY, else cron-key.txt next to this script, which the
+ * deploy writes from the repository secret CRON_KEY (ci.yml). Empty
+ * without either, and then any caller may start the keeper – the twin
+ * of mg3d_ais_cron_key in ais.php.
+ */
+function mg3d_aircraft_cron_key(): string
+{
+    $env = getenv('CRON_KEY');
+    if (is_string($env) && $env !== '') return trim($env);
+    $file = __DIR__ . '/cron-key.txt';
+    return is_readable($file) ? trim((string) file_get_contents($file)) : '';
+}
+
 /** The hour file a moment belongs to, as its name: UTC "YYYY-MM-DDTHH". */
 function mg3d_aircraft_archive_hour_key(int $ms): string
 {
@@ -689,6 +706,19 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 // --- HTTP entry ------------------------------------------------------------
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
+
+// ?record= is the keeper cron's alone – the app never sends it – and a
+// call holds a PHP process for up to the wall budget. With a cron key
+// configured, one without the key is turned away before any work is done.
+if (isset($_GET['record'])) {
+    $cronKey = mg3d_aircraft_cron_key();
+    $given = $_GET['key'] ?? '';
+    if ($cronKey !== '' && !(is_string($given) && hash_equals($cronKey, $given))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'The keeper needs the cron key']);
+        exit;
+    }
+}
 
 $citySlug = $_GET['city'] ?? MG3D_AIRCRAFT_DEFAULT_CITY;
 $cities = mg3d_aircraft_cities();

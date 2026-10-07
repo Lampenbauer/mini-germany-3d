@@ -281,7 +281,7 @@ webspace (Apache + PHP) after every push to `main`; a push that touches only
 Markdown files and `docs/` starts no run, since neither reaches the site. Secrets:
 `KAS_SSH_HOST`, `KAS_SSH_USER`, `KAS_SSH_PASSWORD`, `KAS_TARGET_DIR` (the
 document root as rsync sees it, `websites/mini-germany-3d/website/`),
-`WINDY_KEY`, and the provider's details for the legal notice as
+`WINDY_KEY`, `CRON_KEY`, and the provider's details for the legal notice as
 `OPERATOR_NAME`, `OPERATOR_STREET`, `OPERATOR_PLACE` and `OPERATOR_EMAIL`. The rsync deletes what it does not carry, so everything the site
 reads or writes at run time sits *beside* the document root, never in it:
 
@@ -297,7 +297,10 @@ websites/mini-germany-3d/            ← KAS_TARGET_DIR's parent
 ```
 
 Two crons keep the recordings going, each every minute:
-`/api/ais?listen=45` and `/api/aircraft?record=50`. A manual workflow run
+`/api/ais?listen=45&key=…` and `/api/aircraft?record=50&key=…`, the key
+being the `CRON_KEY` secret, which the deploy writes next to the scripts –
+without it, either call is answered 403 (and without the secret, anyone
+may start them). A manual workflow run
 with `deploy_preview` puts a branch on the live site (there is only one
 document root), `restore_production` puts the last good `main` build back
 in a minute; builds are kept as artifacts named after their source tree and

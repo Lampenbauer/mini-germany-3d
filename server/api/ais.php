@@ -31,7 +31,9 @@
  * (capped) and is treated differently in two ways: its window runs no
  * matter how fresh the state looks, and it queues for the lock instead
  * of giving up. Both exist because the browser's short windows would
- * otherwise crowd it out – see the TTL constant below.
+ * otherwise crowd it out – see the TTL constant below. With a cron key
+ * configured (mg3d_ais_cron_key) the cron adds &key=… and a ?listen=
+ * without it is answered 403.
  *
  * API key (never in the repo): first hit of
  *   - environment variable AISSTREAM_KEY
@@ -744,6 +746,21 @@ function mg3d_ais_key(): string
     return '';
 }
 
+/**
+ * The key the keeper cron sends with ?listen= (&key=…): the environment
+ * variable CRON_KEY, else cron-key.txt next to this script, which the
+ * deploy writes from the repository secret CRON_KEY (ci.yml). Empty
+ * without either, and then any caller may start the keeper. The twin in
+ * aircraft.php guards ?record= the same way.
+ */
+function mg3d_ais_cron_key(): string
+{
+    $env = getenv('CRON_KEY');
+    if (is_string($env) && $env !== '') return trim($env);
+    $file = __DIR__ . '/cron-key.txt';
+    return is_readable($file) ? trim((string) file_get_contents($file)) : '';
+}
+
 /** @return array{listenedAt:int, state:array<int,array>} */
 function mg3d_ais_load(string $stateFile): array
 {
@@ -870,6 +887,20 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
 // --- HTTP entry ------------------------------------------------------------
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
+
+// ?listen= is the keeper cron's alone – the app never sends it – and a
+// call holds a PHP process for its window or its wait for the lock. With
+// a cron key configured, one without the key is turned away before any
+// work is done.
+if (isset($_GET['listen'])) {
+    $cronKey = mg3d_ais_cron_key();
+    $given = $_GET['key'] ?? '';
+    if ($cronKey !== '' && !(is_string($given) && hash_equals($cronKey, $given))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'The keeper needs the cron key']);
+        exit;
+    }
+}
 
 $citySlug = $_GET['city'] ?? MG3D_AIS_DEFAULT_CITY;
 $cities = mg3d_ais_cities();
