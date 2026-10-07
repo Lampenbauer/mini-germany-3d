@@ -47,6 +47,18 @@ describe('which OSM route=* values a mode takes', () => {
     expect(clauses.some((c) => c.includes('"route"="subway"'))).toBe(false)
   })
 
+  it('hands a filter regex to Overpass as written', () => {
+    // An Overpass string reads a backslash as an escape, so the regex's own
+    // are doubled before its quotes are escaped: left as they were, `\d`
+    // would reach the regex engine as `d`, and a `\"` would end the string
+    const city = withOverpass({ tram: { ref: '^\\d+$', operator: 'say "\\w+"' } })
+    const clause = buildQuery(city)
+      .split('\n')
+      .find((line) => line.includes('"route"="tram"'))
+    expect(clause).toContain('["ref"~"^\\\\d+$",i]')
+    expect(clause).toContain('["operator"~"say \\"\\\\w+\\"",i]')
+  })
+
   it('refuses a value two modes claim', () => {
     // A subway on light_rail while the train still takes it by default:
     // one of the two would silently get the other's relations.

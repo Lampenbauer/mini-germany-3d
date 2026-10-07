@@ -114,9 +114,14 @@ const PALETTE_BY_MODE = {
   ferry: ['#0E7490', '#155E75', '#0369A1'],
 }
 
-/** One tag filter of an Overpass relation query, or nothing. */
+/**
+ * One tag filter of an Overpass relation query, or nothing. The regex goes
+ * into a quoted Overpass string, where a backslash escapes the character
+ * after it – so its backslashes are doubled before its quotes are escaped,
+ * and a regex's own `\d` reaches the regex engine as written.
+ */
 function tagFilter(key, regex) {
-  return regex ? `["${key}"~"${regex.replace(/"/g, '\\"')}",i]` : ''
+  return regex ? `["${key}"~"${regex.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}",i]` : ''
 }
 
 /**
