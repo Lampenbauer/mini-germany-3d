@@ -124,11 +124,12 @@ that render or touch `window`/`document` open with
 file on the CI runner – 62 s of a 217 s run when every file got one. A new
 component test without the line fails loudly (`document is not defined`), so
 the miss is cheap; the trap is the other way round: do not put jsdom back as
-the default. The same block pins `maxWorkers: 2` under `CI`: GitHub's
-standard runner for a private repository has 2 vCPUs (a public one's 4), and
-Vitest 4 defaults to `cpus − 1` workers, which ran the whole suite on one
-core, file after file. Measured: 217 s before, ~90 s expected after, locally
-36 s → 28 s with two workers. Per-file cost is the lever from here – a new
+the default. The same block gives CI a worker per core
+(`availableParallelism()`): Vitest 4 defaults to `cpus − 1` workers, which
+on the 2-vCPU runner of a private repository ran the whole suite on one
+core, file after file – 217 s, and two workers were pinned then (locally
+36 s → 28 s with two). The public repository's runner has 4 vCPUs, and CI
+takes all four. Per-file cost is the lever from here – a new
 test file costs its imports and environment in full, so a check that belongs
 to an existing file goes there rather than into a new one, and an assertion
 per data point (`network.test.ts` once ran four `expect`s on 331 000 path
@@ -136,9 +137,10 @@ points, 15 s) is counted instead.
 
 **Playwright specs are written and run as cheaply as they can be.** The
 e2e suite is the long pole of CI: one worker, software-rendered WebGL
-(SwiftShader) on GitHub's 2-vCPU runner, about three times slower than
-the development machine – the suite takes 5 minutes on that machine and
-~15 of the ~18-minute run on the runner. Every boot of the page costs
+(SwiftShader) on GitHub's runner – measured on the 2-vCPU one of the
+private repository, about three times slower than the development
+machine: the suite takes 5 minutes on that machine and ~15 of the
+~18-minute run on the runner. Every boot of the page costs
 10–20 s on the runner before a test can start, and every second of
 real time a test waits for is a second of CI. So: one page per spec,
 booted in `beforeAll` and reused across its tests where a test does not

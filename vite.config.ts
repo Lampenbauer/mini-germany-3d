@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -712,12 +712,12 @@ export default defineConfig({
     // every one of the 85 files got one. A test that renders declares
     // `// @vitest-environment jsdom` in its first line.
     environment: 'node',
-    // GitHub's standard runner for a private repository has 2 vCPUs (a
-    // public one's 4); Vitest 4 keeps one for its main thread and runs
-    // the files on the other, one after another (default: cpus − 1). The
-    // main thread mostly waits, so two workers are the better use of two
-    // cores. Locally the default (all cores but one) stands.
-    maxWorkers: process.env.CI ? 2 : undefined,
+    // Vitest 4 keeps a core for its main thread and runs the files on the
+    // rest (default: cpus − 1) – on the 2-vCPU runner a private repository
+    // gets, one file after another. The main thread mostly waits, so CI
+    // runs a worker per core: four on the public repository's runner.
+    // Locally the default (all cores but one) stands.
+    maxWorkers: process.env.CI ? availableParallelism() : undefined,
     globals: true,
     setupFiles: ['tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
