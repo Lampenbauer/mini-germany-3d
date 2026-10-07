@@ -110,7 +110,7 @@ const MG3D_AIRCRAFT_KEEPER_INTERVAL_SECONDS = 10;
  */
 const MG3D_AIRCRAFT_RECORD_MAX_SECONDS = 50;
 /**
- * Wall-clock budget for a keeper request in seconds: all-inkl caps PHP
+ * Wall-clock budget for a keeper request in seconds: the host caps PHP
  * at 60 s, and FastCGI timeouts count wall time. A poll that could not
  * finish inside it is not started – see the keeper below.
  */

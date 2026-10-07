@@ -1,6 +1,6 @@
 <?php
 /**
- * Filtered GTFS-Realtime endpoint for shared hosting (all-inkl):
+ * Filtered GTFS-Realtime endpoint for shared hosting:
  * fetches the Germany-wide feed https://realtime.gtfs.de/realtime-free.pb
  * (>10 MB protobuf) at most once per minute, filters it down to the
  * trip_ids of the city asked for (?city=<slug>, default rostock) from

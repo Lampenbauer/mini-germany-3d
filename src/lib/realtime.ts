@@ -4,7 +4,7 @@
  *
  * The filtering happens server-side – in the dev/preview server via a Vite
  * middleware (vite.config.ts), in production via api/realtime.php
- * (all-inkl web hosting: Apache + PHP). Both fetch the Germany feed at most
+ * (shared web hosting: Apache + PHP). Both fetch the Germany feed at most
  * once per minute, filter it down to the Rostock trip_ids from
  * schedule.json, and cache the result – so all open browser tabs share a
  * single upstream fetch.

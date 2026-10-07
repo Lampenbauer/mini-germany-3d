@@ -90,7 +90,7 @@ const MG3D_AIS_LISTEN_SECONDS = 12;
 /** Hard cap for ?listen= (the 60 s wall-clock budget needs headroom). */
 const MG3D_AIS_LISTEN_MAX_SECONDS = 45;
 /**
- * Wall-clock budget for the whole request in seconds: all-inkl caps PHP
+ * Wall-clock budget for the whole request in seconds: the host caps PHP
  * at 60 s, and FastCGI timeouts count wall time. The window is bounded
  * by an absolute deadline derived from this, so a slow connect shrinks
  * the listen instead of the process being killed mid-window with the

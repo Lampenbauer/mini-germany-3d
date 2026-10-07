@@ -485,7 +485,7 @@ jobs:
   # Ion domain, and would have to be swept up afterwards). The deploy
   # concurrency group keeps two of these from ever interleaving.
   deploy:
-    name: Deploy (all-inkl)
+    name: Deploy
     needs: test
     if: >-
       needs.test.result == 'success' &&
@@ -501,14 +501,14 @@ jobs:
       # Downloading a build another run made (see artifact_run_id)
       actions: read
     concurrency:
-      group: deploy-all-inkl
+      group: deploy-production
       cancel-in-progress: false
     env:
       # SSH host, user, and target directory (with trailing slash!) live in
-      # repo secrets alongside KAS_SSH_PASSWORD (Settings → Secrets → Actions).
-      KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
-      KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
-      KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+      # repo secrets alongside DEPLOY_SSH_PASSWORD (Settings → Secrets → Actions).
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      DEPLOY_TARGET_DIR: ${{ secrets.DEPLOY_TARGET_DIR }}
       # Anything that is not main standing on the live site is a preview.
       IS_PREVIEW: ${{ github.ref != 'refs/heads/main' }}
     steps:
@@ -554,7 +554,7 @@ jobs:
 
       - name: Upload via rsync over SSH
         env:
-          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+          SSHPASS: ${{ secrets.DEPLOY_SSH_PASSWORD }}
           # For nightly runs this is the freshly pushed data commit, for
           # pushes the triggering commit – deploy only if main still points
           # at it (nothing newer was merged mid-run).
@@ -570,15 +570,15 @@ jobs:
               exit 0
             fi
           fi
-          if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
-            echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
+          if [ -z "$SSHPASS" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_USER" ] || [ -z "$DEPLOY_TARGET_DIR" ]; then
+            echo "::error::Secrets DEPLOY_SSH_PASSWORD, DEPLOY_SSH_HOST, DEPLOY_SSH_USER, and DEPLOY_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
             exit 1
           fi
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
-            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+            dist/ "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:$DEPLOY_TARGET_DIR"
           echo "✅ Deployed to https://minigermany3d.com"
 
       # A preview stands on the live site until someone takes it down, and
@@ -616,7 +616,7 @@ jobs:
   # skips, so `needs.test.result == 'success'` is false and it stands down
   # on its own. Both share the deploy concurrency group.
   restore:
-    name: Restore production (all-inkl)
+    name: Restore production
     if: github.event_name == 'workflow_dispatch' && inputs.restore_production
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -625,12 +625,12 @@ jobs:
       # Reading and downloading another run's artifact
       actions: read
     concurrency:
-      group: deploy-all-inkl
+      group: deploy-production
       cancel-in-progress: false
     env:
-      KAS_SSH_HOST: ${{ secrets.KAS_SSH_HOST }}
-      KAS_SSH_USER: ${{ secrets.KAS_SSH_USER }}
-      KAS_TARGET_DIR: ${{ secrets.KAS_TARGET_DIR }}
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      DEPLOY_TARGET_DIR: ${{ secrets.DEPLOY_TARGET_DIR }}
     steps:
       # Every branch uploads a build now, and they are named by source
       # tree rather than by branch, so the run's branch is what tells
@@ -685,17 +685,17 @@ jobs:
 
       - name: Upload via rsync over SSH
         env:
-          SSHPASS: ${{ secrets.KAS_SSH_PASSWORD }}
+          SSHPASS: ${{ secrets.DEPLOY_SSH_PASSWORD }}
         run: |
-          if [ -z "$SSHPASS" ] || [ -z "$KAS_SSH_HOST" ] || [ -z "$KAS_SSH_USER" ] || [ -z "$KAS_TARGET_DIR" ]; then
-            echo "::error::Secrets KAS_SSH_PASSWORD, KAS_SSH_HOST, KAS_SSH_USER, and KAS_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
+          if [ -z "$SSHPASS" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_USER" ] || [ -z "$DEPLOY_TARGET_DIR" ]; then
+            echo "::error::Secrets DEPLOY_SSH_PASSWORD, DEPLOY_SSH_HOST, DEPLOY_SSH_USER, and DEPLOY_TARGET_DIR must be set (repo Settings → Secrets → Actions)."
             exit 1
           fi
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
-            dist/ "$KAS_SSH_USER@$KAS_SSH_HOST:$KAS_TARGET_DIR"
+            dist/ "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:$DEPLOY_TARGET_DIR"
           echo "✅ Restored to https://minigermany3d.com"
 
       - name: Note what is live now

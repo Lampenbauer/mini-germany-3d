@@ -276,22 +276,22 @@ the two to the same output and run in CI.
 ## Deployment
 
 `.github/workflows/ci.yml` typechecks, tests, builds and rsyncs `dist/` plus
-the PHP scripts and each city's `city.json` and `schedule.json` to an all-inkl
+the PHP scripts and each city's `city.json` and `schedule.json` to a shared
 webspace (Apache + PHP) after every push to `main`; a push that touches only
 Markdown files and `docs/` starts no run, since neither reaches the site. Secrets:
-`KAS_SSH_HOST`, `KAS_SSH_USER`, `KAS_SSH_PASSWORD`, `KAS_TARGET_DIR` (the
+`DEPLOY_SSH_HOST`, `DEPLOY_SSH_USER`, `DEPLOY_SSH_PASSWORD`, `DEPLOY_TARGET_DIR` (the
 document root as rsync sees it, `websites/mini-germany-3d/website/`),
 `WINDY_KEY`, `CRON_KEY`, and the provider's details for the legal notice as
 `OPERATOR_NAME`, `OPERATOR_STREET`, `OPERATOR_PLACE` and `OPERATOR_EMAIL`. The rsync deletes what it does not carry, so everything the site
 reads or writes at run time sits *beside* the document root, never in it:
 
 ```
-websites/mini-germany-3d/            ← KAS_TARGET_DIR's parent
+websites/mini-germany-3d/            ← DEPLOY_TARGET_DIR's parent
 ├── aisstream.io-api-key.txt         # read by api/ais.php
 ├── windy-api-key.txt                # fallback for api/webcams.php
 ├── ais-archive/<slug>/*.ndjson      # written by api/ais.php, five days kept
 ├── aircraft-archive/<slug>/*.ndjson # written by api/aircraft.php?record=…, five days kept
-└── website/                         ← KAS_TARGET_DIR, the domain points here
+└── website/                         ← DEPLOY_TARGET_DIR, the domain points here
     ├── index.html, assets/, …       # the build – an index.html per city and language
     └── api/                         # the PHP scripts and their city.json copies
 ```

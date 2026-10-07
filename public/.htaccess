@@ -1,4 +1,4 @@
-# Mini Germany 3D – Apache configuration (all-inkl shared hosting)
+# Mini Germany 3D – Apache configuration (shared hosting)
 #
 # Every city is a directory of its own (/berlin/, /en/berlin/ – see
 # src/lib/site-path.ts) with the index.html the build wrote into it, so
