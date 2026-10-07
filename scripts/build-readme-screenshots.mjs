@@ -26,12 +26,12 @@ const SITE = 'https://minigermany3d.com'
 
 /** The views in the README, in its order. */
 const SHOTS = [
-  ['hamburg-harbour', `${SITE}/en/hamburg/?lang=en#lat=53.467681&lon=10.019491&height=6648&heading=339&pitch=-35&weather=live&clouds=1`],
-  ['rostock-dawn-trams', `${SITE}/en/rostock/?lang=en#lat=54.086873&lon=12.120724&height=227&heading=44&pitch=-37&weather=live&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=06:04`],
-  ['rostock-dawn-sbahn', `${SITE}/en/rostock/?lang=en#lat=54.080148&lon=12.118532&height=182&heading=51&pitch=-29&weather=live&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=06:04`],
+  ['hamburg-harbour', `${SITE}/en/hamburg/?lang=en#lat=53.467681&lon=10.019491&height=6648&heading=339&pitch=-35&weather=live&clouds=1&date=2026-10-06&time=15:01`],
+  ['rostock-dawn-trams', `${SITE}/en/berlin/?lang=en#lat=52.526830&lon=13.418785&height=211&heading=158&pitch=-33&webcams=0&hide=subway&weather=live&tiltshift=1&fov=35&blur=0.008&band=0.3&time=08:10`],
+  ['rostock-dawn-sbahn', `${SITE}/en/rostock/?lang=en#lat=54.136428&lon=12.063163&height=134&heading=45&pitch=-24&stops=0&weather=live&tiltshift=1&blur=0.008&band=0.24&date=2026-10-06&time=19:47`],
   ['hamburg-ships', `${SITE}/en/hamburg/?lang=en#lat=53.533011&lon=9.889844&height=810&heading=98&pitch=-22&webcams=0&weather=live&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=10:04`],
   ['kiel-ferry', `${SITE}/en/kiel/?lang=en#lat=54.364243&lon=10.128145&height=227&heading=75&pitch=-11&webcams=0&weather=live&clouds=1&tiltshift=1&blur=0.008&band=0.25&time=17:23`],
-  ['rostock-night', `${SITE}/en/rostock/?lang=en#lat=54.167983&lon=12.112000&height=1039&heading=314&pitch=-27&webcams=0&weather=live&tiltshift=1&fov=31&blur=0.008&band=0.28&date=2026-10-04&time=19:55`],
+  ['rostock-night', `${SITE}/en/berlin/?lang=en#lat=52.500048&lon=13.341278&height=320&heading=29&pitch=-48&view=underground&webcams=0&hide=tram,train,bus&weather=live&tiltshift=1&blur=0.008&band=0.24&time=16:08`],
   ['rostock-diagram', `${SITE}/en/rostock/?lang=en#lat=54.129500&lon=12.127400&height=28849&heading=0&pitch=-90&view=linear&weather=live&clouds=1`],
   ['cologne-flat', `${SITE}/en/cologne/?lang=en#lat=50.915323&lon=6.951634&height=3627&heading=1&pitch=-53&basemap=flat&weather=live&time=16:00`],
   // frankfurt-aircraft: pass `frankfurt-aircraft=${SITE}/en/frankfurt/?lang=en#aircraft=<hex>&webcams=0&weather=live&clouds=1&tiltshift=1&fov=38&blur=0.008&band=0.28`

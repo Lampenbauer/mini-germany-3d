@@ -11,7 +11,7 @@ Live at **[minigermany3d.com](https://minigermany3d.com)**. Inspired by
 [CesiumJS](https://cesium.com/platform/cesiumjs/) and
 [Google Photorealistic 3D Tiles](https://cesium.com/learn/cesiumjs-learn/cesiumjs-photorealistic-3d-tiles/).
 
-[![Hamburg in the evening rush hour – the panel lists the lines, the map carries their vehicles, the harbour its ships](docs/screenshots/hamburg-harbour.jpg)](docs/screenshots/hamburg-harbour.jpg)
+[![Hamburg on a weekday afternoon – the panel lists the lines, the map carries their vehicles, the harbour its ships](docs/screenshots/hamburg-harbour.jpg)](docs/screenshots/hamburg-harbour.jpg)
 
 Nothing on the map is invented: what runs here runs in reality too, on the same
 route at the same time. A line that pauses for the weekend pauses here as well.
@@ -32,8 +32,8 @@ a chase camera; clicking a stop opens its departure board.
 
 | | |
 |---|---|
-| [![Two trams at Doberaner Platz before dawn](docs/screenshots/rostock-dawn-trams.jpg)](docs/screenshots/rostock-dawn-trams.jpg) | [![An S-Bahn train on the Warnemünde line](docs/screenshots/rostock-dawn-sbahn.jpg)](docs/screenshots/rostock-dawn-sbahn.jpg) |
-| *Rostock's trams 1 and 5 at Doberaner Platz – the cabin glow and the street lamps follow the simulated clock* | *A Talent 2 on the S1 to Warnemünde* |
+| [![Three trams and a bus at Mollstraße/Otto-Braun-Straße in Berlin](docs/screenshots/rostock-dawn-trams.jpg)](docs/screenshots/rostock-dawn-trams.jpg) | [![An S-Bahn train at Lütten Klein station in the evening, with two buses](docs/screenshots/rostock-dawn-sbahn.jpg)](docs/screenshots/rostock-dawn-sbahn.jpg) |
+| *Berlin's trams M4, M6 and M8 and the bus 200 at Mollstraße/Otto-Braun-Straße in the morning rush hour* | *The S1 to Warnemünde at Lütten Klein in the evening, with two buses of line 38 – the cabin glow and the street lamps follow the simulated clock* |
 
 **The harbour and the sky, live.** AIS positions from aisstream.io put every
 ship in the city's box on the water, as one of sixteen procedural hulls
@@ -47,8 +47,8 @@ clock set back replays the last five days.
 |---|---|
 | [![Container ships at the Waltershof terminals in Hamburg](docs/screenshots/hamburg-ships.jpg)](docs/screenshots/hamburg-ships.jpg) | [![A Lufthansa 747-8 on final into Frankfurt, followed by the chase camera](docs/screenshots/frankfurt-aircraft.jpg)](docs/screenshots/frankfurt-aircraft.jpg) |
 | *Hamburg, Waltershof: the box ships at their berths, each the size AIS reports* | *Frankfurt: following a 747-8 on final, with its ADS-B card* |
-| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](docs/screenshots/kiel-ferry.jpg) | [![Warnemünde at night, the lighthouse beam sweeping the sea](docs/screenshots/rostock-night.jpg)](docs/screenshots/rostock-night.jpg) |
-| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *Warnemünde, replayed from the AIS archive: the ferry leaving, the mole lights, the buoys' lanterns and the lighthouse's turning beam* |
+| [![Ships in the Kiel-Holtenau locks](docs/screenshots/kiel-ferry.jpg)](docs/screenshots/kiel-ferry.jpg) | [![U-Bahn trains at Wittenbergplatz in Berlin, seen from beneath the city](docs/screenshots/rostock-night.jpg)](docs/screenshots/rostock-night.jpg) |
+| *Kiel-Holtenau: three ships in the locks of the Kiel Canal, the pilot boat waiting outside* | *The underground view: Berlin's U1 and U2 at Wittenbergplatz, the city dimmed above them* |
 
 **A clock, not a feed.** The time field and the calendar set the simulated
 moment, the time-lapse runs it at up to ×120 forward or backward, and
