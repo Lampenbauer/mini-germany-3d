@@ -2760,6 +2760,24 @@ ships. Decisions that should not be re-litigated:
   ever requires a key for non-feeders (adsb.lol has announced it), the
   same shape is spoken by airplanes.live and adsb.lol – only the URL and
   the query helper (`adsbQuery`) would change.
+- **The state file gives an address back as an int.** The per-city
+  state lives in a file between requests, keyed by ICAO address, and
+  PHP's `json_decode` makes an int of a key that reads as a decimal
+  number: an address without a letter (511187, Marabu's ES-MBD; 486492,
+  a KLM) comes back keyed by 511187. `mg3d_aircraft_load` turned such
+  records away as malformed until 2026-10-08, and about one address in
+  twenty – never a German or an American one, whose blocks (3C–3F, A…)
+  always carry a letter – began every request afresh: a track of one
+  fix, which the playback twelve seconds behind could only stand the
+  aircraft on until the next poll moved it five seconds on. Live that
+  was jumps of some 350 m on MBU5TA's climb out of Hamburg; the replay
+  was smooth, because it reads the hour files, where every fix was
+  written (the keeper's own state lost those aircraft once a minute,
+  which is all it left there: their static line, once a minute). The
+  loader casts the key back, as `ais.php` does with its MMSIs, and the
+  parity script folds the fixture in twice with the file saved and
+  loaded between (`--selftest-reload`) – the dev middleware keeps its
+  state in a Map, so no other test goes through the file.
 - **No altitude filter.** The traffic at cruise is wanted as much as
   the approach, so every aircraft over the city is drawn, at 12 km up as
   at 400 m. The plates are drawn out to 60 km and the bodies to 40 km for

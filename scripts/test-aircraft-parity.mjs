@@ -3,7 +3,10 @@
  * Parity test: the PHP aircraft extraction (server/api/aircraft.php
  * --selftest) must distill a captured adsb.fi answer into exactly the
  * state src/lib/aircraft-extract.ts produces – same aircraft, same
- * fields, same order. Runs locally and in CI (requires php in PATH). The
+ * fields, same order – and keep it from one request to the next: folded
+ * in twice with the state file saved and loaded between
+ * (--selftest-reload), the answer must come out where the TS side's Map
+ * does. Runs locally and in CI (requires php in PATH). The
  * TS side is imported directly (Node strips the types since 22.18), so
  * this always tests the real implementation, never a copy of it.
  *
@@ -23,10 +26,27 @@ import { CITIES } from '../src/cities/definitions.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = join(root, 'tests/fixtures/adsb-aircraft.json')
+const answer = JSON.parse(readFileSync(fixture, 'utf8'))
 const NOW = 1_800_000_000_000
 
+/** Prints the first aircraft where the PHP list parts from the TS one. */
+function reportFirstDifference(expectedList, actualList) {
+  console.error('Expected aircraft:', expectedList.length)
+  console.error('Actual aircraft:', actualList?.length)
+  for (let i = 0; i < Math.max(expectedList.length, actualList?.length ?? 0); i++) {
+    const a = JSON.stringify(expectedList[i])
+    const b = JSON.stringify(actualList?.[i])
+    if (a !== b) {
+      console.error('First difference at index', i)
+      console.error('  TS :', a)
+      console.error('  PHP:', b)
+      return
+    }
+  }
+}
+
 const state = new Map()
-mergeAdsbResponse(state, JSON.parse(readFileSync(fixture, 'utf8')), NOW)
+mergeAdsbResponse(state, answer, NOW)
 const expected = JSON.parse(JSON.stringify({ timestamp: NOW, aircraft: aircraftStateList(state, NOW) }))
 
 const output = execFileSync(
@@ -38,22 +58,47 @@ const actual = JSON.parse(output)
 
 if (JSON.stringify(actual) !== JSON.stringify(expected)) {
   console.error('❌ PHP aircraft extraction deviates from aircraft-extract.ts!')
-  console.error('Expected aircraft:', expected.aircraft.length)
-  console.error('Actual aircraft:', actual.aircraft?.length)
-  for (let i = 0; i < Math.max(expected.aircraft.length, actual.aircraft?.length ?? 0); i++) {
-    const a = JSON.stringify(expected.aircraft[i])
-    const b = JSON.stringify(actual.aircraft?.[i])
-    if (a !== b) {
-      console.error('First difference at index', i)
-      console.error('  TS :', a)
-      console.error('  PHP:', b)
-      break
-    }
-  }
+  reportFirstDifference(expected.aircraft, actual.aircraft)
   process.exit(1)
 }
 console.log(
   `✅ PHP aircraft extraction matches aircraft-extract.ts: ${expected.aircraft.length} aircraft identical`,
+)
+
+// --- Two requests: the state file between them -------------------------------
+// Production keeps the state from one request to the next in a file, the
+// TS side in a Map – the one step the twins do not share. PHP reads a JSON
+// key of decimal digits back as an int, and the loader once dropped every
+// aircraft whose address has no letter: it began each request afresh, its
+// track one fix long, and the playback twelve seconds behind could only
+// stand it on that fix until the next poll moved it on. Folded in again
+// five seconds later, every aircraft must still have its first fix.
+const LATER = NOW + 5_000
+const kept = new Map()
+mergeAdsbResponse(kept, answer, NOW)
+aircraftStateList(kept, NOW) // expiry prunes in place, as the request does before it saves
+mergeAdsbResponse(kept, answer, LATER)
+const expectedKept = JSON.parse(JSON.stringify({ timestamp: LATER, aircraft: aircraftStateList(kept, LATER) }))
+const actualKept = JSON.parse(
+  execFileSync(
+    'php',
+    [join(root, 'server/api/aircraft.php'), '--selftest-reload', fixture, String(NOW), String(LATER)],
+    { encoding: 'utf8' },
+  ),
+)
+if (JSON.stringify(actualKept) !== JSON.stringify(expectedKept)) {
+  console.error('❌ PHP loses aircraft between two requests that the Map of aircraft-extract.ts keeps!')
+  reportFirstDifference(expectedKept.aircraft, actualKept.aircraft)
+  process.exit(1)
+}
+// The int key needs a decimal number with no leading zero
+const digitsOnly = expectedKept.aircraft.filter((a) => /^[1-9][0-9]{5}$/.test(a.hex))
+if (digitsOnly.length === 0) {
+  console.error('❌ The fixture should carry an address without a letter – the kind the state file keys by an int')
+  process.exit(1)
+}
+console.log(
+  `✅ PHP keeps every track across a save and load of the state file: ${expectedKept.aircraft.length} aircraft identical, ${digitsOnly.length} of them addressed in digits alone`,
 )
 
 // --- The circle a city is served: the fixture cut to Frankfurt's ------------

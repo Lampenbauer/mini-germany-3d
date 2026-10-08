@@ -56,6 +56,9 @@
  *   php aircraft.php --selftest answer.json <now-ms>
  * folds one captured API answer into an empty state at a fixed clock and
  * prints the list;
+ *   php aircraft.php --selftest-reload answer.json <now-ms> <later-ms>
+ * folds it in at both clocks, the state file saved and loaded between as
+ * two requests would, and prints the list;
  *   php aircraft.php --queries
  * prints the circle asked for per city, and --cover the one the keeper
  * polls; and
@@ -604,7 +607,16 @@ function mg3d_aircraft_load(string $stateFile): array
     }
     $state = [];
     foreach ($data['state'] as $hex => $aircraft) {
-        if (!is_array($aircraft) || !is_string($hex)) continue;
+        if (!is_array($aircraft)) continue;
+        // JSON object keys come back as strings – except one that reads as
+        // a decimal number, which PHP makes an int: an address without a
+        // letter (511187, an Estonian A320neo) arrives keyed by 511187.
+        // Turned away as malformed once, such an aircraft began every
+        // request afresh with a track of one fix, which the playback
+        // twelve seconds behind could only stand on until the next poll
+        // moved it five seconds on. A lookup by the string key finds the
+        // int one all the same; mg3d_aircraft_default wants the string.
+        $hex = (string) $hex;
         // A state file written by an earlier deploy is missing whatever
         // fields were added since – completed from the defaults, so a
         // record that predates a field arrives as null rather than absent
@@ -700,6 +712,33 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest') {
         $list = array_values(array_filter($list, fn(array $a) => mg3d_aircraft_within($query, $a['lat'], $a['lon'])));
     }
     echo json_encode(['timestamp' => $nowMs, 'aircraft' => $list]), "\n";
+    exit(0);
+}
+
+// --- CLI self-test: two requests, the state file between them --------------
+// Folds the answer in at <now-ms>, saves the state and loads it back as the
+// next request does, folds it in again at <later-ms> and prints the list.
+// The TypeScript twin keeps its state in a Map and never goes through a
+// file, so scripts/test-aircraft-parity.mjs holds this round trip to it:
+// an aircraft the loader lost has one fix where the Map has two.
+if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--selftest-reload') {
+    $file = $argv[2] ?? '';
+    $nowMs = (int) ($argv[3] ?? 0);
+    $laterMs = (int) ($argv[4] ?? 0);
+    $answer = is_readable($file) ? json_decode((string) file_get_contents($file), true) : null;
+    if (!is_array($answer) || $nowMs <= 0 || $laterMs <= $nowMs) {
+        fwrite(STDERR, "usage: php aircraft.php --selftest-reload answer.json <now-ms> <later-ms>\n");
+        exit(2);
+    }
+    $stateFile = tempnam(sys_get_temp_dir(), 'mg3d-aircraft-selftest-');
+    $state = [];
+    mg3d_aircraft_merge_response($state, $answer, $nowMs);
+    mg3d_aircraft_list($state, $nowMs); // expiry prunes in place, as the request does before it saves
+    mg3d_aircraft_save($stateFile, $state, $nowMs);
+    $state = mg3d_aircraft_load($stateFile)['state'];
+    @unlink($stateFile);
+    mg3d_aircraft_merge_response($state, $answer, $laterMs);
+    echo json_encode(['timestamp' => $laterMs, 'aircraft' => mg3d_aircraft_list($state, $laterMs)]), "\n";
     exit(0);
 }
 
