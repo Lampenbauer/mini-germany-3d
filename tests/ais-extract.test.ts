@@ -355,6 +355,57 @@ describe('playbackSample', () => {
     expect(playbackSample(astern, REN).bearingDeg).toBeCloseTo(270, 6)
   })
 
+  it('lays a ship with a gyro along the curve while she sails bow first, and eases her gyro where she does not', () => {
+    // The motion at an instant, from the positions a second around it
+    const motion = (v: AisVessel, t: number): number => {
+      const a = playbackSample(v, t - 500)
+      const b = playbackSample(v, t + 500)
+      const east = (b.lon - a.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180)
+      return ((Math.atan2(east, (b.lat - a.lat) * 111_320) * 180) / Math.PI + 360) % 360
+    }
+    const off = (a: number, b: number): number => ((b - a + 540) % 360) - 180
+    // The KAEPP'N BRASS on the Unterwarnow, 7 October 2026: six minutes
+    // unheard through a turn from 270° to 342°, her gyro within 2° of her
+    // course at either fix. Her heading eased evenly from fix to fix ran
+    // her 28° off the curve, which makes most of the turn early
+    const t0 = Date.UTC(2026, 9, 7, 10, 49, 38, 187)
+    const brass = vessel({
+      track: [
+        [t0, 54.16029666666667, 12.110805, 7.8, 269.7, 268],
+        [Date.UTC(2026, 9, 7, 10, 55, 38, 162), 54.17030666666667, 12.099741666666667, 8.3, 342.3, 341],
+      ],
+    })
+    for (let t = t0 + 15_000; t < brass.track[1][0]; t += 15_000) {
+      expect(Math.abs(off(motion(brass, t), playbackSample(brass, t).bearingDeg))).toBeLessThan(2.5)
+    }
+    // Making 20 m in a minute she pivots on the spot: her gyro turns her
+    const pivot = vessel({
+      track: [
+        point(REN - 30_000, 0, 0, { sog: 0.6, cog: 40, hdg: 0 }),
+        point(REN + 30_000, 0.00018, 0, { sog: 0.6, cog: 0, hdg: 90 }),
+      ],
+    })
+    expect(playbackSample(pivot, REN).bearingDeg).toBeCloseTo(45, 6)
+    // The ALTENWERDER backing to a stop (Hamburg, the same morning), her
+    // bow 160° off her course at the second fix: along the curve she
+    // turned 313° round, her gyro says 47° the short way
+    const t1 = Date.UTC(2026, 9, 7, 10, 49, 41, 193)
+    const altenwerder = vessel({
+      track: [
+        [t1, 53.54433166666667, 9.95889, 7.6, 55.8, 32],
+        [t1 + 60_000, 53.54531333333333, 9.959025, 1.4, 278.7, 79],
+      ],
+    })
+    let turned = 0
+    let before = playbackSample(altenwerder, t1).bearingDeg
+    for (let t = t1 + 1_000; t <= t1 + 60_000; t += 1_000) {
+      const now = playbackSample(altenwerder, t).bearingDeg
+      turned += off(before, now)
+      before = now
+    }
+    expect(turned).toBeCloseTo(47, 6)
+  })
+
   it('plays a static report’s copy of a fix under way as the point on her way it is', () => {
     // The SOLAR on the Elbe off the Burchardkai, 7 October 2026: two
     // position reports four minutes apart with nothing between them but

@@ -20,7 +20,7 @@
  * test (scripts/test-ais-parity.mjs) holds both to the same fixtures.
  */
 
-import { curvePoint } from './track-curve.ts'
+import { curvePoint, followsCourse } from './track-curve.ts'
 
 /**
  * One recorded fix: [unix ms, lat, lon, sogKn, cogDeg, headingDeg] –
@@ -423,10 +423,10 @@ const playedTracks = new WeakMap<readonly AisTrackPoint[], readonly AisTrackPoin
  * made), with no speed or course of its own – the curve passes it along
  * the line from the point before to the point after. A copy beyond the
  * last fix keeps its stamp until the next fix comes in. Over Hamburg's
- * morning that held the bow within 20° of the track in 88.4 % of the
- * samples (83.3 % with the copies as fixes, 87.1 % without them), and
- * left the fewest ships under way standing still: 26.6 % of the samples
- * (27.0 %, 29.1 %).
+ * morning that left the fewest ships under way standing still – 26.6 %
+ * of the samples (27.0 % with the copies as fixes, 29.1 % without them)
+ * – and held the bow within 20° of the track the most: 89.8 % (89.1 %,
+ * 88.9 %).
  */
 function playedTrack(track: readonly AisTrackPoint[]): readonly AisTrackPoint[] {
   const known = playedTracks.get(track)
@@ -525,30 +525,51 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
   const lat = p0[1] + curve.northM / METERS_PER_DEGREE_LATITUDE
   const lon = p0[2] + curve.eastM / metersPerDegreeLongitude
 
-  // Bearing. Where both fixes report a heading, the gyro is the truth at
-  // either end: ease it along the shortest arc, which also turns a hull
-  // pivoting on the spot. Otherwise a segment long enough to trust lies
-  // along the drawn motion, the curve's tangent, turned at each fix by
-  // the angle between the motion there and what the fix states – a
-  // heading's crab, a course the curve could not take (one pointing
-  // back) – and eased between the two. The course over the ground eased
-  // from one fix to the next instead set the hull across the motion
-  // wherever the curve was no plain arc: the course is the bow's
-  // direction at its own fix and nowhere else. A shorter segment eases
-  // what the fixes state; a ship lying still lies as she came in.
+  // Bearing. A segment long enough to trust lies along the drawn motion,
+  // the curve's tangent, turned at each fix by the angle between the
+  // motion there and what the fix states – a heading's crab, a course
+  // the curve could not take (one pointing back) – and eased between the
+  // two. Eased from one fix to the next instead, a course or a heading
+  // set the hull across the motion wherever the curve turned early or
+  // late: either is the bow's direction at its own fix and nowhere else
+  // (the KAEPP'N BRASS, six minutes unheard through a turn of 72°, ran
+  // 28° off her track). Where both fixes report a heading, though, the
+  // curve is her path only while she makes a metre a second, bow first,
+  // along both courses she reported; otherwise – pivoting on the spot,
+  // worked sideways or astern, turning round between two fixes – the
+  // gyro is the truth at either end. That, a segment too short to give
+  // a direction, and a curve that would turn her the long way round
+  // from what one fix states to what the other does ease what the fixes
+  // state along the shortest arc; a ship lying still lies as she came in.
   const h0 = fixBearing(p0)
   const h1 = fixBearing(p1)
-  let bearingDeg: number
-  if (p0[5] !== null && p1[5] !== null) {
-    bearingDeg = easeDeg(p0[5], p1[5], u)
-  } else if (meters > 5) {
-    const off0 = h0 === null ? 0 : turnDeg(curvePoint(eastM, northM, fromDeg, toDeg, 0).tangentDeg, h0)
-    const off1 = h1 === null ? 0 : turnDeg(curvePoint(eastM, northM, fromDeg, toDeg, 1).tangentDeg, h1)
-    bearingDeg = (curve.tangentDeg + off0 + turnDeg(off0, off1) * u + 360) % 360
-  } else if (h0 !== null && h1 !== null) {
-    bearingDeg = easeDeg(h0, h1, u)
-  } else {
-    bearingDeg = h1 ?? h0 ?? restingBearing(vessel, p1[4] ?? p0[4])
+  const gyro = p0[5] !== null && p1[5] !== null
+  let bearingDeg: number | null = null
+  if (meters > 5) {
+    const tangent0 = curvePoint(eastM, northM, fromDeg, toDeg, 0).tangentDeg
+    const tangent1 = curvePoint(eastM, northM, fromDeg, toDeg, 1).tangentDeg
+    const off0 = h0 === null ? 0 : turnDeg(tangent0, h0)
+    const off1 = h1 === null ? 0 : turnDeg(tangent1, h1)
+    const offTurn = turnDeg(off0, off1)
+    // Bow first: under way the gyro stands 2° off the course over the
+    // ground on the median and within 12° nine times in ten (Hamburg)
+    const alongCurve =
+      !gyro ||
+      (meters / (dtMs / 1000) >= 1 &&
+        followsCourse(eastM, northM, fromDeg) &&
+        followsCourse(eastM, northM, toDeg) &&
+        Math.abs(off0) <= 45 &&
+        Math.abs(off1) <= 45)
+    // The tangent stays within a right angle of the chord, so this is
+    // the whole turn the curve gives her (a ship backing out of a turn
+    // went 313° round where her gyro said 47°)
+    const longWay =
+      h0 !== null && h1 !== null && Math.abs(turnDeg(tangent0, tangent1) + offTurn - turnDeg(h0, h1)) > 1
+    if (alongCurve && !longWay) bearingDeg = (curve.tangentDeg + off0 + offTurn * u + 360) % 360
+  }
+  if (bearingDeg === null) {
+    bearingDeg =
+      h0 !== null && h1 !== null ? easeDeg(h0, h1, u) : (h1 ?? h0 ?? restingBearing(vessel, p1[4] ?? p0[4]))
   }
   return { lon, lat, bearingDeg, underWay }
 }

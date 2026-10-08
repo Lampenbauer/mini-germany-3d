@@ -33,6 +33,16 @@ function azimuthDeg(eastM: number, northM: number): number {
 }
 
 /**
+ * Whether the curve takes a course as its tangent: reported, and no more
+ * than a right angle off the chord – beyond, it is not a direction of
+ * motion between the two fixes.
+ */
+export function followsCourse(eastM: number, northM: number, deg: number | null): boolean {
+  if (deg === null || (eastM === 0 && northM === 0)) return false
+  return Math.abs(((deg - azimuthDeg(eastM, northM) + 540) % 360) - 180) <= 90
+}
+
+/**
  * The point `u` (0 at the first fix, 1 at the second) along the curve
  * from the origin to (eastM, northM), with the courses `fromDeg` and
  * `toDeg` as the tangent directions – null where a fix reported none.
@@ -47,10 +57,7 @@ export function curvePoint(
   const chord = Math.hypot(eastM, northM)
   const chordDeg = azimuthDeg(eastM, northM)
   const tangent = (deg: number | null): [number, number] => {
-    if (deg === null || chord === 0) return [eastM, northM]
-    // More than a right angle off the chord: not a direction of motion
-    const off = Math.abs(((deg - chordDeg + 540) % 360) - 180)
-    if (off > 90) return [eastM, northM]
+    if (deg === null || !followsCourse(eastM, northM, deg)) return [eastM, northM]
     return [chord * Math.sin(toRad(deg)), chord * Math.cos(toRad(deg))]
   }
   const [m0e, m0n] = tangent(fromDeg)

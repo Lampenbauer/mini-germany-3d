@@ -1729,15 +1729,31 @@ stepping where it should glide; each is pure and pinned by a unit test.
   a course more than a right angle off the chord – a ship going astern,
   a stale track – is not trusted and the chord's direction stands in).
   A straight chord turned every bend into a polygon that the layers'
-  400 ms ease only rounded. A ship's hull lies along the curve's tangent
-  unless both fixes report a heading – the gyro's is eased then, which
-  also turns a hull pivoting on the spot – turned at each fix by what
-  the fix states against the motion there (a heading's crab, a course
-  pointing back) and eased between (`playbackSample`). It eased the
-  course over the ground from fix to fix before (2026-10-08), and where
-  the curve was no plain arc the hull went sideways; the course is the
-  bow's direction at its own fix and nowhere else. See also the static
-  reports' copies under AIS.
+  400 ms ease only rounded.
+- **A ship's hull lies along the curve's tangent,** turned at each fix
+  by what the fix states against the motion there (a heading's crab, a
+  course pointing back) and eased between (`playbackSample`). A ship
+  with a gyro at both fixes follows the curve only while she makes a
+  metre a second bow first – her heading within 45° of the motion at
+  both; under way the gyro stands 2° off the course over the ground on
+  the median, within 12° nine times in ten – along both courses she
+  reported; pivoting, worked sideways or astern, she has her gyro eased
+  from fix to fix, and so does any ship the curve would turn the long
+  way round (the ALTENWERDER backing to a stop on the Elbe: 313° round
+  where her gyro said 47°; the tangent stays within a right angle of
+  the chord, so the curve's whole turn is known). Easing a course or a
+  heading from fix to fix, as the playback did until 2026-10-08, set
+  the hull across the motion wherever the curve turned early or late:
+  the SOLAR, no gyro, ran 30–40° off her track, the KAEPP'N BRASS, gyro
+  at both fixes, 28° through six unheard minutes and a turn of 72°. Over
+  one morning hour of the nine AIS cities the bow within 20° of the
+  track went from 83–95 % of the samples to 86–97 % with the rule for
+  ships without a gyro and the static reports' copies (most in Berlin,
+  87 → 97 %, where 93 % of the fixes under way carry no heading), and
+  up to 1.7 points further with the gyro's (Rostock 94 → 96 %; level in
+  Bremen and Lübeck, Frankfurt 0.1 back on three samples in gaps of
+  seven to twelve unheard minutes through turns of 57–98°). See also
+  the static reports' copies under AIS.
 - **An AIS fix is stamped with its message's own time** (`time_utc`,
   `aisFixTimeMs`, PHP `mg3d_ais_fix_time`) where that lies within
   `AIS_MESSAGE_TIME_BEHIND_MS` (10 min) behind the keeper's clock and
@@ -2420,15 +2436,14 @@ course of its own (`playedTrack`); the replay begins a track with the
 fix a copy there repeats (`AisReplay.vesselsAt`). The recording keeps
 the copies as they are, which is also why the days recorded before the
 rule replay right. Measured over Hamburg's morning, every ship every
-five seconds, against the copies as fixes: the bow within 20° of the
-track in 88 % of the samples (83 %), the jumps over 2.5 times the
+five seconds, against the copies as fixes: the jumps over 2.5 times the
 speed 348 (400), the ships under way standing still 26.6 % of their
 samples (27.0 %) – nearly all of those wait at their last fix for a
 next one more than the four minutes of delay away (`AIS_PLAYBACK_DELAY_MS`),
-which the recording alone cannot cure. The nine AIS cities moved the
-same way over the same hour: the bow within 20° of the track from
-83–95 % to 86–97 %, none worse, the most in Berlin (87 → 97 %), where
-93 % of the fixes under way carry no heading (Hamburg 43 %).
+which the recording alone cannot cure – and the bow within 20° of the
+track in 89.8 % of the samples (89.1 %); the rest of what the bow
+gained came with the hull laid along the curve (see "Motion" under
+rendering).
 
 **The harbour is recorded, and a clock set back replays it.** Every fix
 the keeper hears also goes into an archive – one NDJSON file per city and
