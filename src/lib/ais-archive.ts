@@ -58,6 +58,7 @@ import {
   AIS_PLAYBACK_DELAY_MS,
   AIS_UNDER_WAY_SOG_KN,
   aisStateVessels,
+  isDepartureCopy,
   isStaticCopy,
   mergeAisMessage,
   type AisRawMessage,
@@ -99,7 +100,7 @@ export type AisArchiveFix = [
   number | null,
   number | null,
 ]
-/** Where a fix's speed, course and heading begin – for isStaticCopy. */
+/** Where a fix's speed, course and heading begin – for the copies' tests. */
 const FIX_KINEMATICS_AT = 4
 
 /**
@@ -343,8 +344,8 @@ export class AisReplay {
    * (AIS_PLAYBACK_DELAY_MS behind) up to it – the live state holds ten
    * minutes, the wake wants the minute before the sampled instant. A
    * ship whose first fix lies after `atMs` is not in the harbour yet.
-   * Where it would begin with a static report's copy of a fix under way
-   * (isStaticCopy), it begins with the fix the copy repeats: the
+   * Where it would begin with a static report's copy (isStaticCopy,
+   * isDepartureCopy), it begins with the fix the copy repeats: the
    * playback knows a copy only by the fix before it.
    */
   vesselsAt(atMs: number, exclude?: ReadonlySet<number>): AisVessel[] {
@@ -356,7 +357,13 @@ export class AisReplay {
       const at = lastFixAtOrBefore(fixes, atMs)
       if (at < 0 || atMs - fixes[at][1] > AIS_EXPIRE_MS) continue
       let from = Math.max(0, lastFixAtOrBefore(fixes, renderMs))
-      while (from > 0 && isStaticCopy(fixes[from], fixes[from - 1], FIX_KINEMATICS_AT)) from--
+      while (
+        from > 0 &&
+        (isStaticCopy(fixes[from], fixes[from - 1], FIX_KINEMATICS_AT) ||
+          isDepartureCopy(fixes[from], fixes[from - 1], vessel.static?.lengthM ?? null, FIX_KINEMATICS_AT))
+      ) {
+        from--
+      }
       const track: AisTrackPoint[] = []
       for (let i = from; i <= at; i++) {
         const fix = fixes[i]

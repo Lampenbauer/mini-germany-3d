@@ -1754,28 +1754,40 @@ stepping where it should glide; each is pure and pinned by a unit test.
   400 ms ease only rounded.
 - **A ship's hull lies along the curve's tangent,** turned at each fix
   by what the fix states against the motion there (a heading's crab, a
-  course pointing back) and eased between (`playbackSample`). A ship
-  with a gyro at both fixes follows the curve only while she makes a
+  course pointing back) and eased between (`playbackSample`). Where a
+  fix reports a heading, she follows the curve only while she makes a
   metre a second bow first – her heading within 45° of the motion at
-  both; under way the gyro stands 2° off the course over the ground on
-  the median, within 12° nine times in ten – along both courses she
-  reported; pivoting, worked sideways or astern, she has her gyro eased
-  from fix to fix, and so does any ship the curve would turn the long
-  way round (the ALTENWERDER backing to a stop on the Elbe: 313° round
-  where her gyro said 47°; the tangent stays within a right angle of
-  the chord, so the curve's whole turn is known). Easing a course or a
-  heading from fix to fix, as the playback did until 2026-10-08, set
-  the hull across the motion wherever the curve turned early or late:
-  the SOLAR, no gyro, ran 30–40° off her track, the KAEPP'N BRASS, gyro
-  at both fixes, 28° through six unheard minutes and a turn of 72°. Over
-  one morning hour of the nine AIS cities the bow within 20° of the
-  track went from 83–95 % of the samples to 86–97 % with the rule for
-  ships without a gyro and the static reports' copies (most in Berlin,
-  87 → 97 %, where 93 % of the fixes under way carry no heading), and
-  up to 1.7 points further with the gyro's (Rostock 94 → 96 %; level in
-  Bremen and Lübeck, Frankfurt 0.1 back on three samples in gaps of
-  seven to twelve unheard minutes through turns of 57–98°). See also
-  the static reports' copies under AIS.
+  each fix under way that reports one; under way the gyro stands 2° off
+  the course over the ground on the median, within 12° nine times in
+  ten – along the courses she reported there; pivoting, creeping off a
+  berth, worked sideways or astern, she has her gyro eased from fix to
+  fix, and so does any ship the curve would turn the long way round
+  between two fixes under way (the ALTENWERDER backing to a stop on the
+  Elbe: 313° round where her gyro said 47°; the tangent stays within a
+  right angle of the chord, so the curve's whole turn is known). A fix
+  at rest states where she lay, no crab: leaving it she turns from it –
+  her heading, or the bearing she was drawn lying on – within a second a
+  metre of her length, half a minute at least (`halfTurnMs`, chosen, not
+  measured), while what the far fix states eases in over the way; coming
+  to one she turns into a heading she reports there as she comes in, and
+  into nothing else – the course she last held under way can be the far
+  end of a long gap (in Lübeck 47 minutes back, against the drawn
+  approach). Easing a course or a heading from fix to fix, as the
+  playback did until 2026-10-08, set the hull across the motion wherever
+  the curve turned early or late: the SOLAR, no gyro, ran 30–40° off her
+  track, the KAEPP'N BRASS, gyro at both fixes, 28° through six unheard
+  minutes and a turn of 72°; and spread over the gap, a turn at a berth
+  was a ship turning half round as she ran straight – the WINDCAT 64 over
+  four minutes north along the Unterwarnow, harbour launches over the
+  ten-minute approach to their pier. Over one morning hour of the nine
+  AIS cities the bow within 20° of the track went from 83–95 % of the
+  samples to 86–97 % with the rule for ships without a gyro and the
+  static reports' copies (most in Berlin, 87 → 97 %, where 93 % of the
+  fixes under way carry no heading), up to 1.7 points further with the
+  gyro's (Rostock 94 → 96 %), and up to 2.2 more with the berths'
+  (Hamburg 89.8 → 91.8 %, Kiel 92.2 → 94.4 %; Bremen 0.1 back, on
+  samples taken mid-turn). See also the static reports' copies under
+  AIS.
 - **An AIS fix is stamped with its message's own time** (`time_utc`,
   `aisFixTimeMs`, PHP `mg3d_ais_fix_time`) where that lies within
   `AIS_MESSAGE_TIME_BEHIND_MS` (10 min) behind the keeper's clock and
@@ -2455,7 +2467,18 @@ out one that stands where the point before it stood, and plays one that
 stands somewhere new as a waypoint – timed by its share of the distance
 between the fixes either side, never later than its stamp, with no
 course of its own (`playedTrack`); the replay begins a track with the
-fix a copy there repeats (`AisReplay.vesselsAt`). The recording keeps
+fix a copy there repeats (`AisReplay.vesselsAt`). A copy of a fix at
+rest from further off than she drifts at a berth – 25 m, which GNSS
+wobble stays within ninety-nine times in a hundred, or her length – is
+the same kind of report, of her after she had left (`isDepartureCopy`;
+224 of 26 000 repeats of a fix at rest in three hours of the nine AIS
+cities lay further than 25 m off): the
+WINDCAT 64's stood a kilometre north of her berth at 0 kn on her berth
+heading, and played as a fix it slid her there stern first. It is a
+waypoint too, at its own stamp – she lay still before it, and a share
+of the way from the berth would have her creep off it minutes early. The
+FINE SCHEPERS (141 m) stood 26 m off hers in one before she sailed, which
+her length keeps a fix. The recording keeps
 the copies as they are, which is also why the days recorded before the
 rule replay right. Measured over Hamburg's morning, every ship every
 five seconds, against the copies as fixes: the jumps over 2.5 times the

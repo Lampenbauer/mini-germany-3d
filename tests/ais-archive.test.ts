@@ -334,6 +334,13 @@ describe('AisReplay', () => {
     // Past the fix after it, the track begins there as before
     const later = replay.vesselsAt(at + 10_000)[0]
     expect(later.track[0][0]).toBe(NOW + 60_000)
+    // A copy of her berth fix from a kilometre out (isDepartureCopy) is
+    // read by the berth fix too
+    const leaving = new AisReplay()
+    const berth = (t: number, lat: number): AisArchiveFix => [2, t, lat, 12.1, 0, 267, 161, 0]
+    leaving.add([berth(NOW, 54.1), berth(NOW + 60_000, 54.11), [2, NOW + 120_000, 54.12, 12.1, 6.5, 343, 342, 0]])
+    const [left] = leaving.vesselsAt(NOW + 90_000 + AIS_PLAYBACK_DELAY_MS + AIS_REPLAY_TRACK_LOOKBACK_MS)
+    expect(left.track.map((p) => p[0])).toEqual([NOW, NOW + 60_000, NOW + 120_000])
   })
 
   it('clamps the track to the first fix while the sampled moment lies before it', () => {

@@ -397,10 +397,45 @@ export function isStaticCopy(
  */
 const COPY_SAME_SPOT_M = 3
 
+/**
+ * How far a ship at rest stands from her last fix in one that repeats
+ * it: GNSS wobble at a berth stays within 25 m ninety-nine times in a
+ * hundred (three hours of the nine AIS cities, 26 000 repeats). A ship
+ * longer than that shifts along her quay by more and has not left it
+ * (the FINE SCHEPERS, 141 m, stood 26 m off in one before she sailed), so
+ * the drift allowed is her own length where that is more.
+ */
+const BERTH_DRIFT_M = 25
+
 function metersBetween(a: AisTrackPoint, b: AisTrackPoint): number {
   const northM = (b[1] - a[1]) * METERS_PER_DEGREE_LATITUDE
   const eastM = (b[2] - a[2]) * METERS_PER_DEGREE_LATITUDE * Math.cos((a[1] * Math.PI) / 180)
   return Math.hypot(northM, eastM)
+}
+
+/**
+ * Whether a fix repeats the speed and courses of a fix at rest from
+ * further than she drifts at a berth (BERTH_DRIFT_M, or her length): a
+ * static report's copy made after she had left, its position a report
+ * aisstream had of her under way, its kinematics the berth's. The
+ * WINDCAT 64 stood a kilometre north of her berth in one, at 0 kn on her
+ * berth heading, and was drawn sliding stern first all the way there.
+ * Read at `at` as isStaticCopy reads, the position just before it.
+ */
+export function isDepartureCopy(
+  fix: readonly (number | null)[],
+  before: readonly (number | null)[],
+  lengthM: number | null,
+  at = 3,
+): boolean {
+  const sogKn = before[at]
+  if (sogKn === null || sogKn >= AIS_UNDER_WAY_SOG_KN) return false
+  if (fix[at] !== sogKn || fix[at + 1] !== before[at + 1] || fix[at + 2] !== before[at + 2]) return false
+  const lat = before[at - 2] ?? 0
+  const northM = ((fix[at - 2] ?? 0) - lat) * METERS_PER_DEGREE_LATITUDE
+  const eastM =
+    ((fix[at - 1] ?? 0) - (before[at - 1] ?? 0)) * METERS_PER_DEGREE_LATITUDE * Math.cos((lat * Math.PI) / 180)
+  return Math.hypot(northM, eastM) > Math.max(BERTH_DRIFT_M, lengthM ?? 0)
 }
 
 function azimuthDeg(a: AisTrackPoint, b: AisTrackPoint): number {
@@ -417,32 +452,38 @@ const playedTracks = new WeakMap<readonly AisTrackPoint[], readonly AisTrackPoin
  * under way (isStaticCopy) that stands where the point before it stood
  * says only that she was heard, and is left out. One that stands
  * somewhere new carries a report aisstream had and this keeper never
- * got: its position is real, its time is not. It is played as a point on
- * her way, at its share of the distance between the fixes either side
+ * got: its position is real, its time is not. It is played as a point
+ * on her way, at its share of the distance between the fixes either side
  * of it (never later than its own stamp, after which it cannot have been
  * made), with no speed or course of its own – the curve passes it along
  * the line from the point before to the point after. A copy beyond the
- * last fix keeps its stamp until the next fix comes in. Over Hamburg's
+ * last fix keeps its stamp until the next fix comes in, and so does a
+ * copy of a fix at rest from beyond a berth's drift (isDepartureCopy):
+ * she lay still before it, and a share of the way from her berth would
+ * have her creep off it long before she left. Over Hamburg's
  * morning that left the fewest ships under way standing still – 26.6 %
  * of the samples (27.0 % with the copies as fixes, 29.1 % without them)
  * – and held the bow within 20° of the track the most: 89.8 % (89.1 %,
  * 88.9 %).
  */
-function playedTrack(track: readonly AisTrackPoint[]): readonly AisTrackPoint[] {
+function playedTrack(track: readonly AisTrackPoint[], lengthM: number | null): readonly AisTrackPoint[] {
   const known = playedTracks.get(track)
   if (known) return known
   let played: readonly AisTrackPoint[] = track
-  if (track.some((p, i) => i > 0 && isStaticCopy(p, track[i - 1]))) {
+  const copy = (p: AisTrackPoint, i: number): boolean =>
+    i > 0 && (isStaticCopy(p, track[i - 1]) || isDepartureCopy(p, track[i - 1], lengthM))
+  if (track.some(copy)) {
     // The fixes, and the copies that stand somewhere new as waypoints
-    const points: { p: AisTrackPoint; waypoint: boolean }[] = []
+    const points: { p: AisTrackPoint; waypoint: boolean; departure?: boolean }[] = []
     for (let i = 0; i < track.length; i++) {
       const p = track[i]
-      if (i === 0 || !isStaticCopy(p, track[i - 1])) points.push({ p, waypoint: false })
+      if (i > 0 && isDepartureCopy(p, track[i - 1], lengthM)) points.push({ p, waypoint: true, departure: true })
+      else if (i === 0 || !isStaticCopy(p, track[i - 1])) points.push({ p, waypoint: false })
       else if (metersBetween(track[i - 1], p) >= COPY_SAME_SPOT_M) points.push({ p, waypoint: true })
     }
     const out: AisTrackPoint[] = []
     for (let j = 0; j < points.length; j++) {
-      const { p, waypoint } = points[j]
+      const { p, waypoint, departure } = points[j]
       if (!waypoint) {
         out.push(p)
         continue
@@ -453,7 +494,7 @@ function playedTrack(track: readonly AisTrackPoint[]): readonly AisTrackPoint[] 
       let b = j + 1
       while (b < points.length && points[b].waypoint) b++
       let t = p[0]
-      if (b < points.length) {
+      if (b < points.length && !departure) {
         let total = 0
         let upTo = 0
         for (let k = a; k < b; k++) {
@@ -472,6 +513,17 @@ function playedTrack(track: readonly AisTrackPoint[]): readonly AisTrackPoint[] 
   }
   playedTracks.set(track, played)
   return played
+}
+
+/**
+ * How long a ship takes for a half turn as she leaves a berth or comes
+ * to one: a second a metre of her length, half a minute at least – the
+ * WINDCAT 64's thirty seconds, a box ship's five minutes behind her
+ * tugs. Chosen, not measured; what it replaced was a turn spread evenly
+ * over however long the fixes were apart.
+ */
+function halfTurnMs(vessel: AisVessel): number {
+  return Math.max(30, vessel.lengthM ?? 0) * 1000
 }
 
 /** The signed angle from `fromDeg` to `toDeg`, −180 to 180. */
@@ -498,7 +550,7 @@ function easeDeg(fromDeg: number, toDeg: number, u: number): number {
 export function playbackSample(vessel: AisVessel, renderMs: number): AisPlaybackSample {
   const track: readonly AisTrackPoint[] =
     vessel.track.length > 0
-      ? playedTrack(vessel.track)
+      ? playedTrack(vessel.track, vessel.lengthM)
       : [[vessel.positionAt, vessel.lat, vessel.lon, vessel.sogKn, vessel.cogDeg, vessel.headingDeg]]
   const last = track[track.length - 1]
   if (renderMs <= track[0][0]) return pointSample(vessel, track[0])
@@ -533,39 +585,78 @@ export function playbackSample(vessel: AisVessel, renderMs: number): AisPlayback
   // set the hull across the motion wherever the curve turned early or
   // late: either is the bow's direction at its own fix and nowhere else
   // (the KAEPP'N BRASS, six minutes unheard through a turn of 72°, ran
-  // 28° off her track). Where both fixes report a heading, though, the
-  // curve is her path only while she makes a metre a second, bow first,
-  // along both courses she reported; otherwise – pivoting on the spot,
-  // worked sideways or astern, turning round between two fixes – the
-  // gyro is the truth at either end. That, a segment too short to give
-  // a direction, and a curve that would turn her the long way round
-  // from what one fix states to what the other does ease what the fixes
-  // state along the shortest arc; a ship lying still lies as she came in.
+  // 28° off her track). Where a fix reports a heading, though, the curve
+  // is her path only while she makes a metre a second, bow first, along
+  // the course she reported at each fix under way that does; otherwise –
+  // pivoting on the spot, creeping off a berth, worked sideways or
+  // astern, turning round between two fixes – the gyro is the truth. That,
+  // a segment too short to give a direction, and a curve that would turn
+  // her the long way round from what one fix states to what the other
+  // does ease what the fixes state along the shortest arc; a ship lying
+  // still lies as she came in. A fix at rest states where she lay, no
+  // crab: leaving it she turns from it near it (halfTurnMs) – eased
+  // across six minutes to her first fix under way, the WINDCAT 64 turned
+  // half round running straight north – and arriving she turns into a
+  // heading she reports there as she comes in.
   const h0 = fixBearing(p0)
   const h1 = fixBearing(p1)
-  const gyro = p0[5] !== null && p1[5] !== null
   let bearingDeg: number | null = null
   if (meters > 5) {
+    const rest0 = p0[3] !== null && p0[3] < AIS_UNDER_WAY_SOG_KN
+    const rest1 = p1[3] !== null && p1[3] < AIS_UNDER_WAY_SOG_KN
+    const departing = rest0 && !rest1
+    const arriving = rest1 && !rest0
+    // Leaving, she turns from where she was drawn lying; arriving, only
+    // into a heading she reports – the course she last held under way
+    // can be the far end of a long gap (in Lübeck 47 minutes back,
+    // against the drawn approach)
+    const lay0 = h0 ?? (departing ? restingBearing(vessel, p0[4]) : null)
+    const lay1 = h1
     const tangent0 = curvePoint(eastM, northM, fromDeg, toDeg, 0).tangentDeg
     const tangent1 = curvePoint(eastM, northM, fromDeg, toDeg, 1).tangentDeg
-    const off0 = h0 === null ? 0 : turnDeg(tangent0, h0)
-    const off1 = h1 === null ? 0 : turnDeg(tangent1, h1)
-    const offTurn = turnDeg(off0, off1)
+    const off0 = lay0 === null ? 0 : turnDeg(tangent0, lay0)
+    const off1 = lay1 === null ? 0 : turnDeg(tangent1, lay1)
     // Bow first: under way the gyro stands 2° off the course over the
     // ground on the median and within 12° nine times in ten (Hamburg)
+    const bowFirst = (heading: number | null, courseDeg: number | null, off: number): boolean =>
+      heading === null || (followsCourse(eastM, northM, courseDeg) && Math.abs(off) <= 45)
     const alongCurve =
-      !gyro ||
+      (p0[5] === null && p1[5] === null) ||
       (meters / (dtMs / 1000) >= 1 &&
-        followsCourse(eastM, northM, fromDeg) &&
-        followsCourse(eastM, northM, toDeg) &&
-        Math.abs(off0) <= 45 &&
-        Math.abs(off1) <= 45)
-    // The tangent stays within a right angle of the chord, so this is
-    // the whole turn the curve gives her (a ship backing out of a turn
-    // went 313° round where her gyro said 47°)
+        (departing || bowFirst(p0[5], fromDeg, off0)) &&
+        (arriving || bowFirst(p1[5], toDeg, off1)))
+    // The turn from what one fix states to what the other does: evenly
+    // between two fixes under way; leaving a berth, the turn from it near
+    // it and what the other fix states eased in over the way; arriving,
+    // the reverse
+    let offAt: number
+    let offChange: number
+    if (departing || arriving) {
+      const restOff = departing ? off0 : off1
+      const turnMs = Math.min(dtMs, (Math.abs(restOff) / 180) * halfTurnMs(vessel))
+      const made =
+        turnMs <= 0
+          ? 1
+          : departing
+            ? Math.min(1, (renderMs - p0[0]) / turnMs)
+            : Math.max(0, 1 - (p1[0] - renderMs) / turnMs)
+      offAt = departing ? off0 * (1 - made) + off1 * u : off0 * (1 - u) + off1 * made
+      offChange = off1 - off0
+    } else {
+      offChange = turnDeg(off0, off1)
+      offAt = off0 + offChange * u
+    }
+    // Between two fixes under way the tangent stays within a right angle
+    // of the chord, so this is the whole turn the curve gives her (a ship
+    // backing out of a turn went 313° round where her gyro said 47°);
+    // leaving or coming to a berth the turn there takes its own short way
     const longWay =
-      h0 !== null && h1 !== null && Math.abs(turnDeg(tangent0, tangent1) + offTurn - turnDeg(h0, h1)) > 1
-    if (alongCurve && !longWay) bearingDeg = (curve.tangentDeg + off0 + offTurn * u + 360) % 360
+      !departing &&
+      !arriving &&
+      lay0 !== null &&
+      lay1 !== null &&
+      Math.abs(turnDeg(tangent0, tangent1) + offChange - turnDeg(lay0, lay1)) > 1
+    if (alongCurve && !longWay) bearingDeg = (curve.tangentDeg + offAt + 720) % 360
   }
   if (bearingDeg === null) {
     bearingDeg =

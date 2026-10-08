@@ -406,6 +406,65 @@ describe('playbackSample', () => {
     expect(turned).toBeCloseTo(47, 6)
   })
 
+  it('turns a ship leaving or reaching a berth near the berth, not across the whole gap', () => {
+    const motion = (v: AisVessel, t: number): number => {
+      const a = playbackSample(v, t - 500)
+      const b = playbackSample(v, t + 500)
+      const east = (b.lon - a.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180)
+      return ((Math.atan2(east, (b.lat - a.lat) * 111_320) * 180) / Math.PI + 360) % 360
+    }
+    const off = (a: number, b: number): number => Math.abs(((b - a + 540) % 360) - 180)
+    // The WINDCAT 64 leaving her berth in Rostock, 7 October 2026: a
+    // static report's copy of her berth fix – 0 kn, her berth heading
+    // 161° – a kilometre north of it, then her first fix under way at
+    // 342°. As a fix the copy had her slide stern first to it and turn
+    // half round over the four minutes after
+    const berth = Date.UTC(2026, 9, 7, 10, 23, 7, 160)
+    const windcat = vessel({
+      lengthM: 27,
+      track: [
+        [berth, 54.14658, 12.11164, 0, 267, 161],
+        [Date.UTC(2026, 9, 7, 10, 29, 7, 380), 54.15543, 12.10794, 0, 267, 161],
+        [Date.UTC(2026, 9, 7, 10, 33, 7, 561), 54.162715000000006, 12.103786666666668, 6.5, 343, 342],
+      ],
+    })
+    // Leaving, she turns from 161° within half a minute (her 27 m)…
+    expect(off(motion(windcat, berth + 10_000), playbackSample(windcat, berth + 10_000).bearingDeg)).toBeGreaterThan(90)
+    // …and runs bow first from there to her fix under way
+    for (let t = berth + 31_000; t < windcat.track[2][0]; t += 15_000) {
+      expect(off(motion(windcat, t), playbackSample(windcat, t).bearingDeg)).toBeLessThan(3)
+    }
+    // The ENNSTAL coming to her pier in Hamburg at 8.6 kn, bow 71°, to lie
+    // there at 274°: bow first over the nine minutes, the turn in the last
+    // half minute (her 25 m), not eased across the whole approach
+    const t0 = Date.UTC(2026, 9, 7, 10, 24, 9, 956)
+    const t1 = Date.UTC(2026, 9, 7, 10, 33, 29, 562)
+    const ennstal = vessel({
+      lengthM: 25,
+      track: [
+        [t0, 53.54245, 9.950671666666667, 8.6, 71, 71],
+        [t1, 53.542876666666665, 9.978705, 0, 274, 274],
+      ],
+    })
+    for (let t = t0 + 15_000; t < t1 - 31_000; t += 30_000) {
+      expect(off(motion(ennstal, t), playbackSample(ennstal, t).bearingDeg)).toBeLessThan(3)
+    }
+    expect(off(motion(ennstal, t1 - 15_000), playbackSample(ennstal, t1 - 15_000).bearingDeg)).toBeGreaterThan(60)
+    expect(playbackSample(ennstal, t1 - 1).bearingDeg).toBeCloseTo(274, 0)
+    // A repeat within her own length of where she lay is no departure:
+    // the FINE SCHEPERS (141 m) stood 26 m off before she sailed, and lies
+    // on her gyro there as she did
+    const fine = vessel({
+      lengthM: 141,
+      track: [
+        [Date.UTC(2026, 9, 7, 9, 57, 1, 864), 53.536987, 9.948922, 0, 208.2, 333],
+        [Date.UTC(2026, 9, 7, 10, 5, 17, 759), 53.5372, 9.94909, 0, 208.2, 333],
+        [Date.UTC(2026, 9, 7, 10, 6, 7, 616), 53.5377, 9.948787, 2.8, 345, 339],
+      ],
+    })
+    expect(playbackSample(fine, Date.UTC(2026, 9, 7, 10, 3)).bearingDeg).toBeCloseTo(333, 6)
+  })
+
   it('plays a static report’s copy of a fix under way as the point on her way it is', () => {
     // The SOLAR on the Elbe off the Burchardkai, 7 October 2026: two
     // position reports four minutes apart with nothing between them but
