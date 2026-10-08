@@ -191,7 +191,7 @@ moved, and follow it into:
   `en` and `de` tables. The About dialog lists what the map is built from
   (and deliberately never says how many cities there are – the count changed
   often enough to be a trap, so no prose anywhere states it); the keyboard
-  tab lists the shortcuts;
+  tab lists the shortcuts and names the keys that tilt the camera with the mouse;
   the credits carry the licenses. A German table left behind is the usual miss.
 - **What Google, the welcome screen and the About dialog say the map is** —
   a feature that changes what the map shows changes the prose that
@@ -487,6 +487,28 @@ from, and a phone never gets it. The play button lays both its faces in
 one grid cell so its width does not change with the word on it, and the
 timeline beside it stays put. `tests/photo-mode-popover.test.tsx` holds
 the bar's tests beside the popover's – one jsdom file for one feature.
+
+**Shift and ⌘ tilt the camera as Ctrl does, the way Google Maps
+does.** Cesium tilts and turns on a Ctrl-drag, looks round on the spot
+on a Shift-drag and reads no ⌘ at all (its event handler knows shiftKey,
+ctrlKey and altKey), so a ⌘-drag moved the map.
+[tilt-keys.ts](src/map/tilt-keys.ts) shadows `ctrlKey` and `shiftKey`
+on the canvas's pointer and mouse events before Cesium's listeners read
+them, so Cesium cannot tell the three keys apart – the gesture, its
+inertia, a key pressed mid-drag and the click it swallows are all
+Ctrl's (a ⌘-click selects nothing now, as Ctrl- and Shift-clicks never
+did). Settled with it: Shift's free look is gone, Alt and the wheel are
+left alone (⌘ and the wheel still zoom, Ctrl and the wheel do not).
+The trap: Cesium takes mouse events in Firefox, not pointer events, and
+reads the moves and the release off the document, so a drag that
+crosses a panel is followed off the canvas until its last button is up
+– and a press elsewhere is never touched, Radix's tabs read `ctrlKey`
+on theirs. `tests/tilt-keys.test.ts` runs both families through
+Cesium's own `CameraEventAggregator`; measured in Chromium, WebKit and
+Chromium wearing Firefox's user agent (Cesium's mouse path – the
+Playwright Firefox build would not start on macOS 27): the same pose
+for every key, a drag over the panel included. The About dialog's
+keyboard tab explains it above the shortcuts.
 
 **The night is graded on the whole frame, and the miniature's colour
 steps aside for it.** The tiles' time-of-day shader

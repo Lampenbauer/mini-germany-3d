@@ -87,6 +87,7 @@ import {
 import { renderer } from './cesium-renderer'
 import { installHeapTrailingReferenceFix } from './heap-trailing-reference'
 import { SurfaceGeneration } from './surface-generation'
+import { installTiltKeys } from './tilt-keys'
 import { delayBadgeSuffix, VehicleLayer } from './VehicleLayer'
 import {
   CLOUD_UNIFORM,
@@ -979,6 +980,8 @@ export class CesiumMap {
   private readonly renderedViewMatrix = new Matrix4()
   /** A pointer button is held on the canvas – the camera is being dragged. */
   private pointerDown = false
+  /** Takes away the listener that hands Shift and ⌘ to Cesium as Ctrl (see tilt-keys.ts). */
+  private readonly removeTiltKeys: () => void
   private resizeObserver: ResizeObserver | null = null
   private readonly noteInteraction = () => {
     this.lastInteractionAt = performance.now()
@@ -1515,6 +1518,9 @@ export class CesiumMap {
     canvas.addEventListener('pointermove', (e: PointerEvent) => {
       if (e.buttons !== 0) this.noteInteraction()
     })
+    // A drag with Shift or ⌘ held tilts and turns the camera as one with
+    // Ctrl does, as in Google Maps – Cesium itself knows Ctrl alone for it
+    this.removeTiltKeys = installTiltKeys(window, canvas)
 
     // Camera change events for the URL persistence. The default
     // percentageChanged (0.5) only fires on huge jumps – 1 % keeps every
@@ -3832,6 +3838,7 @@ export class CesiumMap {
     this.destroyed = true
     window.removeEventListener('pointerup', this.onPointerUp)
     window.removeEventListener('pointercancel', this.onPointerUp)
+    this.removeTiltKeys()
     if (this.hoverPickTimer !== null) window.clearTimeout(this.hoverPickTimer)
     if (this.bootstrapTimer !== null) window.clearTimeout(this.bootstrapTimer)
     if (this.handoverTimer !== null) window.clearTimeout(this.handoverTimer)

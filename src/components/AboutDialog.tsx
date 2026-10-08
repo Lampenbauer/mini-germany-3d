@@ -240,6 +240,10 @@ export function AboutDialog(props: {
 
             <TabsContent value="keyboard" className={PANEL}>
               <div>
+                <h3 className={HEADING}>{t('about.mouseTitle')}</h3>
+                <p className={BODY}>{t('about.mouseLead')}</p>
+              </div>
+              <div>
                 <h3 className={HEADING}>{t('keys.open')}</h3>
                 <p className={BODY}>{t('about.keyboardLead')}</p>
               </div>

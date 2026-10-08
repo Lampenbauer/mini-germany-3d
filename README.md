@@ -105,7 +105,8 @@ flat street map.
 - **Keyboard** – `Space` pause, `+`/`−` time-lapse, `N` now, `S`/`U`/`L`
   surface, underground, line diagram, `R` home view, `C` turn, `2`/`3` flat
   and tilted, `M` miniature, `F` full screen, `H` hide the interface, `Esc`
-  close, `?` About.
+  close, `?` About. `Shift`, `⌘` or `Ctrl` held while dragging tilts and
+  turns the camera, as in Google Maps.
 
 ## Cities
 

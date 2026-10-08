@@ -1034,6 +1034,10 @@ describe('App (UI shell)', () => {
     fireEvent.mouseDown(within(about).getByRole('tab', { name: 'Keyboard' }), { button: 0, ctrlKey: false })
     expect(about).toHaveTextContent('Pause and play')
     expect(about).toHaveTextContent('Space')
+    // The mouse's tilt and turn stand above the shortcuts
+    const keys = about.textContent ?? ''
+    expect(keys.indexOf('Hold Shift, ⌘ or Ctrl while you drag the map')).toBeGreaterThan(-1)
+    expect(keys.indexOf('Keyboard shortcuts')).toBeGreaterThan(keys.indexOf('Hold Shift, ⌘ or Ctrl'))
     // A dialog, not a card wearing the word: while it is up the map and
     // its controls are hidden from a screen reader entirely.
     expect(screen.queryByRole('button', { name: 'About this project' })).not.toBeInTheDocument()

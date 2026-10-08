@@ -391,6 +391,8 @@ const en = {
   'about.builtTitle': 'Made possible by open data & 3D',
   'about.built': 'Routes, stops, lighting, buoys and lighthouses: OpenStreetMap. Timetables: gtfs.de / DELFI. Terrain: the states’ open 1 m elevation models via Mapterhorn. City models: Google Photorealistic 3D Tiles and CesiumJS. Flat map: Mapbox. Weather: Open-Meteo. Ships: aisstream.io. Aircraft: adsb.fi. Webcams: Windy. You’ll find the licences in the credits at the bottom of the map.',
   'about.keyboardLead': 'A few keys to move around your little world. Use them when this dialog is closed.',
+  'about.mouseTitle': 'Tilt and turn with the mouse',
+  'about.mouseLead': 'Hold Shift, ⌘ or Ctrl while you drag the map, and look at your little world from any angle.',
   // The keyboard, listed in its own tab. Every entry names what
   // the key does, not the control it stands in for – the reader is
   // looking for a verb here.
@@ -783,6 +785,8 @@ const de: Record<MessageKey, string> = {
   'about.builtTitle': 'Dank offener Daten & 3D',
   'about.built': 'Wege, Haltestellen, Beleuchtung, Tonnen und Leuchtfeuer: OpenStreetMap. Fahrpläne: gtfs.de / DELFI. Gelände: offene 1-m-Höhenmodelle der Länder über Mapterhorn. Stadtmodelle: Google Photorealistic 3D Tiles und CesiumJS. Flache Karte: Mapbox. Wetter: Open-Meteo. Schiffe: aisstream.io. Flugzeuge: adsb.fi. Webcams: Windy. Die Lizenzen findest du am unteren Kartenrand.',
   'about.keyboardLead': 'Mit ein paar Tasten durch deine kleine Welt. Die Kürzel funktionieren, sobald du diesen Dialog schließt.',
+  'about.mouseTitle': 'Neigen und drehen mit der Maus',
+  'about.mouseLead': 'Halte Shift, ⌘ oder Ctrl gedrückt, während du die Karte ziehst, und schau dir deine kleine Welt aus jedem Winkel an.',
   'keys.title': 'Tastatur',
   'keys.open': 'Tastaturkürzel',
   'keys.close': 'Kürzelliste schließen',
