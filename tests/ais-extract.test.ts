@@ -49,7 +49,12 @@ function vessel(overrides: Partial<AisVessel> = {}): AisVessel {
   }
 }
 
-/** A track point in the helper vessel's neighborhood, offsets in degrees. */
+/**
+ * A track point in the helper vessel's neighborhood, offsets in degrees.
+ * Two in a row under way with the same speed and courses are a static
+ * report's copy and the fix it repeats (isStaticCopy) – a test of plain
+ * fixes gives them a course each.
+ */
 function point(
   t: number,
   latOff = 0,
@@ -242,7 +247,8 @@ describe('track recording', () => {
       NOW,
     )
     // A static report between fixes: MetaData coordinates count as a fix
-    // and must carry the LAST KNOWN speed and course, not nulls.
+    // and must carry the LAST KNOWN speed and course, not nulls – the
+    // copy keeps her listed, and the playback knows it by them
     mergeAisMessage(
       state,
       {
@@ -289,7 +295,7 @@ describe('playbackSample', () => {
   })
 
   it('clamps to the track ends – no extrapolation past the last fix', () => {
-    const track = [point(REN - 90_000), point(REN - 60_000, 0.001, 0.001)]
+    const track = [point(REN - 90_000), point(REN - 60_000, 0.001, 0.001, { cog: 40 })]
     const stalled = playbackSample(vessel({ track }), REN)
     expect(stalled.lat).toBeCloseTo(54.101, 6) // waits at the last fix
     expect(stalled.underWay).toBe(false)
@@ -308,10 +314,110 @@ describe('playbackSample', () => {
     const v = vessel({
       track: [
         point(REN - 30_000, 0, 0, { cog: null }),
-        point(REN + 30_000, 0.001, 0, { cog: null }), // due north
+        point(REN + 30_000, 0.001, 0, { sog: 9, cog: null }), // due north
       ],
     })
     expect(playbackSample(v, REN).bearingDeg).toBeCloseTo(0, 4)
+  })
+
+  it('lays the hull along the drawn motion where no heading is reported', () => {
+    // Due east over 1 km, both courses 60°: the curve leaves and meets
+    // the chord north of east and runs south of east in the middle. The
+    // course eased from fix to fix said 60° throughout, and the hull went
+    // sideways; it lies along the curve now
+    const lonPerKm = 1 / ((111_320 * Math.cos((54.1 * Math.PI) / 180)) / 1000)
+    const v = vessel({
+      track: [point(REN - 60_000, 0, 0, { cog: 60 }), point(REN + 60_000, 0, lonPerKm, { sog: 9, cog: 60 })],
+    })
+    const motion = (t: number): number => {
+      const a = playbackSample(v, t - 500)
+      const b = playbackSample(v, t + 500)
+      const east = (b.lon - a.lon) * 111_320 * Math.cos((54.1 * Math.PI) / 180)
+      return ((Math.atan2(east, (b.lat - a.lat) * 111_320) * 180) / Math.PI + 360) % 360
+    }
+    for (const t of [REN - 45_000, REN - 20_000, REN, REN + 20_000, REN + 45_000]) {
+      expect(Math.abs(playbackSample(v, t).bearingDeg - motion(t))).toBeLessThan(0.5)
+    }
+    expect(playbackSample(v, REN).bearingDeg).toBeGreaterThan(95)
+    // A heading at one fix is the bow there; its angle to the motion
+    // eases out toward the fix that reports none
+    const crabbing = vessel({
+      track: [point(REN - 60_000, 0, 0, { cog: 60, hdg: 75 }), point(REN + 60_000, 0, lonPerKm, { sog: 9, cog: 60 })],
+    })
+    expect(playbackSample(crabbing, REN - 60_000 + 1).bearingDeg).toBeCloseTo(75, 1)
+    expect(playbackSample(crabbing, REN).bearingDeg - motion(REN)).toBeCloseTo(7.5, 1)
+    expect(playbackSample(crabbing, REN + 60_000 - 1).bearingDeg).toBeCloseTo(60, 1)
+    // Courses pointing back (a ship going astern): the hull turns from the
+    // one to the other the short way, as the chord runs east under it
+    const astern = vessel({
+      track: [point(REN - 60_000, 0, 0, { cog: 250 }), point(REN + 60_000, 0, lonPerKm, { sog: 9, cog: 290 })],
+    })
+    expect(playbackSample(astern, REN).bearingDeg).toBeCloseTo(270, 6)
+  })
+
+  it('plays a static report’s copy of a fix under way as the point on her way it is', () => {
+    // The SOLAR on the Elbe off the Burchardkai, 7 October 2026: two
+    // position reports four minutes apart with nothing between them but
+    // a static report, whose MetaData placed her where aisstream had last
+    // heard her – a report this keeper never got – with the speed and
+    // course of the fix before, stamped with its own time. Played as a
+    // fix, it held her bow on 56° for four minutes while the curve ran
+    // to 97°, and then sent her 121 m in five seconds
+    const t0 = Date.UTC(2026, 9, 7, 10, 39, 34, 819)
+    const solar = vessel({
+      track: [
+        [t0, 53.540078333333334, 9.905056666666667, 5.5, 56.3, null],
+        [Date.UTC(2026, 9, 7, 10, 43, 29, 913), 53.54081, 9.91735, 5.5, 56.3, null],
+        [Date.UTC(2026, 9, 7, 10, 43, 35, 82), 53.54083, 9.919176666666667, 7.8, 90.3, null],
+      ],
+    })
+    const metersPerDegreeLon = 111_320 * Math.cos((53.5408 * Math.PI) / 180)
+    let previous = playbackSample(solar, t0)
+    for (let t = t0 + 5_000; t <= Date.UTC(2026, 9, 7, 10, 43, 35); t += 5_000) {
+      const s = playbackSample(solar, t)
+      const north = (s.lat - previous.lat) * 111_320
+      const east = (s.lon - previous.lon) * metersPerDegreeLon
+      const track = ((Math.atan2(east, north) * 180) / Math.PI + 360) % 360
+      // A steady 7–8 kn, the bow on the track
+      expect(Math.hypot(north, east)).toBeGreaterThan(15)
+      expect(Math.hypot(north, east)).toBeLessThan(22)
+      expect(Math.abs(((s.bearingDeg - track + 540) % 360) - 180)).toBeLessThan(4)
+      previous = s
+    }
+    // She passes the copy's position at her share of the way between the
+    // fixes, half a minute before its stamp: 816 of the 937 m
+    const at = playbackSample(solar, Date.UTC(2026, 9, 7, 10, 43, 4))
+    expect(at.lon).toBeCloseTo(9.91735, 4)
+
+    // A copy where the fix before it stood says only that she was heard:
+    // she sails on instead of standing for a minute (LA PALOMA, 10:52)
+    const paloma = vessel({
+      track: [
+        [t0, 53.536275, 9.951641666666665, 7.4, 124, 124],
+        [t0 + 55_973, 53.53628, 9.95164, 7.4, 124, 124],
+        [t0 + 119_942, 53.53946, 9.950355, 9.9, 344.5, null],
+      ],
+    })
+    const a = playbackSample(paloma, t0 + 20_000)
+    const b = playbackSample(paloma, t0 + 40_000)
+    expect(Math.hypot((b.lat - a.lat) * 111_320, (b.lon - a.lon) * metersPerDegreeLon)).toBeGreaterThan(40)
+
+    // Beyond the last fix a copy keeps its stamp until the next fix comes in
+    const ahead = vessel({ track: [solar.track[0], solar.track[1]] })
+    expect(playbackSample(ahead, solar.track[1][0]).lon).toBeCloseTo(9.91735, 6)
+    expect(playbackSample(ahead, solar.track[1][0] - 60_000).lon).toBeLessThan(9.9165)
+
+    // At rest a copy is a fix: she was still at her berth when it came,
+    // and leaves only after it
+    const moored = vessel({
+      track: [
+        point(REN - 600_000, 0, 0, { sog: 0, cog: null }),
+        point(REN - 60_000, 0, 0, { sog: 0, cog: null }),
+        point(REN + 60_000, 0.002, 0, { sog: 6, cog: 0 }),
+      ],
+    })
+    expect(playbackSample(moored, REN - 120_000).lat).toBeCloseTo(54.1, 7)
+    expect(playbackSample(moored, REN).lat).toBeGreaterThan(54.1005)
   })
 
   it('lays a ship at rest along the course she came in on, not along her drift', () => {
@@ -342,7 +448,7 @@ describe('playbackSample', () => {
 
   it('does not report berth wobble as under way', () => {
     const v = vessel({
-      track: [point(REN - 30_000), point(REN + 30_000, 0.000001, 0.000001)],
+      track: [point(REN - 30_000), point(REN + 30_000, 0.000001, 0.000001, { cog: 91 })],
     })
     expect(playbackSample(v, REN).underWay).toBe(false)
   })
@@ -438,7 +544,7 @@ describe('the curve between two fixes', () => {
 
   it('is the chord where no course is reported, and never leaves it for a course pointing back', () => {
     const lonPerKm = 1 / (111_320 * Math.cos((54.1 * Math.PI) / 180) / 1000)
-    const plain = vessel({ track: [fix(REN - 60_000, 54.1, 12.1, null), fix(REN + 60_000, 54.1, 12.1 + lonPerKm, null)] })
+    const plain = vessel({ track: [fix(REN - 60_000, 54.1, 12.1, null), fix(REN + 60_000, 54.1, 12.1 + lonPerKm, null, 9)] })
     expect(playbackSample(plain, REN).lat).toBeCloseTo(54.1, 8)
     // Courses pointing west on an eastward chord: a ship going astern, or
     // stale numbers – the chord stands

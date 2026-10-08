@@ -237,13 +237,16 @@ describe('parseArchiveChunk', () => {
 })
 
 describe('AisReplay', () => {
+  // Each fix a course of its own: a fix under way repeating the speed and
+  // courses of the one before is a static report's copy (isStaticCopy)
+  let course = 0
   const fix = (mmsi: number, t: number, lat = 54.1, lon = 12.1, nav: number | null = 0): AisArchiveFix => [
     mmsi,
     t,
     lat,
     lon,
     8,
-    90,
+    (90 + course++) % 360,
     92,
     nav,
   ]
@@ -311,6 +314,26 @@ describe('AisReplay', () => {
     const older = new AisReplay()
     older.add([statics(1, 'BARGE'), at(NOW, 0, 17)])
     expect(older.vesselsAt(NOW)[0].lastCourseDeg).toBeNull()
+  })
+
+  it('begins a track with the fix a static report’s copy repeats, not with the copy', () => {
+    const replay = new AisReplay()
+    const under = (t: number, lat: number, cog: number): AisArchiveFix => [1, t, lat, 12.1, 7, cog, null, 0]
+    replay.add([
+      under(NOW, 54.1, 10),
+      // The static report's copy: her speed and courses, a later stamp
+      under(NOW + 50_000, 54.101, 10),
+      under(NOW + 60_000, 54.102, 12),
+      under(NOW + 120_000, 54.104, 14),
+    ])
+    // The sampling reaches back past the copy's stamp; the fix it repeats
+    // comes along, and the copy with it for the playback to place
+    const at = NOW + 55_000 + AIS_PLAYBACK_DELAY_MS + AIS_REPLAY_TRACK_LOOKBACK_MS
+    const [vessel] = replay.vesselsAt(at)
+    expect(vessel.track.map((p) => p[0])).toEqual([NOW, NOW + 50_000, NOW + 60_000, NOW + 120_000])
+    // Past the fix after it, the track begins there as before
+    const later = replay.vesselsAt(at + 10_000)[0]
+    expect(later.track[0][0]).toBe(NOW + 60_000)
   })
 
   it('clamps the track to the first fix while the sampled moment lies before it', () => {

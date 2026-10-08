@@ -255,7 +255,8 @@ function mg3d_ais_merge(array &$state, array $raw, int $nowMs): void
     }
     if ($hasFix) {
         // Record AFTER the kinematics update, so a MetaData-only fix
-        // (static report) carries the last known speed and course.
+        // (static report) carries the last known speed and course – and
+        // the playback knows it by them (isStaticCopy in ais-extract.ts).
         $vessel['track'][] = [$fixMs, $vessel['lat'], $vessel['lon'],
             $vessel['sogKn'], $vessel['cogDeg'], $vessel['headingDeg']];
         $track = [];

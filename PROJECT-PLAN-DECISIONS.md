@@ -1728,8 +1728,16 @@ stepping where it should glide; each is pure and pinned by a unit test.
   ([track-curve.ts](src/lib/track-curve.ts): unit speed, no overshoot;
   a course more than a right angle off the chord – a ship going astern,
   a stale track – is not trusted and the chord's direction stands in).
-  The fallback bearing is the curve's tangent. A straight chord turned
-  every bend into a polygon that the layers' 400 ms ease only rounded.
+  A straight chord turned every bend into a polygon that the layers'
+  400 ms ease only rounded. A ship's hull lies along the curve's tangent
+  unless both fixes report a heading – the gyro's is eased then, which
+  also turns a hull pivoting on the spot – turned at each fix by what
+  the fix states against the motion there (a heading's crab, a course
+  pointing back) and eased between (`playbackSample`). It eased the
+  course over the ground from fix to fix before (2026-10-08), and where
+  the curve was no plain arc the hull went sideways; the course is the
+  bow's direction at its own fix and nowhere else. See also the static
+  reports' copies under AIS.
 - **An AIS fix is stamped with its message's own time** (`time_utc`,
   `aisFixTimeMs`, PHP `mg3d_ais_fix_time`) where that lies within
   `AIS_MESSAGE_TIME_BEHIND_MS` (10 min) behind the keeper's clock and
@@ -2386,6 +2394,41 @@ that turned to moor bow-out lies the wrong way round. The real fix for
 both is the quay: the nearest shoreline segment from OSM's water
 polygons as a product of the weekly OSM run, with the last course only to
 pick which end is the bow – agreed as the second step, not built yet.
+
+**A static report's copy is a point on her way, not a fix.** A message
+without a position of its own – the static data above all – carries in
+its MetaData the last position aisstream knows, and `mergeAisMessage`
+records it as a fix at the message's own time with the speed and
+courses of the fix before it (TS and PHP, left as it was: the copy keeps
+a ship at a berth listed, whose position aisstream may pass on once an
+hour – 65 of 553 ships in three hours of Hamburg would have dropped off
+the list for half an hour and more without the copies). For a ship
+under way the copy's position is as old as the report it came in, half
+a minute and more and often a report the keeper never got, and its
+courses are the fix before's. Played as a fix it stood a ship still for
+up to a minute and sent her on at twice her speed after, or held her
+bow on a course minutes old: the SOLAR (7 October 2026, the Elbe off the
+Burchardkai) ran four minutes with her bow 30–40° off her track and
+then jumped 121 m in five seconds. The playback knows a copy by the
+speed and courses repeated to the last decimal (`isStaticCopy` in
+[ais-extract.ts](src/lib/ais-extract.ts); 741 of the 752 such repeats
+in those three hours stood on MetaData's five-decimal position), leaves
+out one that stands where the point before it stood, and plays one that
+stands somewhere new as a waypoint – timed by its share of the distance
+between the fixes either side, never later than its stamp, with no
+course of its own (`playedTrack`); the replay begins a track with the
+fix a copy there repeats (`AisReplay.vesselsAt`). The recording keeps
+the copies as they are, which is also why the days recorded before the
+rule replay right. Measured over Hamburg's morning, every ship every
+five seconds, against the copies as fixes: the bow within 20° of the
+track in 88 % of the samples (83 %), the jumps over 2.5 times the
+speed 348 (400), the ships under way standing still 26.6 % of their
+samples (27.0 %) – nearly all of those wait at their last fix for a
+next one more than the four minutes of delay away (`AIS_PLAYBACK_DELAY_MS`),
+which the recording alone cannot cure. The nine AIS cities moved the
+same way over the same hour: the bow within 20° of the track from
+83–95 % to 86–97 %, none worse, the most in Berlin (87 → 97 %), where
+93 % of the fixes under way carry no heading (Hamburg 43 %).
 
 **The harbour is recorded, and a clock set back replays it.** Every fix
 the keeper hears also goes into an archive – one NDJSON file per city and
