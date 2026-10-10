@@ -19,6 +19,16 @@ const kiel = cityNetworks.find((entry) => entry.city.slug === 'kiel')!
 const network = kiel.network
 const schedule = kielScheduleJson as ScheduleJson
 
+/**
+ * KVG's summer lines to the beaches – the X90 from the Hauptbahnhof to the
+ * Falckensteiner Strand every day, the X92 from Strande to Laboe at
+ * weekends. In 2026 the feed ran both until Sunday 11 October, so a service
+ * day after it has neither: the busiest of the next three weeks was Friday
+ * the 9th, then Monday the 12th the night after, when the refresh failed on
+ * the X90.
+ */
+const SEASONAL_LINES = ['X90', 'X92']
+
 describe('the Kiel dataset', () => {
   it('has the KVG bus lines and the two Förde ferries', () => {
     const ids = new Set(network.lines.map((l) => l.id))
@@ -81,7 +91,10 @@ describe('the Kiel dataset', () => {
 
   it('has real departures for nearly every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 2)
+    const idle = network.lines
+      .filter((line) => !SEASONAL_LINES.includes(line.id) && !withDepartures.includes(line.id))
+      .map((line) => line.id)
+    expect(idle.length, `without departures: ${idle.join(', ')}`).toBeLessThanOrEqual(2)
     expect(withDepartures).toContain('F1')
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,

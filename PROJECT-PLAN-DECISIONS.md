@@ -92,9 +92,11 @@ and the chosen day's weekday is not fixed either: Cologne's was a
 Friday one night and a Monday the night after, on which KVB's
 five weekend-night rings have no trip, and that nightly run
 failed on 74 of 80 lines against a tolerance of three. A
-line that runs on some days of the week alone is named in its city's
-test and left out of the count (`WEEKEND_NIGHT_LINES` in
-`tests/cologne.test.ts`, `PART_WEEK_FERRIES` in `tests/berlin.test.ts`),
+line that runs on some days of the week alone, or in a season, is named
+in its city's test and left out of the count (`WEEKEND_NIGHT_LINES` in
+`tests/cologne.test.ts`, `PART_WEEK_FERRIES` in `tests/berlin.test.ts`,
+`SEASONAL_LINES` in `tests/kiel.test.ts` – the beach lines, whose season
+ended on the Sunday before the Monday the run of 10 October 2026 chose),
 not absorbed by a wider tolerance. Berlin's were found by
 running the GTFS step in a scratch copy of the repo (`git archive
 HEAD`) with its day loop held to one date and the unit suite over the
@@ -1279,7 +1281,7 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 | City | Watch out for |
 |---|---|
 | **Rostock** | The default city and the byte-stability canary — its output stayed identical through every pipeline change above |
-| **Kiel** | `clip: "box"` so Laboe/Strande stay on the map; ~1800 community-mapped lamps (2/km vs Rostock's 16/km) — lamps are always on, there is no per-city switch |
+| **Kiel** | `clip: "box"` so Laboe/Strande stay on the map; ~1800 community-mapped lamps (2/km vs Rostock's 16/km) — lamps are always on, there is no per-city switch. The beach lines X90 (daily) and X92 (weekends) run in summer alone – in 2026 until 11 October – and are idle, correctly, on a service day outside it; line 72 has no route in the feed at all |
 | **Hamburg** | Rebuilt from scratch via `add-city 62782` — **do not restore files from git history before 3e57f1c**. Terrain patch above. Open: the "St. Pauli" AIS twin (the only AIS "ST. PAULI" is a 19×6 m launch, not the 30 m ferry) |
 | **Berlin** | Buses limited to `^(M[0-9]+\|100\|200\|300)$` for load — some 700 vehicles at 08:30, twice Rostock; measure the 08:30 snapshot in [tests/berlin.test.ts](tests/berlin.test.ts) before adding more. `waterLevelNhn: null` because the Berlin DGM carries the lakes. The ferries F21 and F23 sail Tuesday to Sunday, the F24 at weekends – idle, correctly, on a Monday's service day, the F24 on every weekday's |
 | **Cologne** | KVB 181 is not on the map: its OSM relation came back as a four-stop stub (53 ways with gaps) that placed 18 of 216 GTFS trips – check the relation before expecting it. Line 197 has no GTFS departures. The night rings 123, 156, 165, 166 and 167 run Friday to Sunday only and are idle, correctly, on a service day from Monday to Thursday |
