@@ -17,13 +17,14 @@ on:
     # edit and nothing new to ship – neither the markdown nor docs/ (the
     # README's screenshots) enters dist, and no build or test reads them –
     # so a push (or a PR) that touches only .md files and docs/ skips the
-    # whole pipeline. A commit that changes prose AND code still runs it
-    # in full: the filter looks at everything the push touched, not at
-    # each file. Nightly and manual runs carry no paths at all and are
-    # unaffected.
-    paths-ignore: ['**.md', 'docs/**']
+    # whole pipeline. The same holds for .claude/, Claude Code's hooks,
+    # skills and agents: tooling for the editor, read by no build or test.
+    # A commit that changes prose AND code still runs it in full: the
+    # filter looks at everything the push touched, not at each file.
+    # Nightly and manual runs carry no paths at all and are unaffected.
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**']
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
   workflow_dispatch:
     inputs:
       refresh_data:

@@ -104,7 +104,7 @@ result: a Monday broke Berlin's count as well, a Wednesday nothing.
 The root tsconfig is solution-style with project references; the `--noEmit`
 shortcut skips [tsconfig.app.json](tsconfig.app.json), which is what includes
 `tests/`. A tuple error in a test once passed locally and failed CI exactly
-this way.
+this way. A hook refuses the shortcut (see "Claude Code's own tooling").
 
 **There is no formatter, and no linter either.** The repo carries no
 Prettier configuration (no `.prettierrc`, no `prettier` key in
@@ -115,7 +115,7 @@ therefore runs with Prettier's defaults – double quotes, semicolons,
 80 columns – and rewrites every line of every file it touches. It did
 once: four component files were restored from HEAD with
 `git show HEAD:<file> > <file>` and the edits made again by hand. Do
-not run it; match the surrounding code instead.
+not run it; match the surrounding code instead – a hook refuses it.
 
 **Unit tests run in Node; a DOM is opted into per file.** The `test` block in
 [vite.config.ts](vite.config.ts) sets `environment: 'node'`, and the files
@@ -230,7 +230,36 @@ copy – a before/after measurement – symlink `public/cesium` as well (the
 postinstall's copy, untracked): without it the dev server answers
 Cesium's workers with index.html, no entity geometry is ever built, and
 the copy measures a different map (a Phase 6 baseline was thrown away
-for it).
+for it) – and `.env`, or the copy has no ion token and draws the
+wireframe globe. `measure --compare <rev>` does all of it (below).
+
+**Claude Code's own tooling lives in `.claude/`, and it repeats rules from
+this file.** [settings.json](.claude/settings.json) runs two hooks:
+[guard-bash.sh](.claude/hooks/guard-bash.sh) refuses `prettier` and
+`tsc --noEmit` in any form – the two incidents above – and
+[gate.sh](.claude/hooks/gate.sh), at the end of every turn that changed
+something, runs `npm run typecheck` when TypeScript changed and the six
+parity scripts when a PHP twin or what its TypeScript original imports
+changed, silent on a diff that already passed (4 s and 1.5 s here). Two
+skills: `commit` – the sweep, the checks, the register above, and the
+pull before a push, since the nightly run commits to `main` – and
+`measure` ([measure.mjs](.claude/skills/measure/measure.mjs)), the method
+of "How to actually measure a frame" as a script. Two agents:
+`decisions-reviewer` holds a diff against this file, `feed-detective`
+finds out why a nightly run or a line's data went wrong and returns the
+cause, not the log. Five hookify rules (`.claude/hookify.*.local.md`, the
+plugin enabled for the project) catch what this file found the hard way:
+a per-component stylesheet (blocked), `oklch()` handed to Cesium's colour
+parser, `scrollIntoView` in a card, a fixed e2e wait of three seconds and
+more, a Tailwind class assembled at runtime. All of it quotes this file,
+so a rule that changes here changes there – the gate's lists most of all,
+which follow ci.yml's parity step and the parity scripts' imports. The
+Playwright MCP (headed Chrome at 1600×1000, coordinate clicks for the
+canvas) is configured outside the repository, in the local scope.
+Context7 was installed and taken out again: it wants an account, and
+what the code needs to know ships in `node_modules` – Cesium's source,
+the other packages' types. A push that touches nothing but `.claude/`
+starts no CI run, like one of prose.
 
 ---
 
@@ -1670,6 +1699,21 @@ the wrong path before this was understood.
 
 ### How to actually measure a frame
 
+The method is a script now – the `measure` skill,
+`node .claude/skills/measure/measure.mjs --help` – which boots the city
+paused at a whole second, waits for the tiles as below, and interleaves
+its subjects over rounds: runtime knobs on one page (`--variants
+'msaa=1;msaa=2'`), or the working tree against an older commit
+(`--compare <rev>`, a `git archive` copy with its own dev server). Its
+`shader` mode is the online check `TIME_OF_DAY_SHADER` needs (see
+"Offline mode does not compile the tile shader"). It reports any request a
+build failed to load: a copy's dev server once refused the Inter font
+with a 403 – its dependencies resolve to the repository's files, outside
+the copy's root, so the copy runs with the repository's `node_modules`
+in Vite's `server.fs.allow`, spelt as a real path (macOS's temp dir is
+`/var/…`, a link to `/private/var/…`, and the other spelling refused the
+copy's own files). What it does:
+
 Headed Playwright Chromium + `EXT_disjoint_timer_query_webgl2` (available there
 on the development machine; readPixels-synced timing has ~7 ms of sync
 overhead). Wait for `__mg3d.tilesetStatus() === 'google-3d-tiles'` **and**
@@ -2732,7 +2776,9 @@ For any AIS change, mind the PHP/TS parity: `scripts/test-ais-parity.mjs`,
 `scripts/test-ais-state.mjs`, `scripts/test-ais-archive-parity.mjs` and
 `scripts/test-php-parser.mjs` run in CI – and for the aircraft
 `scripts/test-aircraft-parity.mjs` and
-`scripts/test-aircraft-archive-parity.mjs`. If ships appear undersized, check
+`scripts/test-aircraft-archive-parity.mjs`; locally the Stop hook runs all
+six when a twin or what it imports changed, so a new parity script goes
+into [gate.sh](.claude/hooks/gate.sh)'s list as well. If ships appear undersized, check
 production for null `lengthM` first — that is a learning/window problem, not a
 model bug.
 

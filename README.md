@@ -343,6 +343,8 @@ scripts/                    # the data pipeline (fetch-*.mjs, simplify-network.m
                             # build-readme-screenshots.mjs, build-terrain-patch.mjs, test-*.mjs (parity)
 tests/                      # Vitest – incl. one file per city pinning its lines, heights and fleet
 e2e/                        # Playwright, offline and deterministic
+.claude/                    # Claude Code: hooks, the commit and measure skills (measure.mjs times
+                            # frames on the real GPU), review and data agents, hookify rules
 ```
 
 **How the simulation works.** Departures and every trip's stop times come
