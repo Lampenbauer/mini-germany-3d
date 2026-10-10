@@ -248,10 +248,11 @@ jobs:
           # from the cache above), unpacked once and scanned ONCE for every
           # city – the script picks each city's trips out of the same pass
           # (a city at a time was thirteen scans of the 2.2 GB
-          # stop_times.txt, ten minutes a night). A city without trips
-          # keeps its previous schedule, with a warning annotation from the
-          # script; a feed that serves no city at all fails the run, as it
-          # always did.
+          # stop_times.txt, ten minutes a night). A city without trips, or
+          # with fewer than half of its lines running (an operator missing
+          # from the export), keeps its previous schedule, with a warning
+          # annotation from the script; a feed that serves no city at all
+          # fails the run, as it always did.
           npm run data:gtfs
 
       # What the build is made OF, not which commit asked for it: the

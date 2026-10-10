@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
+import { tooFewLinesRunning } from '../scripts/fetch-gtfs-schedule.mjs'
 import { committedDataFiles, loadRostockNetwork, rostockSchedule } from './cities'
 import {
   buildAllTrips,
@@ -123,5 +124,16 @@ describe('the committed data files', () => {
         expect(String(value), `${name} meta.${key}`).not.toMatch(/^\d{4}-?\d{2}-?\d{2}$/)
       }
     }
+  })
+
+  it('are not replaced by a schedule that lost most of the city', () => {
+    // Hanover from gtfs.de's export of 10 October 2026: its S-Bahn alone
+    expect(tooFewLinesRunning(49, 9)).toBe(true)
+    // An ordinary day's gaps: Cologne's weekend night rings, Kiel's beach lines
+    expect(tooFewLinesRunning(80, 75)).toBe(false)
+    expect(tooFewLinesRunning(42, 39)).toBe(false)
+    // Half is enough
+    expect(tooFewLinesRunning(14, 7)).toBe(false)
+    expect(tooFewLinesRunning(14, 6)).toBe(true)
   })
 })

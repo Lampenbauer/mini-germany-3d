@@ -62,8 +62,9 @@ rows (`prepareCity` → `scanStopTimes` → `finishCity` in
 [fetch-gtfs-schedule.mjs](scripts/fetch-gtfs-schedule.mjs)); a city
 at a time was thirteen scans of the same 38 million rows, 47 s each on
 the runner, ten minutes a night for a minute's work. A city that fails
-keeps its schedule with a warning annotation; the step fails only when
-every city did. **The nightly run skips the E2E suite** (a settled
+keeps its schedule with a warning annotation, and so does one whose new
+schedule would run fewer than half of its lines (see "A feed that lost
+an operator"); the step fails only when every city did. **The nightly run skips the E2E suite** (a settled
 decision, to save Actions minutes – running every second night instead
 was weighed, later tried as well, and dropped again): the suite is
 fifteen of the run's twenty minutes and tests the code, which the night
@@ -1073,6 +1074,19 @@ has run out** chooses a service day with no trip at all: `finishCity`
 now fails the city rather than write an empty schedule (the local cache
 in `scripts/.cache/gtfs.zip` is unconditional – delete it for a fresh
 feed; the first run wrote thirteen empty files from a month-old one).
+**A feed that lost an operator** is refused the same way: a schedule
+that would run fewer than half of the city's network lines is not
+written (`tooFewLinesRunning`), and the city keeps its previous one.
+gtfs.de's export of 10 October 2026 carried no Großraumverkehr
+Hannover – stops inside the city 1671 → 29, trips 14 711 → 932, the
+S-Bahn's 9 lines of 49 left; LK Schaumburg, Bremerhavenbus and most of
+Wilmering went with it – and the schedule it wrote failed Hanover's
+test and with it every city's commit that night, where on an ordinary
+day every city runs 94–100 % of its lines. The service-day log the
+data commit's message is made of is written with the schedule, so a
+city that kept its previous one is not listed. Run on that feed with
+the guard, the step kept Hanover's schedule, wrote the other twelve,
+and the unit suite passed over the result.
 
 **The height chord is densified where it misses the terrain, and the
 offset is a field.** Two of the reasons a line floated or sank (Phase 3

@@ -106,6 +106,20 @@ export function routeTypesForCity(city) {
   return types
 }
 
+/**
+ * Whether a schedule is too thin to replace the one a city has: fewer than
+ * half of its network's lines with a trip on the chosen day. A feed that
+ * lost an operator comes out like that – gtfs.de's export of 10 October
+ * 2026 carried no Großraumverkehr Hannover, and Hanover's schedule kept its
+ * S-Bahn alone, 9 of 49 lines, where every city runs 94–100 % of its lines
+ * on an ordinary day. Written, it failed the city's test and with it every
+ * city's commit that night; refused, the city keeps its previous schedule
+ * and the others commit theirs.
+ */
+export function tooFewLinesRunning(networkLineCount, linesWithTrips) {
+  return linesWithTrips * 2 < networkLineCount
+}
+
 // Ferry routes that match no pier name are held onto and assigned to a
 // network ferry line later via their terminal coordinates (the gtfs.de
 // feed carries the Rostock Warnow ferries as "FÄ1"/"FÄ2" with an EMPTY
@@ -867,6 +881,9 @@ function finishCity(collector, calendar, tripRecords) {
 
   let activeServiceIds
   let serviceDate = null
+  // The line the data commit's message is made of – written with the
+  // schedule, so a city that keeps its previous one is not listed
+  let serviceDayLine = null
   if (calendarServices.size > 0 || calendarExceptions.size > 0) {
     // Try the next 21 days; the day with the most active city trips wins
     // (ties go to the earlier day).
@@ -902,9 +919,7 @@ function finishCity(collector, calendar, tripRecords) {
           '(a cached download whose calendar ended? delete scripts/.cache/gtfs.zip)',
       )
     }
-    if (process.env.SERVICE_DAY_LOG) {
-      appendFileSync(process.env.SERVICE_DAY_LOG, `${city.slug}: ${serviceDate} (${best.count} trips)\n`)
-    }
+    serviceDayLine = `${city.slug}: ${serviceDate} (${best.count} trips)\n`
   } else {
     // Fallback without calendar data: the single busiest service_id
     const tripsPerService = new Map()
@@ -1390,7 +1405,18 @@ function finishCity(collector, calendar, tripRecords) {
     lines,
   }
 
+  const running = Object.keys(lines).length
+  if (tooFewLinesRunning(networkLines.size, running)) {
+    throw new Error(
+      `only ${running} of the network's ${networkLines.size} lines have a trip on ` +
+        `${serviceDate ?? 'the chosen day'} – the feed has lost most of the city ` +
+        '(an operator missing from the export?)',
+    )
+  }
   writeFileSync(OUT, scheduleJsonText(schedule), 'utf8')
+  if (serviceDayLine && process.env.SERVICE_DAY_LOG) {
+    appendFileSync(process.env.SERVICE_DAY_LOG, serviceDayLine)
+  }
   const summary = Object.entries(lines)
     .map(
       ([id, dirs]) =>
