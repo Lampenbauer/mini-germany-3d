@@ -45,6 +45,27 @@ export function boundToFixedLine(
   bridges: [number, number][],
 ): { path: number[][]; tunnels: [number, number][]; bridges: [number, number][]; stopNodes: FixedLineStopNode[] } | null
 
+export const MIN_CUT_ROUTE_METERS: number
+
+export function clipToBounds(
+  path: number[][],
+  cum: number[],
+  stopNodes: FixedLineStopNode[],
+  isInside: (lon: number, lat: number) => boolean,
+  tunnels: [number, number][],
+  bridges: [number, number][],
+):
+  | {
+      path: number[][]
+      tunnels: [number, number][]
+      bridges: [number, number][]
+      stopNodes: FixedLineStopNode[]
+      droppedStops: number
+    }
+  | { skip: 'outside' }
+  | { skip: 'stub'; lengthMeters: number; keptStops: number }
+  | null
+
 export const NAME_INHERIT_RADIUS: number
 
 export function inheritUnnamedStopNames(

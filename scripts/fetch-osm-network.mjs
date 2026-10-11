@@ -412,13 +412,28 @@ export function boundToFixedLine(path, cum, stopNodes, fixed, tunnels, bridges) 
 }
 
 /**
+ * The least a route cut where it leaves the city (its limits, or the
+ * padded box) must keep to stay on the map. A line from outside that
+ * reaches across the limits for a stop or two is a stub the cut leaves,
+ * not a line of the city: Cologne's 192 runs from Hürth and kept two
+ * stops in Meschenich, 344 m of route, which turned the nightly run red
+ * the week OSM gave its relations the KVB's operator tag.
+ * The same number as the floor in tests/network.test.ts, so a cut route
+ * the importer keeps is one the test accepts. Only a cut route is
+ * measured: a short route that never leaves the city is its own line.
+ */
+export const MIN_CUT_ROUTE_METERS = 1000
+
+/**
  * Where a route leaves the area the city keeps – the city limits or the
  * padded box – it is cut down to its longest run of consecutive stops
  * inside that area: the path ends at the last of those stops, and starts
  * at the first where the route came in from outside. Tunnel and bridge
  * ranges are clipped along. Returns null when every stop is inside
- * (nothing to do) and `{ skip: true }` when none is – a relation that
- * only crosses the corner of the box is not a line of this city.
+ * (nothing to do), `{ skip: 'outside' }` when none is – a relation that
+ * only crosses the corner of the box is not a line of this city – and
+ * `{ skip: 'stub' }` when what is left is no longer than
+ * MIN_CUT_ROUTE_METERS.
  *
  * `isInside(lon, lat)` says what counts as inside: the city's limits
  * polygon where it has one (see cityInsidePredicate), else a rectangle.
@@ -429,7 +444,7 @@ export function boundToFixedLine(path, cum, stopNodes, fixed, tunnels, bridges) 
 export function clipToBounds(path, cum, stopNodes, isInside, tunnels, bridges) {
   const inside = stopNodes.map(({ node }) => isInside(node.lon, node.lat))
   if (inside.every(Boolean)) return null
-  if (!inside.some(Boolean)) return { skip: true }
+  if (!inside.some(Boolean)) return { skip: 'outside' }
   let bestStart = -1
   let bestLength = 0
   let runStart = -1
@@ -469,6 +484,13 @@ export function clipToBounds(path, cum, stopNodes, isInside, tunnels, bridges) {
     const cut = clipPathAt(clippedPath, cumPrefix, startDist, 'after', clippedBridges)
     clippedBridges = cut.ranges
     clippedPath = cut.path
+  }
+  // Measured on the path as network.json will hold it – simplified, which
+  // only ever shortens it – so a cut the importer keeps by a hair is not
+  // one the test refuses by a hair.
+  const lengthMeters = cumulative(compactPath(clippedPath)).at(-1)
+  if (!(lengthMeters > MIN_CUT_ROUTE_METERS)) {
+    return { skip: 'stub', lengthMeters, keptStops: bestLength }
   }
   return {
     path: clippedPath,
@@ -742,8 +764,15 @@ export async function buildNetwork(city, outPath) {
       let clipped = false
       if (isInside && mode !== 'ferry' && stopNodes.length >= 2) {
         const cut = clipToBounds(path, cum, stopNodes, isInside, tunnels, bridges)
-        if (cut?.skip) {
+        if (cut?.skip === 'outside') {
           console.warn(`  ⚠ Line ${ref} (${rel.id}): no stop inside the city – relation skipped`)
+          continue
+        }
+        if (cut?.skip === 'stub') {
+          console.log(
+            `  ℹ Line ${ref} (${rel.id}): ${cut.keptStops} stop(s) and ` +
+              `${Math.round(cut.lengthMeters)} m inside the city – a stub of a line from outside, relation skipped`,
+          )
           continue
         }
         if (cut) {

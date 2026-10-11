@@ -126,8 +126,9 @@ flat street map.
 | **Stuttgart** | 16 Stadtbahn lines, S-Bahn, 48 SSB buses | Stadtbahn tagged `light_rail` in OSM; the routes climb 300 m |
 | **Munich** | U1–U8, S1–S8 and S20, 16 trams, MetroBus and ExpressBus | The U8 is Saturday-only and correctly idle on weekdays; no navigable water, no AIS |
 
-S-Bahn and regional lines are cut at the city limits. Every city has a page of
-its own: `/<slug>/` in German, `/en/<slug>/` in English.
+S-Bahn and regional lines are cut at the city limits; a line from outside that
+the cut leaves under a kilometre is left off. Every city has a page of its own:
+`/<slug>/` in German, `/en/<slug>/` in English.
 
 ## Quick start
 

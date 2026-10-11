@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundToFixedLine, clipPathAt, nearestOnPath, stitchWays } from '../scripts/fetch-osm-network.mjs'
+import { boundToFixedLine, clipPathAt, clipToBounds, nearestOnPath, stitchWays } from '../scripts/fetch-osm-network.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
 
 /**
@@ -269,5 +269,32 @@ describe('boundToFixedLine (Kiel F1 relation runs on past Laboe)', () => {
   it('leaves a relation alone whose ends are the named piers', () => {
     expect(boundToFixedLine(path.slice(0, 3), cum.slice(0, 3), stopNodes.slice(0, 3), { from: 'Bahnhof', to: 'Laboe' }, [], [])).toBeNull()
     expect(boundToFixedLine(path, cum, stopNodes, { from: 'Nowhere', to: 'Elsewhere' }, [], [])).toBeNull()
+  })
+})
+
+describe("clipToBounds (Cologne's 192 reaches across the limits for two stops)", () => {
+  const node = (id: number, lon: number) => ({ id, lon, lat: 54.0, tags: {} })
+  // East along a parallel, ~654 m per 0.01° of longitude at 54° N; the
+  // city begins at 12.022.
+  const path = [12.0, 12.01, 12.02, 12.03, 12.04, 12.05].map((lon) => [lon, 54.0])
+  const cum = [0, 653.6, 1307.2, 1960.8, 2614.4, 3268]
+  const isInside = (lon: number) => lon > 12.022
+  const stops = (...lons: number[]) => lons.map((lon, i) => ({ node: node(i + 1, lon) }))
+
+  it('skips a route the cut leaves under a kilometre', () => {
+    const cut = clipToBounds(path, cum, stops(12.0, 12.01, 12.02, 12.025, 12.03), isInside, [], [])
+    expect(cut).toEqual({ skip: 'stub', keptStops: 2, lengthMeters: expect.closeTo(327, 0) })
+  })
+
+  it('keeps a route the cut leaves longer, from its first stop inside', () => {
+    const cut = clipToBounds(path, cum, stops(12.0, 12.01, 12.02, 12.025, 12.04, 12.05), isInside, [], [])
+    expect(cut).toMatchObject({ droppedStops: 3 })
+    expect(cut && 'path' in cut ? cut.path[0][0] : null).toBeCloseTo(12.025, 6)
+  })
+
+  it('skips a route with no stop inside, and leaves a short one wholly inside alone', () => {
+    expect(clipToBounds(path, cum, stops(12.0, 12.01, 12.02), isInside, [], [])).toEqual({ skip: 'outside' })
+    // A line of the city's own is not measured – only what a cut leaves.
+    expect(clipToBounds(path.slice(3, 5), [0, 653.6], stops(12.03, 12.035), isInside, [], [])).toBeNull()
   })
 })

@@ -25,7 +25,8 @@ describe.each(cityNetworks.map((entry) => [entry.city.slug, entry] as const))(
       // Berlin's F24 rows across the Müggelspree in a few dozen meters,
       // its F11 crosses the Spree in 180; Berlin's S3 runs 43 km inside
       // the city. Anything longer than 60 km is a stitching error, not a
-      // line.
+      // line. The importer skips a route the city-limits cut leaves under
+      // the floor (MIN_CUT_ROUTE_METERS in fetch-osm-network.mjs).
       const minLength = line.mode === 'ferry' ? 30 : 1000
       for (const dir of line.directions) {
         expect(dir.stops.length).toBeGreaterThanOrEqual(2)
