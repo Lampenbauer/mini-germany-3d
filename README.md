@@ -120,7 +120,7 @@ flat street map.
 | **Bremen** | 8 trams and 3 night trams, ~40 buses, RS1–RS4 | The Weser ferries have no OSM relations and no timetable; AIS shows the boats |
 | **Schwerin** | 4 trams, 15 buses | The Pfaffenteich ferry has no timetable in any feed and is left off |
 | **Berlin** | U1–U9, S-Bahn, all 22 trams, Metrobus + 100/200/300, 6 BVG ferries | The other 150 bus lines are left out for load (~700 vehicles at rush hour already) |
-| **Hanover** | 15 Stadtbahn lines, S-Bahn, 24 buses | The Stadtbahn is a tram to OSM and an underground to GTFS (`gtfs.routeTypes`) |
+| **Hanover** | 15 Stadtbahn lines, S-Bahn, 24 buses | The Stadtbahn is `light_rail` to OSM (`osmRoutes`) and an underground to GTFS (`gtfs.routeTypes`) |
 | **Cologne** | 12 Stadtbahn lines, S6/S11/S12/S19, ~60 KVB buses | The 181 is out until its OSM relation is whole again |
 | **Frankfurt** | U1–U9, 10 trams, S-Bahn, Metrobus lines | Express buses are regional and excluded |
 | **Stuttgart** | 16 Stadtbahn lines, S-Bahn, 48 SSB buses | Stadtbahn tagged `light_rail` in OSM; the routes climb 300 m |

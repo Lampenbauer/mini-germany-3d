@@ -1258,7 +1258,13 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 - `network.overpass.<mode>.osmRoutes` — which OSM `route=*` values a mode takes.
   Stuttgart's Stadtbahn is tagged `light_rail`, which the default map reads as an
   S-Bahn, so it names `subway: ["light_rail"]` **and** `train: ["train"]`. Two
-  modes claiming the same route value now throws.
+  modes claiming the same route value now throws. Hanover's needs the same
+  since a mapper retagged every ÜSTRA Stadtbahn relation from `tram` to
+  `light_rail` on 30 Sep 2026: `tram: ["tram", "light_rail"]` (one stray
+  line 5 relation is still `tram`) and `train: ["train"]`. The first network
+  refresh to see the edit kept line 5's stray fragment and lost the other
+  fourteen lines; a stale Overpass mirror had hidden it from the scheduled
+  run that morning.
 - `gtfs.routeTypes.<mode>` — which GTFS `route_type` a mode is looked up under.
   Hanover's Stadtbahn is a tram on the map and route_type 1 in the feed; without
   `tram: ["0","900","1"]` all 15 lines stand still. Stuttgart needs none.

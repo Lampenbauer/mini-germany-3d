@@ -11,9 +11,11 @@ import lampsJson from '@/cities/hanover/street-lamps.json'
 /**
  * What the Hanover dataset has to be for the city to make sense on the
  * map. Guards the nightly refresh, and above all the one thing that makes
- * this city special: its Stadtbahn is a tram to OSM and to this map, and
- * an underground (route_type 1) to the GTFS feed. Without the city's own
- * `gtfs.routeTypes` every one of its fifteen lines would stand still.
+ * this city special: its Stadtbahn is a tram on this map, `light_rail` to
+ * OSM (since 30 Sep 2026, `tram` before) and an underground (route_type 1)
+ * to the GTFS feed. Without the city's own `network.overpass.tram.osmRoutes`
+ * the import finds none of its fifteen lines, without its own
+ * `gtfs.routeTypes` every one of them would stand still.
  */
 const city = cityNetworks.find((entry) => entry.city.slug === 'hanover')!
 const network = city.network

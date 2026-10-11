@@ -7,9 +7,9 @@ import rostockJson from '@/cities/rostock/city.json'
 
 /**
  * The two places where a city and the outside world disagree about what a
- * line is. OSM tags a Stadtbahn `light_rail` in Stuttgart and `tram` in
- * Cologne; the GTFS feed calls Hanover's an underground and Cologne's a
- * tram. Both are decided per city, and both default to the map every
+ * line is. OSM tags a Stadtbahn `light_rail` in Stuttgart and Hanover and
+ * `tram` in Cologne; the GTFS feed calls Hanover's an underground and
+ * Cologne's a tram. Both are decided per city, and both default to the map every
  * other city has always used.
  */
 
@@ -36,6 +36,16 @@ describe('which OSM route=* values a mode takes', () => {
     expect(map.light_rail).toBe('subway')
     expect(map.train).toBe('train')
     expect(map.subway).toBeUndefined()
+  })
+
+  it("lets a city's tram take light_rail as well", () => {
+    // ÜSTRA's Stadtbahn went from route=tram to light_rail in OSM on
+    // 30 Sep 2026, but for one stray line 5 relation still tagged tram
+    const hanover = cityBySlug('hanover')!
+    expect(osmRoutesForMode(hanover, 'tram')).toEqual(['tram', 'light_rail'])
+    const map = modeByOsmRoute(hanover)
+    expect(map.light_rail).toBe('tram')
+    expect(map.train).toBe('train')
   })
 
   it('asks the relation for the value the city named', () => {
