@@ -1306,6 +1306,16 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
   2.6 km and stay. Ferries are not cut and not measured.
 - **Overpass flakiness** is normal: 504s for minutes on end, rate limits on the
   lamps step. Rerunning a single step (`data:lamps`) works; CI has retries.
+- **A stale mirror is refused like a dead one:** `postOverpass` reads the
+  answer's `osm3s.timestamp_osm_base` and moves on to the next mirror when
+  the data is older than `MAX_DATA_AGE_MS` (two days). On 11 October 2026
+  overpass.kumi.systems answered with data from before 28 September, while
+  overpass-api.de answered with the day's: the morning run took Hanover
+  from kumi and passed, the afternoon's from overpass-api.de and found its
+  Stadtbahn retagged, and a green night on kumi would have committed the
+  old state over the new. A city whose every mirror is stale keeps its
+  previous data, as for an outage. A saved `OVERPASS_FILE` is read as it
+  is, never judged.
 
 ### Per-city notes
 

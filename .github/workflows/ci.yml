@@ -182,8 +182,8 @@ jobs:
           echo "Cities: $cities"
           # The OSM network changes rarely – fetch it only once a week
           # (Sunday night) to spare the public Overpass mirrors, or when a
-          # manual run asks for it. A failed fetch (mirrors overloaded or
-          # unreachable) keeps the previous network data and must not
+          # manual run asks for it. A failed fetch (mirrors overloaded,
+          # unreachable, or serving data older than two days) keeps the previous network data and must not
           # block the GTFS refresh. The lamps, the airfield lights, the
           # buoys and the lighthouses change slower still – mapped once,
           # touched rarely – and the lamps step is the one that runs into
@@ -238,7 +238,7 @@ jobs:
                 git show "HEAD:src/cities/$city/lighthouses.json" > "$RUNNER_TEMP/lighthouses-prev.json" || true
                 PREV_LIGHTHOUSES="$RUNNER_TEMP/lighthouses-prev.json" npm run data:lighthouses -- --city "$city" || echo "::warning::$city: lighthouse refresh failed – keeping the previous lights."
               else
-                echo "::warning::$city: OSM network refresh failed (Overpass mirrors unreachable) – keeping the previous network data."
+                echo "::warning::$city: OSM network refresh failed (Overpass mirrors unreachable or stale) – keeping the previous network data."
               fi
             done
           else

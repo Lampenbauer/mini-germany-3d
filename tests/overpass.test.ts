@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  MAX_DATA_AGE_MS,
   OVERPASS_MIRRORS,
   RETRY_DELAY_MS,
   isTransientOverpassFailure,
+  overpassDataAgeMs,
   postOverpass,
 } from '../scripts/lib/overpass.mjs'
 
@@ -71,6 +73,20 @@ describe('postOverpass', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(OVERPASS_MIRRORS.length * 2)
   })
 
+  it('refuses a mirror whose data is stale and takes the next', async () => {
+    // overpass.kumi.systems on 11 October 2026: data from before the 28th
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const stamped = (stamp: string, id: number) =>
+      new Response(JSON.stringify({ osm3s: { timestamp_osm_base: stamp }, elements: [{ id }] }), { status: 200 })
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(stamped('2026-09-27T23:59:00Z', 1))
+      .mockResolvedValueOnce(stamped('2026-10-11T15:09:51Z', 2))
+    const nowImpl = () => Date.parse('2026-10-11T15:20:00Z')
+    const data = await postOverpass('rel(1);out;', { fetchImpl, sleepImpl: async () => {}, nowImpl })
+    expect(data).toMatchObject({ elements: [{ id: 2 }] })
+  })
+
   it('does not repeat a query the mirrors reject as such', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A fresh Response per call – a body can only be read once
@@ -90,5 +106,19 @@ describe('isTransientOverpassFailure', () => {
     expect(isTransientOverpassFailure(undefined)).toBe(true)
     expect(isTransientOverpassFailure(400)).toBe(false)
     expect(isTransientOverpassFailure(403)).toBe(false)
+  })
+})
+
+describe('overpassDataAgeMs', () => {
+  const now = Date.parse('2026-10-11T12:00:00Z')
+
+  it('reads the age off the answer, and lets an unstamped one through', () => {
+    expect(overpassDataAgeMs({ osm3s: { timestamp_osm_base: '2026-10-11T11:58:00Z' } }, now)).toBe(120_000)
+    expect(overpassDataAgeMs({ elements: [] }, now)).toBeNull()
+  })
+
+  it('allows a mirror a lag of a day, not a fortnight', () => {
+    expect(MAX_DATA_AGE_MS).toBeGreaterThan(overpassDataAgeMs({ osm3s: { timestamp_osm_base: '2026-10-10T12:00:00Z' } }, now)!)
+    expect(MAX_DATA_AGE_MS).toBeLessThan(overpassDataAgeMs({ osm3s: { timestamp_osm_base: '2026-09-28T00:00:00Z' } }, now)!)
   })
 })

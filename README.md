@@ -257,8 +257,8 @@ definition and network.
 schedules on every run, the OSM network and its heights on Sundays, the
 lamps, airfield lights, buoys and lighthouses on the month's first Sunday.
 Files are byte-stable across reruns, so a night that changed nothing
-deploys nothing. Overpass mirrors fail often; the scripts retry and can be
-pointed at `OVERPASS_URL=…` or a saved `OVERPASS_FILE=…`. The GTFS feed is
+deploys nothing. Overpass mirrors fail often; the scripts retry, refuse a
+mirror whose data is more than two days old, and can be pointed at `OVERPASS_URL=…` or a saved `OVERPASS_FILE=…`. The GTFS feed is
 cached under `scripts/.cache/gtfs.zip`.
 
 ### Live data

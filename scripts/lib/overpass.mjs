@@ -42,6 +42,28 @@ export function isTransientOverpassFailure(status) {
   return status === undefined || status === 429 || status >= 500
 }
 
+/**
+ * The oldest data a mirror may answer with. Every Overpass answer says
+ * how far its database has caught up with OSM (`osm3s.timestamp_osm_base`),
+ * and a healthy instance is minutes behind. On 11 October 2026
+ * overpass.kumi.systems answered with data from before 28 September:
+ * the night's network refresh took Cologne's 192 and Hanover's retagged
+ * Stadtbahn from overpass-api.de on one run and the old state from kumi
+ * on the next, and a green night would have committed the old one. Two
+ * days lets a mirror lag a little; a fortnight undoes edits.
+ */
+export const MAX_DATA_AGE_MS = 2 * 24 * 3600 * 1000
+
+/**
+ * How old an answer's data is, in milliseconds, or null where the answer
+ * does not say (a saved response, a test's) – which is let through, as
+ * nothing can be judged.
+ */
+export function overpassDataAgeMs(data, nowMs = Date.now()) {
+  const stamp = Date.parse(data?.osm3s?.timestamp_osm_base ?? '')
+  return Number.isFinite(stamp) ? nowMs - stamp : null
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
@@ -57,9 +79,15 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * that is a failure, not data. Without the check the caller silently
  * treats the outage as "the city has no street lamps".
  *
- * `fetchImpl` and `sleepImpl` are for the tests.
+ * An answer whose data is older than MAX_DATA_AGE_MS is refused the same
+ * way: a stale mirror is an outage too, not the state of the map.
+ *
+ * `fetchImpl`, `sleepImpl` and `nowImpl` are for the tests.
  */
-export async function postOverpass(query, { validate, fetchImpl = fetch, sleepImpl = sleep } = {}) {
+export async function postOverpass(
+  query,
+  { validate, fetchImpl = fetch, sleepImpl = sleep, nowImpl = Date.now } = {},
+) {
   const errors = []
   for (let round = 1; round <= ROUNDS; round++) {
     if (round > 1) {
@@ -83,6 +111,15 @@ export async function postOverpass(query, { validate, fetchImpl = fetch, sleepIm
           continue
         }
         const data = await response.json()
+        const ageMs = overpassDataAgeMs(data, nowImpl())
+        if (ageMs !== null && ageMs > MAX_DATA_AGE_MS) {
+          const stamp = data.osm3s.timestamp_osm_base
+          const days = (ageMs / 86_400_000).toFixed(1)
+          errors.push(`${url} → stale data (${stamp}, ${days} days old)`)
+          console.warn(`  ⚠ stale data (${stamp}, ${days} days old) – trying next mirror`)
+          retryable = true
+          continue
+        }
         if (validate && !validate(data)) {
           const count = data?.elements?.length ?? 0
           errors.push(`${url} → answered with an implausible result (${count} elements)`)
