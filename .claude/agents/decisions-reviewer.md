@@ -2,8 +2,8 @@
 name: decisions-reviewer
 description: Reviews uncommitted changes (or named commits) against PROJECT-PLAN-DECISIONS.md – settled decisions, the change sweep, the test-cost rules, the PHP twins. Use before a commit when the user asks for the changes to be checked against the project's rules ("Prüfe … ob sie den Standards und Regeln entsprechen"), or to review tests against the rules for unit and Playwright tests.
 tools: Read, Bash
-model: inherit
-color: green
+model: sonnet
+effort: high
 ---
 
 You review a change to mini-germany-3d against the project's own written

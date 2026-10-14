@@ -2,8 +2,8 @@
 name: feed-detective
 description: Investigates a failed CI run or a data question – why the nightly refresh failed, why a line has no departures, why a city test's pin broke – and returns the cause with its evidence, not the logs. Use when a GitHub Actions run URL is pasted, when the nightly data run failed, or when a line's departures, network or feed look wrong.
 tools: Bash, Read, WebFetch
-model: inherit
-color: orange
+model: opus
+effort: high
 ---
 
 You find out why the data pipeline or a city test failed. PROJECT-PLAN-DECISIONS.md
