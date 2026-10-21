@@ -99,15 +99,22 @@ jobs:
       # permissions block grants nothing it does not name, so this line is
       # what keeps that API call out of a 403.
       actions: read
+      # The issue that says which cities a refresh held back (see the
+      # hold-back and the report after the data commit)
+      issues: write
     outputs:
       # Commit the deploy job must match against the live main branch –
       # for nightly runs this is the freshly pushed data commit.
       deploy_sha: ${{ steps.datacommit.outputs.sha || github.sha }}
-      # "false" only on a nightly run that found nothing new (see datacheck).
-      data_changed: ${{ steps.datacheck.outputs.changed }}
+      # "false" only on a nightly run that found nothing new (see datacheck),
+      # or held back every city that had something (see the hold-back).
+      data_changed: ${{ steps.holdback.outputs.changed || steps.datacheck.outputs.changed }}
       # Which run holds the build to deploy, and under which name: this
-      # run, unless an earlier one had already built this very tree.
-      artifact_name: production-dist-${{ steps.tree.outputs.sha }}
+      # run, unless an earlier one had already built this very tree – the
+      # tree after the hold-back put a city's previous data back, or a
+      # later run of the tree with that city's failing data would find this
+      # artifact, skip its tests and commit the data.
+      artifact_name: production-dist-${{ steps.holdback.outputs.tree || steps.tree.outputs.sha }}
       artifact_run_id: ${{ steps.reuse.outputs.run_id || github.run_id }}
     steps:
       - uses: actions/checkout@v7
@@ -147,7 +154,9 @@ jobs:
       # successful processing, so a failed fetch leaves the previous data
       # intact – and every test below still validates the refreshed
       # dataset before anything is committed or deployed. One city's
-      # failure does not cost the others their refresh.
+      # failure does not cost the others their refresh, and neither does
+      # one city's data failing a test: the hold-back below gives that
+      # city its previous data back and lets the others through.
       # The feed is 280 MB and changes about weekly, while the refresh
       # runs nightly: its Last-Modified is the cache key, so an unchanged
       # feed is restored from the cache and only a new one is downloaded.
@@ -252,7 +261,11 @@ jobs:
           # with fewer than half of its lines running (an operator missing
           # from the export), keeps its previous schedule, with a warning
           # annotation from the script; a feed that serves no city at all
-          # fails the run, as it always did.
+          # fails the run, as it always did. Every line without a departure
+          # carries the reason in the file (meta.idle – the feed has no trip
+          # that day, has none of it, or its trips could not be placed),
+          # which the city tests read; one that stopped running tonight is
+          # named in the data commit's message.
           npm run data:gtfs
 
       # What the build is made OF, not which commit asked for it: the
@@ -262,7 +275,9 @@ jobs:
       # minutes of E2E. It has to be read AFTER the refresh above, or a
       # nightly build would be published under the pre-refresh tree.
       # `git add -A` stages the refreshed data (nothing on a normal run,
-      # and never anything gitignored); write-tree then hashes it.
+      # and never anything gitignored); write-tree then hashes it. The
+      # hold-back puts a city's new data back from this tree, and hashes
+      # the tree again when it gave a city its previous data.
       - name: Identify the source tree
         id: tree
         run: |
@@ -319,20 +334,59 @@ jobs:
             echo "No artifact for tree $TREE - building and testing it."
           fi
 
-      # Every step below runs only on something new (see datacheck). They
-      # need the explicit success(): an `if:` of one's own replaces the
-      # implicit one, and a step without it runs even after a failure.
-      - name: Typecheck & unit tests (Vitest)
+      # Every step below runs only on something new (see datacheck) – from
+      # the hold-back on, only on what it left new. They need the explicit
+      # success(): an `if:` of one's own replaces the implicit one, and a
+      # step without it runs even after a failure.
+      - name: Typecheck
         if: >-
           success() && steps.datacheck.outputs.changed == 'true' &&
           steps.reuse.outputs.run_id == ''
+        run: npm run typecheck
+
+      # On a run that refreshed the data a red suite is not the end yet: the
+      # next step holds back the cities whose new data broke it. It reads
+      # the JSON report; naming the reporters drops Vitest's github-actions
+      # one, whose error annotations would stand over a run that went on
+      # green – a push run keeps them, and fails here as it always did.
+      # (`== true`: continue-on-error wants a boolean, and inputs.* is null
+      # outside a manual run.)
+      - name: Unit tests (Vitest)
+        id: unit
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          steps.reuse.outputs.run_id == ''
+        continue-on-error: ${{ github.event_name == 'schedule' || inputs.refresh_data == true || inputs.refresh_osm == true }}
+        env:
+          REFRESH: ${{ github.event_name == 'schedule' || inputs.refresh_data == true || inputs.refresh_osm == true }}
         run: |
-          npm run typecheck
-          npm test
+          if [ "$REFRESH" = "true" ]; then
+            npx vitest run --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
+          else
+            npm test
+          fi
+
+      # One city's data failing a test held back every city's refresh until
+      # 21 October 2026 – three nights running, on a pin in Hanover's test
+      # and a count in Hamburg's. A city whose new data fails keeps its
+      # previous data now, the others go on to be committed and deployed,
+      # and the issue after the data commit says which and why (see
+      # scripts/hold-back-cities.mjs). Red only when no city's data explains
+      # the failure: the code, the clock.
+      - name: Hold back the cities whose new data fails (nightly or on request)
+        id: holdback
+        if: success() && steps.unit.outcome == 'failure'
+        env:
+          TREE: ${{ steps.tree.outputs.sha }}
+          VITEST_REPORT: ${{ runner.temp }}/vitest.json
+          SERVICE_DAY_LOG: ${{ runner.temp }}/service-days.txt
+          HELD_BACK_LOG: ${{ runner.temp }}/held-back.txt
+        run: node scripts/hold-back-cities.mjs
 
       - name: PHP twin parity tests (api/realtime.php, api/ais.php, api/aircraft.php)
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == ''
         run: |
           node scripts/test-php-parser.mjs
@@ -344,7 +398,8 @@ jobs:
 
       - name: Production build
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == ''
         run: |
           # Every build gets the domain-restricted token, because every
@@ -380,13 +435,15 @@ jobs:
       # go out with the next data commit.
       - name: Install Playwright Chromium
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == '' && github.event_name != 'schedule'
         run: npx playwright install --with-deps chromium
 
       - name: E2E tests (Playwright, offline mode)
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == '' && github.event_name != 'schedule'
         run: npm run test:e2e
 
@@ -400,13 +457,15 @@ jobs:
             test-results/
           retention-days: 7
 
-      # Only after all tests passed: persist the refreshed data on main.
+      # Only after all tests passed – over the data of every city the
+      # hold-back let through: persist the refreshed data on main.
       # Pushes via GITHUB_TOKEN do not trigger a new CI run – deploy
       # happens in this same workflow run below.
       - name: Commit refreshed data (nightly or on request)
         id: datacommit
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm)
         run: |
           git add -- src/cities
@@ -418,15 +477,64 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             # The service day each schedule was cut from is not in the file
             # (it moves with the calendar and would defeat the "anything
-            # new?" check above) – it is recorded here instead
+            # new?" check above) – it is recorded here instead, with the
+            # lines that stopped running or came back, and the cities held
+            # back with the test that held them
             {
               echo "Nightly data refresh (OSM network and/or GTFS schedule)"
               echo
               echo "Service days chosen (the busiest of the next three weeks per city):"
               cat "$RUNNER_TEMP/service-days.txt" 2>/dev/null || echo "(none – no GTFS refresh this run)"
+              if [ -s "$RUNNER_TEMP/held-back.txt" ]; then
+                echo
+                echo "Held back (previous data kept):"
+                cat "$RUNNER_TEMP/held-back.txt"
+              fi
             } | git commit -F -
             git push origin HEAD:main
             echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # While a refresh holds a city back, an issue says so – GitHub mails
+      # its opening – and the first data night that holds none back closes
+      # it. A held city's trip ids go stale with its schedule and
+      # realtime.php stops finding its delays: it wants a look within days.
+      # The description follows the night; a comment only when the cities
+      # held back change, not one a night. Never fatal: the data is
+      # committed by now and the deploy below must not hang on GitHub's API.
+      - name: Report held-back cities in an issue (nightly or on request)
+        if: >-
+          success() && steps.datacheck.outputs.changed == 'true' &&
+          (github.event_name == 'schedule' || inputs.refresh_data || inputs.refresh_osm)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'Nightly data refresh: cities held back'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          held="$RUNNER_TEMP/held-back.txt"
+          open="$(gh issue list --state open --limit 100 --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n 1)"
+          if [ -s "$held" ]; then
+            {
+              echo "@$OWNER – the nightly data refresh held these cities back: their new data failed the unit tests, so they keep their previous data while the other cities were committed."
+              echo
+              sed 's/^/- /' "$held"
+              echo
+              echo "Last seen in $RUN_URL. A held city's trip ids go stale with its schedule, and its realtime delays stop matching. This issue closes itself on the first night that holds no city back."
+            } > "$RUNNER_TEMP/issue.md"
+            if [ -z "$open" ]; then
+              gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/issue.md"
+            else
+              before="$(gh issue view "$open" --json body --jq .body | grep -o '^- [a-z]*:' | sort)"
+              gh issue edit "$open" --body-file "$RUNNER_TEMP/issue.md"
+              if [ "$before" != "$(grep -o '^- [a-z]*:' "$RUNNER_TEMP/issue.md" | sort)" ]; then
+                gh issue comment "$open" --body "Held back now: $(cut -d: -f1 "$held" | xargs) – $RUN_URL"
+              fi
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" --comment "Every city's data passed in $RUN_URL – nothing is held back any more."
           fi
 
       # Every build that happened is kept, whatever branch it came from:
@@ -436,7 +544,8 @@ jobs:
       # here to package.
       - name: Prepare deployment artifact
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == ''
         run: |
           mkdir -p dist/api
@@ -461,12 +570,14 @@ jobs:
 
       - name: Upload deployment artifact
         if: >-
-          success() && steps.datacheck.outputs.changed == 'true' &&
+          success() &&
+          (steps.holdback.outputs.changed || steps.datacheck.outputs.changed) == 'true' &&
           steps.reuse.outputs.run_id == ''
         uses: actions/upload-artifact@v7
         with:
-          # The tree is the identity – see "Identify the source tree".
-          name: production-dist-${{ steps.tree.outputs.sha }}
+          # The tree is the identity – see "Identify the source tree" and
+          # the job's artifact_name.
+          name: production-dist-${{ steps.holdback.outputs.tree || steps.tree.outputs.sha }}
           path: dist/
           include-hidden-files: true
           if-no-files-found: error

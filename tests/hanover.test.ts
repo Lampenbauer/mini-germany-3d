@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import scheduleJson from '@/cities/hanover/schedule.json'
 import lampsJson from '@/cities/hanover/street-lamps.json'
 
@@ -90,10 +96,17 @@ describe('the Hanover dataset', () => {
 
   it('gives its Stadtbahn real departures although the feed calls it an underground', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 4)
-    // The Stadtbahn lines – the ones the route_type override is for
-    for (const id of ['1', '3', '7', '10', '13']) expect(withDepartures).toContain(id)
-    for (const id of ['S1', '100']) expect(withDepartures).toContain(id)
+    // The 16, 267 and S8 are not in the feed; the 10 had no trip on the
+    // chosen day in the autumn holidays of 2026, and the feed's calendar
+    // says so
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    // The Stadtbahn lines – the ones the route_type override is for: lost,
+    // they would read as not in the feed, which no pin excuses
+    expect(pinnedLinesMissing(['1', '3', '7', '10', '13'], withDepartures, schedule)).toEqual([])
+    expect(pinnedLinesMissing(['S1', '100'], withDepartures, schedule)).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -102,8 +115,9 @@ describe('the Hanover dataset', () => {
     expect(snapshots.length).toBeGreaterThan(120)
     expect(snapshots.length).toBeLessThan(500)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['1', '3', '4', '7', '9', '10']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['1', '3', '4', '7', '9', '10'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

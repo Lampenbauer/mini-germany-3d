@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import scheduleJson from '@/cities/lubeck/schedule.json'
 import lampsJson from '@/cities/lubeck/street-lamps.json'
 
@@ -89,8 +95,11 @@ describe('the Lübeck dataset', () => {
 
   it('has real departures for every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 2)
-    for (const id of ['1', '5', '11', '30']) expect(withDepartures).toContain(id)
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(pinnedLinesMissing(['1', '5', '11', '30'], withDepartures, schedule)).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -99,8 +108,9 @@ describe('the Lübeck dataset', () => {
     expect(snapshots.length).toBeGreaterThan(50)
     expect(snapshots.length).toBeLessThan(300)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['1', '4', '11', '30']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['1', '4', '11', '30'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import bremenScheduleJson from '@/cities/bremen/schedule.json'
 import bremenLampsJson from '@/cities/bremen/street-lamps.json'
 
@@ -96,10 +102,15 @@ describe('the Bremen dataset', () => {
 
   it('has real departures for nearly every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    // Left without: the 66 and N94 (no trips that day) and the RS4, whose
-    // two-stop stub inside the city its trips did not project onto.
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 4)
-    for (const id of ['1', '4', '6', 'RS1', '26', '90', 'N7']) expect(withDepartures).toContain(id)
+    // The RS4's two-stop stub inside the city is one its trips may not
+    // project onto; the feed of 20 October 2026 had no N94 at all
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(
+      pinnedLinesMissing(['1', '4', '6', 'RS1', '26', '90', 'N7'], withDepartures, schedule),
+    ).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -108,14 +119,15 @@ describe('the Bremen dataset', () => {
     expect(snapshots.length).toBeGreaterThan(150)
     expect(snapshots.length).toBeLessThan(600)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['1', '2', '4', '6', '10', 'RS1', '26', '90']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['1', '2', '4', '6', '10', 'RS1', '26', '90'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
     // The night lines run in the weekend nights only – the feed's Friday
     // carries them as its small hours – so they are out at a quarter past
     // three and in by day
     const night = new Set(sim.snapshotsAt(3.25 * 3600).map((s) => s.lineId))
-    expect(night).toContain('N1')
+    expect(pinnedLinesMissing(['N1'], night, schedule), 'out at night').toEqual([])
     expect(activeLines).not.toContain('N1')
   })
 })

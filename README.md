@@ -257,7 +257,11 @@ definition and network.
 schedules on every run, the OSM network and its heights on Sundays, the
 lamps, airfield lights, buoys and lighthouses on the month's first Sunday.
 Files are byte-stable across reruns, so a night that changed nothing
-deploys nothing. Overpass mirrors fail often; the scripts retry, refuse a
+deploys nothing. A line the feed does not run on the chosen day stands
+still, with the reason in the schedule (`meta.idle`) and its name in the
+night's commit message; a city whose new data fails the tests keeps its
+previous data while the others are committed, and an issue says which
+and why. Overpass mirrors fail often; the scripts retry, refuse a
 mirror whose data is more than two days old, and can be pointed at `OVERPASS_URL=…` or a saved `OVERPASS_FILE=…`. The GTFS feed is
 cached under `scripts/.cache/gtfs.zip`.
 
@@ -338,7 +342,8 @@ src/
                             # the render loop's pacing, the test API (window.__mg3d)
 
 server/api/                 # realtime.php, ais.php, aircraft.php, webcams.php – the PHP twins
-scripts/                    # the data pipeline (fetch-*.mjs, simplify-network.mjs, add-city.mjs),
+scripts/                    # the data pipeline (fetch-*.mjs, simplify-network.mjs, add-city.mjs,
+                            # hold-back-cities.mjs for the night a city's data fails),
                             # build-vehicle-models.mjs (procedural GLBs for vehicles, ships, aircraft,
                             # buoys), build-og-images.mjs, build-globe-images.mjs,
                             # build-readme-screenshots.mjs, build-terrain-patch.mjs, test-*.mjs (parity)

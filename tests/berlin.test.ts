@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import berlinScheduleJson from '@/cities/berlin/schedule.json'
 
 /**
@@ -18,15 +24,6 @@ import berlinScheduleJson from '@/cities/berlin/schedule.json'
 const berlin = cityNetworks.find((entry) => entry.city.slug === 'berlin')!
 const network = berlin.network
 const schedule = berlinScheduleJson as ScheduleJson
-
-/**
- * The ferries that do not sail every day of the week: the F21 and the F23
- * from Tuesday to Sunday, the F24 at weekends alone (two feeds three
- * weeks apart agree), so a Monday's service day has none of
- * the three and any weekday's no F24. Which weekday the service day is
- * moves with the calendar – see WEEKEND_NIGHT_LINES in cologne.test.ts.
- */
-const PART_WEEK_FERRIES = ['F21', 'F23', 'F24']
 
 describe('the Berlin dataset', () => {
   it('has the U-Bahn, the S-Bahn, the trams, the Metrobus lines and the ferries', () => {
@@ -74,13 +71,13 @@ describe('the Berlin dataset', () => {
   })
 
   it('has real departures for nearly every line, rounds on the ring, and runs a full morning', () => {
-    const withDepartures = Object.keys(schedule.lines ?? {})
-    // The ferries that do not sail every day are not counted, the chosen
-    // day may be one they do not sail on
-    const idle = network.lines
-      .filter((line) => !PART_WEEK_FERRIES.includes(line.id) && !withDepartures.includes(line.id))
-      .map((line) => line.id)
-    expect(idle.length, `without departures: ${idle.join(', ')}`).toBeLessThanOrEqual(3)
+    // The ferries that do not sail every day – the F21 and the F23 from
+    // Tuesday to Sunday, the F24 at weekends – are idle on a day they do
+    // not sail, and the feed's calendar says so
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
     for (const id of ['S41', 'S42']) {
       const rounds = Object.values(schedule.lines?.[id] ?? {}).reduce((n, d) => n + d.departures.length, 0)
       expect(rounds, `${id} rounds a day`).toBeGreaterThan(150)
@@ -95,8 +92,9 @@ describe('the Berlin dataset', () => {
     expect(snapshots.length).toBeGreaterThan(400)
     expect(snapshots.length).toBeLessThan(2000)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['U1', 'U5', 'S41', 'S42', 'M4', 'M10', '100']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['U1', 'U5', 'S41', 'S42', 'M4', 'M10', '100'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

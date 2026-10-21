@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import hamburgScheduleJson from '@/cities/hamburg/schedule.json'
 import hamburgLampsJson from '@/cities/hamburg/street-lamps.json'
 
@@ -77,8 +83,14 @@ describe('the Hamburg dataset', () => {
 
   it('has real departures for nearly every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 2)
-    for (const id of ['U1', 'S1', '62']) expect(withDepartures).toContain(id)
+    // In the autumn holidays of 2026 the S2 and the ferry 65 had no trip on
+    // the chosen day – the feed's calendar says so – and the S7's 90 trips
+    // ran a route the network does not follow and could not be placed
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(pinnedLinesMissing(['U1', 'S1', '62'], withDepartures, schedule)).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -87,8 +99,9 @@ describe('the Hamburg dataset', () => {
     expect(snapshots.length).toBeGreaterThan(300)
     expect(snapshots.length).toBeLessThan(1000)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['U1', 'U3', 'S1', '5', '62']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['U1', 'U3', 'S1', '5', '62'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

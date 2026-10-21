@@ -64,7 +64,11 @@ at a time was thirteen scans of the same 38 million rows, 47 s each on
 the runner, ten minutes a night for a minute's work. A city that fails
 keeps its schedule with a warning annotation, and so does one whose new
 schedule would run fewer than half of its lines (see "A feed that lost
-an operator"); the step fails only when every city did. **The nightly run skips the E2E suite** (a settled
+an operator"); the step fails only when every city did. A city whose
+new data fails the unit tests is **held back** the same way: it keeps
+its previous data, the others are committed and deployed, the run stays
+green, and an issue says which city and which test (see "A city test
+pins a line"). **The nightly run skips the E2E suite** (a settled
 decision, to save Actions minutes – running every second night instead
 was weighed, later tried as well, and dropped again): the suite is
 fifteen of the run's twenty minutes and tests the code, which the night
@@ -86,22 +90,69 @@ ahead was the Friday of the Marathon weekend, on which the 100 is a
 3 km shuttle Zoo ↔ Nordische Botschaften (the trips carry `spans`), 11
 minutes on a 15-minute headway, and both directions were between trips
 at that second – the data was right, the pin was too sharp. A new
-city's test uses the helper; a line absent from it on the chosen day is
-a fact to look at in the feed's calendar, not a reason to widen the
-window. The count of lines with departures is the same kind of pin,
-and the chosen day's weekday is not fixed either: Cologne's was a
-Friday one night and a Monday the night after, on which KVB's
-five weekend-night rings have no trip, and that nightly run
-failed on 74 of 80 lines against a tolerance of three. A
-line that runs on some days of the week alone, or in a season, is named
-in its city's test and left out of the count (`WEEKEND_NIGHT_LINES` in
-`tests/cologne.test.ts`, `PART_WEEK_FERRIES` in `tests/berlin.test.ts`,
-`SEASONAL_LINES` in `tests/kiel.test.ts` – the beach lines, whose season
-ended on the Sunday before the Monday the run of 10 October 2026 chose),
-not absorbed by a wider tolerance. Berlin's were found by
-running the GTFS step in a scratch copy of the repo (`git archive
-HEAD`) with its day loop held to one date and the unit suite over the
-result: a Monday broke Berlin's count as well, a Wednesday nothing.
+city's test uses the helper.
+
+**The feed's calendar says why a line stands still, and the tests let
+it be.** The chosen day's weekday is not fixed: Cologne's was a Friday
+one night and a Monday the night after, on which KVB's five
+weekend-night rings have no trip, and that nightly run failed on 74 of
+80 lines against a tolerance of three. Each such night ended in a list
+kept by hand in the city's test (Cologne's night rings, Berlin's
+part-week ferries, Kiel's beach lines after their season) – until
+20 and 21 October 2026, when a pin in Hanover's test (line 10, no trip
+on the chosen Friday of the autumn holidays) and a count in Hamburg's
+(the S2 without a trip that day, the S7 below) failed two nights
+running and held back the data of all thirteen cities with them. The
+tests could not tell the feed's word from the pipeline's failure; now
+the GTFS step writes the reason for every line without a departure into
+the schedule (`meta.idle`, `idleReasons` in
+[fetch-gtfs-schedule.mjs](scripts/fetch-gtfs-schedule.mjs)):
+`not-that-day` (the feed has trips of the line in the city, none on the
+chosen day – works, holidays, a weekend or night line, a season over),
+`not-in-feed` (no trip of it touches the city) and `unplaced` (trips
+run that day, none could be placed – Hamburg's S7, 90 trips on a route
+the network does not follow, every one without a clear direction). Only
+`not-that-day` excuses a line: from the count and from a pin
+(`idleUnexplained` and `pinnedLinesMissing` in
+[tests/cities.ts](tests/cities.ts)). `not-in-feed` counts, because a
+feed that lost an operator and a route_type this script no longer
+finds look alike – lost, Hanover's override would leave some fifteen
+Stadtbahn lines like that, and no pin excuses them. The count allows one
+share for every city, `UNEXPLAINED_IDLE_SHARE` (8 %, two lines at
+least) in place of a number per test: on the feed of 20 October 2026
+Hanover's 16, 267 and S8 and Kiel's 72 and two beach lines were not in
+the feed, three each, which 5 % would have allowed and not one more.
+The hand lists are gone. A line that stopped running tonight is named,
+with its reason, in the data commit's message; one gone from the feed
+or left unplaced gets an annotation as well (`not-that-day` would be
+noise every time the weekday moves).
+
+**A city whose new data still fails is held back, not the night.**
+[hold-back-cities.mjs](scripts/hold-back-cities.mjs) runs when the unit
+tests of a refresh run failed (ci.yml's unit step is `continue-on-error`
+there, and only there): a failure in `tests/<slug>.test.ts`, or one whose
+titles name exactly one changed city, belongs to that city; the rest is
+tried city by city – every changed city on HEAD first, and if the files
+still fail it is the code or the clock and the run goes red as it always
+did. A held city goes back to HEAD whole (network and schedule belong
+together – on a first Sunday it misses its lamps and seamarks until the
+next month), the suite runs again and has to pass, and the artifact is
+named by the tree after the hold-back: by the night's tree, a later
+`deploy_preview` of that tree would reuse the artifact, skip its tests
+and commit the held city's data. While a city is held back an issue
+stays open ("Nightly data refresh: cities held back", the user's
+choice over a run that goes red after the deploy), its description
+follows the night and a comment comes only when the cities change; the
+first data night that holds none back closes it. It is not left to
+wait: a held city's trip ids go stale with its schedule, and
+realtime.php stops finding its delays. Proved in a scratch clone (`git
+clone --shared`, `node_modules` linked): a pin broken in Schwerin's
+test held Schwerin back by name, Rostock's ferry put twice on the
+Gehlsdorf crossing (a shared file, no city in the title) was found by
+trying, and a test failing whatever the data turned the run red.
+Rostock's short workings were pinned at more than a hundred, line 5's
+works – more than nothing now, or the end of the works would have held
+Rostock back.
 
 **Typecheck with `npm run typecheck`** (= `tsc -b`), never `npx tsc --noEmit`.
 The root tsconfig is solution-style with project references; the `--noEmit`
@@ -1084,9 +1135,12 @@ Wilmering went with it – and the schedule it wrote failed Hanover's
 test and with it every city's commit that night, where on an ordinary
 day every city runs 94–100 % of its lines. The service-day log the
 data commit's message is made of is written with the schedule, so a
-city that kept its previous one is not listed. Run on that feed with
+city that kept its previous one is not listed (and the hold-back takes
+out the line of a city it held back). Run on that feed with
 the guard, the step kept Hanover's schedule, wrote the other twelve,
-and the unit suite passed over the result.
+and the unit suite passed over the result. A thinner loss than half
+now fails the city's own tests at most – lines not in the feed count
+against it – and holds back that city alone.
 
 **The height chord is densified where it misses the terrain, and the
 offset is a field.** Two of the reasons a line floated or sank (Phase 3

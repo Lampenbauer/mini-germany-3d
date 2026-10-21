@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import cologneScheduleJson from '@/cities/cologne/schedule.json'
 import cologneLampsJson from '@/cities/cologne/street-lamps.json'
 
@@ -21,18 +27,6 @@ import cologneLampsJson from '@/cities/cologne/street-lamps.json'
 const cologne = cityNetworks.find((entry) => entry.city.slug === 'cologne')!
 const network = cologne.network
 const schedule = cologneScheduleJson as ScheduleJson
-
-/**
- * KVB's night rings from the ends of the Stadtbahn – Chorweiler (123),
- * Mülheim Wiener Platz (156), Porz Markt (165, 166), Wahn S-Bahn (167). The
- * feed runs them from Friday to Sunday alone, the Friday's in the small
- * hours after it (25:38–26:50), so a service day from Monday to Thursday
- * has none of them. Which weekday the service day is moves with the
- * calendar: the busiest of the next three weeks was a Friday, then a
- * Monday the night after, when the refresh failed on the five idle
- * lines.
- */
-const WEEKEND_NIGHT_LINES = ['123', '156', '165', '166', '167']
 
 describe('the Cologne dataset', () => {
   it('has the Stadtbahn, the four S-Bahn lines and the KVB buses', () => {
@@ -115,13 +109,15 @@ describe('the Cologne dataset', () => {
 
   it('has real departures for nearly every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    // Left without: the 197 (no trips in the feed) – the night rings are
-    // not counted, the chosen day may be one they do not run on
-    const idle = network.lines
-      .filter((line) => !WEEKEND_NIGHT_LINES.includes(line.id) && !withDepartures.includes(line.id))
-      .map((line) => line.id)
-    expect(idle.length, `without departures: ${idle.join(', ')}`).toBeLessThanOrEqual(3)
-    for (const id of ['1', '18', 'S11', '127']) expect(withDepartures).toContain(id)
+    // KVB's night rings from the ends of the Stadtbahn (123, 156, 165, 166,
+    // 167) run from Friday to Sunday alone, the Friday's in the small hours
+    // after it (25:38–26:50): a service day from Monday to Thursday has
+    // none of them, and the feed's calendar says so
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(pinnedLinesMissing(['1', '18', 'S11', '127'], withDepartures, schedule)).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -130,8 +126,9 @@ describe('the Cologne dataset', () => {
     expect(snapshots.length).toBeGreaterThan(250)
     expect(snapshots.length).toBeLessThan(800)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['1', '4', '9', '16', '18', 'S11', 'S12', '127', '133']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['1', '4', '9', '16', '18', 'S11', 'S12', '127', '133'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

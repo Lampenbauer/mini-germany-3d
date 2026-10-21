@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import scheduleJson from '@/cities/stuttgart/schedule.json'
 import lampsJson from '@/cities/stuttgart/street-lamps.json'
 
@@ -96,8 +102,13 @@ describe('the Stuttgart dataset', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
     // The U11 runs to the stadium and the Wasen on event days only, so it
     // stands still on an ordinary weekday – as it does in reality.
-    expect(withDepartures.length).toBeGreaterThanOrEqual(network.lines.length - 2)
-    for (const id of ['U1', 'U6', 'U14', 'S1', '40', 'N1']) expect(withDepartures).toContain(id)
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(
+      pinnedLinesMissing(['U1', 'U6', 'U14', 'S1', '40', 'N1'], withDepartures, schedule),
+    ).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -106,12 +117,13 @@ describe('the Stuttgart dataset', () => {
     expect(snapshots.length).toBeGreaterThan(150)
     expect(snapshots.length).toBeLessThan(700)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['U1', 'U6', 'U7', 'U14', 'S1', 'S4']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['U1', 'U6', 'U7', 'U14', 'S1', 'S4'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
     // The night buses are out at half past two and in by day
     const night = new Set(sim.snapshotsAt(2.5 * 3600).map((s) => s.lineId))
-    expect(night).toContain('N3')
+    expect(pinnedLinesMissing(['N3'], night, schedule), 'out at night').toEqual([])
     expect(activeLines).not.toContain('N3')
   })
 })

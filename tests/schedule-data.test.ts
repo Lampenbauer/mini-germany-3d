@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '@/config'
-import { tooFewLinesRunning } from '../scripts/fetch-gtfs-schedule.mjs'
+import { idleReasons, tooFewLinesRunning } from '../scripts/fetch-gtfs-schedule.mjs'
+import {
+  citiesOfPaths,
+  cityOfFailure,
+  describeFailure,
+  failuresOfReport,
+  withoutCities,
+} from '../scripts/lib/hold-back.mjs'
 import { committedDataFiles, loadRostockNetwork, rostockSchedule } from './cities'
 import {
   buildAllTrips,
@@ -75,9 +82,11 @@ describe('bundled schedule data', () => {
         })
       }
     }
-    // The current feed models the construction-split line 5 entirely as
-    // short workings – if this ever drops to 0 the span pipeline is broken.
-    expect(partialTrips).toBeGreaterThan(100)
+    // The feed modelled the construction-split line 5 entirely as short
+    // workings (over a hundred of them), and line 1 runs some of its own –
+    // if this ever drops to 0 the span pipeline is broken. Not more than
+    // that: the works end one day, and the count with them.
+    expect(partialTrips).toBeGreaterThan(0)
   })
 
   it('never runs more vehicles on line 5 than its schedule has concurrent trips', () => {
@@ -120,10 +129,31 @@ describe('the committed data files', () => {
       const meta = (data as { meta?: Record<string, unknown> }).meta ?? {}
       expect(Object.keys(meta), name).not.toContain('generated')
       expect(Object.keys(meta), name).not.toContain('serviceDate')
+      // Down to the leaves: meta.idle is an object, whose String() is
+      // "[object Object]" whatever it holds
+      const leaves = (value: unknown): unknown[] =>
+        value !== null && typeof value === 'object' ? Object.values(value).flatMap(leaves) : [value]
       for (const [key, value] of Object.entries(meta)) {
-        expect(String(value), `${name} meta.${key}`).not.toMatch(/^\d{4}-?\d{2}-?\d{2}$/)
+        for (const leaf of leaves(value)) {
+          expect(String(leaf), `${name} meta.${key}`).not.toMatch(/^\d{4}-?\d{2}-?\d{2}$/)
+        }
       }
     }
+  })
+
+  it("say why a line stands still: the feed's calendar, its silence, or trips left unplaced", () => {
+    const tripCounts = new Map([
+      ['1', { all: 1110, thatDay: 222 }],
+      // Hanover's 10 in the autumn holidays of 2026: no trip on the day
+      ['10', { all: 1162, thatDay: 0 }],
+      // Hamburg's S7 the same day: 90 trips, none with a clear direction
+      ['S7', { all: 1345, thatDay: 90 }],
+    ])
+    expect(idleReasons(['1', '10', 'S7', '16'], { '1': {} }, tripCounts)).toEqual({
+      '10': 'not-that-day',
+      S7: 'unplaced',
+      '16': 'not-in-feed',
+    })
   })
 
   it('are not replaced by a schedule that lost most of the city', () => {
@@ -135,5 +165,94 @@ describe('the committed data files', () => {
     // Half is enough
     expect(tooFewLinesRunning(14, 7)).toBe(false)
     expect(tooFewLinesRunning(14, 6)).toBe(true)
+  })
+})
+
+/**
+ * The nightly run holds back a city whose new data fails the unit tests
+ * (scripts/hold-back-cities.mjs) and commits the others. What it can put
+ * down to a city by name alone, it does without running anything again.
+ */
+describe('the nightly hold-back', () => {
+  const report = {
+    testResults: [
+      {
+        name: '/repo/tests/hanover.test.ts',
+        status: 'failed',
+        assertionResults: [
+          { status: 'passed', title: 'carries a height for every route vertex and every stop', ancestorTitles: ['the Hanover dataset'] },
+          {
+            status: 'failed',
+            title: 'gives its Stadtbahn real departures although the feed calls it an underground',
+            ancestorTitles: ['the Hanover dataset'],
+            failureMessages: ["AssertionError: expected [ '1', '2', … ] to include '10'\n    at tests/hanover.test.ts:98:56"],
+          },
+        ],
+      },
+      {
+        name: '/repo/tests/network.test.ts',
+        status: 'failed',
+        assertionResults: [
+          {
+            status: 'failed',
+            title: 'stop names are not empty',
+            ancestorTitles: ['Network dataset of kiel (structural, source-independent)'],
+            failureMessages: ['AssertionError: expected \'\' not to be \'\''],
+          },
+        ],
+      },
+      {
+        name: '/repo/tests/line-profile.test.ts',
+        status: 'failed',
+        assertionResults: [
+          {
+            status: 'failed',
+            title: 'reads line 1 as the 10-minute tram it is',
+            ancestorTitles: ['against the real network'],
+            failureMessages: ['AssertionError: expected 8 to be 10'],
+          },
+        ],
+      },
+      { name: '/repo/tests/berlin.test.ts', status: 'failed', message: 'Cannot read properties of undefined', assertionResults: [] },
+      { name: '/repo/tests/clock.test.ts', status: 'passed', assertionResults: [] },
+    ],
+  }
+  const failures = failuresOfReport(report, '/repo')
+
+  it('reads every failed test from the report, and a file that failed outside its tests', () => {
+    expect(failures.map((f) => f.file)).toEqual([
+      'tests/hanover.test.ts',
+      'tests/network.test.ts',
+      'tests/line-profile.test.ts',
+      'tests/berlin.test.ts',
+    ])
+    expect(describeFailure(failures[0])).toBe(
+      'tests/hanover.test.ts › the Hanover dataset › gives its Stadtbahn real departures although ' +
+        "the feed calls it an underground: AssertionError: expected [ '1', '2', … ] to include '10'",
+    )
+    expect(failures[3].titles).toEqual([])
+  })
+
+  it('puts a failure down to a city by name, and only to a city the night changed', () => {
+    const changed = citiesOfPaths([
+      'src/cities/hanover/schedule.json',
+      'src/cities/kiel/network.json',
+      'src/cities/kiel/schedule.json',
+      'src/cities/berlin/schedule.json',
+      'src/cities/rostock/schedule.json',
+    ])
+    expect(changed).toEqual(['berlin', 'hanover', 'kiel', 'rostock'])
+    // The line-profile test reads Rostock's data without saying so, and a
+    // file that failed on import is nobody's: both are tried city by city
+    expect(failures.map((f) => cityOfFailure(f, changed))).toEqual(['hanover', 'kiel', null, null])
+    // A city the night left alone is nobody to hold back
+    expect(cityOfFailure(failures[0], ['kiel'])).toBeNull()
+  })
+
+  it("takes a held city's line out of the service days", () => {
+    const log =
+      'hamburg: 20261023 (11726 trips)\n' +
+      'hanover: 20261023 (6467 trips); no longer running: 10 (no trip that day)\n'
+    expect(withoutCities(log, ['hanover'])).toBe('hamburg: 20261023 (11726 trips)\n')
   })
 })

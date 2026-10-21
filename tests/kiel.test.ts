@@ -4,7 +4,13 @@ import { Simulation } from '@/engine/simulation'
 import { SimClock } from '@/lib/clock'
 import { VEHICLE_CONSISTS } from '@/map/VehicleLayer'
 import type { ScheduleJson } from '@/lib/timetable'
-import { cityNetworks, linesOutInTheMorning } from './cities'
+import {
+  cityNetworks,
+  idleUnexplained,
+  linesOutInTheMorning,
+  pinnedLinesMissing,
+  unexplainedIdleAllowed,
+} from './cities'
 import kielScheduleJson from '@/cities/kiel/schedule.json'
 
 /**
@@ -18,16 +24,6 @@ import kielScheduleJson from '@/cities/kiel/schedule.json'
 const kiel = cityNetworks.find((entry) => entry.city.slug === 'kiel')!
 const network = kiel.network
 const schedule = kielScheduleJson as ScheduleJson
-
-/**
- * KVG's summer lines to the beaches – the X90 from the Hauptbahnhof to the
- * Falckensteiner Strand every day, the X92 from Strande to Laboe at
- * weekends. In 2026 the feed ran both until Sunday 11 October, so a service
- * day after it has neither: the busiest of the next three weeks was Friday
- * the 9th, then Monday the 12th the night after, when the refresh failed on
- * the X90.
- */
-const SEASONAL_LINES = ['X90', 'X92']
 
 describe('the Kiel dataset', () => {
   it('has the KVG bus lines and the two Förde ferries', () => {
@@ -91,11 +87,15 @@ describe('the Kiel dataset', () => {
 
   it('has real departures for nearly every line and runs a full morning', () => {
     const withDepartures = Object.keys(schedule.lines ?? {})
-    const idle = network.lines
-      .filter((line) => !SEASONAL_LINES.includes(line.id) && !withDepartures.includes(line.id))
-      .map((line) => line.id)
-    expect(idle.length, `without departures: ${idle.join(', ')}`).toBeLessThanOrEqual(2)
-    expect(withDepartures).toContain('F1')
+    // KVG's summer lines to the beaches – the X90 to the Falckensteiner
+    // Strand daily, the X92 from Strande to Laboe at weekends – ran until
+    // 11 October in 2026; the feed of the 20th no longer carried them, and
+    // the 72 has no route in it at all: three lines the tolerance absorbs
+    const idle = idleUnexplained(network, schedule)
+    expect(idle.length, `idle unexplained: ${idle.join(', ')}`).toBeLessThanOrEqual(
+      unexplainedIdleAllowed(network),
+    )
+    expect(pinnedLinesMissing(['F1'], withDepartures, schedule)).toEqual([])
     const sim = new Simulation(network, new SimClock(), schedule, {
       cruiseSpeedByMode: config.simulation.cruiseSpeedByMode,
     })
@@ -105,8 +105,9 @@ describe('the Kiel dataset', () => {
     expect(snapshots.length).toBeGreaterThan(100)
     expect(snapshots.length).toBeLessThan(900)
     const activeLines = linesOutInTheMorning(sim)
-    for (const id of ['2', '11', '22', '61']) {
-      expect(activeLines, `${id} out in the morning`).toContain(id)
-    }
+    expect(
+      pinnedLinesMissing(['2', '11', '22', '61'], activeLines, schedule),
+      'out in the morning',
+    ).toEqual([])
   })
 })

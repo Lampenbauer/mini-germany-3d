@@ -391,6 +391,13 @@ export function buildTripsForDirection(
 }
 
 /**
+ * Why a network line has no departure on the schedule's day: the feed has
+ * its trips but none that day, the feed has none of it in the city, or its
+ * trips run that day and none could be placed on its route.
+ */
+export type IdleReason = 'not-that-day' | 'not-in-feed' | 'unplaced'
+
+/**
  * Optional real departure times from schedule.json:
  * { lines: { [lineId]: { [direction]: { departures, tripIds?, spans?, patterns?, patternIds? } } } }
  * tripIds (parallel to departures) are the feed's GTFS trip_ids – they
@@ -399,10 +406,13 @@ export function buildTripsForDirection(
  * path, null for full-route trips. patterns are the trips' own timetables
  * – [dist, arrival, departure, …] flat per pattern, see TimePoint – and
  * patternIds (parallel to departures) say which pattern a trip runs, null
- * for a trip without one (a ring's round, a ferry loop's leg).
+ * for a trip without one (a ring's round, a ferry loop's leg). meta.idle
+ * names every network line without a departure and why – the pipeline's
+ * reading of the feed (idleReasons in scripts/fetch-gtfs-schedule.mjs),
+ * which the city tests read; the app does not.
  */
 export interface ScheduleJson {
-  meta?: { source?: string; serviceCount?: number }
+  meta?: { source?: string; serviceCount?: number; idle?: Record<string, IdleReason> }
   lines?: Record<
     string,
     Record<

@@ -16,7 +16,9 @@
  *                (registration: https://www.verkehrsverbund-warnow.de/service/open-data.html)
  *   GTFS_FILE  – local path to an already downloaded GTFS zip
  *   SERVICE_DAY_LOG – a file the chosen service day is appended to, one
- *                line per city (the nightly run puts them in its commit)
+ *                line per city with the lines that stopped running or came
+ *                back since the schedule it replaces (the nightly run puts
+ *                them in its commit)
  *
  * From schedule.json the app takes each trip's departure at the starting
  * point of its line/direction and, since the patterns were added, the
@@ -114,10 +116,49 @@ export function routeTypesForCity(city) {
  * S-Bahn alone, 9 of 49 lines, where every city runs 94–100 % of its lines
  * on an ordinary day. Written, it failed the city's test and with it every
  * city's commit that night; refused, the city keeps its previous schedule
- * and the others commit theirs.
+ * and the others commit theirs. (A city whose new data fails its tests is
+ * held back on its own since – scripts/hold-back-cities.mjs – but a
+ * schedule this thin is not even written.)
  */
 export function tooFewLinesRunning(networkLineCount, linesWithTrips) {
   return linesWithTrips * 2 < networkLineCount
+}
+
+/**
+ * Why each network line without a departure stands still, in the feed's
+ * own terms – `meta.idle` of schedule.json, which the city tests read:
+ *
+ * - `not-that-day`: the feed has trips of the line in the city, none on
+ *   the chosen day – works, school holidays, a weekend or night line, a
+ *   season over. The feed's calendar says so, and the tests let it be.
+ * - `not-in-feed`: no trip of the line touches the city. Either the feed
+ *   does not carry it, or this script does not find it (a route_type or a
+ *   short name that changed, a ferry or S-Bahn trip left unresolved) –
+ *   the two look the same from here, so the tests count it.
+ * - `unplaced`: trips run that day, but none ended up in the schedule
+ *   (every one without a clear direction – Hamburg's S7 on 23 October
+ *   2026, 90 trips on a route the network does not follow). The
+ *   pipeline's failure, counted too.
+ *
+ * `tripCounts` holds the city's trips per line: `all` of them and the ones
+ * on the chosen day (`thatDay`), counted before the direction assignment
+ * can drop one.
+ */
+export function idleReasons(networkLineIds, lines, tripCounts) {
+  const idle = {}
+  for (const id of networkLineIds) {
+    if (lines[id]) continue
+    const count = tripCounts.get(id)
+    idle[id] = !count?.all ? 'not-in-feed' : !count.thatDay ? 'not-that-day' : 'unplaced'
+  }
+  return idle
+}
+
+/** An idle reason as the run's log and the data commit's message put it. */
+function describeIdle(reason, count) {
+  if (reason === 'not-that-day') return 'no trip that day'
+  if (reason === 'not-in-feed') return 'not in the feed'
+  return `${count?.thatDay ?? 0} trips that day, none placed on its route`
 }
 
 // Ferry routes that match no pier name are held onto and assigned to a
@@ -919,7 +960,7 @@ function finishCity(collector, calendar, tripRecords) {
           '(a cached download whose calendar ended? delete scripts/.cache/gtfs.zip)',
       )
     }
-    serviceDayLine = `${city.slug}: ${serviceDate} (${best.count} trips)\n`
+    serviceDayLine = `${city.slug}: ${serviceDate} (${best.count} trips)`
   } else {
     // Fallback without calendar data: the single busiest service_id
     const tripsPerService = new Map()
@@ -932,6 +973,19 @@ function finishCity(collector, calendar, tripRecords) {
     console.warn(
       `⚠ No calendar data in the feed – using the busiest service_id ${serviceId}`,
     )
+  }
+
+  // ---- Trips per line: all of them, and the ones on the chosen day ---------
+  // Counted before the direction assignment can drop a trip: a line whose
+  // trips run that day and end up nowhere is the pipeline's failure, not
+  // the feed's word (see idleReasons)
+  const tripCounts = new Map() // lineId → { all, thatDay }
+  for (const tripId of tripTouchesCity) {
+    const info = tripInfo.get(tripId)
+    const count = tripCounts.get(info.lineId) ?? { all: 0, thatDay: 0 }
+    count.all++
+    if (activeServiceIds.has(info.serviceId)) count.thatDay++
+    tripCounts.set(info.lineId, count)
   }
 
   // ---- Diagnostics: which operators are behind the city's trips? -----------
@@ -1381,18 +1435,16 @@ function finishCity(collector, calendar, tripRecords) {
     }
   }
 
-  const linesWithoutData = Object.keys(dirTargets).filter((id) => !lines[id])
   const noteParts = [
     useDirectionId
       ? `Directions taken from direction_id${directionIdSwapped ? ' (globally swapped)' : ''}.`
       : 'Feed without direction_id – directions assigned via terminal stop coordinates/headsigns.',
   ]
   if (unclassified > 0) noteParts.push(`Skipped ${unclassified} trips without a clear direction.`)
-  if (linesWithoutData.length > 0) {
-    noteParts.push(
-      `No GTFS departures for line(s) ${linesWithoutData.join(', ')} – they stay off the map (not running that day).`,
-    )
-  }
+  // Every line without a departure stands still on the map, with the
+  // reason in the file – the feed's calendar, its silence, or this
+  // script's failure (see idleReasons)
+  const idle = idleReasons([...networkLines.keys()], lines, tripCounts)
 
   const schedule = {
     meta: {
@@ -1401,6 +1453,7 @@ function finishCity(collector, calendar, tripRecords) {
       attribution:
         'Timetable data from GTFS (gtfs.de / DELFI or VVW). Observe the source’s terms of use.',
       note: noteParts.join(' '),
+      idle,
     },
     lines,
   }
@@ -1413,9 +1466,38 @@ function finishCity(collector, calendar, tripRecords) {
         '(an operator missing from the export?)',
     )
   }
+
+  // The schedule this one replaces – on the runner the committed one – says
+  // which lines stopped running tonight and which came back; the data
+  // commit's message lists both. A line the feed does not run that day is
+  // no news worth an annotation (the chosen weekday moves, and Cologne's
+  // night rings and Berlin's ferries with it); one gone from the feed or
+  // left unplaced is.
+  let previous = null
+  if (existsSync(OUT)) {
+    try {
+      previous = JSON.parse(readFileSync(OUT, 'utf8'))
+    } catch {
+      // An unreadable file has nothing to compare against
+    }
+  }
+  const stopped = previous ? Object.keys(idle).filter((id) => previous.lines?.[id]) : []
+  const resumed = previous ? Object.keys(previous.meta?.idle ?? {}).filter((id) => lines[id]) : []
+  for (const id of stopped) {
+    if (idle[id] !== 'not-that-day') {
+      warn(`${city.slug}: line ${id} no longer runs – ${describeIdle(idle[id], tripCounts.get(id))}.`)
+    }
+  }
+  const changes = [
+    stopped.length > 0 &&
+      `no longer running: ${stopped.map((id) => `${id} (${describeIdle(idle[id], tripCounts.get(id))})`).join(', ')}`,
+    resumed.length > 0 && `running again: ${resumed.join(', ')}`,
+  ].filter(Boolean)
+  if (changes.length > 0) console.log(`  ${changes.join('; ')}`)
+
   writeFileSync(OUT, scheduleJsonText(schedule), 'utf8')
   if (serviceDayLine && process.env.SERVICE_DAY_LOG) {
-    appendFileSync(process.env.SERVICE_DAY_LOG, serviceDayLine)
+    appendFileSync(process.env.SERVICE_DAY_LOG, [serviceDayLine, ...changes].join('; ') + '\n')
   }
   const summary = Object.entries(lines)
     .map(
