@@ -125,7 +125,12 @@ the feed, three each, which 5 % would have allowed and not one more.
 The hand lists are gone. A line that stopped running tonight is named,
 with its reason, in the data commit's message; one gone from the feed
 or left unplaced gets an annotation as well (`not-that-day` would be
-noise every time the weekday moves).
+noise every time the weekday moves). The E2E suite's one count of the
+kind (`app.spec.ts`, the lines out at 08:30) wants most of the lines
+the schedule runs that day, `meta.idle` read from the file: it wanted
+two thirds of every network line, which Rostock's 25 of 36 had cleared
+by one, and the push that brought the first schedules with reasons
+failed on 23 of 36 – the trams 3 and 4 had no trip on the chosen day.
 
 **A city whose new data still fails is held back, not the night.**
 [hold-back-cities.mjs](scripts/hold-back-cities.mjs) runs when the unit
