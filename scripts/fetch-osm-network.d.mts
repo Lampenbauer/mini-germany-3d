@@ -16,6 +16,13 @@ export function stitchWays(
   label: string,
 ): StitchedWayPath
 
+/** A tram or train route that changes ends after a loop or a spike crosses over instead. */
+export function crossOverReversals(
+  stitched: StitchedWayPath,
+  stopCoords: readonly (readonly number[])[],
+  label: string,
+): StitchedWayPath
+
 export function clipPathAt(
   path: number[][],
   cum: readonly number[],

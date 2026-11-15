@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { boundToFixedLine, clipPathAt, clipToBounds, nearestOnPath, stitchWays } from '../scripts/fetch-osm-network.mjs'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  boundToFixedLine,
+  clipPathAt,
+  clipToBounds,
+  crossOverReversals,
+  nearestOnPath,
+  stitchWays,
+} from '../scripts/fetch-osm-network.mjs'
 import { isBridgeWay, isUndergroundWay, tunnelRangesFromSegments } from '../scripts/lib/tunnels.mjs'
 
 /**
@@ -296,5 +303,99 @@ describe("clipToBounds (Cologne's 192 reaches across the limits for two stops)",
     expect(clipToBounds(path, cum, stops(12.0, 12.01, 12.02), isInside, [], [])).toEqual({ skip: 'outside' })
     // A line of the city's own is not measured – only what a cut leaves.
     expect(clipToBounds(path.slice(3, 5), [0, 653.6], stops(12.03, 12.035), isInside, [], [])).toBeNull()
+  })
+})
+
+describe("crossOverReversals (Rostock's 6 changes ends behind the Thierfelderstraße loop)", () => {
+  // Tram 6 towards the Zoo as the nightly run of 15 Nov 2026 stitched it:
+  // south-west from S Parkstraße past Platz der Jugend, into the turning
+  // loop at [4], round it west, south and east, 176° at the switch [23],
+  // and out along the single track to the Zoo
+  const loop = [
+    [12.107846, 54.083003], [12.105882, 54.081933], [12.105497, 54.081728], [12.104813, 54.081347],
+    [12.104648, 54.081281], [12.104462, 54.081223], [12.104321, 54.081203], [12.104141, 54.081189],
+    [12.103568, 54.081204], [12.103484, 54.081193], [12.103417, 54.081173], [12.103305, 54.081105],
+    [12.103274, 54.08106], [12.103256, 54.08101], [12.103268, 54.080955], [12.10329, 54.080901],
+    [12.103338, 54.080862], [12.103416, 54.080834], [12.103516, 54.080815], [12.103626, 54.080809],
+    [12.103728, 54.080822], [12.103967, 54.080903], [12.104167, 54.080978], [12.104308, 54.081038],
+    [12.102821, 54.080308], [12.102619, 54.080223], [12.102419, 54.080159], [12.10223, 54.080116],
+    [12.101816, 54.080053],
+  ]
+  const reversal = 23
+  // On the single track 56 m past the switch, 11 m from the loop's south side
+  const thierfelderstrasse = [12.10365, 54.080713]
+  const unflagged = (path: number[][]) => path.slice(1).map(() => false)
+  const stitched = (path: number[][]) => ({
+    path,
+    segUnderground: unflagged(path),
+    segBridge: unflagged(path),
+  })
+  const heading = (a: number[], b: number[]) =>
+    (Math.atan2((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI
+  const turnAt = (path: number[][], i: number) =>
+    Math.abs(((heading(path[i], path[i + 1]) - heading(path[i - 1], path[i]) + 540) % 360) - 180)
+  const sharpestTurn = (path: number[][]) =>
+    Math.max(...path.slice(1, -1).map((_, i) => turnAt(path, i + 1)))
+  const offsetMeters = (path: number[][], p: number[]) => {
+    const cum = [0]
+    for (let i = 1; i < path.length; i++) {
+      const dx = (path[i][0] - path[i - 1][0]) * Math.cos((path[i][1] * Math.PI) / 180)
+      cum.push(cum[i - 1] + Math.hypot(dx, path[i][1] - path[i - 1][1]) * 111_320)
+    }
+    return nearestOnPath(path, cum, p).offsetMeters
+  }
+
+  it('leaves the loop out and crosses over from where the path last ran the way out', () => {
+    // Bridge flags on the segment the crossover starts from and on the one
+    // after the switch, to see them spliced with the path
+    const segBridge = loop.slice(1).map((_, i) => i === 4 || i === reversal + 1)
+    const out = crossOverReversals({ ...stitched(loop), segBridge }, [thierfelderstrasse], 'test')
+    expect(sharpestTurn(loop)).toBeGreaterThan(170)
+    expect(out.path).toEqual([...loop.slice(0, 5), ...loop.slice(reversal)])
+    expect(sharpestTurn(out.path)).toBeLessThan(30)
+    expect(out.segUnderground).toHaveLength(out.path.length - 1)
+    expect(out.segBridge.flatMap((flag, i) => (flag ? [i] : []))).toEqual([4, 6])
+    expect(offsetMeters(out.path, thierfelderstrasse)).toBeLessThan(2)
+  })
+
+  it("takes a first reversal along with a later one's crossover, and names neither", () => {
+    // Berlin's trams at Köpenick, where the ways are not split at the
+    // junction: on along the line (300°) past it, back north-east, south-east
+    // past it again and back out north-west – two reversals in 200 m, the
+    // first with no crossover of its own. Built in metres east and north
+    const at = (x: number, y: number) => [
+      13.58 + x / (111_320 * Math.cos((52.44 * Math.PI) / 180)),
+      52.44 + y / 111_320,
+    ]
+    const twice = [
+      at(0, 0), at(-86.6, 50), at(-173.2, 100), at(-216.5, 125), at(-259.8, 150),
+      at(-221.2, 160.4), at(-210.9, 132.2), at(-243, 170.5), at(-275.1, 208.8),
+    ]
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = crossOverReversals(stitched(twice), [], 'test')
+    expect(out.path).toEqual([...twice.slice(0, 3), ...twice.slice(6)])
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('keeps the loop where a stop would be left off the path', () => {
+    // On the loop's far side, 42 m from the single track
+    expect(crossOverReversals(stitched(loop), [loop[13]], 'test').path).toBe(loop)
+  })
+
+  it('leaves a spike into a station alone: nothing before it ran the way out', () => {
+    // West past the platform to the end of the track and back east, the way
+    // Bremen-Vegesack's RS1 changes ends
+    const spike = [
+      [8.64, 53.17], [8.635, 53.17], [8.63, 53.17],
+      [8.635, 53.1701], [8.64, 53.1701], [8.645, 53.172],
+    ]
+    expect(crossOverReversals(stitched(spike), [], 'test').path).toBe(spike)
+  })
+
+  it('returns a path that never reverses as it is', () => {
+    // The loop alone turns 180° too, but a few degrees at a time
+    const run = loop.slice(0, reversal)
+    expect(crossOverReversals(stitched(run), [], 'test').path).toBe(run)
   })
 })

@@ -1363,6 +1363,36 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
   catches the next one without a red night. Only a cut route is measured,
   and the floor is length, not stops: Bremen's RS3/RS4 keep two stops over
   2.6 km and stay. Ferries are not cut and not measured.
+- **A reversal is crossed over:** a tram or a train whose relation changes
+  ends mid-route – round a turning loop and back, or into a spike and out –
+  turns 180° at one vertex of its path, and the map, which cannot change
+  ends, swings the body round on the spot. Rostock's 6 has run to the Zoo
+  on one track both ways since the line to Neuer Friedhof closed (25 Oct
+  2026); its relation reaches that track through the Thierfelderstraße
+  turning loop and changes ends at the switch, and the bearing test
+  (`tests/simulation.test.ts`) failed on it at 170° in a second. The nights
+  of 8 and 15 November held Rostock back for it (issues 20 and 21), and
+  since only a Sunday refreshes OSM each issue closed itself on the Monday
+  while the network stayed as it was on 25 October – the 3 and the 6
+  still drawn to Neuer Friedhof – for three weeks. `crossOverReversals` in
+  `fetch-osm-network.mjs`: a turn over 120° at one vertex of a rail path
+  is a reversal; walking back from it (400 m at most), the first point the
+  path reached heading the way it leaves, with the straight from there to
+  the reversal within 30° of both and 80 m at most, is where the path
+  crosses over, and the stretch between goes – unless a stop within 30 m
+  of it would be left more than 30 m off the path (log: "reverses at … –
+  the N m before it left out, the path crosses over"). Over every city's
+  committed paths and Rostock's and Berlin's fresh relations it took
+  Rostock's 6 (194 m of loop, a 35 m crossover) and, in Berlin, the trams
+  at Köpenick (two reversals in 200 m where the ways are not split at a
+  junction, a 68 m crossover), at Freiheit (9 m) and the S7 (24 m), every
+  stop kept and no rail vertex turning 45° after. A spike into a station a
+  train really reverses in has no such point and stays, named in the log
+  ("no crossover, a vehicle turns on the spot there"): Bremen-Vegesack's
+  RS1, Hamburg-Blankenese's S1 and München Ost's S3 and S5 swing round
+  there as they did before – the bearing test runs Rostock alone. Modelling
+  the change of ends (a stop, the body kept, the lights swapped) is the
+  answer for those, and a feature of its own.
 - **Overpass flakiness** is normal: 504s for minutes on end, rate limits on the
   lamps step. Rerunning a single step (`data:lamps`) works; CI has retries.
 - **A stale mirror is refused like a dead one:** `postOverpass` reads the
@@ -1380,7 +1410,7 @@ Both live in `city.json` and are pinned by [tests/mode-mapping.test.ts](tests/mo
 
 | City | Watch out for |
 |---|---|
-| **Rostock** | The default city and the byte-stability canary — its output stayed identical through every pipeline change above |
+| **Rostock** | The default city and the byte-stability canary — its output stayed identical through every pipeline change above but the reversal rule, which crosses its 6 over at Thierfelderstraße (see "A reversal is crossed over"). Since the line to Neuer Friedhof closed (25 Oct 2026) the 6 ends at the Zoo, one track both ways from Thierfelderstraße, and the 3 at Platz der Jugend |
 | **Kiel** | `clip: "box"` so Laboe/Strande stay on the map; ~1800 community-mapped lamps (2/km vs Rostock's 16/km) — lamps are always on, there is no per-city switch. The beach lines X90 (daily) and X92 (weekends) run in summer alone – in 2026 until 11 October – and are idle, correctly, on a service day outside it; line 72 has no route in the feed at all |
 | **Hamburg** | Rebuilt from scratch via `add-city 62782` — **do not restore files from git history before 3e57f1c**. Terrain patch above. Open: the "St. Pauli" AIS twin (the only AIS "ST. PAULI" is a 19×6 m launch, not the 30 m ferry) |
 | **Berlin** | Buses limited to `^(M[0-9]+\|100\|200\|300)$` for load — some 700 vehicles at 08:30, twice Rostock; measure the 08:30 snapshot in [tests/berlin.test.ts](tests/berlin.test.ts) before adding more. `waterLevelNhn: null` because the Berlin DGM carries the lakes. The ferries F21 and F23 sail Tuesday to Sunday, the F24 at weekends – idle, correctly, on a Monday's service day, the F24 on every weekday's |

@@ -13,6 +13,9 @@
  *     (`network.clip`: 'city' for the city limits, 'box' for the padded
  *     bounding box, 'none' to keep them whole) – a regional train's leg
  *     to the next town lies outside the map and would end mid-track
+ *   - a tram or train route that changes ends after a loop or a spike
+ *     crossed over instead (crossOverReversals) – the map cannot change
+ *     ends, a body swings round on the spot
  *   - tunnel/underground sections per direction (from the member ways'
  *     tunnel/location/layer tags) as meter ranges along the path
  *   - bridge sections per direction (bridge=* tags) as meter ranges –
@@ -86,6 +89,9 @@ export function modeByOsmRoute(city) {
   }
   return map
 }
+
+/** The modes on rails: a vehicle that reverses there changes ends rather than turning. */
+const RAIL_MODES = new Set(['tram', 'subway', 'train'])
 
 /** Display order of the modes in network.json. */
 const MODE_ORDER = Object.fromEntries(TRANSIT_MODES.map((mode, index) => [mode, index]))
@@ -267,6 +273,121 @@ export function stitchWays(ways, wayById, nodeById, label) {
     console.warn(`  ⚠ ${label}: skipped ${gaps} way(s) with a gap > 150 m`)
   }
   return { path: coords, segUnderground, segBridge }
+}
+
+/**
+ * A turn this sharp at one vertex of a rail path is a reversal: a tram or
+ * a train does not turn there, it changes ends – which the map cannot
+ * show, the body swings round on the spot (the bearing test in
+ * tests/simulation.test.ts).
+ */
+const REVERSAL_TURN_DEG = 120
+/** How far back from a reversal, along the path, its crossover may begin. */
+const MAX_LOOP_METERS = 400
+/** The longest straight a crossover draws. */
+const CROSSOVER_MAX_METERS = 80
+/** How far a crossover may turn off the way in and onto the way out. */
+const CROSSOVER_MAX_TURN_DEG = 30
+/**
+ * A stop this near the stretch a crossover leaves out, and farther from
+ * the rest of the path, keeps the reversal.
+ */
+const LOOP_STOP_METERS = 30
+
+/** Compass heading from a to b ([lon, lat]), flat-earth like nearestOnPath. */
+function headingDeg(a, b) {
+  const cosLat = Math.cos((a[1] * Math.PI) / 180)
+  return ((Math.atan2((b[0] - a[0]) * cosLat, b[1] - a[1]) * 180) / Math.PI + 360) % 360
+}
+
+/** The angle between two headings, 0–180°. */
+function turnDeg(from, to) {
+  return Math.abs(((to - from + 540) % 360) - 180)
+}
+
+/** The turn a path makes at vertex k – none where a segment there has no length. */
+function turnAt(path, k) {
+  const before = haversineMeters(path[k - 1], path[k])
+  const after = haversineMeters(path[k], path[k + 1])
+  if (before < 0.1 || after < 0.1) return 0
+  return turnDeg(headingDeg(path[k - 1], path[k]), headingDeg(path[k], path[k + 1]))
+}
+
+/**
+ * Where a rail route changes ends after a loop or a spike, its path
+ * crosses over instead. Rostock's tram 6 has run to the Zoo on one track,
+ * both ways, since the line beyond it closed (25 Oct 2026): its relation
+ * reaches that track through the Thierfelderstraße turning loop and
+ * changes ends at the switch – 176° at one vertex, and the map, which
+ * cannot change ends, swung the tram round on the spot until the nightly
+ * run held Rostock back (8 and 15 Nov 2026). Walking back from the
+ * reversal, the first point the path reached heading the way it leaves,
+ * with the straight from there to the reversal within
+ * CROSSOVER_MAX_TURN_DEG of both, is where it crosses over; the stretch
+ * between goes, segment flags and all (the crossover takes the flag of
+ * the segment it starts from). Berlin's trams at Köpenick, two reversals
+ * in 200 m where the ways are not split at a junction, cross over the
+ * same way. Not where a stop would be left off the path, and not where
+ * no such point lies within MAX_LOOP_METERS: a spike into a station a
+ * train really reverses in (Bremen-Vegesack's RS1) has none. Such a
+ * reversal stays, and the log names it.
+ */
+export function crossOverReversals({ path, segUnderground, segBridge }, stopCoords, label) {
+  const at = (p) => `${p[1].toFixed(5)}, ${p[0].toFixed(5)}`
+  const offset = (line, coord) => nearestOnPath(line, cumulative(line), coord).offsetMeters
+  let out = { path, segUnderground, segBridge }
+  for (let k = 1; k < out.path.length - 1; k++) {
+    const p = out.path
+    if (turnAt(p, k) <= REVERSAL_TURN_DEG) continue
+    const headingOut = headingDeg(p[k], p[k + 1])
+    let walked = 0
+    let from = -1
+    for (let j = k - 1; j >= 1; j--) {
+      walked += haversineMeters(p[j], p[j + 1])
+      if (walked > MAX_LOOP_METERS) break
+      const span = haversineMeters(p[j], p[k])
+      // A straight or a way in without length heads nowhere
+      if (span > CROSSOVER_MAX_METERS || span < 0.1 || haversineMeters(p[j - 1], p[j]) < 0.1) continue
+      const headingIn = headingDeg(p[j - 1], p[j])
+      const across = headingDeg(p[j], p[k])
+      if (
+        turnDeg(headingIn, headingOut) <= CROSSOVER_MAX_TURN_DEG &&
+        turnDeg(headingIn, across) <= CROSSOVER_MAX_TURN_DEG &&
+        turnDeg(across, headingOut) <= CROSSOVER_MAX_TURN_DEG
+      ) {
+        from = j
+        break
+      }
+    }
+    if (from < 0) continue
+    const kept = [...p.slice(0, from + 1), ...p.slice(k)]
+    const leftOut = p.slice(from, k + 1)
+    const strands = (coord) =>
+      offset(leftOut, coord) <= LOOP_STOP_METERS && offset(kept, coord) > LOOP_STOP_METERS
+    if (stopCoords.some(strands)) continue
+    console.log(
+      `  ℹ ${label}: reverses at ${at(p[k])} – the ${Math.round(walked)} m before it left out, ` +
+        `the path crosses over (${Math.round(haversineMeters(p[from], p[k]))} m)`,
+    )
+    out = {
+      path: kept,
+      segUnderground: [...out.segUnderground.slice(0, from + 1), ...out.segUnderground.slice(k)],
+      segBridge: [...out.segBridge.slice(0, from + 1), ...out.segBridge.slice(k)],
+    }
+    // On from the reversal point, which the crossover has made a gentle turn
+    k = from + 1
+  }
+  // Named once the crossings are done: a reversal a later crossover took
+  // with it (Berlin's first one at Köpenick) is no reversal any more
+  for (let k = 1; k < out.path.length - 1; k++) {
+    const turn = turnAt(out.path, k)
+    if (turn <= REVERSAL_TURN_DEG) continue
+    console.warn(
+      `  ⚠ ${label}: reverses at ${at(out.path[k])} (${Math.round(turn)}°) – ` +
+        'no crossover, a vehicle turns on the spot there',
+    )
+  }
+  return out
 }
 
 function cumulative(path) {
@@ -690,7 +811,15 @@ export async function buildNetwork(city, outPath) {
           stopNodes.length = 0
           stopNodes.push(...merged.map((entry) => entry.stop))
         }
-        return { rel, path, segUnderground, segBridge, stopNodes }
+        // A tram or a train that changes ends crosses over instead
+        const stitched = RAIL_MODES.has(mode)
+          ? crossOverReversals(
+              { path, segUnderground, segBridge },
+              stopNodes.map(({ node }) => [node.lon, node.lat]),
+              `Line ${ref} (${rel.id})`,
+            )
+          : { path, segUnderground, segBridge }
+        return { rel, ...stitched, stopNodes }
       })
       // Ferry relations often do not list their piers with stop roles –
       // there is a fallback below using the path endpoints.

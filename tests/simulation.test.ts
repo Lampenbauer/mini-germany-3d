@@ -104,7 +104,12 @@ describe('the bearing over the bogies', () => {
     // does swing 80°/s round a street corner, which is what a bus does.
     // The bearing was the path segment's under the centre, and a corner
     // of the 0.3 m simplified path turned the body by the whole angle
-    // in one step
+    // in one step. A relation that changes ends does the same with its
+    // reversal – Rostock's 6 behind the Thierfelderstraße loop swung
+    // round 170° in a second here (8 and 15 Nov 2026) – which the
+    // importer crosses over where it can (crossOverReversals in
+    // scripts/fetch-osm-network.mjs); one it cannot, it names in the
+    // data refresh's log
     const turns: number[] = []
     let largestTram = 0
     for (let t = 8.5 * 3600; t < 8.5 * 3600 + 60; t++) {
